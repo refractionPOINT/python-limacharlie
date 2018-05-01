@@ -7,3 +7,4 @@ __license__ = "Apache v2"
 __copyright__ = "Copyright (c) 2018 Refraction Point, Inc"
 
 from .Manager import Manager
+from .Firehose import Firehose

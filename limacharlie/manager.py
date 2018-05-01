@@ -28,6 +28,10 @@ class Manager( object ):
         self._jwt = None
         self._debug = print_debug_fn
 
+    def _printDebug( self, msg ):
+        if self._debug is not None:
+            self._debug( msg )
+
     def _refreshJWT( self ):
         try:
             u = urllib2.urlopen( API_TO_JWT_URL % ( self._oid, self._secret_api_key ) )
@@ -61,8 +65,7 @@ class Manager( object ):
         except urllib2.HTTPError as e:
             ret = ( e.getcode(), None )
 
-        if self._debug is not None:
-            self._debug( "%s: %s ( %s ) ==> %s ( %s )" % ( verb, url, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
+        self._printDebug( "%s: %s ( %s ) ==> %s ( %s )" % ( verb, url, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
 
         return ret
 
@@ -90,3 +93,16 @@ class Manager( object ):
         for s in resp:
             sensors.append( self.sensor( s[ 'sid' ] ) )
         return sensors
+
+    def outputs( self ):
+        resp = self._apiCall( 'outputs/%s' % self._oid, GET )
+        return resp[ self._oid ]
+
+    def del_output( self, name ):
+        return self._apiCall( 'outputs/%s' % self._oid, DELETE, { 'name' : name } )
+
+    def add_output( self, name, module, type, **kwargs ):
+        req = { 'name' : name, 'module' : module, 'type' : type }
+        for k, v  in kwargs.iteritems():
+            req[ k ] = v
+        return self._apiCall( 'outputs/%s' % self._oid, POST, req )
