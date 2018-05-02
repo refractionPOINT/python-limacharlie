@@ -1,6 +1,7 @@
 from gevent import monkey; monkey.patch_all()
 from gevent.server import StreamServer
 from gevent.queue import Queue
+import sys
 import ssl
 import json
 import os
@@ -123,3 +124,78 @@ class Firehose( object ):
                 curData.append( data )
 
         self._manager._printDebug( 'firehose connection closed: %s' % ( address, ) )
+
+def _signal_handler():
+    global fh
+    print( 'You pressed Ctrl+C!' )
+    if fh is not None:
+        fh.shutdown()
+    sys.exit( 0 )
+
+def _printToStderr( msg ):
+    sys.stderr.write( msg + '\n' )
+
+if __name__ == "__main__":
+    import argparse
+    import getpass
+    import uuid
+    import gevent
+    import signal
+    import limacharlie
+
+    fh = None
+    gevent.signal( signal.SIGINT, _signal_handler )
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie.io firehose' )
+    parser.add_argument( 'oid',
+                         type = lambda x: str( uuid.UUID( x ) ),
+                         help = 'the OID to authenticate as.' )
+    parser.add_argument( 'listen_interface',
+                         type = str,
+                         help = 'the local interface to listen on for firehose connections, like "0.0.0.0:4444".' )
+    parser.add_argument( 'data_type',
+                         type = str,
+                         help = 'the type of data to receive in firehose, one of "event", "detect" or "audit".' )
+    parser.add_argument( '-p', '--public-destination',
+                         type = str,
+                         dest = 'public_dest',
+                         default = None,
+                         help = 'where to tell limacharlie.io to connect to for firehose output, default is listen_interface.' )
+    parser.add_argument( '-n', '--name',
+                         type = str,
+                         dest = 'name',
+                         default = None,
+                         help = 'unique name to use for this firehose, will be used to register a limacharlie.io Output if specified, otherwise assumes Output is already taken care of.' )
+    parser.add_argument( '-i', '--investigation-id',
+                         type = str,
+                         dest = 'inv_id',
+                         default = None,
+                         help = 'firehose should only receive events marked with this investigation id.' )
+    parser.add_argument( '-t', '--tag',
+                         type = str,
+                         dest = 'tag',
+                         default = None,
+                         help = 'firehose should only receive events from sensors tagged with this tag.' )
+    parser.add_argument( '-c', '--category',
+                         type = str,
+                         dest = 'cat',
+                         default = None,
+                         help = 'firehose should only receive detections from this category.' )
+    args = parser.parse_args()
+    secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+
+    _printToStderr( "Registering..." )
+    man = limacharlie.Manager( oid = args.oid, secret_api_key = secretApiKey )
+    fh = limacharlie.Firehose( man, args.listen_interface, args.data_type, 
+                               public_dest = args.public_dest,
+                               name = args.name,
+                               inv_id = args.inv_id,
+                               tag = args.tag,
+                               cat = args.cat )
+
+    _printToStderr( "Starting to listen..." )
+    while True:
+        data = fh.queue.get()
+        print( json.dumps( data, indent = 2 ) )
+
+    _printToStderr( "Exiting." )

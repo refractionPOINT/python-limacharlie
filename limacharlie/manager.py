@@ -3,6 +3,9 @@ import urllib
 import uuid
 import json
 import traceback
+import cmd
+import getpass
+import sys
 
 from .Sensor import Sensor
 from .utils import *
@@ -111,3 +114,83 @@ class Manager( object ):
         for k, v  in kwargs.iteritems():
             req[ k ] = v
         return self._apiCall( 'outputs/%s' % self._oid, POST, req )
+
+def _eprint( msg ):
+    print >> sys.stderr, msg
+
+def _report_errors( func ):
+    def silenceit( *args, **kwargs ):
+        try:
+            return func( *args,**kwargs )
+        except:
+            _eprint( traceback.format_exc() )
+            return None
+    return( silenceit )
+
+class LCIOShell ( cmd.Cmd ):
+    intro = 'Welcome to LimaCharlie.io shell.   Type help or ? to list commands.\n'
+    prompt = '(limacharlie.io) '
+
+    def __init__( self, oid, secretApiKey ):
+        cmd.Cmd.__init__( self )
+        self.sid = ''
+        self.sensor = None
+        self.inv_id = None
+        self.updatePrompt()
+        self.man = Manager( oid = oid, secret_api_key = secretApiKey )
+
+    def updatePrompt( self ):
+        self.prompt = '(limacharlie.io/%s/%s)> ' % ( self.sid, ( '' if self.inv_id is None else self.inv_id ) )
+
+    def printOut( self, data ):
+        print( json.dumps( data, indent = 4 ) )
+
+    def do_quit( self, s ):
+        '''Exit this CLI.'''
+        return True
+
+    def do_exit( self, s ):
+        '''Exit this CLI.'''
+        return True
+
+    def do_sid( self, s ):
+        '''Set the sensor context to this SID.'''
+        if s == '':
+            self.sid = ''
+            self.sensor = None
+        try:
+            s = str( uuid.UUID( s ) )
+        except:
+            _eprint( 'Invalid SID format, should be a UUID.' )
+            return
+        self.sid = s
+        self.sensor = self.man.sensor( self.sid )
+        self.updatePrompt()
+
+    def do_inv( self, s ):
+        '''Set the current investigation id context.'''
+        if s == '':
+            self.inv_id = None
+        else:
+            self.inv_id = s
+        self.updatePrompt()
+
+    def do_task( self, s ):
+        '''Send a task to the sensor set in current SID context.'''
+        if self.sensor is None:
+            _eprint( 'Missing sensor context, use command "sid".' )
+            return
+        self.printOut( self.sensor.task( s, self.inv_id ) )
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie.io cli' )
+    parser.add_argument( 'oid',
+                         type = lambda x: str( uuid.UUID( x ) ),
+                         help = 'the OID to authenticate as.' )
+    args = parser.parse_args()
+    secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+
+    app = LCIOShell( args.oid, secretApiKey )
+    app.cmdloop()
