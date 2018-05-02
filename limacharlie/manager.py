@@ -64,8 +64,11 @@ class Manager( object ):
             u.close()
             ret = ( 200, resp )
         except urllib2.HTTPError as e:
-            self._printDebug( "%s\n\n%s" % ( traceback.format_exc(), e ) )
-            ret = ( e.getcode(), None )
+            errorBody = e.read()
+            try:
+                ret = ( e.getcode(), json.loads( errorBody ) )
+            except:
+                ret = ( e.getcode(), errorBody )
 
         self._printDebug( "%s: %s ( %s ) ==> %s ( %s )" % ( verb, url, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
 
