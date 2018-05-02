@@ -11,8 +11,8 @@ class Sensor( object ):
         self._manager = manager
         self.sid = str( sid )
 
-    def task( self, tasks = [], inv_id = None ):
-        req = { 'tasks' : tasks }
+    def task( self, task, inv_id = None ):
+        req = { 'tasks' : task }
         if inv_id is not None:
             req[ 'investigation_id' ] = inv_id
         return self._manager._apiCall( '%s' % self.sid, POST, req )

@@ -2,6 +2,7 @@ import urllib2
 import urllib
 import uuid
 import json
+import traceback
 
 from .Sensor import Sensor
 from .utils import *
@@ -63,6 +64,7 @@ class Manager( object ):
             u.close()
             ret = ( 200, resp )
         except urllib2.HTTPError as e:
+            self._printDebug( "%s\n\n%s" % ( traceback.format_exc(), e ) )
             ret = ( e.getcode(), None )
 
         self._printDebug( "%s: %s ( %s ) ==> %s ( %s )" % ( verb, url, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
