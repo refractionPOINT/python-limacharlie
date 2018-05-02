@@ -49,7 +49,7 @@ class Manager( object ):
             url = '%s/%s/%s' % ( ROOT_URL, API_VERSION, url )
             
             request = urllib2.Request( url, 
-                                       urllib.urlencode( params ),
+                                       urllib.urlencode( params, doseq = True ),
                                        headers = headers )
             request.get_method = lambda: verb
             u = urllib2.urlopen( request )
