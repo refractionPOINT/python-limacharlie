@@ -6,6 +6,7 @@ import traceback
 import cmd
 import getpass
 import sys
+from functools import wraps
 
 from .Sensor import Sensor
 from .utils import *
@@ -119,6 +120,7 @@ def _eprint( msg ):
     print >> sys.stderr, msg
 
 def _report_errors( func ):
+    @wraps( func )
     def silenceit( *args, **kwargs ):
         try:
             return func( *args,**kwargs )
@@ -153,6 +155,7 @@ class LCIOShell ( cmd.Cmd ):
         '''Exit this CLI.'''
         return True
 
+    @_report_errors
     def do_sid( self, s ):
         '''Set the sensor context to this SID.'''
         if s == '':
@@ -175,6 +178,7 @@ class LCIOShell ( cmd.Cmd ):
             self.inv_id = s
         self.updatePrompt()
 
+    @_report_errors
     def do_task( self, s ):
         '''Send a task to the sensor set in current SID context.'''
         if self.sensor is None:
