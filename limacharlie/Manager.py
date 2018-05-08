@@ -19,7 +19,7 @@ API_TO_JWT_URL = 'https://app.limacharlie.io/jwt?oid=%s&secret=%s'
 HTTP_UNAUTHORIZED = 401
 
 class Manager( object ):
-    def __init__( self, oid, secret_api_key, print_debug_fn = None ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None ):
         try:
             uuid.UUID( oid )
         except:
@@ -32,6 +32,7 @@ class Manager( object ):
         self._secret_api_key = secret_api_key
         self._jwt = None
         self._debug = print_debug_fn
+        self._inv_id = inv_id
 
     def _printDebug( self, msg ):
         if self._debug is not None:
@@ -93,14 +94,21 @@ class Manager( object ):
 
         return data
 
-    def sensor( self, sid ):
-        return Sensor( self, sid )
+    def sensor( self, sid, inv_id = None ):
+        s = Sensor( self, sid )
+        if inv_id is not None:
+            s.setInvId( inv_id )
+        elif self._inv_id is not None:
+            s.setInvId( self._inv_id )
+        return s
 
-    def sensors( self ):
+    def sensors( self, inv_id = None ):
         sensors = []
         resp = self._apiCall( 'sensors/%s' % self._oid, GET )
+        if inv_id is None:
+            inv_id = self._inv_id
         for s in resp:
-            sensors.append( self.sensor( s[ 'sid' ] ) )
+            sensors.append( self.sensor( s[ 'sid' ], inv_id ) )
         return sensors
 
     def outputs( self ):

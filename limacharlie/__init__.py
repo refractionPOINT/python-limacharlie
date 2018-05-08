@@ -8,3 +8,5 @@ __copyright__ = "Copyright (c) 2018 Refraction Point, Inc"
 
 from .Manager import Manager
 from .Firehose import Firehose
+from .Hunter import Hunter
+from .utils import LcApiException

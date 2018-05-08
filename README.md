@@ -19,6 +19,25 @@ API_KEY = 'Your-Secret-API-Key'
 man = limacharlie.Manager( OID, API_KEY )
 ```
 
+### Components
+#### Manager
+This is a the general component that provides access to the managing functions
+of the API like querying sensors online, creating and removing Outputs etc.
+
+#### Firehose
+The firehose is a simple object that listens on a port for LimaCharlie.io data.
+Under the hood it creates a Syslog Output on limacharlie.io pointing to itself
+and removes it on shutdown. Data from limacharlie.io is added to `firehose.queue`
+(a `gevent Queue`) as it is received.
+
+It is a basic building block of automation for limacharlie.io.
+
+#### Sensor
+This is the object returned by `manager.sensor( sensor_id )`.
+
+It supports a `task`, `tag`, `untag` and `getTags` functions. This
+is the main way to interact with a specific sensor.
+
 ### Command Line Usage
 #### Firehose
 `python -m limacharlie.Firehose c82e5c17-d519-4ef5-a4ac-caa4a95d31ca 1.2.3.4:9424 event -n firehose_test -t fh_test`
@@ -28,3 +47,5 @@ Receives only events from hosts tagged with `fh_test`.
 
 #### Shell
 `python -m limacharlie.Manager c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
+
+Starting the `Manager` module directly starts an interactive shell to limacharlie.io.
