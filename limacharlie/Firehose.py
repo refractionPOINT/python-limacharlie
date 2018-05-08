@@ -13,7 +13,29 @@ import traceback
 from .utils import *
 
 class Firehose( object ):
+    '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization.'''
+
     def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, inv_id = None, tag = None, cat = None ):
+        '''Create a listener and optionally register it with limacharlie.io automatically.
+
+        If name is None, the Firehose will assume the Output is already created
+        and will skip it's initialization and teardown.
+
+        If public_dest is None and name is not None, initialization of the Output
+        will use the dynamically detected public IP address of this host and port
+        specified in listen_on.
+
+        Args:
+            manager (limacharlie.Manager obj): a Manager to use for interaction with limacharlie.io.
+            listen_on (str): the interface and port to listen on for data from the cloud, ex: "1.2.3.4:443", "0.0.0.0:443", ":443".
+            data_typer (str): the type of data received from the cloud as specified in Outputs (event, detect, audit).
+            public_dest (str): the IP and port that limacharlie.io should use to connect to this object.
+            name (str): name to use to register as an Output on limacharlie.io.
+            inv_id (str): only receive events marked with this investigation ID.
+            tag (str): only receive Events from Sensors with this Tag.
+            cat (str): only receive Detections of this Category.
+        '''
+
         self._manager = manager
         self._listen_on = listen_on.split( ':' )
         if 1 < len( self._listen_on ):
@@ -89,6 +111,8 @@ class Firehose( object ):
         self._manager._printDebug( 'Listening for connections.' )
 
     def shutdown( self ):
+        '''Stop receiving data and potentially unregister the Output (if created here).'''
+        
         if self._name is not None:
             self._manager._printDebug( 'Unregistering.' )
             self._manager.del_output( self._output_name )

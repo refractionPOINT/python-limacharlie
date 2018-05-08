@@ -5,6 +5,7 @@ import signal
 import sys
 import getpass
 
+# Just a general signal handler to stop everying cleanly.
 def signal_handler():
     global h
     print( 'You pressed Ctrl+C!' )

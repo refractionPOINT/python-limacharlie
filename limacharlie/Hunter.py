@@ -8,6 +8,8 @@ import random
 import uuid
 
 class Hunter( gevent.Greenlet ):
+    '''Parent class used for all Hunters on limacharlie.io, integrates interaction with the API and responses from sensors.'''
+
     def __init__( self, oid, secret_api_key, listen_on = None, public_dest = None, print_debug_fn = None ):
         gevent.Greenlet.__init__( self )
         self._uniqueName = '%s_%s' % ( type( self ).__name__, uuid.uuid4() )
@@ -38,6 +40,8 @@ class Hunter( gevent.Greenlet ):
             self.deinit()
 
     def stop( self ):
+        '''Signals the Hunter to stop all activity. Blocks until completion.'''
+
         self._print( "Stopping..." )
         self.stopEvent.set()
         self._print( "Waiting for main thread." )
@@ -52,6 +56,8 @@ class Hunter( gevent.Greenlet ):
         print( msg )
 
     def sleep( self, seconds ):
+        '''Simple helper function to pause execution of the current thread.'''
+
         gevent.sleep( seconds )
 
     def _fhLoop( self ):
@@ -71,6 +77,17 @@ class Hunter( gevent.Greenlet ):
 
 
     def track( self, sensor, callback = None ):
+        '''Start tracking the responses from the specified Sensor.
+
+        If callback is not specified, the responses will be enqueued in
+        the Sensor's "responses" attribute which is a gevent.Queue object.
+
+        Args:
+            sensor (Sensor obj): Sensor object to use in tracking responses.
+            callback (callable): if specified, call callback on any new responses
+                from the sensor, callback should take two positional arguments:
+                (Sensor, Response).
+        '''
         with self._lock:
             # If a callback is requested, we keep that 
             # callback and wrap it with the actual sensor.
@@ -85,5 +102,11 @@ class Hunter( gevent.Greenlet ):
                 self._tracked[ sensor.sid ] = sensor
 
     def untrack( self, sensor ):
+        '''Stop all tracking of a Sensor.
+
+        Args:
+            sensor (Sensor obj): the Sensor to stop tracking.
+        '''
+
         with self._lock:
             self._tracked.pop( sensor.sid, None )
