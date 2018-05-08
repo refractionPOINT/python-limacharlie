@@ -36,6 +36,7 @@ limacharlie.Sensor module
     :undoc-members:
     :show-inheritance:
 
+
 Module contents
 ---------------
 
