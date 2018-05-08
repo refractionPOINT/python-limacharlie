@@ -4,6 +4,10 @@ This Python library is a simple abstraction to the LimaCharlie.io REST API.
 For more information on LimaCharlie.io: [https://limacharlie.io](https://limacharlie.io).
 For more information on the REST API: [https://api.limacharlie.io](https://api.limacharlie.io).
 
+## Documentation
+* Python API Doc: https://python-limacharlie.readthedocs.io/en/latest/
+* General LimaCharlie Doc: http://doc.limacharlie.io/
+
 ## Overview Usage
 
 ### Installing
