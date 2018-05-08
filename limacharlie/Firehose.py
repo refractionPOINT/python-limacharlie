@@ -4,6 +4,7 @@ from gevent.queue import Queue
 import sys
 import ssl
 import json
+import urllib2
 import os
 import tempfile
 import socket
@@ -12,16 +13,41 @@ import traceback
 from .utils import *
 
 class Firehose( object ):
+    '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization.'''
+
     def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, inv_id = None, tag = None, cat = None ):
+        '''Create a listener and optionally register it with limacharlie.io automatically.
+
+        If name is None, the Firehose will assume the Output is already created
+        and will skip it's initialization and teardown.
+
+        If public_dest is None and name is not None, initialization of the Output
+        will use the dynamically detected public IP address of this host and port
+        specified in listen_on.
+
+        Args:
+            manager (limacharlie.Manager obj): a Manager to use for interaction with limacharlie.io.
+            listen_on (str): the interface and port to listen on for data from the cloud, ex: "1.2.3.4:443", "0.0.0.0:443", ":443".
+            data_typer (str): the type of data received from the cloud as specified in Outputs (event, detect, audit).
+            public_dest (str): the IP and port that limacharlie.io should use to connect to this object.
+            name (str): name to use to register as an Output on limacharlie.io.
+            inv_id (str): only receive events marked with this investigation ID.
+            tag (str): only receive Events from Sensors with this Tag.
+            cat (str): only receive Detections of this Category.
+        '''
+
         self._manager = manager
         self._listen_on = listen_on.split( ':' )
         if 1 < len( self._listen_on ):
             self._listen_on_port = int( self._listen_on[ 1 ] )
             self._listen_on = self._listen_on[ 0 ]
         else:
+            self._listen_on = self._listen_on[ 0 ]
             self._listen_on_port = 443
+        if '' == self._listen_on:
+            self._listen_on = '0.0.0.0'
         self._data_type = data_type
-        self._public_dest = public_dest
+        self._public_dest = public_dest if public_dest != '' else None
         self._name = name
         self._output_name = None
 
@@ -45,7 +71,7 @@ class Firehose( object ):
                 # It's not there, register it.
                 effectiveDest = self._public_dest
                 if effectiveDest is None:
-                    effectiveDest = '%s:%s' % ( self._listen_on, self._listen_on_port )
+                    effectiveDest = '%s:%s' % ( self._getPublicIp(), self._listen_on_port )
                 kwOutputArgs = {
                     'dest_host': effectiveDest,
                     'is_tls': 'true', 
@@ -85,11 +111,16 @@ class Firehose( object ):
         self._manager._printDebug( 'Listening for connections.' )
 
     def shutdown( self ):
+        '''Stop receiving data and potentially unregister the Output (if created here).'''
+        
         if self._name is not None:
             self._manager._printDebug( 'Unregistering.' )
             self._manager.del_output( self._output_name )
         self._server.close()
         self._manager._printDebug( 'Closed.' )
+
+    def _getPublicIp( self ):
+        return json.load(urllib2.urlopen('http://jsonip.com'))['ip']
 
     def _handleNewClient( self, sock, address ):
         self._manager._printDebug( 'new firehose connection: %s' % ( address, ) )
@@ -111,19 +142,23 @@ class Firehose( object ):
 
         curData = []
         while True:
-            data = sock.recv( 8192 )
-            if not data: break
-            if '\n' in data:
-                chunks = data.split( '\n' )
-                curData.append( chunks[ 0 ] )
-                self.queue.put_nowait( json.loads( ''.join( curData ) ) )
-                for c in chunks[ 1 : -1 ]:
-                    self.queue.put_nowait( json.loads( c ) )
-                curData = [ chunks[ -1 ] ]
-            else:
-                curData.append( data )
+            try:
+                data = sock.recv( 8192 )
+                if not data: break
+                if '\n' in data:
+                    chunks = data.split( '\n' )
+                    curData.append( chunks[ 0 ] )
+                    self.queue.put_nowait( json.loads( ''.join( curData ) ) )
+                    for c in chunks[ 1 : -1 ]:
+                        self.queue.put_nowait( json.loads( c ) )
+                    curData = [ chunks[ -1 ] ]
+                else:
+                    curData.append( data )
+            except:
+                self._manager._printDebug( 'error decoding data' )
 
         self._manager._printDebug( 'firehose connection closed: %s' % ( address, ) )
+        sock.close()
 
 def _signal_handler():
     global fh
@@ -160,7 +195,7 @@ if __name__ == "__main__":
                          type = str,
                          dest = 'public_dest',
                          default = None,
-                         help = 'where to tell limacharlie.io to connect to for firehose output, default is listen_interface.' )
+                         help = 'where to tell limacharlie.io to connect to for firehose output, default is public ip and same port as listen_interface.' )
     parser.add_argument( '-n', '--name',
                          type = str,
                          dest = 'name',

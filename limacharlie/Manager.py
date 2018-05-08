@@ -19,7 +19,9 @@ API_TO_JWT_URL = 'https://app.limacharlie.io/jwt?oid=%s&secret=%s'
 HTTP_UNAUTHORIZED = 401
 
 class Manager( object ):
-    def __init__( self, oid, secret_api_key, print_debug_fn = None ):
+    '''General interface to a limacharlie.io Organization.'''
+
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None ):
         try:
             uuid.UUID( oid )
         except:
@@ -32,6 +34,7 @@ class Manager( object ):
         self._secret_api_key = secret_api_key
         self._jwt = None
         self._debug = print_debug_fn
+        self._inv_id = inv_id
 
     def _printDebug( self, msg ):
         if self._debug is not None:
@@ -93,24 +96,85 @@ class Manager( object ):
 
         return data
 
-    def sensor( self, sid ):
-        return Sensor( self, sid )
+    def sensor( self, sid, inv_id = None ):
+        '''Get a Sensor object for the specific Sensor ID.
 
-    def sensors( self ):
+        The sensor may or may not be online.
+
+        Args:
+            sid (uuid str): the Sensor ID to represent.
+            inv_id (str): investigation ID to add to all actions done using this object.
+
+        Returns:
+            a Sensor object.
+        '''
+
+        s = Sensor( self, sid )
+        if inv_id is not None:
+            s.setInvId( inv_id )
+        elif self._inv_id is not None:
+            s.setInvId( self._inv_id )
+        return s
+
+    def sensors( self, inv_id = None ):
+        '''Get the list of all Sensors in the Organization.
+
+        The sensors may or may not be online.
+
+        Args:
+            inv_id (str): investigation ID to add to all actions done using these objects.
+
+        Returns:
+            a list of Sensor objects.
+        '''
+
         sensors = []
         resp = self._apiCall( 'sensors/%s' % self._oid, GET )
+        if inv_id is None:
+            inv_id = self._inv_id
         for s in resp:
-            sensors.append( self.sensor( s[ 'sid' ] ) )
+            sensors.append( self.sensor( s[ 'sid' ], inv_id ) )
         return sensors
 
     def outputs( self ):
+        '''Get the list of all Outputs configured for the Organization.
+
+        Returns:
+            a list of Output descriptions (JSON).
+        '''
+
         resp = self._apiCall( 'outputs/%s' % self._oid, GET )
         return resp[ self._oid ]
 
     def del_output( self, name ):
+        '''Remove an Output from the Organization.
+
+        Args:
+            name (str): the name of the Output to remove.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
         return self._apiCall( 'outputs/%s' % self._oid, DELETE, { 'name' : name } )
 
     def add_output( self, name, module, type, **kwargs ):
+        '''Add an Output to the Organization.
+
+        For detailed explanation and possible Output module parameters
+        see the official documentation, naming is the same as for the
+        REST interface.
+
+        Args:
+            name (str): name to give to the Output.
+            module (str): name of the Output module to use.
+            type (str): type of Output stream.
+            **kwargs: arguments specific to the Output module, see official doc.
+
+        Returns:
+            a list of Output descriptions (JSON).
+        '''
+
         req = { 'name' : name, 'module' : module, 'type' : type }
         for k, v  in kwargs.iteritems():
             req[ k ] = v
