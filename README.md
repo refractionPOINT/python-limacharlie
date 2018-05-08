@@ -38,6 +38,11 @@ This is the object returned by `manager.sensor( sensor_id )`.
 It supports a `task`, `tag`, `untag` and `getTags` functions. This
 is the main way to interact with a specific sensor.
 
+#### Hunter
+This is a parent class to inherit from to construct complex automation flows
+that include both interaction with limacharlie.io, sensors as well as response events
+from those sensors.
+
 ### Command Line Usage
 #### Firehose
 `python -m limacharlie.Firehose c82e5c17-d519-4ef5-a4ac-caa4a95d31ca 1.2.3.4:9424 event -n firehose_test -t fh_test`
@@ -49,3 +54,8 @@ Receives only events from hosts tagged with `fh_test`.
 `python -m limacharlie.Manager c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
 Starting the `Manager` module directly starts an interactive shell to limacharlie.io.
+
+### Examples:
+* [Basic Manager Operations](limacharlie/demo_manager.py)
+* [Basic Firehose Operations](limacharlie/demo_firehose.py)
+* [Basic Hunter Operations](limacharlie/demo_hunter.py)
