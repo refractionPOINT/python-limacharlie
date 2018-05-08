@@ -6,12 +6,18 @@
 Welcome to python-limacharlie's documentation!
 ==============================================
 
+LimaCharlie.io is an Endpoint Security platform by Refraction Point, Inc.
+
+https://refractionpoint.com
+
+https://limacharlie.io
+
 Contents:
 
 .. toctree::
    :maxdepth: 2
 
-
+   limacharlie
 
 Indices and tables
 ==================
