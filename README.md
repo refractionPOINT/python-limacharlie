@@ -11,7 +11,7 @@ For more information on the REST API: [https://api.limacharlie.io](https://api.l
 ## Overview Usage
 
 ### Installing
-`sudo python ./setup.py develop`
+`pip install limacharlie`
 
 ### Importing
 ```python
