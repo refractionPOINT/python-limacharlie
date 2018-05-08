@@ -18,11 +18,3 @@ Contents:
    :maxdepth: 2
 
    limacharlie
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
-
