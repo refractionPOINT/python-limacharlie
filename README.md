@@ -9,6 +9,9 @@ For more information on the REST API: [https://api.limacharlie.io](https://api.l
 * General LimaCharlie Doc: http://doc.limacharlie.io/
 
 ## Overview Usage
+The Python API uses the LimaCharlie.io REST API. The REST API currently
+supports many more functions. If the Python is missing a function available
+in the REST API that you would like to use, let us know at support@limacharlie.io.
 
 ### Installing
 `pip install limacharlie`
@@ -19,8 +22,14 @@ import limacharlie
 
 OID = 'Your-Org-ID'
 API_KEY = 'Your-Secret-API-Key'
+YARA_SIG = 'https://raw.githubusercontent.com/Yara-Rules/rules/master/Malicious_Documents/Maldoc_PDF.yar'
 
 man = limacharlie.Manager( OID, API_KEY )
+all_sensors = man.sensors()
+sensor = man.sensor( all_sensors[ 0 ] )
+sensor.tag( 'suspicious', ttl = 60 * 10 )
+sensor.task( 'os_processes' )
+sensor.task( 'yara_scan -e *evil.exe ' + YARA_SIG )
 ```
 
 ### Components
@@ -48,6 +57,9 @@ that include both interaction with limacharlie.io, sensors as well as response e
 from those sensors.
 
 ### Command Line Usage
+Some Python API classes support being executed directly from the command line
+to provide easier access to some of the capabilities.
+
 #### Firehose
 `python -m limacharlie.Firehose c82e5c17-d519-4ef5-a4ac-caa4a95d31ca 1.2.3.4:9424 event -n firehose_test -t fh_test`
 
