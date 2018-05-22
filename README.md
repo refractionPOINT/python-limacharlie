@@ -26,7 +26,7 @@ YARA_SIG = 'https://raw.githubusercontent.com/Yara-Rules/rules/master/Malicious_
 
 man = limacharlie.Manager( OID, API_KEY )
 all_sensors = man.sensors()
-sensor = man.sensor( all_sensors[ 0 ] )
+sensor = all_sensors[ 0 ]
 sensor.tag( 'suspicious', ttl = 60 * 10 )
 sensor.task( 'os_processes' )
 sensor.task( 'yara_scan -e *evil.exe ' + YARA_SIG )
