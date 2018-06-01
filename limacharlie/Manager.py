@@ -180,6 +180,23 @@ class Manager( object ):
             req[ k ] = v
         return self._apiCall( 'outputs/%s' % self._oid, POST, req )
 
+    def hosts( self, hostname_expr ):
+        '''Get the Sensor objects for hosts matching a hostname expression.
+
+        Args:
+            hostname_expr (str): hostname to look for, where '%' is a wildcard.
+
+        Returns:
+            a list of Sensor IDs matching the hostname expression.
+        '''
+
+        req = { 'hostname' : hostname_expr }
+        sensors = []
+        resp = self._apiCall( 'hostnames/%s' % self._oid, GET, req )
+        for s in resp[ 'sid' ]:
+            sensors.append( self.sensor( s, self._inv_id ) )
+        return sensors
+
 def _eprint( msg ):
     print >> sys.stderr, msg
 

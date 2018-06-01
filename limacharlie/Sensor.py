@@ -76,7 +76,7 @@ class Sensor( object ):
         return self._manager._apiCall( '%s/tags' % self.sid, DELETE, req )
 
     def getTags( self ):
-        '''Get Tags applied to the Sensor
+        '''Get Tags applied to the Sensor.
 
         Returns:
             the list of Tags currently applied.
@@ -84,3 +84,12 @@ class Sensor( object ):
 
         data = self._manager._apiCall( '%s/tags' % self.sid, GET )
         return data[ 'tags' ][ self.sid ].keys()
+
+    def getInfo( self ):
+        '''Get basic information on the Sensor.
+
+        Returns:
+            high level information on the Sensor.
+        '''
+        data = self._manager._apiCall( '%s' % self.sid, GET )
+        return data[ 'info' ]
