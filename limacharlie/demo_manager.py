@@ -16,4 +16,5 @@ if __name__ == "__main__":
                                                   sensors[ 0 ].getTags() ) )
 
     single_sensor = sensors[ 1 ]
+    print( "Sensor info: %s" % ( single_sensor.getInfo(), ) )
     single_sensor.task( 'dir_list . *' )
