@@ -15,7 +15,7 @@ from .utils import *
 class Firehose( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization.'''
 
-    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, inv_id = None, tag = None, cat = None ):
+    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
         '''Create a listener and optionally register it with limacharlie.io automatically.
 
         If name is None, the Firehose will assume the Output is already created
@@ -31,6 +31,8 @@ class Firehose( object ):
             data_typer (str): the type of data received from the cloud as specified in Outputs (event, detect, audit).
             public_dest (str): the IP and port that limacharlie.io should use to connect to this object.
             name (str): name to use to register as an Output on limacharlie.io.
+            is_parse (bool): if set to True (default) the data will be parsed as JSON to native Python.
+            max_buffer (int): the maximum number of messages to buffer in the queue.
             inv_id (str): only receive events marked with this investigation ID.
             tag (str): only receive Events from Sensors with this Tag.
             cat (str): only receive Detections of this Category.
@@ -50,12 +52,12 @@ class Firehose( object ):
         self._public_dest = public_dest if public_dest != '' else None
         self._name = name
         self._output_name = None
+        self._is_parse = is_parse
+        self._max_buffer = max_buffer
+        self._dropped = 0
 
         if self._data_type not in ( 'event', 'detect', 'audit' ):
             raise LcApiException( 'Invalid data type: %s' % self._data_type )
-
-        if 'event' == self._data_type and inv_id is None and tag is None:
-            raise LcApiException( 'Firehose for events must specify a tag or inv_id filter.' ) 
 
         # If the name is specified we assume the user wants us to register
         # the firehose directly using the API.
@@ -94,7 +96,7 @@ class Firehose( object ):
             self._manager._printDebug( 'Registration not required.' )
 
         # Setup internal structures.
-        self.queue = Queue( maxsize = 1024 )
+        self.queue = Queue( maxsize = self._max_buffer )
 
         # Generate certs.
         _, tmpKey = tempfile.mkstemp()
@@ -118,6 +120,14 @@ class Firehose( object ):
             self._manager.del_output( self._output_name )
         self._server.close()
         self._manager._printDebug( 'Closed.' )
+
+    def getDropped( self ):
+        '''Get the number of messages dropped because queue was full.'''
+        return self._dropped
+
+    def resetDroppedCounter( self ):
+        '''Reset the counter of dropped messages.'''
+        self._dropped = 0
 
     def _getPublicIp( self ):
         return json.load(urllib2.urlopen('http://jsonip.com'))['ip']
@@ -148,9 +158,22 @@ class Firehose( object ):
                 if '\n' in data:
                     chunks = data.split( '\n' )
                     curData.append( chunks[ 0 ] )
-                    self.queue.put_nowait( json.loads( ''.join( curData ) ) )
+                    try:
+                        if self._is_parse:
+                            self.queue.put_nowait( json.loads( ''.join( curData ) ) )
+                        else:
+                            self.queue.put_nowait( ''.join( curData ) )
+                    except:
+                        self.dropped += 1
+
                     for c in chunks[ 1 : -1 ]:
-                        self.queue.put_nowait( json.loads( c ) )
+                        try:
+                            if self._is_parse:
+                                self.queue.put_nowait( json.loads( c ) )
+                            else:
+                                self.queue.put_nowait( c )
+                        except:
+                            self.dropped += 1
                     curData = [ chunks[ -1 ] ]
                 else:
                     curData.append( data )

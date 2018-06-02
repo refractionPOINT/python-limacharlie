@@ -96,6 +96,18 @@ class Manager( object ):
 
         return data
 
+    def testAuth( self ):
+        '''Tests authentication with limacharlie.io.
+
+        Returns:
+            a boolean indicating whether authentication succeeded.
+        '''
+        try:
+            self._refreshJWT()
+            return True
+        except:
+            return False
+
     def sensor( self, sid, inv_id = None ):
         '''Get a Sensor object for the specific Sensor ID.
 
