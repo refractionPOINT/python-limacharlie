@@ -91,7 +91,12 @@ class Spout( object ):
                 for line in self._hConn.iter_lines( chunk_size = 1024 * 1024 * 10 ):
                     try:
                         if self._is_parse:
-                            self.queue.put_nowait( json.loads( line ) )
+                            line = json.loads( line )
+                            if '__trace' in line:
+                                if 'dropped' == line[ '__trace' ]:
+                                    self._dropped += int( line[ 'n' ] )
+                            else:
+                                self.queue.put_nowait( line )
                         else:
                             self.queue.put_nowait( line )
                     except:
