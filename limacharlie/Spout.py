@@ -109,7 +109,7 @@ class Spout( object ):
                 self._hConn = requests.get( self._finalSpoutUrl, 
                                             stream = True, 
                                             allow_redirects = False, 
-                                            timeout = 121 )
+                                            timeout = _TIMEOUT_SEC )
 
 def _signal_handler():
     global sp
@@ -158,8 +158,8 @@ if __name__ == "__main__":
     secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
 
     _printToStderr( "Registering..." )
-    sp = limacharlie.Spout( args.oid, 
-                            secretApiKey, 
+    man = limacharlie.Manager( oid = args.oid, secret_api_key = secretApiKey )
+    sp = limacharlie.Spout( man,
                             args.data_type, 
                             inv_id = args.inv_id,
                             tag = args.tag,
