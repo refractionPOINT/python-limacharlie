@@ -10,15 +10,17 @@ import uuid
 
 from .utils import *
 
+_CLOUD_KEEP_ALIVES = 60
+_TIMEOUT_SEC = ( _CLOUD_KEEP_ALIVES * 2 ) + 1
+
 class Spout( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in pull mode.'''
 
-    def __init__( self, oid, secret_api_key, data_type, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
+    def __init__( self, man, data_type, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
         '''Connect to limacharlie.io to start receiving data.
 
         Args:
-            oid (str): the organization id to get data from.
-            secret_api_key: the secret api key as registered on limacharlie.io.
+            manager (limacharlie.Manager obj): a Manager to use for interaction with limacharlie.io.
             data_typer (str): the type of data received from the cloud as specified in Outputs (event, detect, audit).
             is_parse (bool): if set to True (default) the data will be parsed as JSON to native Python.
             max_buffer (int): the maximum number of messages to buffer in the queue.
@@ -27,16 +29,9 @@ class Spout( object ):
             cat (str): only receive Detections of this Category.
         '''
 
-        try:
-            uuid.UUID( oid )
-        except:
-            raise LcApiException( 'Invalid oid, should be in UUID format.' )
-        try:
-            uuid.UUID( secret_api_key )
-        except:
-            raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
-        self._oid = oid
-        self._apiKey = secret_api_key
+        self._man = man
+        self._oid = man._oid
+        self._apiKey = man._secret_api_key
         self._data_type = data_type
         self._cat = cat
         self._tag = tag
@@ -62,7 +57,11 @@ class Spout( object ):
             spoutParams[ 'tag' ] = self._tag
         if cat is not None:
             spoutParams[ 'cat' ] = self._cat
-        self._hConn = requests.post( 'https://output.limacharlie.io/output/%s' % ( self._oid, ), data = spoutParams, stream = True, allow_redirects = True, timeout = 121 )
+        self._hConn = requests.post( 'https://output.limacharlie.io/output/%s' % ( self._oid, ), 
+                                     data = spoutParams, 
+                                     stream = True, 
+                                     allow_redirects = True, 
+                                     timeout = _TIMEOUT_SEC )
         self._finalSpoutUrl = self._hConn.history[ 0 ].headers[ 'Location' ]
         self._threads.add( gevent.spawn( self._handleConnection ) )
 
@@ -86,7 +85,7 @@ class Spout( object ):
 
     def _handleConnection( self ):
         while not self._isStop:
-            _printToStderr( "Stream started." )
+            self._man._printDebug( "Stream started." )
             try:
                 for line in self._hConn.iter_lines( chunk_size = 1024 * 1024 * 10 ):
                     try:
@@ -102,16 +101,19 @@ class Spout( object ):
                     except:
                         self._dropped += 1
             except Exception as e:
-                _printToStderr( "Stream closed: %s" % str( e ) )
+                self._man._printDebug( "Stream closed: %s" % str( e ) )
             finally:
-                _printToStderr( "Stream closed." )
+                self._man._printDebug( "Stream closed." )
 
             if not self._isStop:
-                self._hConn = requests.get( self._finalSpoutUrl, stream = True, allow_redirects = False, timeout = 121 )
+                self._hConn = requests.get( self._finalSpoutUrl, 
+                                            stream = True, 
+                                            allow_redirects = False, 
+                                            timeout = 121 )
 
 def _signal_handler():
     global sp
-    print( 'You pressed Ctrl+C!' )
+    _printToStderr( 'You pressed Ctrl+C!' )
     if sp is not None:
         sp.shutdown()
     sys.exit( 0 )

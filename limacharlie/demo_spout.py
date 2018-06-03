@@ -17,9 +17,11 @@ if __name__ == "__main__":
   def debugPrint( msg ):
       print msg
 
-  sp = limacharlie.Spout( raw_input( 'Enter OID: ' ),
-                          getpass.getpass( prompt = 'Enter secret API key: ' ),
-                          'event' )
+  man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ), 
+                             secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ), 
+                             print_debug_fn = debugPrint )
+
+  sp = limacharlie.Spout( man, 'event' )
 
   while True:
       data = sp.queue.get()

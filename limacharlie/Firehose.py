@@ -185,7 +185,7 @@ class Firehose( object ):
 
 def _signal_handler():
     global fh
-    print( 'You pressed Ctrl+C!' )
+    _printToStderr( 'You pressed Ctrl+C!' )
     if fh is not None:
         fh.shutdown()
     sys.exit( 0 )
