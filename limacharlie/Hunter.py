@@ -1,5 +1,6 @@
 from .Manager import Manager
 from .Firehose import Firehose
+from .Spout import Spout
 import gevent
 from gevent.lock import Semaphore
 from gevent.queue import Queue
@@ -21,11 +22,11 @@ class Hunter( gevent.Greenlet ):
         self.LC = Manager( oid, secret_api_key, inv_id = self._uniqueName, print_debug_fn = print_debug_fn )
 
         if listen_on is None or listen_on == '':
-            listen_on = '0.0.0.0:%s' % random.randint( 1024, 65535 )
-            self._print( 'No local interface:port specified, listinging on random port: %s' % listen_on )
-        
+            self._print( 'No local interface:port specified, using a Spout.' )
+            self._fh = Spout( self.LC, 'event', inv_id = self._uniqueName )
+        else:
+            self._fh = Firehose( self.LC, listen_on, 'event', name = self._uniqueName, public_dest = public_dest, inv_id = self._uniqueName )
         self._threads.add( gevent.spawn_later( 0, self._fhLoop ) )
-        self._fh = Firehose( self.LC, listen_on, 'event', name = self._uniqueName, public_dest = public_dest, inv_id = self._uniqueName )
         self._print( "Inbound channel open, waiting 30 seconds to ensure it is active..." )
         self.sleep( 31 )
         self._print( "Started as %s" % self._uniqueName )

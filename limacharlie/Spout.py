@@ -57,6 +57,14 @@ class Spout( object ):
             spoutParams[ 'tag' ] = self._tag
         if cat is not None:
             spoutParams[ 'cat' ] = self._cat
+        # Spouts work by doing a POST to the output.limacharlie.io service with the
+        # OID, Secret Key and any Output parameters we want. This POST will return
+        # us an HTTP 303 See Other with the actual URL where the output will be
+        # created for us. We take note of this redirect URL so that if need to
+        # reconnect later we don't need to re-do the POST again. The redirected URL
+        # contains a path with a randomized value which is what we use a short term
+        # shared secret to get the data stream since we are not limiting connections
+        # by IP.
         self._hConn = requests.post( 'https://output.limacharlie.io/output/%s' % ( self._oid, ), 
                                      data = spoutParams, 
                                      stream = True, 
@@ -91,6 +99,10 @@ class Spout( object ):
                     try:
                         if self._is_parse:
                             line = json.loads( line )
+                            # The output.limacharlie.io service also injects a
+                            # few trace messages like keepalives and number of
+                            # events dropped (if any) from the server (indicating
+                            # we are too slow). We filter those out here.
                             if '__trace' in line:
                                 if 'dropped' == line[ '__trace' ]:
                                     self._dropped += int( line[ 'n' ] )
