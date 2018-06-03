@@ -113,7 +113,10 @@ class Spout( object ):
                     except:
                         self._dropped += 1
             except Exception as e:
-                self._man._printDebug( "Stream closed: %s" % str( e ) )
+                if not self._isStop:
+                    self._man._printDebug( "Stream closed: %s" % str( e ) )
+                else:
+                    self._man._printDebug( "Stream closed." )
             finally:
                 self._man._printDebug( "Stream closed." )
 
