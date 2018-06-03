@@ -13,7 +13,7 @@ import traceback
 from .utils import *
 
 class Firehose( object ):
-    '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization.'''
+    '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in push mode.'''
 
     def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
         '''Create a listener and optionally register it with limacharlie.io automatically.
