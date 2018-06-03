@@ -83,10 +83,14 @@ class Firehose( object ):
                 effectiveDest = self._public_dest
                 if effectiveDest is None:
                     effectiveDest = '%s:%s' % ( self._getPublicIp(), self._listen_on_port )
+                if ( self._ssl_cert is not None ) and ( self._ssl_key is not None ):
+                    isStrict = 'true'
+                else:
+                    isStrict = 'false'
                 kwOutputArgs = {
                     'dest_host': effectiveDest,
                     'is_tls': 'true', 
-                    'is_strict_tls': ( self._ssl_cert is not None ) and ( self._ssl_key is not None ),
+                    'is_strict_tls': isStrict,
                     'is_no_header': 'true',
                 }
                 if inv_id is not None:
