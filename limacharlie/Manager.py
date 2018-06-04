@@ -144,7 +144,7 @@ class Manager( object ):
         resp = self._apiCall( 'sensors/%s' % self._oid, GET )
         if inv_id is None:
             inv_id = self._inv_id
-        for s in resp:
+        for s in resp[ 'sensors' ]:
             sensors.append( self.sensor( s[ 'sid' ], inv_id ) )
         return sensors
 
