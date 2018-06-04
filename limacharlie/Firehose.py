@@ -13,9 +13,9 @@ import traceback
 from .utils import *
 
 class Firehose( object ):
-    '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization.'''
+    '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in push mode.'''
 
-    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
+    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, ssl_cert = None, ssl_key = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
         '''Create a listener and optionally register it with limacharlie.io automatically.
 
         If name is None, the Firehose will assume the Output is already created
@@ -31,6 +31,8 @@ class Firehose( object ):
             data_typer (str): the type of data received from the cloud as specified in Outputs (event, detect, audit).
             public_dest (str): the IP and port that limacharlie.io should use to connect to this object.
             name (str): name to use to register as an Output on limacharlie.io.
+            ssl_cert (str): optional, path to file with (PEM) ssl cert to use to receive from the cloud, if not set generates self-signed certs.
+            ssl_key (str): optional, path to the file with (PEM) ssl key to use to receive from the cloud, if not set generates self-signed certs.
             is_parse (bool): if set to True (default) the data will be parsed as JSON to native Python.
             max_buffer (int): the maximum number of messages to buffer in the queue.
             inv_id (str): only receive events marked with this investigation ID.
@@ -56,6 +58,13 @@ class Firehose( object ):
         self._max_buffer = max_buffer
         self._dropped = 0
 
+        self._ssl_cert = ssl_cert
+        self._ssl_key = ssl_key
+        if self._ssl_cert is not None and not os.path.isfile( self._ssl_cert ):
+            raise LcApiException( 'No cert file at path: %s' % self._ssl_cert )
+        if self._ssl_key is not None and not os.path.isfile( self._ssl_key ):
+            raise LcApiException( 'No key file at path: %s' % self._ssl_key )
+
         if self._data_type not in ( 'event', 'detect', 'audit' ):
             raise LcApiException( 'Invalid data type: %s' % self._data_type )
 
@@ -74,9 +83,14 @@ class Firehose( object ):
                 effectiveDest = self._public_dest
                 if effectiveDest is None:
                     effectiveDest = '%s:%s' % ( self._getPublicIp(), self._listen_on_port )
+                if ( self._ssl_cert is not None ) and ( self._ssl_key is not None ):
+                    isStrict = 'true'
+                else:
+                    isStrict = 'false'
                 kwOutputArgs = {
                     'dest_host': effectiveDest,
                     'is_tls': 'true', 
+                    'is_strict_tls': isStrict,
                     'is_no_header': 'true',
                 }
                 if inv_id is not None:
@@ -98,11 +112,16 @@ class Firehose( object ):
         # Setup internal structures.
         self.queue = Queue( maxsize = self._max_buffer )
 
-        # Generate certs.
-        _, tmpKey = tempfile.mkstemp()
-        _, tmpCert = tempfile.mkstemp()
-        if 0 != os.system( 'openssl req -x509 -days 36500 -newkey rsa:4096 -keyout %s -out %s -nodes -sha256 -subj "/C=US/ST=CA/L=Mountain View/O=refractionPOINT/CN=limacharlie_firehose" > /dev/null 2>&1' % ( tmpKey, tmpCert ) ):
-            raise LcApiException( "Failed to generate self-signed certificate." )
+        if self._ssl_cert is None or self._ssl_key is None:
+            # Generate certs.
+            _, tmpKey = tempfile.mkstemp()
+            _, tmpCert = tempfile.mkstemp()
+            if 0 != os.system( 'openssl req -x509 -days 36500 -newkey rsa:4096 -keyout %s -out %s -nodes -sha256 -subj "/C=US/ST=CA/L=Mountain View/O=refractionPOINT/CN=limacharlie_firehose" > /dev/null 2>&1' % ( tmpKey, tmpCert ) ):
+                raise LcApiException( "Failed to generate self-signed certificate." )
+        else:
+            # Use the keys provided.
+            tmpKey = self._ssl_key
+            tmpCert = self._ssl_cert
 
         # Start the server.
         self._sslCtx = ssl.SSLContext( ssl.PROTOCOL_TLSv1_2 )
@@ -185,7 +204,7 @@ class Firehose( object ):
 
 def _signal_handler():
     global fh
-    print( 'You pressed Ctrl+C!' )
+    _printToStderr( 'You pressed Ctrl+C!' )
     if fh is not None:
         fh.shutdown()
     sys.exit( 0 )

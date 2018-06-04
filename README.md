@@ -56,6 +56,8 @@ This is a parent class to inherit from to construct complex automation flows
 that include both interaction with limacharlie.io, sensors as well as response events
 from those sensors.
 
+By default uses a Spout to receive data from cloud, but optionally Firehoses can be used.
+
 ### Command Line Usage
 Some Python API classes support being executed directly from the command line
 to provide easier access to some of the capabilities.
@@ -66,6 +68,16 @@ to provide easier access to some of the capabilities.
 Listens on interface `1.2.3.4`, port `9424` for incoming connections from LimaCharlie.io.
 Receives only events from hosts tagged with `fh_test`.
 
+#### Spout
+`python -m limacharlie.Spout c82e5c17-d519-4ef5-a4ac-caa4a95d31ca event`
+
+Behaves similarly to the Firehose, but instead of listenning from an internet accessible port, it
+connects to the `output.limacharlie.io` service to stream the output over HTTP. This means the Spout
+allows you to get ad-hoc output like the Firehose, but it also works through NATs and proxies.
+
+It is MUCH more convenient for short term ad-hoc outputs, but it is less reliable than a Firehose for
+very large amounts of data.
+
 #### Shell
 `python -m limacharlie.Manager c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
@@ -74,4 +86,5 @@ Starting the `Manager` module directly starts an interactive shell to limacharli
 ### Examples:
 * [Basic Manager Operations](limacharlie/demo_manager.py)
 * [Basic Firehose Operations](limacharlie/demo_firehose.py)
+* [Basic Spout Operations](limacharlie/demo_spout.py)
 * [Basic Hunter Operations](limacharlie/demo_hunter.py)
