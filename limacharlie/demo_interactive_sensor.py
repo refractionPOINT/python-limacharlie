@@ -14,6 +14,11 @@ if __name__ == "__main__":
                                inv_id = str( uuid.uuid4() ),
                                is_interactive = True )
 
+    # Starting the Manager with is_interactive = True means that Sensors accessed
+    # through this Manager will support the .request() API which behaves similarly
+    # to .task(), but instead of being unidirectional, it returns a FutureResults
+    # object which can be used to get the response to the task.
+
     print( "Getting a list of sensors." )
     sensors = man.sensors()
 

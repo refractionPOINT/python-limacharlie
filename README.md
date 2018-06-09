@@ -87,4 +87,4 @@ Starting the `Manager` module directly starts an interactive shell to limacharli
 * [Basic Manager Operations](limacharlie/demo_manager.py)
 * [Basic Firehose Operations](limacharlie/demo_firehose.py)
 * [Basic Spout Operations](limacharlie/demo_spout.py)
-* [Basic Hunter Operations](limacharlie/demo_hunter.py)
+* [Basic Integrated Operations](limacharlie/demo_interactive_sensor.py)
