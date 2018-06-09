@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     # Starting the Manager with is_interactive = True means that Sensors accessed
     # through this Manager will support the .request() API which behaves similarly
-    # to .task(), but instead of being unidirectional, it returns a FutureResults
+    # to .task(), but instead of being unidirectional, it returns a FutureResponses
     # object which can be used to get the response to the task.
 
     print( "Getting a list of sensors." )
@@ -31,17 +31,16 @@ if __name__ == "__main__":
         print( "Let's ask for autoruns..." )
         try:
             future = sensor.request( 'os_autoruns' )
-
-            responses = future.getNewResponses( timeout = 10 )
-            if( len( responses ) == 0 ):
-                print( "Never got a response..." )
-            else:
-                print( "Received response from sensor: %s" % ( json.dumps( responses, indent = 2 ), ) )
-
         except limacharlie.utils.LcApiException as e:
             if 'host not connected' in str( e ):
                 print( "Offline, moving on..." )
             else:
                 raise
+        else:
+            responses = future.getNewResponses( timeout = 10 )
+            if( len( responses ) == 0 ):
+                print( "Never got a response..." )
+            else:
+                print( "Received response from sensor: %s" % ( json.dumps( responses, indent = 2 ), ) )
 
     print( "All done." )
