@@ -14,6 +14,7 @@ if __name__ == "__main__":
                                inv_id = str( uuid.uuid4() ),
                                is_interactive = True )
 
+    print( "Getting a list of sensors." )
     sensors = man.sensors()
 
     print( "Got %s sensors." % len( sensors ) )
@@ -31,7 +32,7 @@ if __name__ == "__main__":
                 print( "Never got a response..." )
             else:
                 print( "Received response from sensor: %s" % ( json.dumps( responses, indent = 2 ), ) )
-                
+
         except limacharlie.utils.LcApiException as e:
             if 'host not connected' in str( e ):
                 print( "Offline, moving on..." )
