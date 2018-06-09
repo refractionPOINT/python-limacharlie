@@ -1,5 +1,6 @@
 import limacharlie
 import getpass
+import json
 
 if __name__ == "__main__":
     def debugPrint( msg ):
@@ -26,5 +27,5 @@ if __name__ == "__main__":
                                                   all_sensors[ 0 ].getTags() ) )
 
     single_sensor = all_sensors[ 1 ]
-    print( "Sensor info: %s" % ( single_sensor.getInfo(), ) )
+    print( "Sensor info: %s" % ( json.dumps( single_sensor.getInfo(), indent = 2 ), ) )
     single_sensor.task( 'dir_list . *' )

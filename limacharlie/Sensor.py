@@ -5,6 +5,15 @@ from .utils import *
 class Sensor( object ):
     '''Representation of a limacharlie.io Sensor.'''
 
+    _PLATFORM_WINDOWS = 0x10000000
+    _PLATFORM_LINUX = 0x20000000
+    _PLATFORM_MACOS = 0x30000000
+    _PLATFORM_IOS = 0x40000000
+    _PLATFORM_ANDROID = 0x50000000
+
+    _ARCHITECTURE_X86 = 0x00000001
+    _ARCHITECTURE_X64 = 0x00000002
+
     def __init__( self, manager, sid ):
         try:
             uuid.UUID( sid )
@@ -111,4 +120,21 @@ class Sensor( object ):
             high level information on the Sensor.
         '''
         data = self._manager._apiCall( '%s' % self.sid, GET )
-        return data[ 'info' ]
+
+        # We massage the info a bit to make it easier to understand.
+        platToString = {
+            self._PLATFORM_WINDOWS : 'windows',
+            self._PLATFORM_LINUX : 'linux',
+            self._PLATFORM_MACOS : 'macos',
+            self._PLATFORM_IOS : 'ios',
+            self._PLATFORM_ANDROID : 'android',
+        }
+        archToString = {
+            self._ARCHITECTURE_X86 : 'x86',
+            self._ARCHITECTURE_X64 : 'x64',
+        }
+        data = data[ 'info' ]
+        data[ 'plat' ] = platToString[ data[ 'plat' ] ]
+        data[ 'arch' ] = archToString[ data[ 'arch' ] ]
+
+        return data
