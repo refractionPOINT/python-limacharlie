@@ -44,6 +44,7 @@ class Manager( object ):
         self._secret_api_key = secret_api_key
         self._jwt = None
         self._debug = print_debug_fn
+        self._lastSensorListContinuationToken = None
         self._inv_id = inv_id
         self._spout = None
         self._is_interactive = is_interactive
@@ -152,24 +153,34 @@ class Manager( object ):
             s.setInvId( self._inv_id )
         return s
 
-    def sensors( self, inv_id = None ):
+    def sensors( self, inv_id = None, is_next = False ):
         '''Get the list of all Sensors in the Organization.
 
         The sensors may or may not be online.
 
         Args:
             inv_id (str): investigation ID to add to all actions done using these objects.
+            is_next (bool): if set to True, will get the next slice of Sensors (if previous call to .sensors() hit the maximum number returned).
 
         Returns:
             a list of Sensor objects.
         '''
 
+        if is_next and self._lastSensorListContinuationToken is None:
+            return None
+
+        params = {}
+        if is_next:
+            params[ 'continuation_token' ] = self._lastSensorListContinuationToken
+
         sensors = []
-        resp = self._apiCall( 'sensors/%s' % self._oid, GET )
+        resp = self._apiCall( 'sensors/%s' % self._oid, GET, params )
         if inv_id is None:
             inv_id = self._inv_id
         for s in resp[ 'sensors' ]:
             sensors.append( self.sensor( s[ 'sid' ], inv_id ) )
+        self._lastSensorListContinuationToken = resp.get( 'continuation_token', None )
+        
         return sensors
 
     def outputs( self ):

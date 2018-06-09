@@ -9,13 +9,22 @@ if __name__ == "__main__":
                                secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ), 
                                print_debug_fn = debugPrint )
 
-    sensors = man.sensors()
+    all_sensors = man.sensors()
 
-    print( "Got %s sensors." % len( sensors ) )
+    # The number of sensors returned is limited to a few hundreds, so we will just
+    # loop a bit over them.
+    while True:
+        sensors = man.sensors( is_next = True )
+        if sensors is None:
+            # There are no more sensors.
+            break
+        all_sensors += sensors
 
-    print( "First sensor %s has the tags: %s" % ( sensors[ 0 ].sid, 
-                                                  sensors[ 0 ].getTags() ) )
+    print( "Got %s sensors." % len( all_sensors ) )
 
-    single_sensor = sensors[ 1 ]
+    print( "First sensor %s has the tags: %s" % ( all_sensors[ 0 ].sid, 
+                                                  all_sensors[ 0 ].getTags() ) )
+
+    single_sensor = all_sensors[ 1 ]
     print( "Sensor info: %s" % ( single_sensor.getInfo(), ) )
     single_sensor.task( 'dir_list . *' )
