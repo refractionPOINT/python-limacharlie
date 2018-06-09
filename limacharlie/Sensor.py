@@ -35,7 +35,6 @@ class Sensor( object ):
             the REST API response (JSON).
         '''
 
-        tasks = tasks
         if not isinstance( tasks, ( tuple, list ) ):
             tasks = [ tasks ]
         req = { 'tasks' : tasks }
@@ -47,6 +46,26 @@ class Sensor( object ):
         if invId is not None:
             req[ 'investigation_id' ] = invId
         return self._manager._apiCall( '%s' % self.sid, POST, req )
+
+    def request( self, tasks ):
+        '''Send a task (or list of tasks) to the Sensor and returns a FutureResults where the results will be sent; requires Manager is_interactive.
+
+        Args:
+            tasks (str or list of str): tasks to send in the command line format described in official documentation.
+
+        Returns:
+            a FutureResults object.
+        '''
+        if not self._manager._is_interactive:
+            raise LcApiException( 'Manager provided was not created with is_interactive set to True, cannot track responses.' )
+        thisTrackingId = '%s/%s' % ( self._manager._inv_id, str( uuid.uuid4() ) )
+        future = FutureResults()
+
+        self._manager._spout.registerFutureResults( thisTrackingId, future )
+
+        self.task( tasks, inv_id = thisTrackingId )
+
+        return future
 
     def tag( self, tag, ttl ):
         '''Apply a Tag to the Sensor.

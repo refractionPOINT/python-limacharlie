@@ -9,6 +9,7 @@ import sys
 from functools import wraps
 
 from .Sensor import Sensor
+from .Spout import Spout
 from .utils import *
 
 ROOT_URL = 'https://api.limacharlie.io'
@@ -21,7 +22,16 @@ HTTP_UNAUTHORIZED = 401
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False ):
+        '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
+
+        Args:
+            oid (str): a limacharlie.io organization ID.
+            secret_api_key (str): an API key for the organization, as provided by limacharlie.io.
+            inv_id (str): an investigation ID that will be used/propagated to other APIs using this Manager instance.
+            print_debug_fn (function(message)): a callback function that will receive detailed debug messages.
+            is_interactive (bool): if True, the manager will provide a root investigation and Spout so that tasks sent to Sensors can be tracked in realtime automatically; requires an inv_id to be set.
+        '''
         try:
             uuid.UUID( oid )
         except:
@@ -35,6 +45,20 @@ class Manager( object ):
         self._jwt = None
         self._debug = print_debug_fn
         self._inv_id = inv_id
+        self._spout = None
+        self._is_interactive = is_interactive
+        if self._is_interactive:
+            if not self._inv_id:
+                raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
+            self._refreshSpout()
+
+    def _refreshSpout( self ):
+        if not self._is_interactive:
+            return
+        if self._spout is not None:
+            self._spout.shutdown()
+            self._spout = None
+        self._spout = Spout( self, 'event', is_parse = True, inv_id = self._inv_id )
 
     def _printDebug( self, msg ):
         if self._debug is not None:

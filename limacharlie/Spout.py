@@ -7,6 +7,7 @@ import requests
 import os
 import traceback
 import uuid
+import time
 
 from .utils import *
 
@@ -42,6 +43,10 @@ class Spout( object ):
 
         self._isStop = False
 
+        # This is used to register FutureResults objects where data should go
+        # based on the full value of an investigation ID (including the custom tracking after "/").
+        self._futures = {}
+
         if self._data_type not in ( 'event', 'detect', 'audit' ):
             raise LcApiException( 'Invalid data type: %s' % self._data_type )
 
@@ -72,6 +77,16 @@ class Spout( object ):
                                      timeout = _TIMEOUT_SEC )
         self._finalSpoutUrl = self._hConn.history[ 0 ].headers[ 'Location' ]
         self._threads.add( gevent.spawn( self._handleConnection ) )
+        self._futureCleanupInterval = 30
+        self._threads.add( gevent.spawn_later( self._futureCleanupInterval, self._cleanupFutures ) )
+
+    def _cleanupFutures( self ):
+        now = time.time()
+        for trackingId, futureInfo in self._futures.items():
+            ttl = futureInfo[ 1 ]
+            if ttl < now:
+                self._futures.pop( trackingId, None )
+        self._threads.add( gevent.spawn_later( self._futureCleanupInterval, self._cleanupFutures ) )
 
     def shutdown( self ):
         '''Stop receiving data.'''
@@ -91,6 +106,16 @@ class Spout( object ):
         '''Reset the counter of dropped messages.'''
         self._dropped = 0
 
+    def registerFutureResults( self, tracking_id, future, ttl = ( 60 * 60 * 1 ) ):
+        '''Register a FutureResults to receive events coming with a specific tracking ID and investigation ID.
+
+        Args:
+            tracking_id (str): the full value of the investigation_id field to match on, including the custom tracking after the "/".
+            future (limacharlie.FutureResults): future to receive the events.
+            ttl (int): number of seconds this future should be tracked.
+        '''
+        self._futures[ tracking_id ] = ( future, time.time() + ttl )
+
     def _handleConnection( self ):
         while not self._isStop:
             self._man._printDebug( "Stream started." )
@@ -107,7 +132,11 @@ class Spout( object ):
                                 if 'dropped' == line[ '__trace' ]:
                                     self._dropped += int( line[ 'n' ] )
                             else:
-                                self.queue.put_nowait( line )
+                                future = self._futures.get( line.get( 'routing', {} ).get( 'investigation_id', None ), None )
+                                if future is not None:
+                                    future[ 0 ]._addNewResult( line )
+                                else:
+                                    self.queue.put_nowait( line )
                         else:
                             self.queue.put_nowait( line )
                     except:
