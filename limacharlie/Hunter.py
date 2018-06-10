@@ -27,8 +27,7 @@ class Hunter( gevent.Greenlet ):
         else:
             self._fh = Firehose( self.LC, listen_on, 'event', name = self._uniqueName, public_dest = public_dest, inv_id = self._uniqueName )
         self._threads.add( gevent.spawn_later( 0, self._fhLoop ) )
-        self._print( "Inbound channel open, waiting 30 seconds to ensure it is active..." )
-        self.sleep( 31 )
+        self._print( "Inbound channel open" )
         self._print( "Started as %s" % self._uniqueName )
 
     def _run( self ):

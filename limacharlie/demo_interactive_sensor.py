@@ -7,7 +7,7 @@ if __name__ == "__main__":
     def debugPrint( msg ):
         print msg
 
-    print( "We are starting in interactive mode, this means setting an output via limacharlie.io which may take up to 30 seconds to start..." )
+    print( "We are starting in interactive mode." )
     man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ), 
                                secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ), 
                                print_debug_fn = None,
