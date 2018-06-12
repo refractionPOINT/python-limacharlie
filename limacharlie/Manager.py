@@ -171,7 +171,10 @@ class Manager( object ):
 
         params = {}
         if is_next:
+            if self._lastSensorListContinuationToken is None:
+                return []
             params[ 'continuation_token' ] = self._lastSensorListContinuationToken
+            self._lastSensorListContinuationToken = None
 
         sensors = []
         resp = self._apiCall( 'sensors/%s' % self._oid, GET, params )
