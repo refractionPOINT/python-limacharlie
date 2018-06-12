@@ -7,12 +7,17 @@ if __name__ == "__main__":
     def debugPrint( msg ):
         print msg
 
-    print( "We are starting in interactive mode, this means setting an output via limacharlie.io which may take up to 30 seconds to start..." )
+    print( "We are starting in interactive mode." )
     man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ), 
                                secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ), 
                                print_debug_fn = None,
                                inv_id = str( uuid.uuid4() ),
                                is_interactive = True )
+
+    # Starting the Manager with is_interactive = True means that Sensors accessed
+    # through this Manager will support the .request() API which behaves similarly
+    # to .task(), but instead of being unidirectional, it returns a FutureResponses
+    # object which can be used to get the response to the task.
 
     print( "Getting a list of sensors." )
     sensors = man.sensors()
@@ -26,17 +31,16 @@ if __name__ == "__main__":
         print( "Let's ask for autoruns..." )
         try:
             future = sensor.request( 'os_autoruns' )
-
-            responses = future.getNewResponses( timeout = 10 )
-            if( len( responses ) == 0 ):
-                print( "Never got a response..." )
-            else:
-                print( "Received response from sensor: %s" % ( json.dumps( responses, indent = 2 ), ) )
-
         except limacharlie.utils.LcApiException as e:
             if 'host not connected' in str( e ):
                 print( "Offline, moving on..." )
             else:
                 raise
+        else:
+            responses = future.getNewResponses( timeout = 10 )
+            if( len( responses ) == 0 ):
+                print( "Never got a response..." )
+            else:
+                print( "Received response from sensor: %s" % ( json.dumps( responses, indent = 2 ), ) )
 
     print( "All done." )

@@ -51,12 +51,14 @@ This is the object returned by `manager.sensor( sensor_id )`.
 It supports a `task`, `tag`, `untag` and `getTags` functions. This
 is the main way to interact with a specific sensor.
 
-#### Hunter
-This is a parent class to inherit from to construct complex automation flows
-that include both interaction with limacharlie.io, sensors as well as response events
-from those sensors.
+#### Integrated Behavior
+This mode is available by specifying an `inv_id` and `is_interactive = True` to a 
+Manager object. It makes the Manager setup the relevant comms channels so that any 
+Sensor objects it produces support the `.request()` function which behaves like the 
+`.task()` function but it also returns a `FutureResponses` object that is a proxy 
+for any responses from the task.
 
-By default uses a Spout to receive data from cloud, but optionally Firehoses can be used.
+For a better idea on usage see [the demo](limacharlie/demo_interactive_sensor.py).
 
 ### Command Line Usage
 Some Python API classes support being executed directly from the command line
@@ -87,4 +89,4 @@ Starting the `Manager` module directly starts an interactive shell to limacharli
 * [Basic Manager Operations](limacharlie/demo_manager.py)
 * [Basic Firehose Operations](limacharlie/demo_firehose.py)
 * [Basic Spout Operations](limacharlie/demo_spout.py)
-* [Basic Hunter Operations](limacharlie/demo_hunter.py)
+* [Basic Integrated Operations](limacharlie/demo_interactive_sensor.py)
