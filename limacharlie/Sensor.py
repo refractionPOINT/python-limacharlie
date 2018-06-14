@@ -138,3 +138,14 @@ class Sensor( object ):
         data[ 'arch' ] = archToString[ data[ 'arch' ] ]
 
         return data
+
+    def isOnline( self ):
+        '''Checks if the sensor is currently online.
+
+        Returns:
+            True if the sensor is connected to the cloud right now.
+        '''
+        data = self._manager._apiCall( '%s' % self.sid, GET )
+
+        data = data[ 'online' ]
+        return ( len( data ) > 0 ) and ( 'error' not in data )

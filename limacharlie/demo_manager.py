@@ -26,6 +26,10 @@ if __name__ == "__main__":
     print( "First sensor %s has the tags: %s" % ( all_sensors[ 0 ].sid, 
                                                   all_sensors[ 0 ].getTags() ) )
 
-    single_sensor = all_sensors[ 1 ]
-    print( "Sensor info: %s" % ( json.dumps( single_sensor.getInfo(), indent = 2 ), ) )
-    single_sensor.task( 'dir_list . *' )
+    for single_sensor in all_sensors:
+        if not single_sensor.isOnline():
+            print( "Sensor %s is offline, next..." % single_sensor.sid )
+            continue
+        print( "Sensor info: %s" % ( json.dumps( single_sensor.getInfo(), indent = 2 ), ) )
+        single_sensor.task( 'dir_list . *' )
+        break
