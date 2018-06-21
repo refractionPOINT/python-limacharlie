@@ -17,5 +17,5 @@ setup( name = 'limacharlie',
        license = __license__,
        packages = [ 'limacharlie' ],
        zip_safe = True,
-       install_requires = [ 'gevent', 'requests' ],
+       install_requires = [ 'gevent', 'requests', 'passlib' ],
        long_description = 'Python API for limacharlie.io, an endpoint detection and response service.' )
