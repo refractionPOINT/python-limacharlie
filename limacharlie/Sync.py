@@ -40,6 +40,11 @@ class Sync( object ):
         return True
 
     def fetch( self, toConfigFile ):
+        '''Retrieves the effective configuration in the cloud to a local config file.
+
+        Args:
+            toConfigFile (str): the path to the local config file.
+        '''
         toConfigFile = os.path.abspath( toConfigFile )
         rules = self._man.rules()
         for ruleName, rule in rules.items():
@@ -49,6 +54,16 @@ class Sync( object ):
             f.write( yaml.safe_dump( asConf, default_flow_style = False ) )
 
     def push( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str): the path to the config file.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
         fromConfigFile = os.path.abspath( fromConfigFile )
 
         # Config files are always evaluated relative to the current one.
