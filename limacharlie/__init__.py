@@ -11,4 +11,5 @@ from .Firehose import Firehose
 from .Spout import Spout
 from .Hunter import Hunter
 from .Webhook import Webhook
+from .Sync import Sync
 from .utils import LcApiException

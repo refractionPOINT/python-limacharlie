@@ -85,8 +85,33 @@ very large amounts of data.
 
 Starting the `Manager` module directly starts an interactive shell to limacharlie.io.
 
+#### Config Syncing
+`python -m limacharlie.Sync c82e5c17-d519-4ef5-a4ac-c454a95d31ca fetch`
+`python -m limacharlie.Sync c82e5c17-d519-4ef5-a4ac-c454a95d31ca push --dry-run`
+
+The `fetch` command will get a list of the Detection & Response rules in your
+organization and will write them to the config file specified or the default
+config file `LCConf` in YAML format.
+
+Then `push` can upload the rules specified in the config file (or the default one)
+to your organization. The optional `--force` argument will remove active rules not
+found in the config file. The `--dry-run` simulates the sync and displayes the changes
+that would occur.
+
+The `--config` allows you to specify an alternate config file and the `--api-key` allows
+you to specify a file on disk where the API should be read from (otherwise, of if `-` is
+specified as a file, the API Key is read from STDIN).
+
+All these capabilities are also supported directly by the `limacharlie.Sync` object.
+
+To understand better the config format, do a `fetch` from your organization or have
+a look at the [samples](limacharlie/sample_configs/). Notice the use of the `include`
+statement. Using this statement you can combine multiple config files together, making
+it ideal for the management of complex rule sets and their versioning.
+
 ### Examples:
 * [Basic Manager Operations](limacharlie/demo_manager.py)
 * [Basic Firehose Operations](limacharlie/demo_firehose.py)
 * [Basic Spout Operations](limacharlie/demo_spout.py)
 * [Basic Integrated Operations](limacharlie/demo_interactive_sensor.py)
+* [Rules Config Syncing](limacharlie/sample_configs/)
