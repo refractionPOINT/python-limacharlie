@@ -4,6 +4,7 @@ import uuid
 import os
 import sys
 import yaml
+import json
 
 class LcConfigException( Exception ):
     pass
@@ -15,11 +16,34 @@ class Sync( object ):
         self._apiKey = str( uuid.UUID( apiKey ) )
         self._man = Manager( self._oid, self._apiKey )
 
+    def _coreRuleContent( self, rule ):
+        return { k : v for k, v in rule.iteritems() if k in ( 'name', 'detect', 'respond' ) }
+
+    def _recursiveOrderDict( self, d ):
+        if not isinstance( d, dict ):
+            return d
+        return sorted( { k : self._recursiveOrderDict( v ) for k, v in d.items() }.items() )
+
+    def _isRulesEqual( self, a, b ):
+        r1 = sorted( sorted( r.items() ) for r in a[ 'respond' ] )
+        r2 = sorted( sorted( r.items() ) for r in b[ 'respond' ] )
+
+        if json.dumps( r1 ) != json.dumps( r2 ):
+            return False
+
+        r1 = self._recursiveOrderDict( a[ 'detect' ] )
+        r2 = self._recursiveOrderDict( b[ 'detect' ] )
+
+        if json.dumps( r1 ) != json.dumps( r2 ):
+            return False
+
+        return True
+
     def fetch( self, toConfigFile ):
         toConfigFile = os.path.abspath( toConfigFile )
         rules = self._man.rules()
         for ruleName, rule in rules.items():
-            rules[ ruleName ] = { k : v for k, v in rule.iteritems() if k not in ( 'by', 'date', 'oid' ) }
+            rules[ ruleName ] = self._coreRuleContent( rule )
         asConf = { 'rules' : rules, 'version' : self._confVersion }
         with open( toConfigFile, 'wb' ) as f:
             f.write( yaml.safe_dump( asConf, default_flow_style = False ) )
@@ -38,8 +62,19 @@ class Sync( object ):
         # Revert the previous CWD.
         os.chdir( currentPath )
 
+        # Get the current rules, we will try not to push for no reason.
+        currentRules = { k : self._coreRuleContent( v ) for k, v in self._man.rules().iteritems() }
+
         # Start by adding the rules with isReplace.
         for ruleName, rule in asConf.get( 'rules', {} ).iteritems():
+            rule = self._coreRuleContent( rule )
+            # Check to see if it is already in the current rules and in the right format.
+            if ruleName in currentRules:
+                if self._isRulesEqual( rule, currentRules[ ruleName ] ):
+                    # Exact same, no point in pushing.
+                    yield ( '=', 'rule', ruleName )
+                    continue
+
             if not isDryRun:
                 self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True )
             yield ( '+', 'rule', ruleName )
@@ -87,8 +122,6 @@ class Sync( object ):
                     asConf.setdefault( cat, {} ).update( subCat )
 
         return asConf
-
-        
 
 if __name__ == '__main__':
     import argparse

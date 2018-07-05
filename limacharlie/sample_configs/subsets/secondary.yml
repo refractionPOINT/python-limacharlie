@@ -1,0 +1,12 @@
+version: 1
+rules:
+  win-suspicious-exec-name:
+    detect:
+      op: external
+      resource: lcr://detection/win-suspicious-exec-name
+    name: win-suspicious-exec-name
+    respond:
+    - action: report
+      name: win-suspicious-exec-name
+    - action: task
+      command: history_dump

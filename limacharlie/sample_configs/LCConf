@@ -1,0 +1,64 @@
+version: 1
+include:
+  - subsets/secondary.yml
+rules:
+  VirusTotal:
+    detect:
+      event: CODE_IDENTITY
+      metadata_rules:
+        length of: true
+        op: is greater than
+        path: /
+        value: 0
+      op: lookup
+      path: event/HASH
+      resource: lcr://api/vt
+    respond:
+    - action: report
+      name: virustotal
+  malwaredomains:
+    detect:
+      event: DNS_REQUEST
+      op: lookup
+      path: event/DOMAIN_NAME
+      resource: lcr://lookup/malwaredomains
+    name: malwaredomains
+    respond:
+    - action: report
+      name: feed_malwaredomains
+    - action: add tag
+      tag: suspicious
+      ttl: 86400
+    - action: task
+      command: history_dump
+  shadow-volume-tampering:
+    detect:
+      op: and
+      rules:
+      - event: NEW_PROCESS
+        op: is windows
+      - op: or
+        rules:
+        - op: and
+          rules:
+          - case sensitive: false
+            op: ends with
+            path: event/FILE_PATH
+            value: vssadmin.exe
+          - case sensitive: false
+            op: matches
+            path: event/COMMAND_LINE
+            re: .*(?:(?:delete shadows)|(?:resize shadowstorage)).*
+        - op: and
+          rules:
+          - case sensitive: false
+            op: ends with
+            path: event/FILE_PATH
+            value: wmic.exe
+          - case sensitive: false
+            op: contains
+            path: event/COMMAND_LINE
+            value: shadowcopy delete
+    respond:
+    - action: report
+      name: virustotal
