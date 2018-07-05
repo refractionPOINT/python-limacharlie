@@ -222,7 +222,7 @@ class Manager( object ):
             **kwargs: arguments specific to the Output module, see official doc.
 
         Returns:
-            a list of Output descriptions (JSON).
+            the REST API response (JSON).
         '''
 
         req = { 'name' : name, 'module' : module, 'type' : type }
@@ -246,6 +246,54 @@ class Manager( object ):
         for s in resp[ 'sid' ]:
             sensors.append( self.sensor( s, self._inv_id ) )
         return sensors
+
+    def rules( self ):
+        '''Get the list of all Detection & Response rules for the Organization.
+
+        Returns:
+            a list of D&R rules (JSON).
+        '''
+
+        resp = self._apiCall( 'rules/%s' % self._oid, GET )
+        return resp
+
+    def del_rule( self, name ):
+        '''Remove a Rule from the Organization.
+
+        Args:
+            name (str): the name of the Rule to remove.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'rules/%s' % self._oid, DELETE, { 'name' : name } )
+
+    def add_rule( self, name, detection, response, isReplace = False ):
+        '''Add a Rule to the Organization.
+
+        For detailed explanation and possible Rules parameters
+        see the official documentation, naming is the same as for the
+        REST interface.
+
+        Args:
+            name (str): name to give to the Rule.
+            isReplace (boolean): if True, replace existing Rule with the same name.
+            detection (dict): dictionary representing the detection component of the Rule.
+            response (list): list representing the response component of the Rule.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        req = { 
+            'name' : name,
+            'is_replace' : 'true' if isReplace else 'false',
+            'detection' : json.dumps( detection ),
+            'response' : json.dumps( response ),
+        }
+
+        return self._apiCall( 'rules/%s' % self._oid, POST, req )
 
 def _eprint( msg ):
     print >> sys.stderr, msg

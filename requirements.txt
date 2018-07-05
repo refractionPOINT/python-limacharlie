@@ -1,3 +1,4 @@
 gevent
 requests
 passlib
+pyyaml
