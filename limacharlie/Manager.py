@@ -194,7 +194,7 @@ class Manager( object ):
         '''
 
         resp = self._apiCall( 'outputs/%s' % self._oid, GET )
-        return resp[ self._oid ]
+        return resp.get( self._oid, {} )
 
     def del_output( self, name ):
         '''Remove an Output from the Organization.
