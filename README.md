@@ -87,6 +87,7 @@ Starting the `Manager` module directly starts an interactive shell to limacharli
 
 #### Config Syncing
 `python -m limacharlie.Sync c82e5c17-d519-4ef5-a4ac-c454a95d31ca fetch`
+
 `python -m limacharlie.Sync c82e5c17-d519-4ef5-a4ac-c454a95d31ca push --dry-run`
 
 The `fetch` command will get a list of the Detection & Response rules in your
