@@ -11,7 +11,7 @@ class LcConfigException( Exception ):
 
 class Sync( object ):
     def __init__( self, oid, apiKey ):
-        self._confVersion = 1
+        self._confVersion = 2
         self._oid = str( uuid.UUID( oid ) )
         self._apiKey = str( uuid.UUID( apiKey ) )
         self._man = Manager( self._oid, self._apiKey )
@@ -20,40 +20,41 @@ class Sync( object ):
         return { k : v for k, v in rule.iteritems() if k in ( 'name', 'detect', 'respond' ) }
 
     def _recursiveOrderDict( self, d ):
-        if not isinstance( d, dict ):
-            return d
-        return sorted( { k : self._recursiveOrderDict( v ) for k, v in d.items() }.items() )
+        if isinstance( d, list ) or isinstance( d, tuple ):
+            return sorted( d )
+        if isinstance( d, dict ):
+            return sorted( { k : self._recursiveOrderDict( v ) for k, v in d.items() }.items() )
+        return d
 
-    def _isRulesEqual( self, a, b ):
-        r1 = sorted( sorted( r.items() ) for r in a[ 'respond' ] )
-        r2 = sorted( sorted( r.items() ) for r in b[ 'respond' ] )
-
-        if json.dumps( r1 ) != json.dumps( r2 ):
-            return False
-
-        r1 = self._recursiveOrderDict( a[ 'detect' ] )
-        r2 = self._recursiveOrderDict( b[ 'detect' ] )
+    def _isJsonEqual( self, a, b ):
+        r1 = self._recursiveOrderDict( a )
+        r2 = self._recursiveOrderDict( b )
 
         if json.dumps( r1 ) != json.dumps( r2 ):
             return False
 
         return True
 
-    def fetch( self, toConfigFile ):
+    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
             toConfigFile (str): the path to the local config file.
         '''
         toConfigFile = os.path.abspath( toConfigFile )
-        rules = self._man.rules()
-        for ruleName, rule in rules.items():
-            rules[ ruleName ] = self._coreRuleContent( rule )
-        asConf = { 'rules' : rules, 'version' : self._confVersion }
+        asConf = { 'version' : self._confVersion }
+        if not isNoRules:
+            rules = self._man.rules()
+            for ruleName, rule in rules.items():
+                rules[ ruleName ] = self._coreRuleContent( rule )
+            asConf[ 'rules' ] = rules
+        if not isNoOutputs:
+            outputs = self._man.outputs()
+            asConf[ 'outputs' ] = outputs
         with open( toConfigFile, 'wb' ) as f:
             f.write( yaml.safe_dump( asConf, default_flow_style = False ) )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -77,34 +78,57 @@ class Sync( object ):
         # Revert the previous CWD.
         os.chdir( currentPath )
 
-        # Get the current rules, we will try not to push for no reason.
-        currentRules = { k : self._coreRuleContent( v ) for k, v in self._man.rules().iteritems() }
-
-        # Start by adding the rules with isReplace.
-        for ruleName, rule in asConf.get( 'rules', {} ).iteritems():
-            rule = self._coreRuleContent( rule )
-            # Check to see if it is already in the current rules and in the right format.
-            if ruleName in currentRules:
-                if self._isRulesEqual( rule, currentRules[ ruleName ] ):
-                    # Exact same, no point in pushing.
-                    yield ( '=', 'rule', ruleName )
-                    continue
-
-            if not isDryRun:
-                self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True )
-            yield ( '+', 'rule', ruleName )
-
-        # If we are not told to isForce, this is it.
-        if not isForce:
-            return
-
-        # Now if isForce was specified, list existing rules and remove the ones
-        # not in our list.
-        for ruleName, rule in self._man.rules().iteritems():
-            if ruleName not in asConf[ 'rules' ]:
+        if not isNoRules:
+            # Get the current rules, we will try not to push for no reason.
+            currentRules = { k : self._coreRuleContent( v ) for k, v in self._man.rules().iteritems() }
+        
+            # Start by adding the rules with isReplace.
+            for ruleName, rule in asConf.get( 'rules', {} ).iteritems():
+                rule = self._coreRuleContent( rule )
+                # Check to see if it is already in the current rules and in the right format.
+                if ruleName in currentRules:
+                    if ( self._isJsonEqual( rule[ 'detect' ], currentRules[ ruleName ][ 'detect' ] ) and 
+                        self._isJsonEqual( rule[ 'respond' ], currentRules[ ruleName ][ 'respond' ] ) ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'rule', ruleName )
+                        continue
+    
                 if not isDryRun:
-                    self._man.del_rule( ruleName )
-                yield ( '-', 'rule', ruleName )
+                    self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True )
+                yield ( '+', 'rule', ruleName )
+    
+            # If we are not told to isForce, this is it.
+            if isForce:
+                # Now if isForce was specified, list existing rules and remove the ones
+                # not in our list.
+                for ruleName, rule in self._man.rules().iteritems():
+                    if ruleName not in asConf[ 'rules' ]:
+                        if not isDryRun:
+                            self._man.del_rule( ruleName )
+                        yield ( '-', 'rule', ruleName )
+        
+        if not isNoOutputs:
+            # Get the current outputs, we will try not to push for no reason.
+            currentOutputs = self._man.outputs()
+            
+            for outputName, output in asConf.get( 'outputs', {} ).iteritems():
+                if outputName in currentOutputs:
+                    if self._isJsonEqual( output, currentOutputs[ outputName ] ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'output', outputName )
+                        continue
+                if not isDryRun:
+                    self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.iteritems() if k not in ( 'name', 'module', 'for' ) } )
+                yield ( '+', 'output', outputName )
+            
+            if isForce:
+                # Now if isForce was specified, list the existing outputs and remove the ones
+                # not in our list.
+                for outputName, output in self._man.outputs().iteritems():
+                    if outputName not in asConf[ 'outputs' ]:
+                        if not isDryRun:
+                            self._man.del_output( outputName )
+                        yield ( '-', 'output', outputName )
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
@@ -160,6 +184,18 @@ if __name__ == '__main__':
                          action = 'store_true',
                          dest = 'isDryRun',
                          help = 'if specified, in a push simulates the push without making any changes.' )
+    parser.add_argument( '--no-rules',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNoRules',
+                         help = 'if specified, ignore D&R rules from operations' )
+    parser.add_argument( '--no-outputs',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNoOutputs',
+                         help = 'if specified, ignore Outputs from operations' )
     parser.add_argument( '-c', '--config',
                          type = str,
                          default = 'LCConf',
@@ -173,6 +209,13 @@ if __name__ == '__main__':
                          dest = 'apiKey',
                          help = 'path to the file holding your API Key, or "-" to consume it from STDIN' )
     args = parser.parse_args()
+    
+    if args.isDryRun:
+        print( '!!! DRY RUN !!!' )
+    if args.isNoRules:
+        print( '!!! NO RULES !!!' )
+    if args.isNoOutputs:
+        print( '!!! NO OUTPUTS !!!' )
 
     secretKey = args.apiKey.strip()
     if '-' == secretKey:
@@ -191,7 +234,7 @@ if __name__ == '__main__':
     s = Sync( args.oid, secretKey )
 
     if 'fetch' == args.action:
-        s.fetch( args.config )
+        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs ):
             print( '%s %s %s' % ( modification, category, element ) )

@@ -114,7 +114,7 @@ class Manager( object ):
 
         if code == HTTP_UNAUTHORIZED:
             self._refreshJWT()
-            return self._restCall( url, verb, params )
+            code, data = self._restCall( url, verb, params )
 
         if 200 != code:
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )
