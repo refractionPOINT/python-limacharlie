@@ -18,6 +18,9 @@ class Sync( object ):
 
     def _coreRuleContent( self, rule ):
         return { k : v for k, v in rule.iteritems() if k in ( 'name', 'detect', 'respond' ) }
+    
+    def _coreOutputContent( self, output ):
+        return { k : v for k, v in output.iteritems() if k != 'name' }
 
     def _recursiveOrderDict( self, d ):
         if isinstance( d, list ) or isinstance( d, tuple ):
@@ -50,6 +53,8 @@ class Sync( object ):
             asConf[ 'rules' ] = rules
         if not isNoOutputs:
             outputs = self._man.outputs()
+            for outputName, output in outputs.items():
+                outputs[ outputName ] = self._coreOutputContent( output )
             asConf[ 'outputs' ] = outputs
         with open( toConfigFile, 'wb' ) as f:
             f.write( yaml.safe_dump( asConf, default_flow_style = False ) )
@@ -109,7 +114,7 @@ class Sync( object ):
         
         if not isNoOutputs:
             # Get the current outputs, we will try not to push for no reason.
-            currentOutputs = self._man.outputs()
+            currentOutputs = { k : self._coreOutputContent( v ) for k, v in self._man.outputs().iteritems() }
             
             for outputName, output in asConf.get( 'outputs', {} ).iteritems():
                 if outputName in currentOutputs:
@@ -118,7 +123,7 @@ class Sync( object ):
                         yield ( '=', 'output', outputName )
                         continue
                 if not isDryRun:
-                    self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.iteritems() if k not in ( 'name', 'module', 'for' ) } )
+                    self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.iteritems() if k not in ( 'module', 'for' ) } )
                 yield ( '+', 'output', outputName )
             
             if isForce:
