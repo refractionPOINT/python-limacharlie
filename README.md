@@ -105,6 +105,9 @@ specified as a file, the API Key is read from STDIN).
 
 All these capabilities are also supported directly by the `limacharlie.Sync` object.
 
+The Sync functionality currently supports D&R rules as well as Outputs. The `--no-rules` and
+`--no-outputs` flags can be used to ignore one or the other in config files and sync.
+
 To understand better the config format, do a `fetch` from your organization or have
 a look at the [samples](limacharlie/sample_configs/). Notice the use of the `include`
 statement. Using this statement you can combine multiple config files together, making
