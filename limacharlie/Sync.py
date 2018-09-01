@@ -12,8 +12,8 @@ class LcConfigException( Exception ):
 class Sync( object ):
     def __init__( self, oid, apiKey ):
         self._confVersion = 2
-        self._oid = str( uuid.UUID( oid ) )
-        self._apiKey = str( uuid.UUID( apiKey ) )
+        self._oid = oid
+        self._apiKey = apiKey
         self._man = Manager( self._oid, self._apiKey )
 
     def _coreRuleContent( self, rule ):
@@ -171,12 +171,14 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io sync' )
-    parser.add_argument( 'oid',
-                         type = lambda x: str( uuid.UUID( x.strip() ) ),
-                         help = 'the OID to authenticate as.' )
     parser.add_argument( 'action',
                          type = lambda x: str( x ).lower().strip(),
                          help = 'the action to perform, one of "fetch" or "push".' )
+    parser.add_argument( '-o', '--oid',
+                         type = lambda x: str( uuid.UUID( x.strip() ) ),
+                         required = False,
+                         dest = 'oid',
+                         help = 'the OID to authenticate as, if not specified global creds will be used.' )
     parser.add_argument( '-f', '--force',
                          required = False,
                          default = False,
@@ -222,15 +224,18 @@ if __name__ == '__main__':
     if args.isNoOutputs:
         print( '!!! NO OUTPUTS !!!' )
 
-    secretKey = args.apiKey.strip()
-    if '-' == secretKey:
-        print( "Using API Key from STDIN" )
-        secretKey = raw_input().strip()
+    if args.apiKey is not None:
+        secretKey = args.apiKey.strip()
+        if '-' == secretKey:
+            print( "Using API Key from STDIN" )
+            secretKey = raw_input().strip()
+        else:
+            secretKey = os.path.abspath( secretKey )
+            print( "Using API Key in: %s" % secretKey )
+            with open( secretKey, 'rb' ) as f:
+                secretKey = f.read().strip()
     else:
-        secretKey = os.path.abspath( secretKey )
-        print( "Using API Key in: %s" % secretKey )
-        with open( secretKey, 'rb' ) as f:
-            secretKey = f.read().strip()
+        secretKey = None
 
     if args.action not in ( 'fetch', 'push' ):
         print( "Action %s is not supported." % args.action )

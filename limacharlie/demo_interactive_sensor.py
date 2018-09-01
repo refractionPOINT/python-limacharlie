@@ -6,6 +6,9 @@ import getpass
 if __name__ == "__main__":
     def debugPrint( msg ):
         print msg
+        
+    # This example uses interactive credentials, but see the README for alternative
+    # ways of getting credentials.
 
     print( "We are starting in interactive mode." )
     man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ), 

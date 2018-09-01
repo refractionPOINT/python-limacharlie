@@ -75,6 +75,21 @@ class Sensor( object ):
         self.task( tasks, inv_id = thisTrackingId )
 
         return future
+    
+    def simpleRequest( self, tasks, timeout = 30 ):
+        '''Make a request to the sensor assuming a single response.
+        
+        Args:
+            tasks (str or list of str): tasks to send in the command line format described in official documentation.
+        
+        Returns:
+            a single event, or None if not received.
+        '''
+        future = self.request( tasks )
+        responses = future.getNewResponses( timeout = timeout )
+        if responses:
+            return responses[ 0 ]
+        return None
 
     def tag( self, tag, ttl ):
         '''Apply a Tag to the Sensor.
@@ -149,3 +164,9 @@ class Sensor( object ):
 
         data = data[ 'online' ]
         return ( len( data ) > 0 ) and ( 'error' not in data )
+    
+    def __str__( self ):
+        return self.sid
+    
+    def __repr__( self ):
+        return self.sid

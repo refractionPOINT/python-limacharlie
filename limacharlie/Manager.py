@@ -4,13 +4,15 @@ import uuid
 import json
 import traceback
 import cmd
-import getpass
 import sys
 from functools import wraps
 
 from .Sensor import Sensor
 from .Spout import Spout
 from .utils import *
+
+from limacharlie import GLOBAL_OID
+from limacharlie import GLOBAL_API_KEY
 
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
@@ -22,7 +24,7 @@ HTTP_UNAUTHORIZED = 401
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {} ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -31,7 +33,14 @@ class Manager( object ):
             inv_id (str): an investigation ID that will be used/propagated to other APIs using this Manager instance.
             print_debug_fn (function(message)): a callback function that will receive detailed debug messages.
             is_interactive (bool): if True, the manager will provide a root investigation and Spout so that tasks sent to Sensors can be tracked in realtime automatically; requires an inv_id to be set.
+            extra_params (dict): optional key / values passed to interactive spout.
         '''
+        # If no creds were provided, use the global ones.
+        if oid is None:
+            oid = GLOBAL_OID
+        if secret_api_key is None:
+            secret_api_key = GLOBAL_API_KEY
+
         try:
             uuid.UUID( oid )
         except:
@@ -48,6 +57,7 @@ class Manager( object ):
         self._inv_id = inv_id
         self._spout = None
         self._is_interactive = is_interactive
+        self._extra_params = extra_params
         if self._is_interactive:
             if not self._inv_id:
                 raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
@@ -59,7 +69,7 @@ class Manager( object ):
         if self._spout is not None:
             self._spout.shutdown()
             self._spout = None
-        self._spout = Spout( self, 'event', is_parse = True, inv_id = self._inv_id )
+        self._spout = Spout( self, 'event', is_parse = True, inv_id = self._inv_id, extra_params = self._extra_params )
 
     def _printDebug( self, msg ):
         if self._debug is not None:
@@ -367,13 +377,19 @@ class LCIOShell ( cmd.Cmd ):
 
 if __name__ == "__main__":
     import argparse
+    import getpass
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io cli' )
-    parser.add_argument( 'oid',
+    parser.add_argument( '-o', '--oid',
                          type = lambda x: str( uuid.UUID( x ) ),
-                         help = 'the OID to authenticate as.' )
+                         required = False,
+                         dest = 'oid',
+                         help = 'the OID to authenticate as, if not specified global creds are used.' )
     args = parser.parse_args()
-    secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
-
+    if args.oid is not None:
+        secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+    else:
+        secretApiKey = None
+        
     app = LCIOShell( args.oid, secretApiKey )
     app.cmdloop()

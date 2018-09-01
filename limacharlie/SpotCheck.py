@@ -1,0 +1,256 @@
+from .Manager import Manager
+from gevent.queue import Queue
+import gevent.pool
+import gevent
+import uuid
+import traceback
+import json
+
+class SpotCheck( object ):
+    def __init__( self, oid, secret_api_key, cb_check, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True ):
+        self._cbCheck = cb_check
+        self._cbOnCheckDone = cb_on_check_done
+        self._cbOnOffline = cb_on_offline
+        self._cbOnError = cb_on_error
+        self._nConcurrent = n_concurrent
+        self._nSecBetweenOnlineChecks = n_sec_between_online_checks
+        
+        self._isWindows = is_windows
+        self._isLinux = is_linux
+        self._isMacos = is_macos
+        
+        self._threads = gevent.pool.Group()
+        self._stopEvent = gevent.event.Event()
+        
+        self._sensorsLeftToCheck = Queue()
+
+        self._lc = Manager( oid, secret_api_key, inv_id = 'spotcheck-%s' % str( uuid.uuid4() )[ : 4 ], is_interactive = True, extra_params = extra_params )
+    
+    def start( self ):
+        # We start by listing all the sensors in the org using paging.
+        sensors = None
+        while True:
+            sensors = self._lc.sensors( is_next = sensors is not None )
+            if sensors is None:
+                break
+            for sensor in sensors:
+                self._sensorsLeftToCheck.put( sensor )
+        
+        # Now that we have a list of sensors, we'll spawn n_concurrent spot checks,
+        for _ in xrange( self._nConcurrent ):
+            self._threads.add( gevent.spawn_later( 0, self._performSpotChecks ) )
+        
+        # Done, the threads will do the checks.
+    
+    def stop( self ):
+        self._stopEvent.set()
+        self._threads.join()
+    
+    def wait( self, timeout = None ):
+        return self._threads.join( timeout = timeout )
+        
+    def _performSpotChecks( self ):
+        while not self._stopEvent.wait( timeout = 0 ):
+            try:
+                sensor = self._sensorsLeftToCheck.get_nowait()
+            except:
+                # If there are no more sensors to check, we can exit.
+                return
+                
+            # Check to see if the platform matches
+            if self._isWindows is False or self._isLinux is False or self._isMacos is False:
+                platform = sensor.getInfo()[ 'plat' ]
+                if platform == 'windows' and not self._isWindows:
+                    continue
+                if platform == 'linux' and not self._isLinux:
+                    continue
+                if platform == 'macos' and not self._isMacos:
+                    continue
+            
+            # Check to see if the sensor is online.
+            if not sensor.isOnline():
+                if self._cbOnOffline is not None:
+                    self._cbOnOffline( sensor )
+                # Re-add it to sensors to check, after the timeout.
+                gevent.sleep( self._nSecBetweenOnlineChecks )
+                self._sensorsLeftToCheck.put( sensor )
+                continue
+            
+            # By this point we have a sensor and it's likely online.
+            try:
+                result = self._cbCheck( sensor )
+            except:
+                # On errors, we notify the callback but assume any retry
+                # is likely to also fail so we won't retry.
+                if self._cbOnError is not None:
+                    self._cbOnError( sensor, traceback.format_exc() )
+                result = True
+            if not result:
+                # We assume the sensor was somehow offline.
+                if self._cbOnOffline is not None:
+                    self._cbOnOffline( sensor )
+                # Re-add it to sensors to check, after the timeout.
+                gevent.sleep( self._nSecBetweenOnlineChecks )
+                self._sensorsLeftToCheck.put( sensor )
+                continue
+            
+            # This means the check was done successfully.
+            if self._cbOnCheckDone is not None:
+                self._cbOnCheckDone( sensor )
+
+if __name__ == "__main__":
+    import argparse
+    import getpass
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie.io spotcheck' )
+    parser.add_argument( '-o', '--oid',
+                         type = lambda x: str( uuid.UUID( x ) ),
+                         required = False,
+                         dest = 'oid',
+                         help = 'the OID to authenticate as, if not specified global creds are used.' )
+    parser.add_argument( '-n', '--n-concurrent',
+                         type = int,
+                         required = False,
+                         default = 1,
+                         dest = 'nConcurrent',
+                         help = 'number of agents to spot-check concurrently.' )
+    parser.add_argument( '--no-windows',
+                         action = 'store_false',
+                         default = True,
+                         required = False,
+                         dest = 'is_windows',
+                         help = 'do NOT apply to Windows agents.' )
+    parser.add_argument( '--no-linux',
+                         action = 'store_false',
+                         default = True,
+                         required = False,
+                         dest = 'is_linux',
+                         help = 'do NOT apply to Linux agents.' )
+    parser.add_argument( '--no-macos',
+                         action = 'store_false',
+                         default = True,
+                         required = False,
+                         dest = 'is_macos',
+                         help = 'do NOT apply to MacOS agents.' )
+                         
+    parser.add_argument( '-f', '--file',
+                         action = 'append',
+                         required = False,
+                         default = [],
+                         dest = 'files',
+                         help = 'file to look for.' )
+    parser.add_argument( '-fp', '--file-pattern',
+                         action = 'append',
+                         nargs = 2,
+                         required = False,
+                         default = [],
+                         dest = 'filepatterns',
+                         help = 'takes 2 arguments, first is a directory, second is a file pattern like "*.exe".' )
+    parser.add_argument( '-rk', '--registry-key',
+                         action = 'append',
+                         required = False,
+                         default = [],
+                         dest = 'registrykeys',
+                         help = 'registry key to look for.' )
+    parser.add_argument( '-rv', '--registry-value',
+                         action = 'append',
+                         nargs = 2,
+                         required = False,
+                         default = [],
+                         dest = 'registryvalues',
+                         help = 'takes 2 arguments, first is a registry key, second is the value to look for in the key.' )
+    
+    args = parser.parse_args()
+    
+    # Get creds if we need them.
+    if args.oid is not None:
+        secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+    else:
+        secretApiKey = None
+    
+    def _genericSpotCheck( sensor ):
+        global args
+        for file in args.files:
+            response = sensor.simpleRequest( r'file_info "%s"' % file, timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+            
+            if 0 != response[ 'event' ].get( 'ERROR', 0 ):
+                # File probably not found.
+                continue
+            
+            # File was found.
+            fileInfo = response[ 'event' ]
+            
+            # Try to ge the hash.
+            response = sensor.simpleRequest( r'file_hash "%s"' % file, timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+                
+            fileHash = None
+            if 0 == response[ 'event' ].get( 'ERROR', 0 ):
+                # We got a hash.
+                fileHash = response[ 'event' ]
+            
+            _reportHit( sensor, { 'file_info' : fileInfo, 'file_hash' : fileHash } )
+                
+        for directory, filePattern in args.filepatterns:
+            response = sensor.simpleRequest( r'dir_list "%s" "%s"' % ( directory, filePattern ), timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+            
+            for entry in response[ 'event' ][ 'DIRECTORY_LIST' ]:
+                _reportHit( sensor, { 'file_info' : fileInfo } )
+                
+        for regKey in args.registrykeys:
+            response = sensor.simpleRequest( r'reg_list "%s"' % ( regKey, ), timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+            
+            if 0 != response[ 'event' ][ 'ERROR' ]:
+                # Registry probably not found.
+                continue
+            
+            _reportHit( sensor, { 'reg_key' : response[ 'event' ] } )
+                
+        for regKey, regVal in args.registryvalues:
+            response = sensor.simpleRequest( r'reg_list "%s"' % ( regKey, ), timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+            
+            if 0 != response[ 'event' ][ 'ERROR' ]:
+                # Registry probably not found.
+                continue
+            
+            for valEntry in response[ 'event' ][ 'REGISTRY_VALUE' ]:
+                if valEntry.get( 'NAME', '' ).lower() == regVal.lower():
+                    _reportHit( sensor, { 'reg_key' : response[ 'event' ][ 'ROOT' ], 'reg_value' : valEntry } )
+        
+        return True
+    
+    def _reportHit( sensor, mtd ):
+        print( "! (%s): %s" % ( sensor, json.dumps( mtd  ) ) )
+    
+    def _onError( sensor, error ):
+        print( "X (%s): %s" % ( sensor, error ) )
+    
+    def _onOffline( sensor ):
+        print( "? (%s)" % ( sensor, ) )
+    
+    def _onDone( sensor ):
+        print( ". (%s)" % ( sensor, ) )
+        
+    
+    checker = SpotCheck( args.oid, 
+                         secretApiKey, 
+                         _genericSpotCheck, 
+                         cb_on_check_done = _onDone, 
+                         cb_on_offline = _onOffline, 
+                         cb_on_error = _onError, 
+                         is_windows = args.is_windows, 
+                         is_linux = args.is_linux,
+                         is_macos = args.is_macos,
+                         extra_params = { 'alt_port' : '8080' } )
+    
+    checker.start()
+    checker.wait( 3600 )

@@ -224,15 +224,17 @@ if __name__ == "__main__":
     gevent.signal( signal.SIGINT, _signal_handler )
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io firehose' )
-    parser.add_argument( 'oid',
-                         type = lambda x: str( uuid.UUID( x ) ),
-                         help = 'the OID to authenticate as.' )
     parser.add_argument( 'listen_interface',
                          type = str,
                          help = 'the local interface to listen on for firehose connections, like "0.0.0.0:4444".' )
     parser.add_argument( 'data_type',
                          type = str,
                          help = 'the type of data to receive in firehose, one of "event", "detect" or "audit".' )
+    parser.add_argument( '-o', '--oid',
+                         type = lambda x: str( uuid.UUID( x ) ),
+                         required = False,
+                         dest = 'oid',
+                         help = 'the OID to authenticate as, if not specified global creds are used.' )
     parser.add_argument( '-p', '--public-destination',
                          type = str,
                          dest = 'public_dest',
@@ -259,7 +261,10 @@ if __name__ == "__main__":
                          default = None,
                          help = 'firehose should only receive detections from this category.' )
     args = parser.parse_args()
-    secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+    if args.oid is not None:
+        secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+    else:
+        secretApiKey = None
 
     _printToStderr( "Registering..." )
     man = limacharlie.Manager( oid = args.oid, secret_api_key = secretApiKey )
