@@ -7,7 +7,23 @@ import traceback
 import json
 
 class SpotCheck( object ):
-    def __init__( self, oid, secret_api_key, cb_check, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True ):
+    def __init__( self, oid, secret_api_key, cb_check, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, tags = None ):
+        '''Perform a check for specific characteristics on all hosts matching some parameters.
+
+        Args:
+            oid (uuid str): the Organization ID, if None, global credentials will be used.
+            secret_api_key (str): the secret API key, if None, global credentials will be used.
+            cb_check (func(Sensor)): callback function for every matching sensor, implements main check logic, returns True when check is finalized.
+            cb_on_check_done (func(Sensor)): callabck when a sensor is done with a check.
+            cb_on_offline (func(Sensor)): callback when a sensor is offline so checking is delayed.
+            cb_on_error (func(Sensor, stackTrace)): callback when an error occurs while checking a sensor.
+            n_concurrent (int): number of sensors that should be checked concurrently, defaults to 1.
+            n_sec_between_online_checks (int): number of seconds to wait between attempts to check a sensor that is offline, default to 60.
+            is_windows (boolean): if True checks apply to Windows sensors, defaults to True.
+            is_linux (boolean): if True checks apply to Linux sensors, defaults to True.
+            is_macos (boolean): if True checks apply to MacOS sensors, defaults to True.
+            tags (str): comma-seperated list of tags sensors to check must have.
+        '''
         self._cbCheck = cb_check
         self._cbOnCheckDone = cb_on_check_done
         self._cbOnOffline = cb_on_offline
@@ -18,6 +34,8 @@ class SpotCheck( object ):
         self._isWindows = is_windows
         self._isLinux = is_linux
         self._isMacos = is_macos
+        
+        self._tags = tags
         
         self._threads = gevent.pool.Group()
         self._stopEvent = gevent.event.Event()
@@ -65,6 +83,12 @@ class SpotCheck( object ):
                 if platform == 'linux' and not self._isLinux:
                     continue
                 if platform == 'macos' and not self._isMacos:
+                    continue
+            
+            # If tags were set, check the sensor have them.
+            if self._tags is not None:
+                sensorTags = sensor.getTags()
+                if not all( [ ( x in sensorTags ) for x in self._tags ] ):
                     continue
             
             # Check to see if the sensor is online.
@@ -132,6 +156,12 @@ if __name__ == "__main__":
                          required = False,
                          dest = 'is_macos',
                          help = 'do NOT apply to MacOS agents.' )
+    parser.add_argument( '--tags',
+                         type = lambda x: [ _.strip().lower() for _ in x.split( ',' ) ],
+                         required = False,
+                         default = None,
+                         dest = 'tags',
+                         help = 'comma-seperated list of tags of the agents to check.' )
                          
     parser.add_argument( '-f', '--file',
                          action = 'append',
@@ -170,6 +200,7 @@ if __name__ == "__main__":
     
     def _genericSpotCheck( sensor ):
         global args
+        
         for file in args.files:
             response = sensor.simpleRequest( r'file_info "%s"' % file, timeout = 30 )
             if not response:
@@ -250,7 +281,7 @@ if __name__ == "__main__":
                          is_windows = args.is_windows, 
                          is_linux = args.is_linux,
                          is_macos = args.is_macos,
-                         extra_params = { 'alt_port' : '8080' } )
+                         tags = args.tags )
     
     checker.start()
     checker.wait( 3600 )
