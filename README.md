@@ -122,6 +122,15 @@ a look at the [samples](limacharlie/sample_configs/). Notice the use of the `inc
 statement. Using this statement you can combine multiple config files together, making
 it ideal for the management of complex rule sets and their versioning.
 
+#### Spot Checks
+`python -m limacharlie.SpotCheck --no-macos --no-linux --tags vip --file c:\\evil.exe`
+
+Used to perform Organization-wide checks for specific indicators of compromise. Available as a custom
+API `SpotCheck` object or as a module from the command line. Supports many types of IoCs like file names,
+directories, registry keys, file hashes and yara signatures.
+
+For detailed usage: `python -m limacharlie.SpotCheck --help`
+
 ### Examples:
 * [Basic Manager Operations](limacharlie/demo_manager.py)
 * [Basic Firehose Operations](limacharlie/demo_firehose.py)

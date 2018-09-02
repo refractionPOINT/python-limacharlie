@@ -171,11 +171,11 @@ if __name__ == "__main__":
                          help = 'file to look for.' )
     parser.add_argument( '-fp', '--file-pattern',
                          action = 'append',
-                         nargs = 2,
+                         nargs = 3,
                          required = False,
                          default = [],
                          dest = 'filepatterns',
-                         help = 'takes 2 arguments, first is a directory, second is a file pattern like "*.exe".' )
+                         help = 'takes 3 arguments, first is a directory, second is a file pattern like "*.exe", third is the depth of recursion in the directory.' )
     parser.add_argument( '-rk', '--registry-key',
                          action = 'append',
                          required = False,
@@ -189,6 +189,26 @@ if __name__ == "__main__":
                          default = [],
                          dest = 'registryvalues',
                          help = 'takes 2 arguments, first is a registry key, second is the value to look for in the key.' )
+    parser.add_argument( '-y', '--yara',
+                         action = 'append',
+                         required = False,
+                         default = [],
+                         dest = 'yarasystem',
+                         help = 'yara signature file path to scan system-wide with (expensive).' )
+    parser.add_argument( '-yf', '--yara-file',
+                         action = 'append',
+                         nargs = 4,
+                         required = False,
+                         default = [],
+                         dest = 'yarafiles',
+                         help = 'takes 4 arguments, first is a file path to yara signature, second is a directory, third is a file pattern (like "*.exe"), fourth is directory recursion depth.' )
+    parser.add_argument( '-yp', '--yara-process',
+                         action = 'append',
+                         nargs = 2,
+                         required = False,
+                         default = [],
+                         dest = 'yaraprocesses',
+                         help = 'takes 2 arguments, first is a file path to yara signature, second is a process executable path pattern to scan memory and files.' )
     
     args = parser.parse_args()
     
@@ -202,7 +222,7 @@ if __name__ == "__main__":
         global args
         
         for file in args.files:
-            response = sensor.simpleRequest( r'file_info "%s"' % file, timeout = 30 )
+            response = sensor.simpleRequest( 'file_info "%s"' % file, timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
             
@@ -214,7 +234,7 @@ if __name__ == "__main__":
             fileInfo = response[ 'event' ]
             
             # Try to ge the hash.
-            response = sensor.simpleRequest( r'file_hash "%s"' % file, timeout = 30 )
+            response = sensor.simpleRequest( 'file_hash "%s"' % file, timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
                 
@@ -225,16 +245,16 @@ if __name__ == "__main__":
             
             _reportHit( sensor, { 'file_info' : fileInfo, 'file_hash' : fileHash } )
                 
-        for directory, filePattern in args.filepatterns:
-            response = sensor.simpleRequest( r'dir_list "%s" "%s"' % ( directory, filePattern ), timeout = 30 )
+        for directory, filePattern, depth in args.filepatterns:
+            response = sensor.simpleRequest( 'dir_list "%s" "%s" -d %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
             
             for entry in response[ 'event' ][ 'DIRECTORY_LIST' ]:
-                _reportHit( sensor, { 'file_info' : fileInfo } )
+                _reportHit( sensor, { 'file_info' : entry } )
                 
         for regKey in args.registrykeys:
-            response = sensor.simpleRequest( r'reg_list "%s"' % ( regKey, ), timeout = 30 )
+            response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey, ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
             
@@ -245,7 +265,7 @@ if __name__ == "__main__":
             _reportHit( sensor, { 'reg_key' : response[ 'event' ] } )
                 
         for regKey, regVal in args.registryvalues:
-            response = sensor.simpleRequest( r'reg_list "%s"' % ( regKey, ), timeout = 30 )
+            response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey, ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
             
@@ -257,7 +277,64 @@ if __name__ == "__main__":
                 if valEntry.get( 'NAME', '' ).lower() == regVal.lower():
                     _reportHit( sensor, { 'reg_key' : response[ 'event' ][ 'ROOT' ], 'reg_value' : valEntry } )
         
+        for yaraSigFile in args.yarasystem:
+            with open( yaraSigFile, 'rb' ) as f:
+                yaraSig = f.read()
+            future = sensor.request( 'yara_scan \'%s\'' % ( yaraSig, ) )
+            _handleYaraTasking( sensor, future )
+
+        for yaraSigFile, directory, filePattern, depth in args.yarafiles:
+            with open( yaraSigFile, 'rb' ) as f:
+                yaraSig = f.read()
+            response = sensor.simpleRequest( 'dir_list "%s" "%s" -d %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth ), timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+            for fileEntry in response[ 'event' ][ 'DIRECTORY_LIST' ]:
+                filePath = fileEntry.get( 'FILE_PATH', None )
+                if filePath is None:
+                    continue
+                future = sensor.request( 'yara_scan \'%s\' -f "%s"' % ( yaraSig, filePath.replace( "\\", "\\\\" ) ) )
+                _handleYaraTasking( sensor, future )
+
+        for yaraSigFile, procPattern in args.yaraprocesses:
+            with open( yaraSigFile, 'rb' ) as f:
+                yaraSig = f.read()
+            future = sensor.request( 'yara_scan \'%s\' -e %s' % ( yaraSig, procPattern ) )
+            _handleYaraTasking( sensor, future )
+        
         return True
+    
+    def _handleYaraTasking( sensor, future ):
+        # Because the scan itself can take a LONG time, we will first wait to see the sensor
+        # actually received the tasking, and if it did then we'll wait.
+        nWait = 0
+        while True:
+            nWait += 1
+            gevent.sleep( 1 )
+            if future.wasReceived:
+                break
+            if nWait > 30:
+                raise Exception( 'timeout' )
+        
+        # Scan request was received, wait for responses.
+        isDone = False
+        while True:
+            responses = future.getNewResponses( timeout = 3600 )
+            if not responses:
+                raise Exception( 'timeout' )
+            for response in responses:
+                if 0 == response[ 'event' ].get( 'ERROR', 0 ):
+                    if 'done' == response[ 'event' ].get( 'ERROR_MESSAGE', None ):
+                        isDone = True
+                        continue
+                    # We got a hit, we don't care about individual hits right now.
+                    _reportHit( sensor, { 'yara' : response[ 'event' ] } )
+                else:
+                    # Ignore if we failed to scan file.
+                    pass
+            
+            if isDone:
+                break
     
     def _reportHit( sensor, mtd ):
         print( "! (%s): %s" % ( sensor, json.dumps( mtd  ) ) )
@@ -284,4 +361,4 @@ if __name__ == "__main__":
                          tags = args.tags )
     
     checker.start()
-    checker.wait( 3600 )
+    checker.wait( 60 * 60 * 24 * 30 * 365 )
