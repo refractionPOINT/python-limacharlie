@@ -5,6 +5,7 @@ import gevent
 import uuid
 import traceback
 import json
+import base64
 
 class SpotCheck( object ):
     def __init__( self, oid, secret_api_key, cb_check, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, tags = None ):
@@ -222,7 +223,7 @@ if __name__ == "__main__":
         global args
         
         for file in args.files:
-            response = sensor.simpleRequest( 'file_info "%s"' % file, timeout = 30 )
+            response = sensor.simpleRequest( 'file_info "%s"' % file.replace( '\\', '\\\\' ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
             
@@ -234,7 +235,7 @@ if __name__ == "__main__":
             fileInfo = response[ 'event' ]
             
             # Try to ge the hash.
-            response = sensor.simpleRequest( 'file_hash "%s"' % file, timeout = 30 )
+            response = sensor.simpleRequest( 'file_hash "%s"' % file.replace( '\\', '\\\\' ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
                 
@@ -254,7 +255,7 @@ if __name__ == "__main__":
                 _reportHit( sensor, { 'file_info' : entry } )
                 
         for regKey in args.registrykeys:
-            response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey, ), timeout = 30 )
+            response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey.replace( '\\', '\\\\' ), ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
             
@@ -265,7 +266,7 @@ if __name__ == "__main__":
             _reportHit( sensor, { 'reg_key' : response[ 'event' ] } )
                 
         for regKey, regVal in args.registryvalues:
-            response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey, ), timeout = 30 )
+            response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey.replace( '\\', '\\\\' ), ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
             
@@ -279,13 +280,13 @@ if __name__ == "__main__":
         
         for yaraSigFile in args.yarasystem:
             with open( yaraSigFile, 'rb' ) as f:
-                yaraSig = f.read()
-            future = sensor.request( 'yara_scan \'%s\'' % ( yaraSig, ) )
+                yaraSig = base64.b64encode( f.read() )
+            future = sensor.request( 'yara_scan %s' % ( yaraSig, ) )
             _handleYaraTasking( sensor, future )
 
         for yaraSigFile, directory, filePattern, depth in args.yarafiles:
             with open( yaraSigFile, 'rb' ) as f:
-                yaraSig = f.read()
+                yaraSig = base64.b64encode( f.read() )
             response = sensor.simpleRequest( 'dir_list "%s" "%s" -d %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
@@ -293,13 +294,13 @@ if __name__ == "__main__":
                 filePath = fileEntry.get( 'FILE_PATH', None )
                 if filePath is None:
                     continue
-                future = sensor.request( 'yara_scan \'%s\' -f "%s"' % ( yaraSig, filePath.replace( "\\", "\\\\" ) ) )
+                future = sensor.request( 'yara_scan %s -f "%s"' % ( yaraSig, filePath.replace( "\\", "\\\\" ) ) )
                 _handleYaraTasking( sensor, future )
 
         for yaraSigFile, procPattern in args.yaraprocesses:
             with open( yaraSigFile, 'rb' ) as f:
-                yaraSig = f.read()
-            future = sensor.request( 'yara_scan \'%s\' -e %s' % ( yaraSig, procPattern ) )
+                yaraSig = base64.b64encode( f.read() )
+            future = sensor.request( 'yara_scan %s -e %s' % ( yaraSig, procPattern.replace( '\\', '\\\\' ) ) )
             _handleYaraTasking( sensor, future )
         
         return True
@@ -358,7 +359,8 @@ if __name__ == "__main__":
                          is_windows = args.is_windows, 
                          is_linux = args.is_linux,
                          is_macos = args.is_macos,
-                         tags = args.tags )
+                         tags = args.tags,
+                         extra_params = { 'alt_port' : '8080' } )
     
     checker.start()
     checker.wait( 60 * 60 * 24 * 30 * 365 )
