@@ -359,8 +359,7 @@ if __name__ == "__main__":
                          is_windows = args.is_windows, 
                          is_linux = args.is_linux,
                          is_macos = args.is_macos,
-                         tags = args.tags,
-                         extra_params = { 'alt_port' : '8080' } )
+                         tags = args.tags )
     
     checker.start()
     checker.wait( 60 * 60 * 24 * 30 * 365 )
