@@ -16,12 +16,16 @@ class FutureResults( object ):
         self._newResultEvent = gevent.event.Event()
         self._results = []
         self._lock = gevent.lock.Semaphore()
+        self.wasReceived = False
 
     def _addNewResult( self, res ):
         with self._lock:
-            self._results.append( res )
-            self._nReceivedResults += 1
-            self._newResultEvent.set()
+            if 'CLOUD_NOTIFICATION' == res[ 'routing' ][ 'event_type' ]:
+                self.wasReceived = True
+            else:
+                self._results.append( res )
+                self._nReceivedResults += 1
+                self._newResultEvent.set()
 
     def getNewResponses( self, timeout = None ):
         '''Get new responses available, blocking for up to timeout seconds.

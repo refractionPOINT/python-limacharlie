@@ -17,7 +17,7 @@ _TIMEOUT_SEC = ( _CLOUD_KEEP_ALIVES * 2 ) + 1
 class Spout( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in pull mode.'''
 
-    def __init__( self, man, data_type, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
+    def __init__( self, man, data_type, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, extra_params = {} ):
         '''Connect to limacharlie.io to start receiving data.
 
         Args:
@@ -62,6 +62,8 @@ class Spout( object ):
             spoutParams[ 'tag' ] = self._tag
         if cat is not None:
             spoutParams[ 'cat' ] = self._cat
+        for k, v in extra_params.iteritems():
+            spoutParams[ k ] = v
         # Spouts work by doing a POST to the output.limacharlie.io service with the
         # OID, Secret Key and any Output parameters we want. This POST will return
         # us an HTTP 303 See Other with the actual URL where the output will be
@@ -75,6 +77,8 @@ class Spout( object ):
                                      stream = True, 
                                      allow_redirects = True, 
                                      timeout = _TIMEOUT_SEC )
+        if self._hConn.status_code != 200:
+            raise LcApiException( 'failed to open Spout: %s' % self._hConn.text )
         self._finalSpoutUrl = self._hConn.history[ 0 ].headers[ 'Location' ]
         self._threads.add( gevent.spawn( self._handleConnection ) )
         self._futureCleanupInterval = 30
@@ -177,12 +181,14 @@ if __name__ == "__main__":
     gevent.signal( signal.SIGINT, _signal_handler )
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io spout' )
-    parser.add_argument( 'oid',
-                         type = lambda x: str( uuid.UUID( x ) ),
-                         help = 'the OID to authenticate as.' )
     parser.add_argument( 'data_type',
                          type = str,
                          help = 'the type of data to receive in spout, one of "event", "detect" or "audit".' )
+    parser.add_argument( '-o', '--oid',
+                         type = lambda x: str( uuid.UUID( x ) ),
+                         required = False,
+                         dest = 'oid',
+                         help = 'the OID to authenticate as, if not specified global creds are used.' )
     parser.add_argument( '-i', '--investigation-id',
                          type = str,
                          dest = 'inv_id',

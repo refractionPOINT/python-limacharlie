@@ -16,6 +16,9 @@ if __name__ == "__main__":
 
   def debugPrint( msg ):
       print msg
+      
+  # This example uses interactive credentials, but see the README for alternative
+  # ways of getting credentials.
 
   man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ), 
                              secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ), 

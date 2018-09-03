@@ -79,6 +79,9 @@ h = None
 if __name__ == "__main__":
     import argparse
     print( "Starting" )
+    
+    # This example uses interactive credentials, but see the README for alternative
+    # ways of getting credentials.
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io demo hunter' )
     parser.add_argument( '-f', '--is-firehose',
