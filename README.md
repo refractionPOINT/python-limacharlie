@@ -25,6 +25,9 @@ acquired in the following order globally:
 1. `LC_CREDS_FILE` environment variable points to a YAML file with `oid: <OID>` and `api_key: <KEY>`.
 1. Assumes a creds file (like #2) is present at `~/.limacharlie`.
 
+To set your credentials in your home directory's `.limacharlie` file, use `python -m limacharlie login`, all
+future API / CLI commands in the future will automatically have access to those credentials.
+
 ### Importing
 ```python
 import limacharlie

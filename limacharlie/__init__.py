@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "1.6.0"
+__version__ = "2.0.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -20,10 +20,11 @@ if GLOBAL_API_KEY is None:
     _credsFile = os.environ.get( 'LC_CREDS_FILE', None )
     if _credsFile is None:
         _credsFile = os.path.expanduser( '~/.limacharlie' )
-    with open( _credsFile, 'rb' ) as f:
-        _credsFile = yaml.load( f.read() )
-        GLOBAL_OID = _credsFile[ 'oid' ]
-        GLOBAL_API_KEY = _credsFile[ 'api_key' ]
+    if os.path.isfile( _credsFile ):
+        with open( _credsFile, 'rb' ) as f:
+            _credsFile = yaml.load( f.read() )
+            GLOBAL_OID = _credsFile[ 'oid' ]
+            GLOBAL_API_KEY = _credsFile[ 'api_key' ]
 
 from .Manager import Manager
 from .Firehose import Firehose
