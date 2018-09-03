@@ -177,6 +177,13 @@ if __name__ == "__main__":
                          default = [],
                          dest = 'filepatterns',
                          help = 'takes 3 arguments, first is a directory, second is a file pattern like "*.exe", third is the depth of recursion in the directory.' )
+    parser.add_argument( '-fh', '--file-hash',
+                         action = 'append',
+                         nargs = 4,
+                         required = False,
+                         default = [],
+                         dest = 'filehashes',
+                         help = 'takes 3 arguments, first is a directory, second is a file pattern like "*.exe", third is the depth of recursion in the directory and the fourth is the sha256 hash to look for.' )
     parser.add_argument( '-rk', '--registry-key',
                          action = 'append',
                          required = False,
@@ -253,6 +260,20 @@ if __name__ == "__main__":
             
             for entry in response[ 'event' ][ 'DIRECTORY_LIST' ]:
                 _reportHit( sensor, { 'file_info' : entry } )
+        
+        for directory, filePattern, depth, hash in args.filehashes:
+            if 64 != len( hash ):
+                raise Exception( 'hash not valid sha256' )
+            try:
+                hash.decode( 'hex' )
+            except:
+                raise Exception( 'hash contains invalid characters' )
+            response = sensor.simpleRequest( 'dir_find_hash "%s" "%s" -d %s --hash %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth , hash ), timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+            
+            for entry in response[ 'event' ][ 'DIRECTORY_LIST' ]:
+                _reportHit( sensor, { 'file_hash' : entry } )
                 
         for regKey in args.registrykeys:
             response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey.replace( '\\', '\\\\' ), ), timeout = 30 )
