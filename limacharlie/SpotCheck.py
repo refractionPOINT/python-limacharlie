@@ -163,6 +163,12 @@ if __name__ == "__main__":
                          default = None,
                          dest = 'tags',
                          help = 'comma-seperated list of tags of the agents to check.' )
+    parser.add_argument( '--extra-params',
+                         type = lambda x: json.loads( x ),
+                         required = False,
+                         default = None,
+                         dest = 'extra_params',
+                         help = 'extra parameters to pass to the manager.' )
                          
     parser.add_argument( '-f', '--file',
                          action = 'append',
@@ -268,7 +274,7 @@ if __name__ == "__main__":
                 hash.decode( 'hex' )
             except:
                 raise Exception( 'hash contains invalid characters' )
-            response = sensor.simpleRequest( 'dir_find_hash "%s" "%s" -d %s --hash %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth , hash ), timeout = 30 )
+            response = sensor.simpleRequest( 'dir_find_hash "%s" "%s" -d %s --hash %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth , hash ), timeout = 3600 )
             if not response:
                 raise Exception( 'timeout' )
             
@@ -327,28 +333,16 @@ if __name__ == "__main__":
         return True
     
     def _handleYaraTasking( sensor, future ):
-        # Because the scan itself can take a LONG time, we will first wait to see the sensor
-        # actually received the tasking, and if it did then we'll wait.
-        nWait = 0
-        while True:
-            nWait += 1
-            gevent.sleep( 1 )
-            if future.wasReceived:
-                break
-            if nWait > 30:
-                raise Exception( 'timeout' )
-        
-        # Scan request was received, wait for responses.
         isDone = False
         while True:
             responses = future.getNewResponses( timeout = 3600 )
             if not responses:
                 raise Exception( 'timeout' )
             for response in responses:
+                if 'done' == response[ 'event' ].get( 'ERROR_MESSAGE', None ):
+                    isDone = True
+                    continue
                 if 0 == response[ 'event' ].get( 'ERROR', 0 ):
-                    if 'done' == response[ 'event' ].get( 'ERROR_MESSAGE', None ):
-                        isDone = True
-                        continue
                     # We got a hit, we don't care about individual hits right now.
                     _reportHit( sensor, { 'yara' : response[ 'event' ] } )
                 else:
@@ -380,7 +374,8 @@ if __name__ == "__main__":
                          is_windows = args.is_windows, 
                          is_linux = args.is_linux,
                          is_macos = args.is_macos,
-                         tags = args.tags )
+                         tags = args.tags,
+                         extra_params = args.extra_params )
     
     checker.start()
     checker.wait( 60 * 60 * 24 * 30 * 365 )

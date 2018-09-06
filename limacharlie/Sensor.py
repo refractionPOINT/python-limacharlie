@@ -2,6 +2,8 @@ import uuid
 
 from .utils import *
 
+import gevent
+
 class Sensor( object ):
     '''Representation of a limacharlie.io Sensor.'''
 
@@ -76,7 +78,7 @@ class Sensor( object ):
 
         return future
     
-    def simpleRequest( self, tasks, timeout = 30 ):
+    def simpleRequest( self, tasks, timeout = 30,  ):
         '''Make a request to the sensor assuming a single response.
         
         Args:
@@ -86,6 +88,19 @@ class Sensor( object ):
             a single event, or None if not received.
         '''
         future = self.request( tasks )
+        
+        # Although getting the command result may take a while, the receipt from the sensor
+        # should come back quickly so we will implement a static wait for that.
+        nWait = 0
+        while True:
+            nWait += 1
+            gevent.sleep( 1 )
+            if future.wasReceived:
+                break
+            if nWait > 30:
+                return None
+        
+        # We know the sensor got the tasking, now we will wait according to variable timeout.
         responses = future.getNewResponses( timeout = timeout )
         if responses:
             return responses[ 0 ]
