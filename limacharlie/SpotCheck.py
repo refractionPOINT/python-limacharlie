@@ -8,6 +8,8 @@ import json
 import base64
 
 class SpotCheck( object ):
+    '''Representation of the process of looking for various Indicators of Compromise on the fleet.'''
+    
     def __init__( self, oid, secret_api_key, cb_check, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, tags = None ):
         '''Perform a check for specific characteristics on all hosts matching some parameters.
 
@@ -46,6 +48,8 @@ class SpotCheck( object ):
         self._lc = Manager( oid, secret_api_key, inv_id = 'spotcheck-%s' % str( uuid.uuid4() )[ : 4 ], is_interactive = True, extra_params = extra_params )
     
     def start( self ):
+        '''Start the SpotCheck process, returns immediately.
+        '''
         # We start by listing all the sensors in the org using paging.
         sensors = None
         while True:
@@ -62,10 +66,20 @@ class SpotCheck( object ):
         # Done, the threads will do the checks.
     
     def stop( self ):
+        '''Stop the SpotCheck process, returns once activity has stopped.
+        '''
         self._stopEvent.set()
         self._threads.join()
     
     def wait( self, timeout = None ):
+        '''Wait for SpotCheck to be complete, or timeout occurs.
+
+        Args:
+            timeout (float): if specified, number of seconds to wait for SpotCheck to complete.
+
+        Returns:
+            True if SpotCheck is finished, False if a timeout was specified and reached before the SpotCheck is done.
+        '''
         return self._threads.join( timeout = timeout )
         
     def _performSpotChecks( self ):
