@@ -36,6 +36,14 @@ limacharlie.Sensor module
     :undoc-members:
     :show-inheritance:
 
+limacharlie.SpotCheck module
+----------------------------
+
+.. automodule:: limacharlie.SpotCheck
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 limacharlie.Spout module
 ------------------------
 
@@ -60,40 +68,40 @@ limacharlie.Webhook module
     :undoc-members:
     :show-inheritance:
 
-limacharlie.demo_firehose module
---------------------------------
+limacharlie.demo\_firehose module
+---------------------------------
 
 .. automodule:: limacharlie.demo_firehose
     :members:
     :undoc-members:
     :show-inheritance:
 
-limacharlie.demo_hunter module
-------------------------------
+limacharlie.demo\_hunter module
+-------------------------------
 
 .. automodule:: limacharlie.demo_hunter
     :members:
     :undoc-members:
     :show-inheritance:
 
-limacharlie.demo_interactive_sensor module
-------------------------------------------
+limacharlie.demo\_interactive\_sensor module
+--------------------------------------------
 
 .. automodule:: limacharlie.demo_interactive_sensor
     :members:
     :undoc-members:
     :show-inheritance:
 
-limacharlie.demo_manager module
--------------------------------
+limacharlie.demo\_manager module
+--------------------------------
 
 .. automodule:: limacharlie.demo_manager
     :members:
     :undoc-members:
     :show-inheritance:
 
-limacharlie.demo_spout module
------------------------------
+limacharlie.demo\_spout module
+------------------------------
 
 .. automodule:: limacharlie.demo_spout
     :members:
