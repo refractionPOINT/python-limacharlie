@@ -32,7 +32,6 @@ class Spout( object ):
 
         self._man = man
         self._oid = man._oid
-        self._apiKey = man._secret_api_key
         self._data_type = data_type
         self._cat = cat
         self._tag = tag
@@ -55,7 +54,11 @@ class Spout( object ):
         self._threads = gevent.pool.Group()
 
         # Connect to limacharlie.io.
-        spoutParams = { 'api_key' : self._apiKey, 'type' : self._data_type }
+        spoutParams = { 'type' : self._data_type }
+        if man._secret_api_key:
+            spoutParams[ 'api_key' ] = man._secret_api_key
+        else:
+            spoutParams[ 'jwt' ] = man._jwt
         if inv_id is not None:
             spoutParams[ 'inv_id' ] = self._invId
         if tag is not None:

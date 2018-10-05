@@ -24,7 +24,7 @@ HTTP_UNAUTHORIZED = 401
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {} ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -34,6 +34,7 @@ class Manager( object ):
             print_debug_fn (function(message)): a callback function that will receive detailed debug messages.
             is_interactive (bool): if True, the manager will provide a root investigation and Spout so that tasks sent to Sensors can be tracked in realtime automatically; requires an inv_id to be set.
             extra_params (dict): optional key / values passed to interactive spout.
+            jwt (str): optionally specify a single JWT to use for authentication.
         '''
         # If no creds were provided, use the global ones.
         if oid is None:
@@ -48,10 +49,11 @@ class Manager( object ):
         try:
             uuid.UUID( secret_api_key )
         except:
-            raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
+            if jwt is None:
+                raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
         self._oid = oid
         self._secret_api_key = secret_api_key
-        self._jwt = None
+        self._jwt = jwt
         self._debug = print_debug_fn
         self._lastSensorListContinuationToken = None
         self._inv_id = inv_id
@@ -77,6 +79,8 @@ class Manager( object ):
 
     def _refreshJWT( self ):
         try:
+            if self._secret_api_key is None:
+                raise Exception( 'No API key set' )
             u = urllib2.urlopen( API_TO_JWT_URL % ( self._oid, self._secret_api_key ) )
             self._jwt = json.loads( u.read() )[ 'jwt' ]
             u.close()
