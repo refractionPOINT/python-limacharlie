@@ -15,7 +15,7 @@ from .utils import *
 class Firehose( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in push mode.'''
 
-    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, ssl_cert = None, ssl_key = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None ):
+    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, ssl_cert = None, ssl_key = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, sid = None ):
         '''Create a listener and optionally register it with limacharlie.io automatically.
 
         If name is None, the Firehose will assume the Output is already created
@@ -38,6 +38,7 @@ class Firehose( object ):
             inv_id (str): only receive events marked with this investigation ID.
             tag (str): only receive Events from Sensors with this Tag.
             cat (str): only receive Detections of this Category.
+            sid (str): only receive Detections and Events from this Sensor.
         '''
 
         self._manager = manager
@@ -99,6 +100,8 @@ class Firehose( object ):
                     kwOutputArgs[ 'tag' ] = tag
                 if cat is not None:
                     kwOutputArgs[ 'cat' ] = cat
+                if sid is not None:
+                    kwOutputArgs[ 'sid' ] = sid
                 self._manager.add_output( self._output_name, 
                                           'syslog', 
                                           self._data_type, 
@@ -260,6 +263,11 @@ if __name__ == "__main__":
                          dest = 'cat',
                          default = None,
                          help = 'firehose should only receive detections from this category.' )
+    parser.add_argument( '-s', '--sid',
+                         type = lambda x: str( uuid.UUID( x ) ),
+                         dest = 'sid',
+                         default = None,
+                         help = 'firehose should only receive detections and events from this sensor.' )
     args = parser.parse_args()
     if args.oid is not None:
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
@@ -273,7 +281,8 @@ if __name__ == "__main__":
                                name = args.name,
                                inv_id = args.inv_id,
                                tag = args.tag,
-                               cat = args.cat )
+                               cat = args.cat,
+                               sid = args.sid )
 
     _printToStderr( "Starting to listen..." )
     while True:
