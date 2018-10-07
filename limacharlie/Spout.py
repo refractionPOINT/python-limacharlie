@@ -17,7 +17,7 @@ _TIMEOUT_SEC = ( _CLOUD_KEEP_ALIVES * 2 ) + 1
 class Spout( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in pull mode.'''
 
-    def __init__( self, man, data_type, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, extra_params = {} ):
+    def __init__( self, man, data_type, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, sid = None, extra_params = {} ):
         '''Connect to limacharlie.io to start receiving data.
 
         Args:
@@ -28,6 +28,7 @@ class Spout( object ):
             inv_id (str): only receive events marked with this investigation ID.
             tag (str): only receive Events from Sensors with this Tag.
             cat (str): only receive Detections of this Category.
+            sid (str): only receive Events or Detections from this Sensor.
         '''
 
         self._man = man
@@ -36,6 +37,7 @@ class Spout( object ):
         self._cat = cat
         self._tag = tag
         self._invId = inv_id
+        self._sid = sid
         self._is_parse = is_parse
         self._max_buffer = max_buffer
         self._dropped = 0
@@ -65,6 +67,8 @@ class Spout( object ):
             spoutParams[ 'tag' ] = self._tag
         if cat is not None:
             spoutParams[ 'cat' ] = self._cat
+        if sid is not None:
+            spoutParams[ 'sid' ] = self._sid
         for k, v in extra_params.iteritems():
             spoutParams[ k ] = v
         # Spouts work by doing a POST to the output.limacharlie.io service with the
@@ -207,6 +211,11 @@ if __name__ == "__main__":
                          dest = 'cat',
                          default = None,
                          help = 'spout should only receive detections from this category.' )
+    parser.add_argument( '-s', '--sid',
+                         type = lambda x: str( uuid.UUID( x ) ),
+                         dest = 'sid',
+                         default = None,
+                         help = 'spout should only receive detections or events from this sensor.' )
     args = parser.parse_args()
     secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
 
@@ -216,7 +225,8 @@ if __name__ == "__main__":
                             args.data_type, 
                             inv_id = args.inv_id,
                             tag = args.tag,
-                            cat = args.cat )
+                            cat = args.cat,
+                            sid = args.sid )
 
     _printToStderr( "Starting to listen..." )
     while True:
