@@ -68,6 +68,28 @@ class Firehose( object ):
 
         if self._data_type not in ( 'event', 'detect', 'audit' ):
             raise LcApiException( 'Invalid data type: %s' % self._data_type )
+        
+        # Setup internal structures.
+        self.queue = Queue( maxsize = self._max_buffer )
+
+        if self._ssl_cert is None or self._ssl_key is None:
+            # Generate certs.
+            _, tmpKey = tempfile.mkstemp()
+            _, tmpCert = tempfile.mkstemp()
+            if 0 != os.system( 'openssl req -x509 -days 36500 -newkey rsa:4096 -keyout %s -out %s -nodes -sha256 -subj "/C=US/ST=CA/L=Mountain View/O=refractionPOINT/CN=limacharlie_firehose" > /dev/null 2>&1' % ( tmpKey, tmpCert ) ):
+                raise LcApiException( "Failed to generate self-signed certificate." )
+        else:
+            # Use the keys provided.
+            tmpKey = self._ssl_key
+            tmpCert = self._ssl_cert
+
+        # Start the server.
+        self._sslCtx = ssl.SSLContext( ssl.PROTOCOL_TLSv1_2 )
+        self._sslCtx.load_cert_chain( certfile = tmpCert, keyfile = tmpKey )
+        self._sslCtx.set_ciphers( 'ECDHE-RSA-AES128-GCM-SHA256' )
+        self._server = StreamServer( ( self._listen_on, self._listen_on_port ), self._handleNewClient )
+        self._server.start()
+        self._manager._printDebug( 'Listening for connections.' )
 
         # If the name is specified we assume the user wants us to register
         # the firehose directly using the API.
@@ -111,28 +133,6 @@ class Firehose( object ):
                 self._manager._printDebug( 'Registration already done.' )
         else:
             self._manager._printDebug( 'Registration not required.' )
-
-        # Setup internal structures.
-        self.queue = Queue( maxsize = self._max_buffer )
-
-        if self._ssl_cert is None or self._ssl_key is None:
-            # Generate certs.
-            _, tmpKey = tempfile.mkstemp()
-            _, tmpCert = tempfile.mkstemp()
-            if 0 != os.system( 'openssl req -x509 -days 36500 -newkey rsa:4096 -keyout %s -out %s -nodes -sha256 -subj "/C=US/ST=CA/L=Mountain View/O=refractionPOINT/CN=limacharlie_firehose" > /dev/null 2>&1' % ( tmpKey, tmpCert ) ):
-                raise LcApiException( "Failed to generate self-signed certificate." )
-        else:
-            # Use the keys provided.
-            tmpKey = self._ssl_key
-            tmpCert = self._ssl_cert
-
-        # Start the server.
-        self._sslCtx = ssl.SSLContext( ssl.PROTOCOL_TLSv1_2 )
-        self._sslCtx.load_cert_chain( certfile = tmpCert, keyfile = tmpKey )
-        self._sslCtx.set_ciphers( 'ECDHE-RSA-AES128-GCM-SHA256' )
-        self._server = StreamServer( ( self._listen_on, self._listen_on_port ), self._handleNewClient )
-        self._server.start()
-        self._manager._printDebug( 'Listening for connections.' )
 
     def shutdown( self ):
         '''Stop receiving data and potentially unregister the Output (if created here).'''
