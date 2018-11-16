@@ -18,7 +18,7 @@ class Sync( object ):
 
     def _coreRuleContent( self, rule ):
         return { k : v for k, v in rule.iteritems() if k in ( 'name', 'detect', 'respond' ) }
-    
+
     def _coreOutputContent( self, output ):
         return { k : v for k, v in output.iteritems() if k != 'name' }
 
@@ -86,22 +86,22 @@ class Sync( object ):
         if not isNoRules:
             # Get the current rules, we will try not to push for no reason.
             currentRules = { k : self._coreRuleContent( v ) for k, v in self._man.rules().iteritems() }
-        
+
             # Start by adding the rules with isReplace.
             for ruleName, rule in asConf.get( 'rules', {} ).iteritems():
                 rule = self._coreRuleContent( rule )
                 # Check to see if it is already in the current rules and in the right format.
                 if ruleName in currentRules:
-                    if ( self._isJsonEqual( rule[ 'detect' ], currentRules[ ruleName ][ 'detect' ] ) and 
+                    if ( self._isJsonEqual( rule[ 'detect' ], currentRules[ ruleName ][ 'detect' ] ) and
                         self._isJsonEqual( rule[ 'respond' ], currentRules[ ruleName ][ 'respond' ] ) ):
                         # Exact same, no point in pushing.
                         yield ( '=', 'rule', ruleName )
                         continue
-    
+
                 if not isDryRun:
                     self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True )
                 yield ( '+', 'rule', ruleName )
-    
+
             # If we are not told to isForce, this is it.
             if isForce:
                 # Now if isForce was specified, list existing rules and remove the ones
@@ -111,11 +111,11 @@ class Sync( object ):
                         if not isDryRun:
                             self._man.del_rule( ruleName )
                         yield ( '-', 'rule', ruleName )
-        
+
         if not isNoOutputs:
             # Get the current outputs, we will try not to push for no reason.
             currentOutputs = { k : self._coreOutputContent( v ) for k, v in self._man.outputs().iteritems() }
-            
+
             for outputName, output in asConf.get( 'outputs', {} ).iteritems():
                 if outputName in currentOutputs:
                     if self._isJsonEqual( output, currentOutputs[ outputName ] ):
@@ -125,7 +125,7 @@ class Sync( object ):
                 if not isDryRun:
                     self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.iteritems() if k not in ( 'module', 'for' ) } )
                 yield ( '+', 'output', outputName )
-            
+
             if isForce:
                 # Now if isForce was specified, list the existing outputs and remove the ones
                 # not in our list.
@@ -211,12 +211,12 @@ if __name__ == '__main__':
                          help = 'path to the LCConf file to use' )
     parser.add_argument( '-k', '--api-key',
                          type = str,
-                         default = '-',
+                         default = None,
                          required = False,
                          dest = 'apiKey',
                          help = 'path to the file holding your API Key, or "-" to consume it from STDIN' )
     args = parser.parse_args()
-    
+
     if args.isDryRun:
         print( '!!! DRY RUN !!!' )
     if args.isNoRules:
