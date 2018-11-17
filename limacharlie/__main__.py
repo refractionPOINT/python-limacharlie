@@ -53,6 +53,7 @@ if __name__ == "__main__":
             # General listing of existing environments.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
                 conf = yaml.load( f.read() )
+            print( "Current environment: %s\n" % ( os.environ.get( 'LC_CURRENT_ENV', None ) ) )
             print( "Available environments:" )
             for env in conf.get( 'env', {} ).iterkeys():
                 print( env )
