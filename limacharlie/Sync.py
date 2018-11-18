@@ -160,7 +160,7 @@ class Sync( object ):
             # Revert the previous CWD.
             os.chdir( currentPath )
 
-            for cat in ( 'rules', ):
+            for cat in ( 'rules', 'outputs' ):
                 subCat = subConf.get( cat, None )
                 if subCat is not None:
                     asConf.setdefault( cat, {} ).update( subCat )

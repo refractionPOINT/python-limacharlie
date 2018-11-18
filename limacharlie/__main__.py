@@ -10,7 +10,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser( prog = 'limacharlie.io' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" which stores your OID/API-KEY locally unencrypted' )
+                         help = 'management action, currently supported "login", "use" and "init" which stores your OID/API-KEY locally unencrypted' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -53,12 +53,14 @@ if __name__ == "__main__":
             # General listing of existing environments.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
                 conf = yaml.load( f.read() )
-            print( "Current environment: %s\n" % ( os.environ.get( 'LC_CURRENT_ENV', None ) ) )
+            print( "Current environment: %s\n" % ( os.environ.get( 'LC_CURRENT_ENV', 'default' ) ) )
             print( "Available environments:" )
             for env in conf.get( 'env', {} ).iterkeys():
                 print( env )
             if 'oid' in conf and 'api_key' in conf:
                 print( 'default' )
+
+            print( "\npython -m limacharlie use <environment_name> to change environment" )
         else:
             # Selecting a specific environment.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
@@ -69,5 +71,97 @@ if __name__ == "__main__":
                 print( "Environment not found" )
                 sys.exit( 1 )
             print( 'export LC_CURRENT_ENV="%s"' % args.opt_arg )
+    elif args.action.lower() == 'init':
+        if args.opt_arg is None:
+            print( "existing directory name as argument is required" )
+            sys.exit( 1 )
+        rootPath = os.path.abspath( args.opt_arg )
+        if not os.path.isdir( rootPath ):
+            print( "directory does not exist: %s" % ( rootPath, ) )
+            sys.exit( 1 )
+        with open( os.path.join( rootPath, 'LCConf' ), 'wb' ) as f:
+            f.write( yaml.safe_dump( {
+                "version" : 2,
+                "include" : [
+                    "outputs.yaml",
+                    "management.yaml",
+                    "fim.yaml",
+                ]
+            }, default_flow_style = False ) )
+        with open( os.path.join( rootPath, 'outputs.yaml' ), 'wb' ) as f:
+            f.write( yaml.safe_dump( {
+                "version" : 2,
+                "ouputs" : {}
+            }, default_flow_style = False ) )
+        with open( os.path.join( rootPath, 'management.yaml' ), 'wb' ) as f:
+            f.write( yaml.safe_dump( {
+                "version" : 2,
+                "rules" : {
+                    "isolate-network" : {
+                        "detect" : {
+                            "op": "and",
+                            "rules" : [
+                                {
+                                    "op" : "is tagged",
+                                    "tag" : "isolated",
+                                    "event" : "CONNECTED",
+                                },
+                                {
+                                    "op" : "is",
+                                    "path" : "event/IS_SEGREGATED",
+                                    "value" : 0,
+                                }
+                            ]
+                        },
+                        "respond" : [
+                            {
+                                "action" : "task",
+                                "command" : "segregate_network",
+                            }
+                        ]
+                    },
+                    "rejoin-network" : {
+                        "detect" : {
+                            "op": "and",
+                            "rules" : [
+                                {
+                                    "op" : "is tagged",
+                                    "tag" : "isolated",
+                                    "not" : True,
+                                    "event" : "CONNECTED",
+                                },
+                                {
+                                    "op" : "is",
+                                    "path" : "event/IS_SEGREGATED",
+                                    "value" : 1,
+                                }
+                            ]
+                        },
+                        "respond" : [
+                            {
+                                "action" : "task",
+                                "command" : "rejoin_network",
+                            }
+                        ]
+                    },
+                    "high-performance" : {
+                        "detect" : {
+                            "op" : "is tagged",
+                            "tag" : "high-perf",
+                            "event" : "CONNECTED",
+                        },
+                        "respond" : [
+                            {
+                                "action" : "task",
+                                "command" : "set_performance_mode --is-enabled",
+                            }
+                        ]
+                    }
+                }
+            }, default_flow_style = False ) )
+        with open( os.path.join( rootPath, 'fim.yaml' ), 'wb' ) as f:
+            f.write( yaml.safe_dump( {
+                "version" : 2,
+            }, default_flow_style = False ) )
     else:
         raise Exception( 'invalid action' )
