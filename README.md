@@ -28,7 +28,19 @@ acquired in the following order globally:
 To set your credentials in your home directory's `.limacharlie` file, use `python -m limacharlie login`, all
 future API / CLI commands in the future will automatically have access to those credentials.
 
-### Importing
+The "login" mechanism supports multiple environments.
+
+Listing environments:
+```
+python -m limacharlie use
+```
+and then selecting a specific environment:
+```
+. <(python -m limacharlue use my-home-org)
+```
+note the use of `.)
+
+## Im source the output from the `use my-home-org` command which outputs an `export` command.porting
 ```python
 import limacharlie
 
@@ -64,10 +76,10 @@ It supports a `task`, `tag`, `untag` and `getTags` functions. This
 is the main way to interact with a specific sensor.
 
 #### Integrated Behavior
-This mode is available by specifying an `inv_id` and `is_interactive = True` to a 
-Manager object. It makes the Manager setup the relevant comms channels so that any 
-Sensor objects it produces support the `.request()` function which behaves like the 
-`.task()` function but it also returns a `FutureResponses` object that is a proxy 
+This mode is available by specifying an `inv_id` and `is_interactive = True` to a
+Manager object. It makes the Manager setup the relevant comms channels so that any
+Sensor objects it produces support the `.request()` function which behaves like the
+`.task()` function but it also returns a `FutureResponses` object that is a proxy
 for any responses from the task.
 
 For a better idea on usage see [the demo](limacharlie/demo_interactive_sensor.py).

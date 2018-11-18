@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "2.1.2"
+__version__ = "2.2.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -23,8 +23,17 @@ if GLOBAL_API_KEY is None:
     if os.path.isfile( _credsFile ):
         with open( _credsFile, 'rb' ) as f:
             _credsFile = yaml.load( f.read() )
-            GLOBAL_OID = _credsFile[ 'oid' ]
-            GLOBAL_API_KEY = _credsFile[ 'api_key' ]
+            _lcEnv = os.environ.get( 'LC_CURRENT_ENV', 'default' )
+            if _lcEnv == '':
+                _lcEnv = 'default'
+            if _lcEnv == 'default':
+                GLOBAL_OID = _credsFile[ 'oid' ]
+                GLOBAL_API_KEY = _credsFile[ 'api_key' ]
+            else:
+                if _credsFile.get( 'env', {} ).get( _lcEnv, None ) is None:
+                    raise Exception( "LimaCharlie environment specified in LC_CURRENT_ENV could not be found in local config file: ~/.limacharlie" )
+                GLOBAL_OID = _credsFile[ 'env' ][ _lcEnv ][ 'oid' ]
+                GLOBAL_API_KEY = _credsFile[ 'env' ][ _lcEnv ][ 'api_key' ]
 
 from .Manager import Manager
 from .Firehose import Firehose
