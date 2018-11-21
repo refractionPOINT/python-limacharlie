@@ -27,6 +27,7 @@ class Sensor( object ):
         self.responses = None
         self._platform = None
         self._architecture = None
+        self._hostname = None
 
     def setInvId( self, inv_id ):
         '''Set an investigation ID to be applied to all actions done using the object.
@@ -171,6 +172,7 @@ class Sensor( object ):
 
         self._platform = data[ 'plat' ]
         self._architecture = data[ 'arch' ]
+        self._hostname = data.get( 'hostname', None )
 
         return data
 
@@ -217,6 +219,17 @@ class Sensor( object ):
             # If the platform has not been cached yet, retrieve the info.
             self.getInfo()
         return self._platform == self._PLATFORM_LINUX
+
+    def hostname( self ):
+        '''Get the hostname of this sensor.
+
+        Returns:
+            a string of the hostname.
+        '''
+        if self._hostname is None:
+            # If the hostname has not been cached yet, retrieve the info.
+            self.getInfo()
+        return self._hostname
 
     def __str__( self ):
         return self.sid
