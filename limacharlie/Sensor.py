@@ -81,16 +81,20 @@ class Sensor( object ):
 
         return future
 
-    def simpleRequest( self, tasks, timeout = 30,  ):
+    def simpleRequest( self, tasks, timeout = 30 ):
         '''Make a request to the sensor assuming a single response.
 
         Args:
             tasks (str or list of str): tasks to send in the command line format described in official documentation.
 
         Returns:
-            a single event, or None if not received.
+            a single event (if tasks was a single task), a list of events (if tasks was a list), or None if not received.
         '''
         future = self.request( tasks )
+
+        nExpectedResponses = 1
+        if isinstance( tasks, ( list, tuple ) ):
+            nExpectedResponses = len( tasks )
 
         # Although getting the command result may take a while, the receipt from the sensor
         # should come back quickly so we will implement a static wait for that.
@@ -104,9 +108,17 @@ class Sensor( object ):
                 return None
 
         # We know the sensor got the tasking, now we will wait according to variable timeout.
-        responses = future.getNewResponses( timeout = timeout )
-        if responses:
-            return responses[ 0 ]
+        allResponses = []
+        while True:
+            responses = future.getNewResponses( timeout = timeout )
+            if not responses:
+                break
+            if 1 == nExpectedResponses:
+                return responses[ 0 ]
+            else:
+                allResponses += responses
+                if len( allResponses ) >= nExpectedResponses:
+                    return allResponses
         return None
 
     def tag( self, tag, ttl ):
@@ -167,12 +179,13 @@ class Sensor( object ):
             self._ARCHITECTURE_X64 : 'x64',
         }
         data = data[ 'info' ]
-        data[ 'plat' ] = platToString[ data[ 'plat' ] ]
-        data[ 'arch' ] = archToString[ data[ 'arch' ] ]
 
         self._platform = data[ 'plat' ]
         self._architecture = data[ 'arch' ]
         self._hostname = data.get( 'hostname', None )
+
+        data[ 'plat' ] = platToString[ data[ 'plat' ] ]
+        data[ 'arch' ] = archToString[ data[ 'arch' ] ]
 
         return data
 
