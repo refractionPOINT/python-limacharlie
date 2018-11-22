@@ -38,9 +38,9 @@ and then selecting a specific environment:
 ```
 . <(python -m limacharlue use my-home-org)
 ```
-note the use of `.)
+note the use of `. <()` to source the output from the `use my-home-org` command which outputs an `export` command.
 
-## Im source the output from the `use my-home-org` command which outputs an `export` command.porting
+### Importing
 ```python
 import limacharlie
 
