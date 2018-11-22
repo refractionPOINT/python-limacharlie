@@ -25,10 +25,13 @@ class Sensor( object ):
         self.sid = str( sid )
         self._invId = None
         self.responses = None
+        self._platform = None
+        self._architecture = None
+        self._hostname = None
 
     def setInvId( self, inv_id ):
         '''Set an investigation ID to be applied to all actions done using the object.
-            
+
         Args:
             inv_id (str): investigation ID to propagate.
         '''
@@ -77,18 +80,22 @@ class Sensor( object ):
         self.task( tasks, inv_id = thisTrackingId )
 
         return future
-    
-    def simpleRequest( self, tasks, timeout = 30,  ):
+
+    def simpleRequest( self, tasks, timeout = 30 ):
         '''Make a request to the sensor assuming a single response.
-        
+
         Args:
             tasks (str or list of str): tasks to send in the command line format described in official documentation.
-        
+
         Returns:
-            a single event, or None if not received.
+            a single event (if tasks was a single task), a list of events (if tasks was a list), or None if not received.
         '''
         future = self.request( tasks )
-        
+
+        nExpectedResponses = 1
+        if isinstance( tasks, ( list, tuple ) ):
+            nExpectedResponses = len( tasks )
+
         # Although getting the command result may take a while, the receipt from the sensor
         # should come back quickly so we will implement a static wait for that.
         nWait = 0
@@ -99,11 +106,19 @@ class Sensor( object ):
                 break
             if nWait > 30:
                 return None
-        
+
         # We know the sensor got the tasking, now we will wait according to variable timeout.
-        responses = future.getNewResponses( timeout = timeout )
-        if responses:
-            return responses[ 0 ]
+        allResponses = []
+        while True:
+            responses = future.getNewResponses( timeout = timeout )
+            if not responses:
+                break
+            if 1 == nExpectedResponses:
+                return responses[ 0 ]
+            else:
+                allResponses += responses
+                if len( allResponses ) >= nExpectedResponses:
+                    return allResponses
         return None
 
     def tag( self, tag, ttl ):
@@ -164,6 +179,11 @@ class Sensor( object ):
             self._ARCHITECTURE_X64 : 'x64',
         }
         data = data[ 'info' ]
+
+        self._platform = data[ 'plat' ]
+        self._architecture = data[ 'arch' ]
+        self._hostname = data.get( 'hostname', None )
+
         data[ 'plat' ] = platToString[ data[ 'plat' ] ]
         data[ 'arch' ] = archToString[ data[ 'arch' ] ]
 
@@ -179,9 +199,53 @@ class Sensor( object ):
 
         data = data[ 'online' ]
         return ( len( data ) > 0 ) and ( 'error' not in data )
-    
+
+    def isWindows( self ):
+        '''Checks if the sensor is a Windows OS.
+
+        Returns:
+            True if the sensor is Windows.
+        '''
+        if self._platform is None:
+            # If the platform has not been cached yet, retrieve the info.
+            self.getInfo()
+        return self._platform == self._PLATFORM_WINDOWS
+
+    def isMac( self ):
+        '''Checks if the sensor is a Mac OS.
+
+        Returns:
+            True if the sensor is Mac.
+        '''
+        if self._platform is None:
+            # If the platform has not been cached yet, retrieve the info.
+            self.getInfo()
+        return self._platform == self._PLATFORM_MACOS
+
+    def isLinux( self ):
+        '''Checks if the sensor is a Linux OS.
+
+        Returns:
+            True if the sensor is Linux.
+        '''
+        if self._platform is None:
+            # If the platform has not been cached yet, retrieve the info.
+            self.getInfo()
+        return self._platform == self._PLATFORM_LINUX
+
+    def hostname( self ):
+        '''Get the hostname of this sensor.
+
+        Returns:
+            a string of the hostname.
+        '''
+        if self._hostname is None:
+            # If the hostname has not been cached yet, retrieve the info.
+            self.getInfo()
+        return self._hostname
+
     def __str__( self ):
         return self.sid
-    
+
     def __repr__( self ):
         return self.sid

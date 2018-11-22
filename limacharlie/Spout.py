@@ -79,10 +79,10 @@ class Spout( object ):
         # contains a path with a randomized value which is what we use a short term
         # shared secret to get the data stream since we are not limiting connections
         # by IP.
-        self._hConn = requests.post( 'https://output.limacharlie.io/output/%s' % ( self._oid, ), 
-                                     data = spoutParams, 
-                                     stream = True, 
-                                     allow_redirects = True, 
+        self._hConn = requests.post( 'https://output.limacharlie.io/output/%s' % ( self._oid, ),
+                                     data = spoutParams,
+                                     stream = True,
+                                     allow_redirects = True,
                                      timeout = _TIMEOUT_SEC )
         if self._hConn.status_code != 200:
             raise LcApiException( 'failed to open Spout: %s' % self._hConn.text )
@@ -101,7 +101,7 @@ class Spout( object ):
 
     def shutdown( self ):
         '''Stop receiving data.'''
-        
+
         self._isStop = True
 
         if self._hConn is not None:
@@ -161,9 +161,9 @@ class Spout( object ):
                 self._man._printDebug( "Stream closed." )
 
             if not self._isStop:
-                self._hConn = requests.get( self._finalSpoutUrl, 
-                                            stream = True, 
-                                            allow_redirects = False, 
+                self._hConn = requests.get( self._finalSpoutUrl,
+                                            stream = True,
+                                            allow_redirects = False,
                                             timeout = _TIMEOUT_SEC )
 
 def _signal_handler():
@@ -222,7 +222,7 @@ if __name__ == "__main__":
     _printToStderr( "Registering..." )
     man = limacharlie.Manager( oid = args.oid, secret_api_key = secretApiKey )
     sp = limacharlie.Spout( man,
-                            args.data_type, 
+                            args.data_type,
                             inv_id = args.inv_id,
                             tag = args.tag,
                             cat = args.cat,
