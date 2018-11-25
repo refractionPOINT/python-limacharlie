@@ -5,6 +5,8 @@ import json
 import traceback
 import cmd
 import sys
+import zlib
+import base64
 from functools import wraps
 
 from .Sensor import Sensor
@@ -65,6 +67,9 @@ class Manager( object ):
                 raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
             self._refreshSpout()
 
+    def _unwrap( self, data ):
+        return json.loads( zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS ) )
+
     def _refreshSpout( self ):
         if not self._is_interactive:
             return
@@ -91,10 +96,10 @@ class Manager( object ):
     def _restCall( self, url, verb, params ):
         try:
             headers = { "Authorization" : "bearer %s" % self._jwt }
-            
+
             url = '%s/%s/%s' % ( ROOT_URL, API_VERSION, url )
-            
-            request = urllib2.Request( url, 
+
+            request = urllib2.Request( url,
                                        urllib.urlencode( params, doseq = True ),
                                        headers = headers )
             request.get_method = lambda: verb
@@ -123,7 +128,7 @@ class Manager( object ):
     def _apiCall( self, url, verb, params = {} ):
         if self._jwt is None:
             self._refreshJWT()
-        
+
         code, data = self._restCall( url, verb, params )
 
         if code == HTTP_UNAUTHORIZED:
@@ -197,7 +202,7 @@ class Manager( object ):
         for s in resp[ 'sensors' ]:
             sensors.append( self.sensor( s[ 'sid' ], inv_id ) )
         self._lastSensorListContinuationToken = resp.get( 'continuation_token', None )
-        
+
         return sensors
 
     def outputs( self ):
@@ -300,7 +305,7 @@ class Manager( object ):
             the REST API response (JSON).
         '''
 
-        req = { 
+        req = {
             'name' : name,
             'is_replace' : 'true' if isReplace else 'false',
             'detection' : json.dumps( detection ),
@@ -308,6 +313,81 @@ class Manager( object ):
         }
 
         return self._apiCall( 'rules/%s' % self._oid, POST, req )
+
+    def isInsightEnabled( self ):
+        '''Check to see if Insight (retention) is enabled on this organization.
+
+        Returns:
+            True if Insight is enabled.
+        '''
+        data = self._apiCall( 'insight/%s' % ( self._oid, ), GET )
+        if data.get( 'insight_bucket', None ):
+            return True
+        return False
+
+    def getHistoricDetections( self, start, end, limit = None, cat = None ):
+        '''Get the detections for this organization between the two times, requires Insight (retention) enabled.
+
+        Args:
+            start (int): start unix (seconds) timestamp to fetch detects from.
+            end (int): end unix (seconds) timestamp to feth detects to.
+            limit (int): maximum number of detects to return.
+            cat (str): return dects only from this category.
+
+        Returns:
+            a list of detects.
+        '''
+        start = int( start )
+        end = int( end )
+        if limit is not None:
+            limit = int( limit )
+
+        req = {
+          'start' : start,
+          'end' : end,
+          'is_compressed' : 'true',
+        }
+
+        if limit is not None:
+            req[ 'limit' ] = limit
+
+        if cat is not None:
+            req[ 'cat' ] = cat
+
+        data = self._apiCall( 'insight/%s/detections' % ( self._oid, ), GET, req )
+        return self._unwrap( data[ 'detects' ] )
+
+    def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False ):
+        '''Get information about an object (indicator) using Insight (retention) data.
+
+        Args:
+            objType (str): the object type to query for, one of: user, domain, ip, hash, file_path, file_name.
+            objName (str): the name of the object to query for, like "cmd.exe".
+            info (str): the type of information to query for, one of: summary, locations.
+            isCaseSensitive (bool): False to ignore case in the object name.
+            isWithWildcards (bool): True to enable use of "%" wildcards in the object name.
+
+        Returns:
+            a dict with the requested information.
+        '''
+        infoTypes = ( 'summary', 'locations' )
+        objTypes = ( 'user', 'domain', 'ip', 'hash', 'file_path', 'file_name' )
+
+        if info not in infoTypes:
+            raise Exception( 'invalid information type: %s, choose one of %s' % ( info, infoTypes ) )
+
+        if objType not in objTypes:
+            raise Exception( 'invalid object type: %s, choose one of %s' % ( objType, objTypes ) )
+
+        req = {
+          'name' : objName,
+          'info' : info,
+          'case_sensitive' : 'true' if isCaseSensitive else 'false',
+          'with_wildcards' : 'true' if isWithWildcards else 'false',
+        }
+
+        data = self._apiCall( 'insight/%s/objects/%s' % ( self._oid, objType ), GET, req )
+        return data
 
 def _eprint( msg ):
     print >> sys.stderr, msg
@@ -394,6 +474,6 @@ if __name__ == "__main__":
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
     else:
         secretApiKey = None
-        
+
     app = LCIOShell( args.oid, secretApiKey )
     app.cmdloop()
