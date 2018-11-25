@@ -1,4 +1,5 @@
 import uuid
+import json
 
 from .utils import *
 
@@ -243,6 +244,59 @@ class Sensor( object ):
             # If the hostname has not been cached yet, retrieve the info.
             self.getInfo()
         return self._hostname
+
+    def getHistoricEvents( self, start, end, limit = None, eventType = None ):
+        '''Get the events for this sensor between the two times, requires Insight (retention) enabled.
+
+        Args:
+            start (int): start unix (seconds) timestamp to fetch events from.
+            end (int): end unix (seconds) timestamp to feth events to.
+            limit (int): maximum number of events to return.
+            eventType (str): return events only of this type.
+
+        Returns:
+            a list of events.
+        '''
+        start = int( start )
+        end = int( end )
+        if limit is not None:
+            limit = int( limit )
+
+        req = {
+          'start' : start,
+          'end' : end,
+          'is_compressed' : 'true',
+        }
+
+        if limit is not None:
+            req[ 'limit' ] = limit
+
+        if eventType is not None:
+            req[ 'event_type' ] = eventType
+
+        data = self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, req )
+        return self._manager._unwrap( data[ 'events' ] )
+
+    def getHistocicOverview( self, start, end ):
+        '''Get a list of timestamps representing where sensor data is available in Insight (retention).
+
+        Args:
+            start (int): start unix (seconds) timestamp to look for events from.
+            end (int): end unix (seconds) timestamp to look for events to.
+
+        Returns:
+            a list of timestamps.
+        '''
+        start = int( start )
+        end = int( end )
+
+        req = {
+            'start' : start,
+            'end' : end,
+        }
+
+        data = self._manager._apiCall( 'insight/%s/%s/overview' % ( self._manager._oid, self.sid ), GET, req )
+        return data[ 'overview' ]
 
     def __str__( self ):
         return self.sid
