@@ -314,6 +314,12 @@ class Manager( object ):
 
         return self._apiCall( 'rules/%s' % self._oid, POST, req )
 
+    def isInsightEnabled( self ):
+        data = self._apiCall( 'insight/%s' % ( self._oid, ), GET )
+        if data.get( 'insight_bucket', None ):
+            return True
+        return False
+
     def getHistoricDetections( self, start, end, limit = None, cat = None ):
         '''Get the detections for this organization between the two times, requires Insight (retention) enabled.
 
