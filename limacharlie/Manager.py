@@ -315,6 +315,11 @@ class Manager( object ):
         return self._apiCall( 'rules/%s' % self._oid, POST, req )
 
     def isInsightEnabled( self ):
+        '''Check to see if Insight (retention) is enabled on this organization.
+
+        Returns:
+            True if Insight is enabled.
+        '''
         data = self._apiCall( 'insight/%s' % ( self._oid, ), GET )
         if data.get( 'insight_bucket', None ):
             return True
