@@ -139,6 +139,18 @@ class Manager( object ):
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )
 
         return data
+    
+    def make_interactive( self ):
+        '''Enables interactive mode on this instance if it was not created with is_interactive.
+        '''
+        if self._is_interactive:
+            return
+        
+        if not self._inv_id:
+            raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
+        
+        self._is_interactive = True
+        self._refreshSpout()
 
     def testAuth( self ):
         '''Tests authentication with limacharlie.io.
