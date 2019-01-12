@@ -411,6 +411,8 @@ class Manager( object ):
         Returns:
             a dict with keys as time ranges and values are maps of object types to object name lists.
         '''
+        for objType, objNames in objects.iteritems():
+            objects[ objType ] = list( objNames )
         req = {
             'objects' : json.dumps( objects ),
             'case_sensitive' : 'true' if isCaseSensitive else 'false',
@@ -422,7 +424,7 @@ class Manager( object ):
         '''Get the number of hosts for each platform for which we have long term Insight data.
 
         Returns:
-            a dict with "mac", "linux" and "windows" and their counts.
+            a dict with "mac", "linux" and "windows" and their count tuples [1,7,30].
         '''
         macBin = 'launchd'
         winBin = 'ntdll.dll'
@@ -433,10 +435,13 @@ class Manager( object ):
             ]
         } )
 
+        if data is None:
+            return data
+
         return {
-            'mac' : data.get( 'last_30_days', {} ).get( 'file_name', {} ).get( macBin, 0 ),
-            'windows' : data.get( 'last_30_days', {} ).get( 'file_name', {} ).get( winBin, 0 ),
-            'linux' : None,
+            'mac' : ( data.get( 'last_1_days', {} ).get( 'file_name', {} ).get( macBin, 0 ), data.get( 'last_7_days', {} ).get( 'file_name', {} ).get( macBin, 0 ), data.get( 'last_30_days', {} ).get( 'file_name', {} ).get( macBin, 0 ) ),
+            'windows' : ( data.get( 'last_1_days', {} ).get( 'file_name', {} ).get( winBin, 0 ), data.get( 'last_7_days', {} ).get( 'file_name', {} ).get( winBin, 0 ), data.get( 'last_30_days', {} ).get( 'file_name', {} ).get( winBin, 0 ) ),
+            'linux' : ( None, None, None ),
         }
 
 def _eprint( msg ):
