@@ -355,9 +355,9 @@ class Manager( object ):
             limit = int( limit )
 
         req = {
-          'start' : start,
-          'end' : end,
-          'is_compressed' : 'true',
+            'start' : start,
+            'end' : end,
+            'is_compressed' : 'true',
         }
 
         if limit is not None:
@@ -392,14 +392,57 @@ class Manager( object ):
             raise Exception( 'invalid object type: %s, choose one of %s' % ( objType, objTypes ) )
 
         req = {
-          'name' : objName,
-          'info' : info,
-          'case_sensitive' : 'true' if isCaseSensitive else 'false',
-          'with_wildcards' : 'true' if isWithWildcards else 'false',
+            'name' : objName,
+            'info' : info,
+            'case_sensitive' : 'true' if isCaseSensitive else 'false',
+            'with_wildcards' : 'true' if isWithWildcards else 'false',
         }
 
         data = self._apiCall( 'insight/%s/objects/%s' % ( self._oid, objType ), GET, req )
         return data
+
+    def getBatchObjectInformation( self, objects, isCaseSensitive = True ):
+        '''Get object prevalence information in a batch.
+
+        Args:
+            objects (dict): dictionary of object type to list of object names to query for (objects["file_name"] = ["a.exe", "b.exe"]).
+            isCaseSensitive (bool): False to ignore case in the object name.
+
+        Returns:
+            a dict with keys as time ranges and values are maps of object types to object name lists.
+        '''
+        for objType, objNames in objects.iteritems():
+            objects[ objType ] = list( objNames )
+        req = {
+            'objects' : json.dumps( objects ),
+            'case_sensitive' : 'true' if isCaseSensitive else 'false',
+        }
+        data = self._apiCall( 'insight/%s/objects' % ( self._oid, ), POST, req )
+        return data
+
+    def getInsightHostCountPerPlatform( self ):
+        '''Get the number of hosts for each platform for which we have long term Insight data.
+
+        Returns:
+            a dict with "mac", "linux" and "windows" and their count tuples [1,7,30].
+        '''
+        macBin = 'launchd'
+        winBin = 'ntdll.dll'
+        data = self.getBatchObjectInformation( {
+            'file_name' : [
+                macBin,
+                winBin,
+            ]
+        } )
+
+        if data is None:
+            return data
+
+        return {
+            'mac' : ( data.get( 'last_1_days', {} ).get( 'file_name', {} ).get( macBin, 0 ), data.get( 'last_7_days', {} ).get( 'file_name', {} ).get( macBin, 0 ), data.get( 'last_30_days', {} ).get( 'file_name', {} ).get( macBin, 0 ) ),
+            'windows' : ( data.get( 'last_1_days', {} ).get( 'file_name', {} ).get( winBin, 0 ), data.get( 'last_7_days', {} ).get( 'file_name', {} ).get( winBin, 0 ), data.get( 'last_30_days', {} ).get( 'file_name', {} ).get( winBin, 0 ) ),
+            'linux' : ( None, None, None ),
+        }
 
 def _eprint( msg ):
     print >> sys.stderr, msg
