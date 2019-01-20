@@ -1,5 +1,6 @@
 import uuid
 import json
+import time
 
 from .utils import *
 
@@ -38,6 +39,22 @@ class Sensor( object ):
         '''
 
         self._invId = inv_id
+
+    def waitToComeOnline( self, timeout ):
+        '''Wait for the sensor to be online.
+
+        :param timeout: number of seconds to wait up to
+
+        :return True if sensor is back or False if timeout
+        '''
+        deadline = time.time() + timeout
+
+        while not self.isOnline():
+            if time.time() >= deadline:
+                return False
+            gevent.sleep( min( 60, deadline - time.time() ) )
+
+        return True
 
     def task( self, tasks, inv_id = None ):
         '''Send a task (or list of tasks) to the Sensor.

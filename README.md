@@ -25,18 +25,18 @@ acquired in the following order globally:
 1. `LC_CREDS_FILE` environment variable points to a YAML file with `oid: <OID>` and `api_key: <KEY>`.
 1. Assumes a creds file (like #2) is present at `~/.limacharlie`.
 
-To set your credentials in your home directory's `.limacharlie` file, use `python -m limacharlie login`, all
+To set your credentials in your home directory's `.limacharlie` file, use `limacharlie login`, all
 future API / CLI commands in the future will automatically have access to those credentials.
 
 The "login" mechanism supports multiple environments.
 
 Listing environments:
 ```
-python -m limacharlie use
+limacharlie use
 ```
 and then selecting a specific environment:
 ```
-. <(python -m limacharlue use my-home-org)
+. <(limacharlue use my-home-org)
 ```
 note the use of `. <()` to source the output from the `use my-home-org` command which outputs an `export` command.
 
@@ -89,13 +89,13 @@ Some Python API classes support being executed directly from the command line
 to provide easier access to some of the capabilities.
 
 #### Firehose
-`python -m limacharlie.Firehose 1.2.3.4:9424 event -n firehose_test -t fh_test --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
+`limacharlie.Firehose 1.2.3.4:9424 event -n firehose_test -t fh_test --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
 Listens on interface `1.2.3.4`, port `9424` for incoming connections from LimaCharlie.io.
 Receives only events from hosts tagged with `fh_test`.
 
 #### Spout
-`python -m limacharlie.Spout event --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
+`limacharlie.Spout event --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
 Behaves similarly to the Firehose, but instead of listenning from an internet accessible port, it
 connects to the `output.limacharlie.io` service to stream the output over HTTP. This means the Spout
@@ -105,14 +105,14 @@ It is MUCH more convenient for short term ad-hoc outputs, but it is less reliabl
 very large amounts of data.
 
 #### Shell
-`python -m limacharlie.Manager --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
+`limacharlie.Manager --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
 Starting the `Manager` module directly starts an interactive shell to limacharlie.io.
 
 #### Config Syncing
-`python -m limacharlie.Sync fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+`limacharlie.Sync fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
-`python -m limacharlie.Sync push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+`limacharlie.Sync push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
 The `fetch` command will get a list of the Detection & Response rules in your
 organization and will write them to the config file specified or the default
@@ -138,13 +138,13 @@ statement. Using this statement you can combine multiple config files together, 
 it ideal for the management of complex rule sets and their versioning.
 
 #### Spot Checks
-`python -m limacharlie.SpotCheck --no-macos --no-linux --tags vip --file c:\\evil.exe`
+`limacharlie.SpotCheck --no-macos --no-linux --tags vip --file c:\\evil.exe`
 
 Used to perform Organization-wide checks for specific indicators of compromise. Available as a custom
 API `SpotCheck` object or as a module from the command line. Supports many types of IoCs like file names,
 directories, registry keys, file hashes and yara signatures.
 
-For detailed usage: `python -m limacharlie.SpotCheck --help`
+For detailed usage: `limacharlie.SpotCheck --help`
 
 ### Examples:
 * [Basic Manager Operations](limacharlie/demo_manager.py)

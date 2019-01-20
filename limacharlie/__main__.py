@@ -1,4 +1,5 @@
-if __name__ == "__main__":
+
+def main():
     import argparse
     import getpass
     import uuid
@@ -60,7 +61,7 @@ if __name__ == "__main__":
             if 'oid' in conf and 'api_key' in conf:
                 print( 'default' )
 
-            print( "\npython -m limacharlie use <environment_name> to change environment" )
+            print( "\nlimacharlie use <environment_name> to change environment" )
         else:
             # Selecting a specific environment.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
@@ -165,3 +166,6 @@ if __name__ == "__main__":
             }, default_flow_style = False ) )
     else:
         raise Exception( 'invalid action' )
+
+if __name__ == "__main__":
+    main()

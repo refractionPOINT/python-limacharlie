@@ -2,7 +2,7 @@ from setuptools import setup, Command
 import glob
 import os
 
-__version__ = "2.4.2"
+__version__ = "2.5.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -18,4 +18,7 @@ setup( name = 'limacharlie',
        packages = [ 'limacharlie' ],
        zip_safe = True,
        install_requires = [ 'gevent', 'requests', 'passlib', 'pyyaml' ],
-       long_description = 'Python API for limacharlie.io, an endpoint detection and response service.' )
+       long_description = 'Python API for limacharlie.io, an endpoint detection and response service.',
+       entry_points = {
+           'console_scripts': [ 'limacharlie=limacharlie.__main__:main' ],
+       }, )
