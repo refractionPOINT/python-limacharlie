@@ -447,6 +447,9 @@ class Manager( object ):
     def getSensorsWithHostname( self, hostnamePrefix ):
         '''Get the list of sensor IDs and hostnames that match the given prefix.
 
+        Args:
+            hostnamePrefix (str): a hostname prefix to search for.
+
         Returns:
             List of (sid, hostname).
         '''
