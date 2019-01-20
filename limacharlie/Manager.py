@@ -444,6 +444,17 @@ class Manager( object ):
             'linux' : ( None, None, None ),
         }
 
+    def getSensorsWithHostname( self, hostnamePrefix ):
+        '''Get the list of sensor IDs and hostnames that match the given prefix.
+
+        Returns:
+            List of (sid, hostname).
+        '''
+        data = self._apiCall( 'hostnames/%s' % ( self._oid, ), GET, {
+            'hostname' : hostnamePrefix,
+        } )
+        return data.get( 'sid', None )
+
 def _eprint( msg ):
     print >> sys.stderr, msg
 
