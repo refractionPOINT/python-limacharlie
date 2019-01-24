@@ -2,7 +2,7 @@ from setuptools import setup, Command
 import glob
 import os
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
