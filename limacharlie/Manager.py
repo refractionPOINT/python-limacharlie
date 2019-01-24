@@ -140,6 +140,13 @@ class Manager( object ):
 
         return data
     
+    def shutdown( self ):
+        '''Shut down any active mechanisms like interactivity.
+        '''
+        if self._spout is not None:
+            self._spout.shutdown()
+            self._spout = None
+
     def make_interactive( self ):
         '''Enables interactive mode on this instance if it was not created with is_interactive.
         '''
