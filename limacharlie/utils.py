@@ -47,6 +47,13 @@ class FutureResults( object ):
             return ret
         return []
 
+def enhanceEvent( evt ):
+    if 'event' in evt:
+        evt[ 'event' ] = _enhancedDict( evt[ 'event' ] )
+    if 'routing' in evt:
+        evt[ 'routing' ] = _enhancedDict( evt[ 'routing' ] )
+    return _enhancedDict( evt )
+
 # Helper functions
 class _enhancedDict( dict ):
     def getAll( self, *args, **kwargs ):

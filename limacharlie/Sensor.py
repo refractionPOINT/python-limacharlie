@@ -88,7 +88,7 @@ class Sensor( object ):
         Returns:
             a FutureResults object.
         '''
-        if not self._manager._is_interactive:
+        if ( not self._manager._is_interactive ) or ( self._manager._spout is None ):
             raise LcApiException( 'Manager provided was not created with is_interactive set to True, cannot track responses.' )
         thisTrackingId = '%s/%s' % ( self._manager._inv_id, str( uuid.uuid4() ) )
         future = FutureResults()
@@ -292,9 +292,9 @@ class Sensor( object ):
             req[ 'event_type' ] = eventType
 
         data = self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, req )
-        return self._manager._unwrap( data[ 'events' ] )
+        return [ enhanceEvent( e ) for e in self._manager._unwrap( data[ 'events' ] ) ]
 
-    def getHistocicOverview( self, start, end ):
+    def getHistoricOverview( self, start, end ):
         '''Get a list of timestamps representing where sensor data is available in Insight (retention).
 
         Args:
@@ -314,6 +314,21 @@ class Sensor( object ):
 
         data = self._manager._apiCall( 'insight/%s/%s/overview' % ( self._manager._oid, self.sid ), GET, req )
         return data[ 'overview' ]
+
+    def isDataAvailableFor( self, timestamp ):
+        '''Check if data is available in Insight for this sensor at this specific time.
+
+        Args:
+            timestamp (int): time (unix seconds epoch) to check for events.
+
+        Returns:
+            True if data is available.
+        '''
+        # The overview technically searches for batches of data coming in
+        # during that time frame, so we look for something shortly after.
+        batches = self.getHistoricOverview( timestamp, timestamp + ( 60 * 60 * 2 ) )
+        print( "GOT BATCHES: %s" % ( batches, ) )
+        return 0 != len( batches )
 
     def __str__( self ):
         return self.sid

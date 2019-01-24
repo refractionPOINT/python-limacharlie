@@ -140,6 +140,13 @@ class Manager( object ):
 
         return data
     
+    def shutdown( self ):
+        '''Shut down any active mechanisms like interactivity.
+        '''
+        if self._spout is not None:
+            self._spout.shutdown()
+            self._spout = None
+
     def make_interactive( self ):
         '''Enables interactive mode on this instance if it was not created with is_interactive.
         '''
@@ -446,6 +453,9 @@ class Manager( object ):
 
     def getSensorsWithHostname( self, hostnamePrefix ):
         '''Get the list of sensor IDs and hostnames that match the given prefix.
+
+        Args:
+            hostnamePrefix (str): a hostname prefix to search for.
 
         Returns:
             List of (sid, hostname).
