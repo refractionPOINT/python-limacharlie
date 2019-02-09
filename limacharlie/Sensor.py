@@ -342,7 +342,6 @@ class Sensor( object ):
         # The overview technically searches for batches of data coming in
         # during that time frame, so we look for something shortly after.
         batches = self.getHistoricOverview( timestamp, timestamp + ( 60 * 60 * 2 ) )
-        print( "GOT BATCHES: %s" % ( batches, ) )
         return 0 != len( batches )
 
     def __str__( self ):
