@@ -99,11 +99,13 @@ class Sensor( object ):
 
         return future
 
-    def simpleRequest( self, tasks, timeout = 30 ):
+    def simpleRequest( self, tasks, timeout = 30, until_completion = False ):
         '''Make a request to the sensor assuming a single response.
 
         Args:
             tasks (str or list of str): tasks to send in the command line format described in official documentation.
+            timeout (int): number of seconds to wait for responses.
+            until_completion (bool or callback): if True, wait for completion receipts from the sensor, or callback for each response.
 
         Returns:
             a single event (if tasks was a single task), a list of events (if tasks was a list), or None if not received.
@@ -114,28 +116,41 @@ class Sensor( object ):
         if isinstance( tasks, ( list, tuple ) ):
             nExpectedResponses = len( tasks )
 
+        deadline = time.time() + timeout
+
         # Although getting the command result may take a while, the receipt from the sensor
         # should come back quickly so we will implement a static wait for that.
-        nWait = 0
         while True:
-            nWait += 1
             gevent.sleep( 1 )
             if future.wasReceived:
                 break
-            if nWait > 30:
+            if time.time() > deadline:
                 return None
 
         # We know the sensor got the tasking, now we will wait according to variable timeout.
         allResponses = []
+        nDone = 0
         while True:
-            responses = future.getNewResponses( timeout = timeout )
+            responses = future.getNewResponses( timeout = deadline - time.time() )
             if not responses:
                 break
-            if 1 == nExpectedResponses:
-                return responses[ 0 ]
+            if not until_completion:
+                if 1 == nExpectedResponses:
+                    return responses[ 0 ]
+                else:
+                    allResponses += responses
+                    if len( allResponses ) >= nExpectedResponses:
+                        return allResponses
             else:
-                allResponses += responses
-                if len( allResponses ) >= nExpectedResponses:
+                for response in responses:
+                    err = response[ 'event' ].get( 'ERROR_MESSAGE', None )
+                    if err == 'done':
+                        nDone += 1
+                    else:
+                        if callable( until_completion ):
+                            response = until_completion( response )
+                        allResponses.append( response )
+                if nDone >= nExpectedResponses:
                     return allResponses
         return None
 
@@ -327,7 +342,6 @@ class Sensor( object ):
         # The overview technically searches for batches of data coming in
         # during that time frame, so we look for something shortly after.
         batches = self.getHistoricOverview( timestamp, timestamp + ( 60 * 60 * 2 ) )
-        print( "GOT BATCHES: %s" % ( batches, ) )
         return 0 != len( batches )
 
     def __str__( self ):

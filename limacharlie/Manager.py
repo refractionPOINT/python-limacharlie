@@ -19,7 +19,7 @@ from limacharlie import GLOBAL_API_KEY
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
 
-API_TO_JWT_URL = 'https://app.limacharlie.io/jwt?oid=%s&secret=%s'
+API_TO_JWT_URL = 'https://app.limacharlie.io/jwt'
 
 HTTP_UNAUTHORIZED = 401
 
@@ -86,7 +86,10 @@ class Manager( object ):
         try:
             if self._secret_api_key is None:
                 raise Exception( 'No API key set' )
-            u = urllib2.urlopen( API_TO_JWT_URL % ( self._oid, self._secret_api_key ) )
+            request = urllib2.Request( API_TO_JWT_URL,
+                                       urllib.urlencode( { "oid" : self._oid, "secret" : self._secret_api_key } ) )
+            request.get_method = lambda: "POST"
+            u = urllib2.urlopen( request )
             self._jwt = json.loads( u.read() )[ 'jwt' ]
             u.close()
         except Exception as e:
