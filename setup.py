@@ -20,5 +20,8 @@ setup( name = 'limacharlie',
        install_requires = [ 'gevent', 'requests', 'passlib', 'pyyaml' ],
        long_description = 'Python API for limacharlie.io, an endpoint detection and response service.',
        entry_points = {
-           'console_scripts': [ 'limacharlie=limacharlie.__main__:main' ],
+           'console_scripts': [
+              'limacharlie=limacharlie.__main__:main',
+              'limacharlie-search=limacharlie.Search:main',
+            ],
        }, )
