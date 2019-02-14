@@ -17,10 +17,17 @@ class Search( object ):
         with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
             conf = yaml.load( f.read() )
             if environment is not None:
-                conf = conf[ 'env' ][ environment ]
+                conf = conf.get( 'env', {} ).get( environment, None )
+                if conf is None:
+                    raise Exception( 'environment %s not found' % ( environment, ) )
                 self._environmentsToQuery[ environment ] = conf
             else:
-                self._environmentsToQuery = conf[ 'env' ]
+                self._environmentsToQuery = conf.get( 'env', {} )
+                if 'oid' in conf and 'api_key' in conf:
+                    self._environmentsToQuery[ 'default' ] = {
+                        'oid' : conf[ 'oid' ],
+                        'api_key' : conf[ 'api_key' ]
+                    }
         
         if '-' == output:
             self._output = None
@@ -55,13 +62,17 @@ class Search( object ):
         else:
             self._output.write( yaml.safe_dump( outputs, default_flow_style = False ) )
 
-        self._safePrint( "Done, %s results." % ( reduce( lambda x, y: x + len( y[ 'result' ] ), outputs, 0 ) ) )
+        self._safePrint( "Done, %s results." % ( reduce( lambda x, y: x + ( len( y[ 'result' ] ) if info != 'summary' else 1 ), outputs, 0 ) ) )
 
     def _queryThread( self, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards ):
         try:
             lc = Manager( env[ 'oid' ], env[ 'api_key' ] )
             
-            if not lc.isInsightEnabled():
+            try:
+                isInsightEnabled = lc.isInsightEnabled()
+            except:
+                isInsightEnabled = False
+            if not isInsightEnabled:
                 self._safePrint( "Skipping %s (%s) as Insight is not enabled." % ( envName, env[ 'oid' ], ) )
                 return
             
