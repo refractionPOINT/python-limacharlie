@@ -406,6 +406,7 @@ class Manager( object ):
             'info' : info,
             'case_sensitive' : 'true' if isCaseSensitive else 'false',
             'with_wildcards' : 'true' if isWithWildcards else 'false',
+            'per_object' : 'true' if ( isWithWildcards and 'summary' == info ) else 'false',
         }
 
         data = self._apiCall( 'insight/%s/objects/%s' % ( self._oid, objType ), GET, req )
