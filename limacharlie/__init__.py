@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "2.8.1"
+__version__ = "2.8.2"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -27,8 +27,8 @@ if GLOBAL_API_KEY is None:
             if _lcEnv == '':
                 _lcEnv = 'default'
             if _lcEnv == 'default':
-                GLOBAL_OID = _credsFile[ 'oid' ]
-                GLOBAL_API_KEY = _credsFile[ 'api_key' ]
+                GLOBAL_OID = _credsFile.get( 'oid', None )
+                GLOBAL_API_KEY = _credsFile.get( 'api_key', None )
             else:
                 if _credsFile.get( 'env', {} ).get( _lcEnv, None ) is None:
                     raise Exception( "LimaCharlie environment specified in LC_CURRENT_ENV could not be found in local config file: ~/.limacharlie" )

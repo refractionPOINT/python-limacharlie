@@ -27,7 +27,7 @@ def main():
         except:
             print( "Invalid OID" )
             sys.exit( 1 )
-        alias = raw_input( 'Enter a name for this access (alias): ' )
+        alias = raw_input( 'Enter a name for this access (alias), or leave empty to set default: ' )
         if '' == alias:
             alias = 'default'
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
