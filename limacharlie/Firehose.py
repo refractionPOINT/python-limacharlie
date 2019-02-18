@@ -97,7 +97,7 @@ class Firehose( object ):
         # manually somehow.
         if self._name is not None:
             self._manager._printDebug( 'Registration required.' )
-            self._output_name = 'py_lc_fh_%s' % self._name
+            self._output_name = 'tmp_live_%s' % self._name
 
             # Check if the output already exists.
             outputs = self._manager.outputs()
