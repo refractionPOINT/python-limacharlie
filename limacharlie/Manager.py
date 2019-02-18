@@ -44,7 +44,7 @@ class Manager( object ):
                 raise Exception( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
             oid = GLOBAL_OID
         if secret_api_key is None:
-            if GLOBAL_API_KEY is None:
+            if GLOBAL_API_KEY is None and jwt is None:
                 raise Exception( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
             secret_api_key = GLOBAL_API_KEY
 
