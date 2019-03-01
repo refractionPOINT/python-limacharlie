@@ -49,6 +49,9 @@ class Sync( object ):
         if not isNoRules:
             rules = self._man.rules()
             for ruleName, rule in rules.items():
+                # Special rules from replicants are ignored.
+                if ruleName.startswith( '__' ):
+                    continue
                 rules[ ruleName ] = self._coreRuleContent( rule )
             asConf[ 'rules' ] = rules
         if not isNoOutputs:
@@ -107,6 +110,9 @@ class Sync( object ):
                 # Now if isForce was specified, list existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in self._man.rules().iteritems():
+                    # Ignore special replicant rules.
+                    if ruleName.startswith( '__' ):
+                        continue
                     if ruleName not in asConf[ 'rules' ]:
                         if not isDryRun:
                             self._man.del_rule( ruleName )
