@@ -473,6 +473,42 @@ class Manager( object ):
         } )
         return data.get( 'sid', None )
 
+    def replicantRequest( self, replicantName, data, isSynchronous = False ):
+        '''Issue a request to a Replicant.
+
+        Args:
+            replicantName (str): the name of the Replicant to task.
+            data (dict): JSON data to send to the Replicant as a request.
+            isSynchronous (bool): if set to True, wait for data from the Replicant and return it.
+        Returns:
+            Dict with general success, or data from Replicant if isSynchronous.
+        '''
+        data = self._apiCall( 'replicant/%s/%s' % ( self._oid, replicantName ), POST, {
+            'request_data' : base64.b64encode( json.dumps( data ) ),
+            'is_async' : not isSynchronous,
+        } )
+        return data
+
+    def getAvailableReplicants( self ):
+        '''Get the list of Replicants currently available.
+
+        Returns:
+            List of Replicant names.
+        '''
+        data = self._apiCall( 'replicant/%s' % ( self._oid, ), GET )
+        return data.get( 'replicants', None )
+
+    def getOrgConfig( self, configName ):
+        '''Get the value of a per-organization config.
+
+        Args:
+            configName (str): name of the config to get.
+        Returns:
+            String value of the configuration.
+        '''
+        data = self._apiCall( 'configs/%s/%s' % ( self._oid, configName ), GET )
+        return data.get( 'value', None )
+
 def _eprint( msg ):
     print >> sys.stderr, msg
 
