@@ -23,5 +23,6 @@ setup( name = 'limacharlie',
            'console_scripts': [
               'limacharlie=limacharlie.__main__:main',
               'limacharlie-search=limacharlie.Search:main',
+              'limacharlie-upload=limacharlie.Logs:main',
             ],
        }, )
