@@ -1,0 +1,98 @@
+from . import Manager
+
+import os
+import os.path
+import uuid
+import urllib2
+import base64
+import json
+
+class Logs( object ):
+    def __init__( self, manager, accessToken = None ):
+        self._lc = manager
+        self._accessToken = accessToken
+
+        if self._accessToken is None:
+            # Load the token from an environment variable.
+            self._accessToken = os.environ[ 'LC_LOGS_TOKEN' ]
+
+        self._accessToken = str( uuid.UUID( str( self._accessToken ) ) )
+        self._uploadUrl = None
+
+
+    def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False ):
+        if self._uploadUrl is None:
+            # Get the ingest URL from the API.
+            self._uploadUrl = self._lc.getOrgURLs()[ 'logs' ]
+
+        headers = {
+            'Authorization' : 'Basic %s' % ( base64.b64encode( '%s:%s' % ( self._lc._oid, self._accessToken ) ), )
+        }
+
+        if source is not None:
+            headers[ 'lc-source' ] = source
+        if hint is not None:
+            headers[ 'lc-hint' ] = hint
+        if payloadId is not None:
+            headers[ 'lc-payload-id' ] = payloadId
+
+        with open( filePath, 'rb' ) as f:
+            request = urllib2.Request( 'https://%s/ingest' % ( self._uploadUrl, ),
+                                       data = f.read(),
+                                       headers = headers )
+        u = urllib2.urlopen( request )
+        try:
+            response = json.loads( u.read() )
+        except:
+            response = {}
+        return response
+
+def main():
+    import argparse
+    import getpass
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie.io logs' )
+
+    parser.add_argument( 'log_file',
+                         type = str,
+                         help = 'path to the log file to upload.' )
+
+    parser.add_argument( '--source',
+                         type = str,
+                         required = False,
+                         dest = 'source',
+                         default = None,
+                         help = 'name of the log source to associate with upload.' )
+
+    parser.add_argument( '--hint',
+                         type = str,
+                         required = False,
+                         dest = 'hint',
+                         default = 'txt',
+                         help = 'log type hint of the upload.' )
+
+    parser.add_argument( '--payload-id',
+                         type = str,
+                         required = False,
+                         dest = 'payloadId',
+                         default = None,
+                         help = 'unique identifier of the log uploaded, can be used to de-duplicate logs.' )
+
+    parser.add_argument( '--access-token',
+                         type = uuid.UUID,
+                         required = False,
+                         dest = 'accessToken',
+                         default = None,
+                         help = 'access token to upload.' )
+
+    args = parser.parse_args()
+
+    logs = Logs( Manager( None, None ), args.accessToken )
+
+    response = logs.upload( args.log_file,
+                            source = args.source,
+                            hint = args.hint,
+                            payloadId = args.payloadId,
+                            allowMultipart = False )
+
+    print( json.dumps( response ) )

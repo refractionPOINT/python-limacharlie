@@ -509,6 +509,15 @@ class Manager( object ):
         data = self._apiCall( 'configs/%s/%s' % ( self._oid, configName ), GET )
         return data.get( 'value', None )
 
+    def getOrgURLs( self ):
+        '''Get the URLs used by various resources in the organization.
+
+        Returns:
+            Dictionary of resource types to URLs.
+        '''
+        data = self._apiCall( 'orgs/%s/url' % ( self._oid, ), GET )
+        return data.get( 'url', None )
+
 def _eprint( msg ):
     print >> sys.stderr, msg
 

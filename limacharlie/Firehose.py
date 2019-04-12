@@ -15,7 +15,7 @@ from .utils import *
 class Firehose( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in push mode.'''
 
-    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, ssl_cert = None, ssl_key = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, sid = None ):
+    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, ssl_cert = None, ssl_key = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, sid = None, is_delete_on_failure = False ):
         '''Create a listener and optionally register it with limacharlie.io automatically.
 
         If name is None, the Firehose will assume the Output is already created
@@ -39,6 +39,7 @@ class Firehose( object ):
             tag (str): only receive Events from Sensors with this Tag.
             cat (str): only receive Detections of this Category.
             sid (str): only receive Detections and Events from this Sensor.
+            is_delete_on_failure (bool): if set to True, delete the Firehose output on failure (in LC cloud).
         '''
 
         self._manager = manager
@@ -58,6 +59,7 @@ class Firehose( object ):
         self._is_parse = is_parse
         self._max_buffer = max_buffer
         self._dropped = 0
+        self._is_delete_on_failure = is_delete_on_failure
 
         self._ssl_cert = ssl_cert
         self._ssl_key = ssl_key
@@ -124,6 +126,8 @@ class Firehose( object ):
                     kwOutputArgs[ 'cat' ] = cat
                 if sid is not None:
                     kwOutputArgs[ 'sid' ] = sid
+                if self._is_delete_on_failure:
+                    kwOutputArgs[ 'is_delete_on_failure' ] = 'true'
                 self._manager.add_output( self._output_name, 
                                           'syslog', 
                                           self._data_type, 
