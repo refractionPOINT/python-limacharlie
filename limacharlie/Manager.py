@@ -518,6 +518,39 @@ class Manager( object ):
         data = self._apiCall( 'orgs/%s/url' % ( self._oid, ), GET )
         return data.get( 'url', None )
 
+    def getIngestionKeys( self ):
+        '''Get the Ingestion keys associated to this organization.
+
+        Returns:
+            Dictionary of the Ingestion keys.
+        '''
+        data = self._apiCall( 'insight/%s/ingestion_keys' % ( self._oid, ), GET )
+        return data.get( 'keys', None )
+
+    def setIngestionKey( self, name ):
+        '''Set (or reset) an Ingestion key.
+
+        Args:
+            name (str): name of the Ingestion key to set.
+        Returns:
+            Dictionary with the key name and value.
+        '''
+        data = self._apiCall( 'insight/%s/ingestion_keys' % ( self._oid, ), POST, {
+            'name' : name,
+        } )
+        return data
+
+    def delIngestionKey( self, name ):
+        '''Delete an Ingestion key.
+
+        Args:
+            name (str): name of the Ingestion key to delete.
+        '''
+        data = self._apiCall( 'insight/%s/ingestion_keys' % ( self._oid, ), DELETE, {
+            'name' : name,
+        } )
+        return data
+
 def _eprint( msg ):
     print >> sys.stderr, msg
 
