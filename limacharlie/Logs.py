@@ -40,7 +40,10 @@ class Logs( object ):
             request = urllib2.Request( 'https://%s/ingest' % ( self._uploadUrl, ),
                                        data = f.read(),
                                        headers = headers )
-        u = urllib2.urlopen( request )
+        try:
+            u = urllib2.urlopen( request )
+        except urllib2.HTTPError as e:
+            raise Exception( '%s: %s' % ( str( e ), e.read() ) )
         try:
             response = json.loads( u.read() )
         except:
