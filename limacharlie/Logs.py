@@ -37,7 +37,7 @@ class Logs( object ):
             headers[ 'lc-payload-id' ] = payloadId
 
         with open( filePath, 'rb' ) as f:
-            request = urllib2.Request( 'https://%s/ingest' % ( self._uploadUrl, ),
+            request = urllib2.Request( str( 'https://%s/ingest' % ( self._uploadUrl, ) ),
                                        data = f.read(),
                                        headers = headers )
         try:
