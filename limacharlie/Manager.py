@@ -100,16 +100,25 @@ class Manager( object ):
             self._jwt = None
             raise LcApiException( 'Failed to get JWT from API key: %s' % e )
 
-    def _restCall( self, url, verb, params ):
+    def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None ):
         try:
             headers = { "Authorization" : "bearer %s" % self._jwt }
 
-            url = '%s/%s/%s' % ( ROOT_URL, API_VERSION, url )
+            if altRoot is None:
+                url = '%s/%s/%s' % ( ROOT_URL, API_VERSION, url )
+            else:
+                url = '%s/%s' % ( altRoot, url )
+
+            if queryParams is not None:
+                url = '%s?%s' % ( url, urllib.urlencode( queryParams ) )
 
             request = urllib2.Request( url,
-                                       urllib.urlencode( params, doseq = True ),
+                                       rawBody if rawBody is not None else urllib.urlencode( params, doseq = True ),
                                        headers = headers )
             request.get_method = lambda: verb
+            request.add_header( 'User-Agent', 'lc-py-api' )
+            if contentType is not None:
+                request.add_header( 'Content-Type', contentType )
             u = urllib2.urlopen( request )
             try:
                 data = u.read()
