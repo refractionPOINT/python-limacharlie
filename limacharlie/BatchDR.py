@@ -49,7 +49,7 @@ def main():
     import argparse
     import getpass
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io batch detection and response' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie.io replay detection and response' )
 
     parser.add_argument( '--sid',
                          type = uuid.UUID,
