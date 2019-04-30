@@ -22,7 +22,6 @@ class BatchDR( object ):
         req = {
             'start' : startTime,
             'end' : endTime,
-            'is_trace' : 'true',
         }
         body = None
         if ruleName is not None:
