@@ -20,7 +20,7 @@ class Logs( object ):
         self._uploadUrl = None
 
 
-    def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False ):
+    def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False, originalPath = None ):
         if self._uploadUrl is None:
             # Get the ingest URL from the API.
             self._uploadUrl = self._lc.getOrgURLs()[ 'logs' ]
@@ -35,12 +35,17 @@ class Logs( object ):
             headers[ 'lc-hint' ] = hint
         if payloadId is not None:
             headers[ 'lc-payload-id' ] = payloadId
+        if originalPath is not None:
+            headers[ 'lc-path' ] = base64.b64encode( os.path.abspath( originalPath ) )
 
         with open( filePath, 'rb' ) as f:
-            request = urllib2.Request( 'https://%s/ingest' % ( self._uploadUrl, ),
+            request = urllib2.Request( str( 'https://%s/ingest' % ( self._uploadUrl, ) ),
                                        data = f.read(),
                                        headers = headers )
-        u = urllib2.urlopen( request )
+        try:
+            u = urllib2.urlopen( request )
+        except urllib2.HTTPError as e:
+            raise Exception( '%s: %s' % ( str( e ), e.read() ) )
         try:
             response = json.loads( u.read() )
         except:
@@ -63,6 +68,13 @@ def main():
                          dest = 'source',
                          default = None,
                          help = 'name of the log source to associate with upload.' )
+
+    parser.add_argument( '--original-path',
+                         type = str,
+                         required = False,
+                         dest = 'originalPath',
+                         default = None,
+                         help = 'override the original path recorded for the log.' )
 
     parser.add_argument( '--hint',
                          type = str,
@@ -89,10 +101,15 @@ def main():
 
     logs = Logs( Manager( None, None ), args.accessToken )
 
+    originalPath = args.originalPath
+    if args.originalPath is None:
+        originalPath = args.log_file
+
     response = logs.upload( args.log_file,
                             source = args.source,
                             hint = args.hint,
                             payloadId = args.payloadId,
-                            allowMultipart = False )
+                            allowMultipart = False,
+                            originalPath = originalPath )
 
     print( json.dumps( response ) )
