@@ -18,7 +18,7 @@ class BatchDR( object ):
     def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None ):
         if self._apiURL is None:
             # Get the ingest URL from the API.
-            self._apiURL = 'https://%s/' % ( self._lc.getOrgURLs()[ 'dr' ], )
+            self._apiURL = 'https://%s/' % ( self._lc.getOrgURLs()[ 'replay' ], )
         req = {
             'start' : startTime,
             'end' : endTime,
@@ -49,7 +49,7 @@ def main():
     import argparse
     import getpass
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io batch detection and response' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie.io replay detection and response' )
 
     parser.add_argument( '--sid',
                          type = uuid.UUID,
