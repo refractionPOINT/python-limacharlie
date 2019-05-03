@@ -13,8 +13,11 @@ import yaml
 import gevent
 import time
 import sys
+import time
 
-class BatchDR( object ):
+class Replay( object ):
+    '''Interface to query historical sensor data in Insight with specific D&R rules.'''
+
     def __init__( self, manager, maxTimeWindow = ( 60 * 60 * 24 * 1 ), maxConcurrent = 10, isInteractive = False ):
         self._lc = manager
         self._apiURL = None
@@ -27,16 +30,29 @@ class BatchDR( object ):
         self._queryPending = 0
         self._sensorPending = 0
         if self._isInteracive:
+            self._queryStartedAt = time.time()
             gevent.spawn_later( 0, self._reportStatus )
 
     def _reportStatus( self ):
         with self._statusMutex:
-            sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s" % ( self._sensorPending, self._queryPending ) )
+            sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8s" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
         sys.stdout.flush()
 
         gevent.spawn_later( 1, self._reportStatus )
 
     def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None ):
+        '''Scan a specific sensor's data with a D&R rule.
+
+        Args:
+            sid (str): sensor ID to scan.
+            startTime (int): seconds epoch to start scanning at.
+            endTime (int): seconds epoch to stop scanning at.
+            ruleName (str): the name of an existing D&R rule to use.
+            ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
+
+        Returns:
+            a dict containing results of the query.
+        '''
         windows = []
 
         with self._statusMutex:
@@ -85,12 +101,12 @@ class BatchDR( object ):
                 raise LcApiException( 'no rule specified' )
 
             statusCode, resp = self._lc._restCall( 'sensor/%s/%s' % ( self._lc._oid, sid, ),
-                                                  'POST',
-                                                  {},
-                                                  altRoot = self._apiURL,
-                                                  queryParams = req,
-                                                  rawBody = body,
-                                                  contentType = 'application/json' )
+                                                   'POST',
+                                                   {},
+                                                   altRoot = self._apiURL,
+                                                   queryParams = req,
+                                                   rawBody = body,
+                                                   contentType = 'application/json' )
 
             if 200 != statusCode:
                 raise LcApiException( '%s: %s' % ( statusCode, resp ) )
@@ -102,6 +118,17 @@ class BatchDR( object ):
         return resp
 
     def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None ):
+        '''Scan an entire organization's data with a D&R rule.
+
+        Args:
+            startTime (int): seconds epoch to start scanning at.
+            endTime (int): seconds epoch to stop scanning at.
+            ruleName (str): the name of an existing D&R rule to use.
+            ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
+
+        Returns:
+            a dict containing results of the query.
+        '''
         sensors = self._lc.sensors()
         while True:
             moreSensors = self._lc.sensors( is_next = True )
@@ -200,9 +227,26 @@ def main():
                          default = None,
                          help = 'file path where rule to scan is.' )
 
+    parser.add_argument( '--max-time-window',
+                         type = int,
+                         required = False,
+                         dest = 'maxTimeWindow',
+                         default = ( 60 * 60 * 24 * 1 ),
+                         help = 'maximum number of seconds in a window used to shard the search.' )
+
+    parser.add_argument( '--max-concurrent',
+                         type = int,
+                         required = False,
+                         dest = 'maxConcurrent',
+                         default = 10,
+                         help = 'maximum number of concurrent queries per sensor searched.' )
+
     args = parser.parse_args()
 
-    batchDr = BatchDR( Manager( None, None ), isInteractive = True )
+    replay = Replay( Manager( None, None ),
+                     isInteractive = True,
+                     maxTimeWindow = args.maxTimeWindow,
+                     maxConcurrent = args.maxConcurrent )
 
     ruleContent = None
     if args.ruleContent is not None:
@@ -217,16 +261,16 @@ def main():
                 raise LcApiException( 'rule content not valid yaml or json' )
 
     if args.sid is not None:
-        response = batchDr.scanHistoricalSensor( str( args.sid ),
+        response = replay.scanHistoricalSensor( str( args.sid ),
                                                 args.start,
                                                 args.end,
                                                 ruleName = args.ruleName,
                                                 ruleContent = ruleContent )
     elif args.isEntireOrg:
-        response = batchDr.scanEntireOrg( args.start,
-                                          args.end,
-                                          ruleName = args.ruleName,
-                                          ruleContent = ruleContent )
+        response = replay.scanEntireOrg( args.start,
+                                         args.end,
+                                         ruleName = args.ruleName,
+                                         ruleContent = ruleContent )
     else:
         raise LcApiException( '--sid or --entire-org must be specified' )
 
