@@ -2,7 +2,7 @@ from setuptools import setup, Command
 import glob
 import os
 
-__version__ = "2.11.1"
+__version__ = "2.11.3"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -24,6 +24,6 @@ setup( name = 'limacharlie',
               'limacharlie=limacharlie.__main__:main',
               'limacharlie-search=limacharlie.Search:main',
               'limacharlie-upload=limacharlie.Logs:main',
-              'limacharlie-replay=limacharlie.BatchDR:main',
+              'limacharlie-replay=limacharlie.Replay:main',
             ],
        }, )
