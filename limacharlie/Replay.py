@@ -201,14 +201,14 @@ def main():
 
     parser.add_argument( '--start',
                          type = int,
-                         required = True,
+                         required = False,
                          dest = 'start',
                          default = None,
                          help = 'epoch seconds at which to start scanning sensor traffic.' )
 
     parser.add_argument( '--end',
                          type = int,
-                         required = True,
+                         required = False,
                          dest = 'end',
                          default = None,
                          help = 'epoch seconds at which to end scanning sensor traffic.' )
@@ -241,6 +241,13 @@ def main():
                          default = 10,
                          help = 'maximum number of concurrent queries per sensor searched.' )
 
+    parser.add_argument( '--last-seconds',
+                         type = int,
+                         required = False,
+                         dest = 'lastSeconds',
+                         default = None,
+                         help = 'can be specified instead of --start and --end, will make the time window the last X seconds.' )
+
     args = parser.parse_args()
 
     replay = Replay( Manager( None, None ),
@@ -260,15 +267,25 @@ def main():
             except:
                 raise LcApiException( 'rule content not valid yaml or json' )
 
+    if ( args.start is None or args.end is None ) and args.lastSeconds is None:
+        raise LcApiException( 'must specify start and end, or last-seconds' )
+
+    start = args.start
+    end = args.end
+    if start is None and end is None and args.lastSeconds is not None:
+        now = int( time.time() )
+        start = now - args.lastSeconds
+        end = now
+
     if args.sid is not None:
         response = replay.scanHistoricalSensor( str( args.sid ),
-                                                args.start,
-                                                args.end,
+                                                start,
+                                                end,
                                                 ruleName = args.ruleName,
                                                 ruleContent = ruleContent )
     elif args.isEntireOrg:
-        response = replay.scanEntireOrg( args.start,
-                                         args.end,
+        response = replay.scanEntireOrg( start,
+                                         end,
                                          ruleName = args.ruleName,
                                          ruleContent = ruleContent )
     else:
