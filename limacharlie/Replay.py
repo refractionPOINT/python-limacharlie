@@ -35,7 +35,7 @@ class Replay( object ):
 
     def _reportStatus( self ):
         with self._statusMutex:
-            sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8s" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
+            sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8.2f seconds" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
         sys.stdout.flush()
 
         gevent.spawn_later( 1, self._reportStatus )
