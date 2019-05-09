@@ -19,7 +19,6 @@ class Logs( object ):
         self._accessToken = str( uuid.UUID( str( self._accessToken ) ) )
         self._uploadUrl = None
 
-
     def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False, originalPath = None ):
         if self._uploadUrl is None:
             # Get the ingest URL from the API.
