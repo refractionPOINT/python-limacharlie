@@ -141,15 +141,15 @@ class Manager( object ):
 
         return ret
 
-    def _apiCall( self, url, verb, params = {} ):
+    def _apiCall( self, url, verb, params = {}, altRoot = None ):
         if self._jwt is None:
             self._refreshJWT()
 
-        code, data = self._restCall( url, verb, params )
+        code, data = self._restCall( url, verb, params, altRoot = altRoot )
 
         if code == HTTP_UNAUTHORIZED:
             self._refreshJWT()
-            code, data = self._restCall( url, verb, params )
+            code, data = self._restCall( url, verb, params, altRoot = altRoot )
 
         if 200 != code:
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )
@@ -186,6 +186,16 @@ class Manager( object ):
             return True
         except:
             return False
+
+    def whoAmI( self ):
+        '''Query the API to see which organizations we are authenticated for.
+
+        Returns:
+            A list of organizations or a dictionary of organizations with the related permissions.
+        '''
+
+        resp = self._apiCall( 'who', GET, {}, altRoot = ROOT_URL )
+        return resp
 
     def sensor( self, sid, inv_id = None ):
         '''Get a Sensor object for the specific Sensor ID.
