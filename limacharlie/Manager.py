@@ -26,7 +26,7 @@ HTTP_UNAUTHORIZED = 401
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -37,6 +37,7 @@ class Manager( object ):
             is_interactive (bool): if True, the manager will provide a root investigation and Spout so that tasks sent to Sensors can be tracked in realtime automatically; requires an inv_id to be set.
             extra_params (dict): optional key / values passed to interactive spout.
             jwt (str): optionally specify a single JWT to use for authentication.
+            uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID.
         '''
         # If no creds were provided, use the global ones.
         if oid is None:
@@ -58,6 +59,7 @@ class Manager( object ):
             if jwt is None:
                 raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
         self._oid = oid
+        self._uid = uid
         self._secret_api_key = secret_api_key
         self._jwt = jwt
         self._debug = print_debug_fn
@@ -90,8 +92,13 @@ class Manager( object ):
         try:
             if self._secret_api_key is None:
                 raise Exception( 'No API key set' )
+            authData = { "secret" : self._secret_api_key }
+            if self._uid is not None:
+                authData[ 'uid' ] = self._uid
+            else:
+                authData[ 'oid' ] = self._oid
             request = urllib2.Request( API_TO_JWT_URL,
-                                       urllib.urlencode( { "oid" : self._oid, "secret" : self._secret_api_key } ) )
+                                       urllib.urlencode( authData ) )
             request.get_method = lambda: "POST"
             u = urllib2.urlopen( request )
             self._jwt = json.loads( u.read() )[ 'jwt' ]
