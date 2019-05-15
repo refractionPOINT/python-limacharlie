@@ -37,7 +37,7 @@ class Replay( object ):
     def _reportStatus( self ):
         timing = 1
         flag = self._isInteracive
-        if isintance( self._isInteracive, ( tuple, list ) ):
+        if isinstance( self._isInteracive, ( tuple, list ) ):
             timing, flag = self._isInteracive
         with self._statusMutex:
             if self._queryStartedAt is None:
