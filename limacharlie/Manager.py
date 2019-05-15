@@ -14,6 +14,7 @@ from .Spout import Spout
 from .utils import *
 
 from limacharlie import GLOBAL_OID
+from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
 
 ROOT_URL = 'https://api.limacharlie.io'
@@ -26,7 +27,7 @@ HTTP_UNAUTHORIZED = 401
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -37,12 +38,16 @@ class Manager( object ):
             is_interactive (bool): if True, the manager will provide a root investigation and Spout so that tasks sent to Sensors can be tracked in realtime automatically; requires an inv_id to be set.
             extra_params (dict): optional key / values passed to interactive spout.
             jwt (str): optionally specify a single JWT to use for authentication.
+            uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID.
         '''
         # If no creds were provided, use the global ones.
         if oid is None:
             if GLOBAL_OID is None:
                 raise Exception( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
             oid = GLOBAL_OID
+        if uid is None:
+            if GLOBAL_UID is not None:
+                uid = GLOBAL_UID
         if secret_api_key is None:
             if GLOBAL_API_KEY is None and jwt is None:
                 raise Exception( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
@@ -58,6 +63,7 @@ class Manager( object ):
             if jwt is None:
                 raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
         self._oid = oid
+        self._uid = uid
         self._secret_api_key = secret_api_key
         self._jwt = jwt
         self._debug = print_debug_fn
@@ -90,8 +96,13 @@ class Manager( object ):
         try:
             if self._secret_api_key is None:
                 raise Exception( 'No API key set' )
+            authData = { "secret" : self._secret_api_key }
+            if self._uid is not None:
+                authData[ 'uid' ] = self._uid
+            else:
+                authData[ 'oid' ] = self._oid
             request = urllib2.Request( API_TO_JWT_URL,
-                                       urllib.urlencode( { "oid" : self._oid, "secret" : self._secret_api_key } ) )
+                                       urllib.urlencode( authData ) )
             request.get_method = lambda: "POST"
             u = urllib2.urlopen( request )
             self._jwt = json.loads( u.read() )[ 'jwt' ]
@@ -141,15 +152,15 @@ class Manager( object ):
 
         return ret
 
-    def _apiCall( self, url, verb, params = {} ):
+    def _apiCall( self, url, verb, params = {}, altRoot = None ):
         if self._jwt is None:
             self._refreshJWT()
 
-        code, data = self._restCall( url, verb, params )
+        code, data = self._restCall( url, verb, params, altRoot = altRoot )
 
         if code == HTTP_UNAUTHORIZED:
             self._refreshJWT()
-            code, data = self._restCall( url, verb, params )
+            code, data = self._restCall( url, verb, params, altRoot = altRoot )
 
         if 200 != code:
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )
@@ -186,6 +197,16 @@ class Manager( object ):
             return True
         except:
             return False
+
+    def whoAmI( self ):
+        '''Query the API to see which organizations we are authenticated for.
+
+        Returns:
+            A list of organizations or a dictionary of organizations with the related permissions.
+        '''
+
+        resp = self._apiCall( 'who', GET, {}, altRoot = ROOT_URL )
+        return resp
 
     def sensor( self, sid, inv_id = None ):
         '''Get a Sensor object for the specific Sensor ID.

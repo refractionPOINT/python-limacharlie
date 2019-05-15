@@ -15,6 +15,7 @@ import yaml
 # 2- LC_CREDS_FILE environment variable points to a YAML file with "oid: <OID>" and "api_key: <KEY>".
 # 3- Assumes a creds file (like #2) is present at "~/.limacharlie".
 GLOBAL_OID = os.environ.get( 'LC_OID', None )
+GLOBAL_UID = os.environ.get( 'LC_UID', None )
 GLOBAL_API_KEY = os.environ.get( 'LC_API_KEY', None )
 if GLOBAL_API_KEY is None:
     _credsFile = os.environ.get( 'LC_CREDS_FILE', None )
@@ -29,10 +30,12 @@ if GLOBAL_API_KEY is None:
             if _lcEnv == 'default':
                 GLOBAL_OID = _credsFile.get( 'oid', None )
                 GLOBAL_API_KEY = _credsFile.get( 'api_key', None )
+                GLOBAL_UID = _credsFile.get( 'uid', None )
             else:
                 if _credsFile.get( 'env', {} ).get( _lcEnv, None ) is None:
                     raise Exception( "LimaCharlie environment specified in LC_CURRENT_ENV could not be found in local config file: ~/.limacharlie" )
                 GLOBAL_OID = _credsFile[ 'env' ][ _lcEnv ][ 'oid' ]
+                GLOBAL_UID = _credsFile[ 'env' ][ _lcEnv ][ 'uid' ]
                 GLOBAL_API_KEY = _credsFile[ 'env' ][ _lcEnv ][ 'api_key' ]
 
 from .Manager import Manager

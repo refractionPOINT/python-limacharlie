@@ -35,14 +35,22 @@ class Replay( object ):
             gevent.spawn_later( 0, self._reportStatus )
 
     def _reportStatus( self ):
+        timing = 1
+        flag = self._isInteracive
+        if isinstance( self._isInteracive, ( tuple, list ) ):
+            timing, flag = self._isInteracive
         with self._statusMutex:
             if self._queryStartedAt is None:
                 # Indicating the query is done, don't print.
                 return
-            sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8.2f seconds" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
-        sys.stdout.flush()
+            if flag is True:
+                sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8.2f seconds" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
+                sys.stdout.flush()
+            else:
+                # Assuming this is a callback instead.
+                flag( self._sensorPending, self._queryPending )
 
-        gevent.spawn_later( 1, self._reportStatus )
+        gevent.spawn_later( timing, self._reportStatus )
 
     def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None ):
         '''Scan a specific sensor's data with a D&R rule.
