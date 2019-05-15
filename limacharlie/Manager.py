@@ -14,6 +14,7 @@ from .Spout import Spout
 from .utils import *
 
 from limacharlie import GLOBAL_OID
+from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
 
 ROOT_URL = 'https://api.limacharlie.io'

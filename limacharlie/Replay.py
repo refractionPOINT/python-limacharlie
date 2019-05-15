@@ -39,8 +39,12 @@ class Replay( object ):
             if self._queryStartedAt is None:
                 # Indicating the query is done, don't print.
                 return
-            sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8.2f seconds" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
-        sys.stdout.flush()
+            if self._isInteracive is True:
+                sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8.2f seconds" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
+                sys.stdout.flush()
+            else:
+                # Assuming this is a callback instead.
+                self._isInteracive( self._sensorPending, self._queryPending )
 
         gevent.spawn_later( 1, self._reportStatus )
 
