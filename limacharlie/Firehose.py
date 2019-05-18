@@ -179,10 +179,10 @@ class Firehose( object ):
         curData = []
         while True:
             try:
-                data = sock.recv( 8192 )
+                data = sock.recv( 1024 * 512 )
                 if not data: break
                 if '\n' in data:
-                    chunks = data.split( '\n' )
+                    chunks = [ c for c in data.split( '\n' ) if c != '' ]
                     curData.append( chunks[ 0 ] )
                     try:
                         if self._is_parse:
@@ -200,7 +200,14 @@ class Firehose( object ):
                                 self.queue.put_nowait( c )
                         except:
                             self.dropped += 1
-                    curData = [ chunks[ -1 ] ]
+                    if 1 < len( chunks ):
+                        if data[ -1 ] == '\n':
+                            if self._is_parse:
+                                self.queue.put_nowait( json.loads( chunks[ -1 ] ) )
+                            else:
+                                self.queue.put_nowait( chunks[ -1 ] )
+                        else:
+                            curData = [ chunks[ -1 ] ]
                 else:
                     curData.append( data )
             except:
