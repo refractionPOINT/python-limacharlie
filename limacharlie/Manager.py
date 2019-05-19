@@ -152,15 +152,15 @@ class Manager( object ):
 
         return ret
 
-    def _apiCall( self, url, verb, params = {}, altRoot = None ):
+    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None ):
         if self._jwt is None:
             self._refreshJWT()
 
-        code, data = self._restCall( url, verb, params, altRoot = altRoot )
+        code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
 
         if code == HTTP_UNAUTHORIZED:
             self._refreshJWT()
-            code, data = self._restCall( url, verb, params, altRoot = altRoot )
+            code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
 
         if 200 != code:
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )

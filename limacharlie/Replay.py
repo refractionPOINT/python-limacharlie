@@ -119,16 +119,23 @@ class Replay( object ):
             else:
                 raise LcApiException( 'no rule specified' )
 
-            statusCode, resp = self._lc._restCall( 'sensor/%s/%s' % ( self._lc._oid, sid, ),
-                                                   'POST',
-                                                   {},
-                                                   altRoot = self._apiURL,
-                                                   queryParams = req,
-                                                   rawBody = body,
-                                                   contentType = 'application/json' )
+            nRetry = 0
+            while True:
+                try:
+                    resp = self._lc._apiCall( 'sensor/%s/%s' % ( self._lc._oid, sid, ),
+                                              'POST',
+                                              {},
+                                              altRoot = self._apiURL,
+                                              queryParams = req,
+                                              rawBody = body,
+                                              contentType = 'application/json' )
 
-            if 200 != statusCode:
-                raise LcApiException( '%s: %s' % ( statusCode, resp ) )
+                    break
+                except:
+                    nRetry += 1
+                    if nRetry > 5:
+                        raise
+                    time.sleep( 2 * nRetry )
         finally:
             with self._statusMutex:
                 self._queryPending -= 1
@@ -197,16 +204,23 @@ class Replay( object ):
             else:
                 raise LcApiException( 'no rule specified' )
 
-            statusCode, resp = self._lc._restCall( 'simulate/%s' % ( self._lc._oid, ),
-                                                   'POST',
-                                                   {},
-                                                   altRoot = self._apiURL,
-                                                   queryParams = req,
-                                                   rawBody = json.dumps( body ),
-                                                   contentType = 'application/json' )
+            nRetry = 0
+            while True:
+                try:
+                    resp = self._lc._apiCall( 'simulate/%s' % ( self._lc._oid, ),
+                                              'POST',
+                                              {},
+                                              altRoot = self._apiURL,
+                                              queryParams = req,
+                                              rawBody = json.dumps( body ),
+                                              contentType = 'application/json' )
 
-            if 200 != statusCode:
-                raise LcApiException( '%s: %s' % ( statusCode, resp ) )
+                    break
+                except:
+                    nRetry += 1
+                    if nRetry > 5:
+                        raise
+                    time.sleep( 2 * nRetry )
         finally:
             with self._statusMutex:
                 self._queryPending -= 1
