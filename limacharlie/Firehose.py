@@ -181,35 +181,29 @@ class Firehose( object ):
             try:
                 data = sock.recv( 1024 * 512 )
                 if not data: break
-                if '\n' in data:
-                    chunks = [ c for c in data.split( '\n' ) if c != '' ]
-                    curData.append( chunks[ 0 ] )
+
+                chunks = [ c for c in data.split( '\n' ) ]
+
+                # This is a pure continuation.
+                if 1 == len( chunks ):
+                    curData.append( chunks )
+                    continue
+
+                # Every chunk is an event boundary.
+                for c in chunks:
+                    curData.append( c )
+                    buff = ''.join( curData )
+                    curData = []
+                    if 0 == len( buff ):
+                        continue
                     try:
                         if self._is_parse:
-                            self.queue.put_nowait( json.loads( ''.join( curData ) ) )
+                            self.queue.put_nowait( json.loads( buff ) )
                         else:
-                            self.queue.put_nowait( ''.join( curData ) )
+                            self.queue.put_nowait( buff )
                     except:
                         self.dropped += 1
-
-                    for c in chunks[ 1 : -1 ]:
-                        try:
-                            if self._is_parse:
-                                self.queue.put_nowait( json.loads( c ) )
-                            else:
-                                self.queue.put_nowait( c )
-                        except:
-                            self.dropped += 1
-                    if 1 < len( chunks ):
-                        if data[ -1 ] == '\n':
-                            if self._is_parse:
-                                self.queue.put_nowait( json.loads( chunks[ -1 ] ) )
-                            else:
-                                self.queue.put_nowait( chunks[ -1 ] )
-                        else:
-                            curData = [ chunks[ -1 ] ]
-                else:
-                    curData.append( data )
+                    buff = None
             except:
                 self._manager._printDebug( 'error decoding data' )
 
