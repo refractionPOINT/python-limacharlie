@@ -186,7 +186,7 @@ class Firehose( object ):
 
                 # This is a pure continuation.
                 if 1 == len( chunks ):
-                    curData.append( chunks )
+                    curData.append( chunks[ 0 ] )
                     continue
 
                 # Every chunk is an event boundary.
