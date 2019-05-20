@@ -186,14 +186,56 @@ class Manager( object ):
         self._is_interactive = True
         self._refreshSpout()
 
-    def testAuth( self ):
+    def testAuth( self, permissions = [] ):
         '''Tests authentication with limacharlie.io.
+
+        Args:
+            permissions (list): optional list of permissions validate we have.
 
         Returns:
             a boolean indicating whether authentication succeeded.
         '''
         try:
-            self._refreshJWT()
+            perms = None
+
+            # First make sure we have an API key or JWT.
+            if self._secret_api_key is not None:
+                try:
+                    self._refreshJWT()
+                except:
+                    return False
+            elif self._jwt is not None:
+                try:
+                    perms = self.whoAmI()
+                except:
+                    return False
+            else:
+                return False
+
+            # If there are no permissions to check, we're good since
+            # the previous part of this check made sure our auth was
+            # at least valid.
+            if permissions is None or 0 == len( permissions ):
+                return True
+
+            # We need to check the permissions we have.
+            if perms is None:
+                perms = self.whoAmI()
+            if 'user_perms' in perms:
+                # This is from a user token with permissions to multiple
+                # organizations.
+                effective = perms[ 'user_perms' ].get( self._oid, [] )
+            else:
+                # This is a machine token. Check the current OID is in there.
+                if self._oid in perms.get( 'orgs', [] ):
+                    effective = perms.get( 'perms', [] )
+                else:
+                    effective = []
+
+            # Now just check if we have them all.
+            for p in permissions:
+                if p not in effective:
+                    return False
             return True
         except:
             return False
@@ -202,7 +244,7 @@ class Manager( object ):
         '''Query the API to see which organizations we are authenticated for.
 
         Returns:
-            A list of organizations or a dictionary of organizations with the related permissions.
+            A list of organizations and permissions, or a dictionary of organizations with the related permissions.
         '''
 
         resp = self._apiCall( 'who', GET, {}, altRoot = ROOT_URL )

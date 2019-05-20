@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "2.11.7"
+__version__ = "2.11.8"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -35,7 +35,7 @@ if GLOBAL_API_KEY is None:
                 if _credsFile.get( 'env', {} ).get( _lcEnv, None ) is None:
                     raise Exception( "LimaCharlie environment specified in LC_CURRENT_ENV could not be found in local config file: ~/.limacharlie" )
                 GLOBAL_OID = _credsFile[ 'env' ][ _lcEnv ][ 'oid' ]
-                GLOBAL_UID = _credsFile[ 'env' ][ _lcEnv ][ 'uid' ]
+                GLOBAL_UID = _credsFile[ 'env' ][ _lcEnv ].get( 'uid', None )
                 GLOBAL_API_KEY = _credsFile[ 'env' ][ _lcEnv ][ 'api_key' ]
 
 from .Manager import Manager
