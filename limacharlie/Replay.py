@@ -397,13 +397,17 @@ def main():
         with open( args.events, 'rb' ) as f:
             fileContent = f.read()
         # We support two formats.
-        if "\n" in fileContent and not fileContent.startswith( "[" ):
-            # This is newline-delimited like you get from LC Outputs.
-            events = [ json.loads( e ) for e in fileContent.split( '\n' ) ]
-        else:
-            # This is a JSON list containing all the events like you get
-            # from the historical view download button.
-            events = json.loads( fileContent )
+        try:
+            if "\n" in fileContent and not fileContent.startswith( "[" ):
+                # This is newline-delimited like you get from LC Outputs.
+                events = [ json.loads( e ) for e in fileContent.split( '\n' ) ]
+            else:
+                # This is a JSON list containing all the events like you get
+                # from the historical view download button.
+                events = json.loads( fileContent )
+        except:
+            print( "!!! Invalid events provided. Content should be a JSON LIST of events or newline-separated JSON." )
+            sys.exit( 1 )
         response = replay.scanEvents( events,
                                       ruleName = args.ruleName,
                                       ruleContent = ruleContent )
