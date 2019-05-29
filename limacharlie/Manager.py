@@ -27,7 +27,7 @@ HTTP_UNAUTHORIZED = 401
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None, onRefreshAuth = None ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -39,6 +39,7 @@ class Manager( object ):
             extra_params (dict): optional key / values passed to interactive spout.
             jwt (str): optionally specify a single JWT to use for authentication.
             uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID.
+            onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
         '''
         # If no creds were provided, use the global ones.
         if oid is None:
@@ -64,6 +65,7 @@ class Manager( object ):
                 raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
         self._oid = oid
         self._uid = uid
+        self._onRefreshAuth = onRefreshAuth
         self._secret_api_key = secret_api_key
         self._jwt = jwt
         self._debug = print_debug_fn
@@ -154,12 +156,18 @@ class Manager( object ):
 
     def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None ):
         if self._jwt is None:
-            self._refreshJWT()
+            if self._onRefreshAuth is not None:
+                self._onRefreshAuth( self )
+            else:
+                self._refreshJWT()
 
         code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
 
         if code == HTTP_UNAUTHORIZED:
-            self._refreshJWT()
+            if self._onRefreshAuth is not None:
+                self._onRefreshAuth( self )
+            else:
+                self._refreshJWT()
             code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
 
         if 200 != code:
@@ -201,7 +209,10 @@ class Manager( object ):
             # First make sure we have an API key or JWT.
             if self._secret_api_key is not None:
                 try:
-                    self._refreshJWT()
+                    if self._onRefreshAuth is not None:
+                        self._onRefreshAuth( self )
+                    else:
+                        self._refreshJWT()
                 except:
                     return False
             elif self._jwt is not None:
