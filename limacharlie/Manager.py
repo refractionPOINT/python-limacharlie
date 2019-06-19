@@ -568,7 +568,7 @@ class Manager( object ):
         '''
         data = self._apiCall( 'replicant/%s/%s' % ( self._oid, replicantName ), POST, {
             'request_data' : base64.b64encode( json.dumps( data ) ),
-            'is_async' : not isSynchronous,
+            'is_async' : isSynchronous,
         } )
         return data
 
