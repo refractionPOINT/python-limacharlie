@@ -1,8 +1,6 @@
-from setuptools import setup, Command
-import glob
-import os
+from setuptools import setup
 
-__version__ = "2.11.10"
+__version__ = "2.13.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -21,9 +19,10 @@ setup( name = 'limacharlie',
        long_description = 'Python API for limacharlie.io, an endpoint detection and response service.',
        entry_points = {
            'console_scripts': [
-              'limacharlie=limacharlie.__main__:main',
-              'limacharlie-search=limacharlie.Search:main',
-              'limacharlie-upload=limacharlie.Logs:main',
-              'limacharlie-replay=limacharlie.Replay:main',
-            ],
-       }, )
+               'limacharlie=limacharlie.__main__:main',
+               'limacharlie-search=limacharlie.Search:main',
+               'limacharlie-upload=limacharlie.Logs:main',
+               'limacharlie-replay=limacharlie.Replay:main',
+           ],
+       },
+)

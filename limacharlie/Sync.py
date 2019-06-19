@@ -1,4 +1,6 @@
 from .Manager import Manager
+from .Replicants import Integrity
+from .Replicants import Logging
 
 import uuid
 import os
@@ -22,6 +24,20 @@ class Sync( object ):
     def _coreOutputContent( self, output ):
         return { k : v for k, v in output.iteritems() if k != 'name' }
 
+    def _coreIntegrityContent( self, rule ):
+        rule = { k : v for k, v in rule.iteritems() if k not in ( 'by', 'updated' ) }
+        rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
+        rule[ 'platforms' ] = rule[ 'filters' ][ 'platforms' ]
+        del( rule[ 'filters' ] )
+        return rule
+
+    def _coreLoggingContent( self, rule ):
+        rule = { k : v for k, v in rule.iteritems() if k not in ( 'by', 'updated' ) }
+        rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
+        rule[ 'platforms' ] = rule[ 'filters' ][ 'platforms' ]
+        del( rule[ 'filters' ] )
+        return rule
+
     def _recursiveOrderDict( self, d ):
         if isinstance( d, list ) or isinstance( d, tuple ):
             return sorted( d )
@@ -38,7 +54,7 @@ class Sync( object ):
 
         return True
 
-    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False ):
+    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -51,6 +67,7 @@ class Sync( object ):
             for ruleName, rule in rules.items():
                 # Special rules from replicants are ignored.
                 if ruleName.startswith( '__' ):
+                    del( rules[ ruleName ] )
                     continue
                 rules[ ruleName ] = self._coreRuleContent( rule )
             asConf[ 'rules' ] = rules
@@ -59,10 +76,20 @@ class Sync( object ):
             for outputName, output in outputs.items():
                 outputs[ outputName ] = self._coreOutputContent( output )
             asConf[ 'outputs' ] = outputs
+        if not isNoIntegrity:
+            integrityRules = Integrity( self._man ).getRules()
+            for ruleName, rule in integrityRules.items():
+                integrityRules[ ruleName ] = self._coreIntegrityContent( rule )
+            asConf[ 'integrity' ] = integrityRules
+        if not isNoLogging:
+            loggingRules = Logging( self._man ).getRules()
+            for ruleName, rule in loggingRules.items():
+                loggingRules[ ruleName ] = self._coreLoggingContent( rule )
+            asConf[ 'logging' ] = loggingRules
         with open( toConfigFile, 'wb' ) as f:
             f.write( yaml.safe_dump( asConf, default_flow_style = False ) )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -96,7 +123,7 @@ class Sync( object ):
                 # Check to see if it is already in the current rules and in the right format.
                 if ruleName in currentRules:
                     if ( self._isJsonEqual( rule[ 'detect' ], currentRules[ ruleName ][ 'detect' ] ) and
-                        self._isJsonEqual( rule[ 'respond' ], currentRules[ ruleName ][ 'respond' ] ) ):
+                         self._isJsonEqual( rule[ 'respond' ], currentRules[ ruleName ][ 'respond' ] ) ):
                         # Exact same, no point in pushing.
                         yield ( '=', 'rule', ruleName )
                         continue
@@ -140,6 +167,60 @@ class Sync( object ):
                         if not isDryRun:
                             self._man.del_output( outputName )
                         yield ( '-', 'output', outputName )
+
+        if not isNoIntegrity:
+            integrityReplicant = Integrity( self._man )
+            currentIntegrityRules = { k : self._coreIntegrityContent( v ) for k, v in integrityReplicant.getRules().iteritems() }
+
+            for ruleName, rule in asConf.get( 'integrity', {} ).iteritems():
+                if ruleName in currentIntegrityRules:
+                    if self._isJsonEqual( rule, currentIntegrityRules[ ruleName ] ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'integrity', ruleName )
+                        continue
+                if not isDryRun:
+                    integrityReplicant.addRule( ruleName,
+                                                patterns = rule[ 'patterns' ],
+                                                tags = rule.get( 'tags', [] ),
+                                                platforms = rule.get( 'platforms', [] ) )
+                yield ( '+', 'integrity', ruleName )
+
+            if isForce:
+                # Now if isForce was specified, list the existing rules and remove the ones
+                # not in our list.
+                for ruleName, rule in integrityReplicant.getRules().iteritems():
+                    if ruleName not in asConf[ 'integrity' ]:
+                        if not isDryRun:
+                            integrityReplicant.removeRule( ruleName )
+                        yield ( '-', 'integrity', ruleName )
+
+        if not isNoLogging:
+            loggingReplicant = Logging( self._man )
+            currentLoggingRules = { k : self._coreLoggingContent( v ) for k, v in loggingReplicant.getRules().iteritems() }
+            for ruleName, rule in asConf.get( 'logging', {} ).iteritems():
+                if ruleName in currentLoggingRules:
+                    if self._isJsonEqual( rule, currentLoggingRules[ ruleName ] ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'logging', ruleName )
+                        continue
+                if not isDryRun:
+                    loggingReplicant.addRule( ruleName,
+                                              patterns = rule[ 'patterns' ],
+                                              tags = rule.get( 'tags', [] ),
+                                              platforms = rule.get( 'platforms', [] ) )
+                yield ( '+', 'logging', ruleName )
+
+            if isForce:
+                # Now if isForce was specified, list the existing rules and remove the ones
+                # not in our list.
+                for ruleName, rule in loggingReplicant.getRules().iteritems():
+                    if ruleName not in asConf[ 'logging' ]:
+                        if not isDryRun:
+                            loggingReplicant.removeRule( ruleName )
+                        yield ( '-', 'logging', ruleName )
+
+        if not isNoLogging:
+            pass
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
@@ -209,6 +290,18 @@ if __name__ == '__main__':
                          action = 'store_true',
                          dest = 'isNoOutputs',
                          help = 'if specified, ignore Outputs from operations' )
+    parser.add_argument( '--no-integrity',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNoIntegrity',
+                         help = 'if specified, ignore Integrity Replicants from operations' )
+    parser.add_argument( '--no-logging',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNoLogging',
+                         help = 'if specified, ignore Logging Replicants from operations' )
     parser.add_argument( '-c', '--config',
                          type = str,
                          default = 'LCConf',
@@ -229,6 +322,10 @@ if __name__ == '__main__':
         print( '!!! NO RULES !!!' )
     if args.isNoOutputs:
         print( '!!! NO OUTPUTS !!!' )
+    if args.isNoIntegrity:
+        print( '!!! NO INTEGRITY REPLICANT !!!' )
+    if args.isNoLogging:
+        print( '!!! NO LOGGING REPLICANT !!!' )
 
     if args.apiKey is not None:
         secretKey = args.apiKey.strip()
@@ -250,7 +347,7 @@ if __name__ == '__main__':
     s = Sync( args.oid, secretKey )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs )
+        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging ):
             print( '%s %s %s' % ( modification, category, element ) )
