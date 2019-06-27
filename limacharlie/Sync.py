@@ -63,7 +63,18 @@ class Sync( object ):
         toConfigFile = os.path.abspath( toConfigFile )
         asConf = { 'version' : self._confVersion }
         if not isNoRules:
-            rules = self._man.rules()
+            rules = {}
+            # Check which namespaces we have access to.
+            availableNamespaces = []
+            if self._man.testAuth( permissions = [ 'dr.list' ] ):
+                availableNamespaces.append( 'general' )
+            if self._man.testAuth( permissions = [ 'dr.list.managed' ] ):
+                availableNamespaces.append( 'managed' )
+
+            # Fetch the rules from all the namespaces we have access to.
+            for namespace in availableNamespaces:
+                rules.update( self._man.rules( namespace = namespace ) )
+
             for ruleName, rule in rules.items():
                 # Special rules from replicants are ignored.
                 if ruleName.startswith( '__' ):
@@ -114,8 +125,17 @@ class Sync( object ):
         os.chdir( currentPath )
 
         if not isNoRules:
+            # Check all the namespaces we have access to.
+            availableNamespaces = []
+            if self._man.testAuth( permissions = [ 'dr.list' ] ):
+                availableNamespaces.append( 'general' )
+            if self._man.testAuth( permissions = [ 'dr.list.managed' ] ):
+                availableNamespaces.append( 'managed' )
+
             # Get the current rules, we will try not to push for no reason.
-            currentRules = { k : self._coreRuleContent( v ) for k, v in self._man.rules().iteritems() }
+            currentRules = {}
+            for namespace in availableNamespaces:
+                currentRules.update( { k : self._coreRuleContent( v ) for k, v in self._man.rules( namespace = namespace ).iteritems() } )
 
             # Start by adding the rules with isReplace.
             for ruleName, rule in asConf.get( 'rules', {} ).iteritems():
@@ -142,13 +162,8 @@ class Sync( object ):
             if isForce:
                 # Check all the namespaces we have access to.
                 currentRules = {}
-                availableNamespaces = []
-                if self._man.testAuth( permissions = [ 'dr.list' ] ):
-                    availableNamespaces.append( 'general' )
-                if self._man.testAuth( permissions = [ 'dr.list.managed' ] ):
-                    availableNamespaces.append( 'managed' )
                 for namespace in availableNamespaces:
-                    currentRules.update( self._man.rules() )
+                    currentRules.update( self._man.rules( namespace = namespace ) )
                 # Now if isForce was specified, list existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in currentRules.iteritems():
