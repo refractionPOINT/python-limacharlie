@@ -187,10 +187,10 @@ class Manager( object ):
         '''
         if self._is_interactive:
             return
-        
+
         if not self._inv_id:
             raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
-        
+
         self._is_interactive = True
         self._refreshSpout()
 
@@ -354,7 +354,7 @@ class Manager( object ):
         '''
 
         req = { 'name' : name, 'module' : module, 'type' : type }
-        for k, v  in kwargs.iteritems():
+        for k, v in kwargs.iteritems():
             req[ k ] = v
         return self._apiCall( 'outputs/%s' % self._oid, POST, req )
 
@@ -375,29 +375,43 @@ class Manager( object ):
             sensors.append( self.sensor( s, self._inv_id ) )
         return sensors
 
-    def rules( self ):
+    def rules( self, namespace = None ):
         '''Get the list of all Detection & Response rules for the Organization.
+
+        Args:
+            namespace (str): optional namespace to operator on, defaults to "general".
 
         Returns:
             a list of D&R rules (JSON).
         '''
 
-        resp = self._apiCall( 'rules/%s' % self._oid, GET )
+        req = {}
+        if namespace is not None:
+            req[ 'namespace' ] = namespace
+
+        resp = self._apiCall( 'rules/%s' % self._oid, GET, req )
         return resp
 
-    def del_rule( self, name ):
+    def del_rule( self, name, namespace = None ):
         '''Remove a Rule from the Organization.
 
         Args:
             name (str): the name of the Rule to remove.
+            namespace (str): optional namespace to operator on, defaults to "general".
 
         Returns:
             the REST API response (JSON).
         '''
 
-        return self._apiCall( 'rules/%s' % self._oid, DELETE, { 'name' : name } )
+        req = {
+            'name' : name,
+        }
+        if namespace is not None:
+            req[ 'namespace' ] = namespace
 
-    def add_rule( self, name, detection, response, isReplace = False ):
+        return self._apiCall( 'rules/%s' % self._oid, DELETE, req )
+
+    def add_rule( self, name, detection, response, isReplace = False, namespace = None ):
         '''Add a Rule to the Organization.
 
         For detailed explanation and possible Rules parameters
@@ -406,6 +420,7 @@ class Manager( object ):
 
         Args:
             name (str): name to give to the Rule.
+            namespace (str): optional namespace to operator on, defaults to "general".
             isReplace (boolean): if True, replace existing Rule with the same name.
             detection (dict): dictionary representing the detection component of the Rule.
             response (list): list representing the response component of the Rule.
@@ -420,6 +435,9 @@ class Manager( object ):
             'detection' : json.dumps( detection ),
             'response' : json.dumps( response ),
         }
+
+        if namespace is not None:
+            req[ 'namespace' ] = namespace
 
         return self._apiCall( 'rules/%s' % self._oid, POST, req )
 
@@ -641,7 +659,7 @@ def _report_errors( func ):
     @wraps( func )
     def silenceit( *args, **kwargs ):
         try:
-            return func( *args,**kwargs )
+            return func( *args, **kwargs )
         except:
             _eprint( traceback.format_exc() )
             return None
