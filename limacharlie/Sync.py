@@ -19,7 +19,7 @@ class Sync( object ):
         self._man = Manager( self._oid, self._apiKey )
 
     def _coreRuleContent( self, rule ):
-        return { k : v for k, v in rule.iteritems() if k in ( 'name', 'detect', 'respond' ) }
+        return { k : v for k, v in rule.iteritems() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
 
     def _coreOutputContent( self, output ):
         return { k : v for k, v in output.iteritems() if k != 'name' }
@@ -120,29 +120,44 @@ class Sync( object ):
             # Start by adding the rules with isReplace.
             for ruleName, rule in asConf.get( 'rules', {} ).iteritems():
                 rule = self._coreRuleContent( rule )
+                ruleNamespace = rule.get( 'namespace', 'general' )
                 # Check to see if it is already in the current rules and in the right format.
                 if ruleName in currentRules:
+                    previousNamespace = currentRules[ ruleName ].get( 'namespace', 'general' )
                     if ( self._isJsonEqual( rule[ 'detect' ], currentRules[ ruleName ][ 'detect' ] ) and
-                         self._isJsonEqual( rule[ 'respond' ], currentRules[ ruleName ][ 'respond' ] ) ):
+                         self._isJsonEqual( rule[ 'respond' ], currentRules[ ruleName ][ 'respond' ] ) and
+                         ruleNamespace == previousNamespace ):
                         # Exact same, no point in pushing.
                         yield ( '=', 'rule', ruleName )
                         continue
 
                 if not isDryRun:
-                    self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True )
+                    if ruleNamespace != previousNamespace:
+                        # Looks like the rule changed namespace.
+                        self._man.del_rule( ruleName, namespace = previousNamespace )
+                    self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True, namespace = ruleNamespace )
                 yield ( '+', 'rule', ruleName )
 
             # If we are not told to isForce, this is it.
             if isForce:
+                # Check all the namespaces we have access to.
+                currentRules = {}
+                availableNamespaces = []
+                if self._man.testAuth( permissions = [ 'dr.list' ] ):
+                    availableNamespaces.append( 'general' )
+                if self._man.testAuth( permissions = [ 'dr.list.managed' ] ):
+                    availableNamespaces.append( 'managed' )
+                for namespace in availableNamespaces:
+                    currentRules.update( self._man.rules() )
                 # Now if isForce was specified, list existing rules and remove the ones
                 # not in our list.
-                for ruleName, rule in self._man.rules().iteritems():
+                for ruleName, rule in currentRules.iteritems():
                     # Ignore special replicant rules.
                     if ruleName.startswith( '__' ):
                         continue
                     if ruleName not in asConf[ 'rules' ]:
                         if not isDryRun:
-                            self._man.del_rule( ruleName )
+                            self._man.del_rule( ruleName, namespace = rule.get( 'namespace', 'general' ) )
                         yield ( '-', 'rule', ruleName )
 
         if not isNoOutputs:
