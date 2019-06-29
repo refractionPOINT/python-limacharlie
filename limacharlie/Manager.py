@@ -11,7 +11,10 @@ from functools import wraps
 
 from .Sensor import Sensor
 from .Spout import Spout
-from .utils import *
+from .utils import LcApiException
+from .utils import GET
+from .utils import POST
+from .utils import DELETE
 
 from limacharlie import GLOBAL_OID
 from limacharlie import GLOBAL_UID
@@ -174,7 +177,7 @@ class Manager( object ):
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )
 
         return data
-    
+
     def shutdown( self ):
         '''Shut down any active mechanisms like interactivity.
         '''
@@ -389,7 +392,7 @@ class Manager( object ):
         if namespace is not None:
             req[ 'namespace' ] = namespace
 
-        resp = self._apiCall( 'rules/%s' % self._oid, GET, req )
+        resp = self._apiCall( 'rules/%s' % self._oid, GET, queryParams = req )
         return resp
 
     def del_rule( self, name, namespace = None ):
