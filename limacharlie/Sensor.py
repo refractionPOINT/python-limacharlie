@@ -295,9 +295,9 @@ class Sensor( object ):
             limit = int( limit )
 
         req = {
-          'start' : start,
-          'end' : end,
-          'is_compressed' : 'true',
+            'start' : start,
+            'end' : end,
+            'is_compressed' : 'true',
         }
 
         if limit is not None:
@@ -306,7 +306,7 @@ class Sensor( object ):
         if eventType is not None:
             req[ 'event_type' ] = eventType
 
-        data = self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, req )
+        data = self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, queryParams = req )
         return [ enhanceEvent( e ) for e in self._manager._unwrap( data[ 'events' ] ) ]
 
     def getHistoricOverview( self, start, end ):
@@ -327,7 +327,7 @@ class Sensor( object ):
             'end' : end,
         }
 
-        data = self._manager._apiCall( 'insight/%s/%s/overview' % ( self._manager._oid, self.sid ), GET, req )
+        data = self._manager._apiCall( 'insight/%s/%s/overview' % ( self._manager._oid, self.sid ), GET, queryParams = req )
         return data[ 'overview' ]
 
     def isDataAvailableFor( self, timestamp ):
