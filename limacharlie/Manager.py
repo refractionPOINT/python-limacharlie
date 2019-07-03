@@ -308,7 +308,7 @@ class Manager( object ):
             self._lastSensorListContinuationToken = None
 
         sensors = []
-        resp = self._apiCall( 'sensors/%s' % self._oid, GET, params )
+        resp = self._apiCall( 'sensors/%s' % self._oid, GET, queryParams = params )
         if inv_id is None:
             inv_id = self._inv_id
         for s in resp[ 'sensors' ]:
@@ -373,9 +373,9 @@ class Manager( object ):
 
         req = { 'hostname' : hostname_expr }
         sensors = []
-        resp = self._apiCall( 'hostnames/%s' % self._oid, GET, req )
-        for s in resp[ 'sid' ]:
-            sensors.append( self.sensor( s, self._inv_id ) )
+        resp = self._apiCall( 'hostnames/%s' % self._oid, GET, queryParams = req )
+        for sid, hostname in resp[ 'sid' ]:
+            sensors.append( self.sensor( sid, self._inv_id ) )
         return sensors
 
     def rules( self, namespace = None ):
@@ -484,7 +484,7 @@ class Manager( object ):
         if cat is not None:
             req[ 'cat' ] = cat
 
-        data = self._apiCall( 'insight/%s/detections' % ( self._oid, ), GET, req )
+        data = self._apiCall( 'insight/%s/detections' % ( self._oid, ), GET, queryParams = req )
         return self._unwrap( data[ 'detects' ] )
 
     def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False ):
@@ -517,7 +517,7 @@ class Manager( object ):
             'per_object' : 'true' if ( isWithWildcards and 'summary' == info ) else 'false',
         }
 
-        data = self._apiCall( 'insight/%s/objects/%s' % ( self._oid, objType ), GET, req )
+        data = self._apiCall( 'insight/%s/objects/%s' % ( self._oid, objType ), GET, queryParams = req )
         return data
 
     def getBatchObjectInformation( self, objects, isCaseSensitive = True ):
@@ -572,7 +572,7 @@ class Manager( object ):
         Returns:
             List of (sid, hostname).
         '''
-        data = self._apiCall( 'hostnames/%s' % ( self._oid, ), GET, {
+        data = self._apiCall( 'hostnames/%s' % ( self._oid, ), GET, queryParams = {
             'hostname' : hostnamePrefix,
         } )
         return data.get( 'sid', None )
