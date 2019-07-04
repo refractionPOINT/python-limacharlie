@@ -1,11 +1,10 @@
-from gevent import monkey; monkey.patch_all()
+from gevent import monkey
+monkey.patch_all()
 from gevent.queue import Queue
 import gevent.pool
 import sys
 import json
 import requests
-import os
-import traceback
 import uuid
 import time
 
@@ -69,7 +68,7 @@ class Spout( object ):
             spoutParams[ 'cat' ] = self._cat
         if sid is not None:
             spoutParams[ 'sid' ] = self._sid
-        for k, v in extra_params.iteritems():
+        for k, v in extra_params.items():
             spoutParams[ k ] = v
         # Spouts work by doing a POST to the output.limacharlie.io service with the
         # OID, Secret Key and any Output parameters we want. This POST will return
@@ -101,6 +100,9 @@ class Spout( object ):
 
     def shutdown( self ):
         '''Stop receiving data.'''
+
+        if self._isStop:
+            return
 
         self._isStop = True
 
@@ -134,7 +136,7 @@ class Spout( object ):
                 for line in self._hConn.iter_lines( chunk_size = 1024 * 1024 * 10 ):
                     try:
                         if self._is_parse:
-                            line = json.loads( line )
+                            line = json.loads( line.decode() )
                             # The output.limacharlie.io service also injects a
                             # few trace messages like keepalives and number of
                             # events dropped (if any) from the server (indicating
@@ -179,7 +181,6 @@ def _printToStderr( msg ):
 if __name__ == "__main__":
     import argparse
     import getpass
-    import uuid
     import gevent
     import signal
     import limacharlie

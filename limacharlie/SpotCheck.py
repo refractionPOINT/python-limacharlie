@@ -9,7 +9,7 @@ import base64
 
 class SpotCheck( object ):
     '''Representation of the process of looking for various Indicators of Compromise on the fleet.'''
-    
+
     def __init__( self, oid, secret_api_key, cb_check, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, tags = None ):
         '''Perform a check for specific characteristics on all hosts matching some parameters.
 
@@ -33,20 +33,20 @@ class SpotCheck( object ):
         self._cbOnError = cb_on_error
         self._nConcurrent = n_concurrent
         self._nSecBetweenOnlineChecks = n_sec_between_online_checks
-        
+
         self._isWindows = is_windows
         self._isLinux = is_linux
         self._isMacos = is_macos
-        
+
         self._tags = tags
-        
+
         self._threads = gevent.pool.Group()
         self._stopEvent = gevent.event.Event()
-        
+
         self._sensorsLeftToCheck = Queue()
 
         self._lc = Manager( oid, secret_api_key, inv_id = 'spotcheck-%s' % str( uuid.uuid4() )[ : 4 ], is_interactive = True, extra_params = extra_params )
-    
+
     def start( self ):
         '''Start the SpotCheck process, returns immediately.
         '''
@@ -58,19 +58,19 @@ class SpotCheck( object ):
                 break
             for sensor in sensors:
                 self._sensorsLeftToCheck.put( sensor )
-        
+
         # Now that we have a list of sensors, we'll spawn n_concurrent spot checks,
         for _ in xrange( self._nConcurrent ):
             self._threads.add( gevent.spawn_later( 0, self._performSpotChecks ) )
-        
+
         # Done, the threads will do the checks.
-    
+
     def stop( self ):
         '''Stop the SpotCheck process, returns once activity has stopped.
         '''
         self._stopEvent.set()
         self._threads.join()
-    
+
     def wait( self, timeout = None ):
         '''Wait for SpotCheck to be complete, or timeout occurs.
 
@@ -81,7 +81,7 @@ class SpotCheck( object ):
             True if SpotCheck is finished, False if a timeout was specified and reached before the SpotCheck is done.
         '''
         return self._threads.join( timeout = timeout )
-        
+
     def _performSpotChecks( self ):
         while not self._stopEvent.wait( timeout = 0 ):
             try:
@@ -89,7 +89,7 @@ class SpotCheck( object ):
             except:
                 # If there are no more sensors to check, we can exit.
                 return
-                
+
             # Check to see if the platform matches
             if self._isWindows is False or self._isLinux is False or self._isMacos is False:
                 platform = sensor.getInfo()[ 'plat' ]
@@ -99,13 +99,13 @@ class SpotCheck( object ):
                     continue
                 if platform == 'macos' and not self._isMacos:
                     continue
-            
+
             # If tags were set, check the sensor have them.
             if self._tags is not None:
                 sensorTags = sensor.getTags()
                 if not all( [ ( x in sensorTags ) for x in self._tags ] ):
                     continue
-            
+
             # Check to see if the sensor is online.
             if not sensor.isOnline():
                 if self._cbOnOffline is not None:
@@ -114,7 +114,7 @@ class SpotCheck( object ):
                 gevent.sleep( self._nSecBetweenOnlineChecks )
                 self._sensorsLeftToCheck.put( sensor )
                 continue
-            
+
             # By this point we have a sensor and it's likely online.
             try:
                 result = self._cbCheck( sensor )
@@ -132,7 +132,7 @@ class SpotCheck( object ):
                 gevent.sleep( self._nSecBetweenOnlineChecks )
                 self._sensorsLeftToCheck.put( sensor )
                 continue
-            
+
             # This means the check was done successfully.
             if self._cbOnCheckDone is not None:
                 self._cbOnCheckDone( sensor )
@@ -183,7 +183,6 @@ if __name__ == "__main__":
                          default = None,
                          dest = 'extra_params',
                          help = 'extra parameters to pass to the manager.' )
-                         
     parser.add_argument( '-f', '--file',
                          action = 'append',
                          required = False,
@@ -237,50 +236,50 @@ if __name__ == "__main__":
                          default = [],
                          dest = 'yaraprocesses',
                          help = 'takes 2 arguments, first is a file path to yara signature, second is a process executable path pattern to scan memory and files.' )
-    
+
     args = parser.parse_args()
-    
+
     # Get creds if we need them.
     if args.oid is not None:
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
     else:
         secretApiKey = None
-    
+
     def _genericSpotCheck( sensor ):
         global args
-        
+
         for file in args.files:
             response = sensor.simpleRequest( 'file_info "%s"' % file.replace( '\\', '\\\\' ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
-            
+
             if 0 != response[ 'event' ].get( 'ERROR', 0 ):
                 # File probably not found.
                 continue
-            
+
             # File was found.
             fileInfo = response[ 'event' ]
-            
+
             # Try to ge the hash.
             response = sensor.simpleRequest( 'file_hash "%s"' % file.replace( '\\', '\\\\' ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
-                
+
             fileHash = None
             if 0 == response[ 'event' ].get( 'ERROR', 0 ):
                 # We got a hash.
                 fileHash = response[ 'event' ]
-            
+
             _reportHit( sensor, { 'file_info' : fileInfo, 'file_hash' : fileHash } )
-                
+
         for directory, filePattern, depth in args.filepatterns:
             response = sensor.simpleRequest( 'dir_list "%s" "%s" -d %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
-            
+
             for entry in response[ 'event' ][ 'DIRECTORY_LIST' ]:
                 _reportHit( sensor, { 'file_info' : entry } )
-        
+
         for directory, filePattern, depth, hash in args.filehashes:
             if 64 != len( hash ):
                 raise Exception( 'hash not valid sha256' )
@@ -291,34 +290,34 @@ if __name__ == "__main__":
             response = sensor.simpleRequest( 'dir_find_hash "%s" "%s" -d %s --hash %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth , hash ), timeout = 3600 )
             if not response:
                 raise Exception( 'timeout' )
-            
+
             for entry in response[ 'event' ][ 'DIRECTORY_LIST' ]:
                 _reportHit( sensor, { 'file_hash' : entry } )
-                
+
         for regKey in args.registrykeys:
             response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey.replace( '\\', '\\\\' ), ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
-            
+
             if 0 != response[ 'event' ][ 'ERROR' ]:
                 # Registry probably not found.
                 continue
-            
+
             _reportHit( sensor, { 'reg_key' : response[ 'event' ] } )
-                
+
         for regKey, regVal in args.registryvalues:
             response = sensor.simpleRequest( 'reg_list "%s"' % ( regKey.replace( '\\', '\\\\' ), ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
-            
+
             if 0 != response[ 'event' ][ 'ERROR' ]:
                 # Registry probably not found.
                 continue
-            
+
             for valEntry in response[ 'event' ][ 'REGISTRY_VALUE' ]:
                 if valEntry.get( 'NAME', '' ).lower() == regVal.lower():
                     _reportHit( sensor, { 'reg_key' : response[ 'event' ][ 'ROOT' ], 'reg_value' : valEntry } )
-        
+
         for yaraSigFile in args.yarasystem:
             with open( yaraSigFile, 'rb' ) as f:
                 yaraSig = base64.b64encode( f.read() )
@@ -343,9 +342,9 @@ if __name__ == "__main__":
                 yaraSig = base64.b64encode( f.read() )
             future = sensor.request( 'yara_scan %s -e %s' % ( yaraSig, procPattern.replace( '\\', '\\\\' ) ) )
             _handleYaraTasking( sensor, future )
-        
+
         return True
-    
+
     def _handleYaraTasking( sensor, future ):
         isDone = False
         while True:
@@ -362,34 +361,33 @@ if __name__ == "__main__":
                 else:
                     # Ignore if we failed to scan file.
                     pass
-            
+
             if isDone:
                 break
-    
+
     def _reportHit( sensor, mtd ):
         print( "! (%s): %s" % ( sensor, json.dumps( mtd  ) ) )
-    
+
     def _onError( sensor, error ):
         print( "X (%s): %s" % ( sensor, error ) )
-    
+
     def _onOffline( sensor ):
         print( "? (%s)" % ( sensor, ) )
-    
+
     def _onDone( sensor ):
         print( ". (%s)" % ( sensor, ) )
-        
-    
-    checker = SpotCheck( args.oid, 
-                         secretApiKey, 
-                         _genericSpotCheck, 
-                         cb_on_check_done = _onDone, 
-                         cb_on_offline = _onOffline, 
-                         cb_on_error = _onError, 
-                         is_windows = args.is_windows, 
+
+    checker = SpotCheck( args.oid,
+                         secretApiKey,
+                         _genericSpotCheck,
+                         cb_on_check_done = _onDone,
+                         cb_on_offline = _onOffline,
+                         cb_on_error = _onError,
+                         is_windows = args.is_windows,
                          is_linux = args.is_linux,
                          is_macos = args.is_macos,
                          tags = args.tags,
                          extra_params = args.extra_params )
-    
+
     checker.start()
     checker.wait( 60 * 60 * 24 * 30 * 365 )
