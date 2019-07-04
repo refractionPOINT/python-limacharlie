@@ -1,3 +1,9 @@
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
 import gevent.event
 import gevent.lock
 
@@ -63,23 +69,18 @@ class _enhancedDict( dict ):
         return _x_( self, *args, **kwargs )
 
 def _isDynamicType( e ):
-    eType = type( e )
-    return issubclass( eType, dict ) or issubclass( eType, list ) or issubclass( eType, tuple )
+    return isinstance( e, ( dict, list, tuple ) )
 
 def _isListType( e ):
-    eType = type( e )
-    return issubclass( eType, list ) or issubclass( eType, tuple )
+    return isinstance( e, ( list, tuple ) )
 
 def _isSeqType( e ):
-    eType = type( e )
-    return issubclass( eType, dict )
+    return isinstance( e, dict )
 
 def _xm_( o, path, isWildcardDepth = False ):
     result = []
-    oType = type( o )
 
-    pathType = type( path )
-    if pathType is str:
+    if _isStringCompat( path ):
         if '/' == path:
             # Special case where we want a NOOP path
             return [ o ]
@@ -87,7 +88,7 @@ def _xm_( o, path, isWildcardDepth = False ):
     else:
         tokens = path
 
-    if issubclass( oType, dict ):
+    if isinstance( o, dict ):
         isEndPoint = False
         if 0 != len( tokens ):
             if 1 == len( tokens ):
@@ -116,7 +117,7 @@ def _xm_( o, path, isWildcardDepth = False ):
                 for elem in o.values():
                     if _isDynamicType( elem ):
                         result += _xm_( elem, tmpTokens, True )
-    elif issubclass( oType, list ) or oType is tuple:
+    elif isinstance( o, ( list, tuple ) ):
         result = []
         for elem in o:
             if _isDynamicType( elem ):
@@ -131,3 +132,8 @@ def _x_( o, path, isWildcardDepth = False ):
     else:
         r = None
     return r
+
+def _isStringCompat( s ):
+    if _IS_PYTHON_2:
+        return isinstance( s, ( str, unicode ) )
+    return isinstance( s, str )

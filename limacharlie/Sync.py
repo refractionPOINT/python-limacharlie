@@ -1,6 +1,7 @@
 from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
+from .utils import _isStringCompat
 
 import uuid
 import os
@@ -262,10 +263,10 @@ class Sync( object ):
             raise LcConfigException( 'Version not supported.' )
 
         includes = asConf.get( 'include', [] )
-        if isinstance( includes, str ):
+        if _isStringCompat( includes ):
             includes = [ includes ]
         for include in includes:
-            if not isinstance( include, str ):
+            if not _isStringCompat( include ):
                 raise LcConfigException( 'Include should be a string, not %s' % ( str( type( include ) ), ) )
             # Config files are always evaluated relative to the current one.
             contextPath = os.path.dirname( configFile )
