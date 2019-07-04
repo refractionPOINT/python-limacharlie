@@ -1,10 +1,22 @@
-from gevent import monkey; monkey.patch_all()
+from gevent import monkey
+monkey.patch_all()
 from gevent.server import StreamServer
 from gevent.queue import Queue
+
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
+if _IS_PYTHON_2:
+    from urllib2 import urlopen
+else:
+    from urllib.request import urlopen
+
 import sys
 import ssl
 import json
-import urllib2
 import os
 import tempfile
 import socket
@@ -70,7 +82,7 @@ class Firehose( object ):
 
         if self._data_type not in ( 'event', 'detect', 'audit' ):
             raise LcApiException( 'Invalid data type: %s' % self._data_type )
-        
+
         # Setup internal structures.
         self.queue = Queue( maxsize = self._max_buffer )
 
@@ -114,7 +126,7 @@ class Firehose( object ):
                     isStrict = 'false'
                 kwOutputArgs = {
                     'dest_host': effectiveDest,
-                    'is_tls': 'true', 
+                    'is_tls': 'true',
                     'is_strict_tls': isStrict,
                     'is_no_header': 'true',
                 }
@@ -128,9 +140,9 @@ class Firehose( object ):
                     kwOutputArgs[ 'sid' ] = sid
                 if self._is_delete_on_failure:
                     kwOutputArgs[ 'is_delete_on_failure' ] = 'true'
-                self._manager.add_output( self._output_name, 
-                                          'syslog', 
-                                          self._data_type, 
+                self._manager.add_output( self._output_name,
+                                          'syslog',
+                                          self._data_type,
                                           **kwOutputArgs )
                 self._manager._printDebug( 'Registration done.' )
             else:
@@ -140,7 +152,7 @@ class Firehose( object ):
 
     def shutdown( self ):
         '''Stop receiving data and potentially unregister the Output (if created here).'''
-        
+
         if self._name is not None:
             self._manager._printDebug( 'Unregistering.' )
             self._manager.del_output( self._output_name )
@@ -156,7 +168,7 @@ class Firehose( object ):
         self._dropped = 0
 
     def _getPublicIp( self ):
-        return json.load(urllib2.urlopen('http://jsonip.com'))['ip']
+        return json.load( urlopen( 'http://jsonip.com' ) )[ 'ip' ]
 
     def _handleNewClient( self, sock, address ):
         self._manager._printDebug( 'new firehose connection: %s' % ( address, ) )

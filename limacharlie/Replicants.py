@@ -1,4 +1,4 @@
-from Sensor import Sensor
+from .Sensor import Sensor
 from .utils import *
 import json
 import yaml
