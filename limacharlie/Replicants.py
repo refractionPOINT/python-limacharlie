@@ -121,7 +121,7 @@ class Replay( _Replicant ):
         if ruleName is not None:
             req[ 'rule_name' ] = ruleName
         if ruleContent is not None:
-            if isinstance( ruleContent, ( str, unicode ) ):
+            if isinstance( ruleContent, str ):
                 try:
                     ruleContent = yaml.safeLoad( ruleContent )
                 except:

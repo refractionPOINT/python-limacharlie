@@ -60,7 +60,7 @@ class SpotCheck( object ):
                 self._sensorsLeftToCheck.put( sensor )
 
         # Now that we have a list of sensors, we'll spawn n_concurrent spot checks,
-        for _ in xrange( self._nConcurrent ):
+        for _ in range( self._nConcurrent ):
             self._threads.add( gevent.spawn_later( 0, self._performSpotChecks ) )
 
         # Done, the threads will do the checks.

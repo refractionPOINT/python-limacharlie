@@ -234,7 +234,7 @@ class Replay( object ):
                     if k not in final:
                         final[ k ] = 0
                     final[ k ] += v
-                elif isinstance( v, ( str, unicode, bytes ) ):
+                elif isinstance( v, ( str, bytes ) ):
                     final.setdefault( k, [] ).append( v )
                 elif isinstance( v, dict ):
                     final.setdefault( k, {} ).update( v )

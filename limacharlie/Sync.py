@@ -262,10 +262,10 @@ class Sync( object ):
             raise LcConfigException( 'Version not supported.' )
 
         includes = asConf.get( 'include', [] )
-        if isinstance( includes, ( str, unicode ) ):
+        if isinstance( includes, str ):
             includes = [ includes ]
         for include in includes:
-            if not isinstance( include, ( str, unicode ) ):
+            if not isinstance( include, str ):
                 raise LcConfigException( 'Include should be a string, not %s' % ( str( type( include ) ), ) )
             # Config files are always evaluated relative to the current one.
             contextPath = os.path.dirname( configFile )

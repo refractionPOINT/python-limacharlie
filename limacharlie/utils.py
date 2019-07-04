@@ -79,7 +79,7 @@ def _xm_( o, path, isWildcardDepth = False ):
     oType = type( o )
 
     pathType = type( path )
-    if pathType is str or pathType is unicode:
+    if pathType is str:
         if '/' == path:
             # Special case where we want a NOOP path
             return [ o ]

@@ -672,7 +672,8 @@ class Manager( object ):
         return data
 
 def _eprint( msg ):
-    print >> sys.stderr, msg
+    sys.stderr.write( msg )
+    sys.stderr.write( "\n" )
 
 def _report_errors( func ):
     @wraps( func )
