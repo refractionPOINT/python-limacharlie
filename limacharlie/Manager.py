@@ -5,13 +5,11 @@ if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
 if _IS_PYTHON_2:
-    from urllib2 import URLError
     from urllib2 import HTTPError
     from urllib2 import Request as URLRequest
     from urllib2 import urlopen
     from urllib import urlencode
 else:
-    from urllib.error import URLError
     from urllib.error import HTTPError
     from urllib.request import Request as URLRequest
     from urllib.request import urlopen
