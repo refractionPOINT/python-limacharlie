@@ -59,6 +59,8 @@ def test_outputs( oid, key ):
     finally:
         assert( {} == lc.del_output( testOutputName ) )
 
+    assert( testOutputName not in lc.outputs() )
+
 def test_hosts( oid, key ):
     lc = limacharlie.Manager( oid, key )
 
@@ -116,3 +118,31 @@ def test_rules_namespace( oid, key ):
         assert( {} == lc.del_rule( testRuleName, namespace = testNamespace ) )
 
     assert( testRuleName not in lc.rules( namespace = testNamespace ) )
+
+def test_org_config( oid, key ):
+    lc = limacharlie.Manager( oid, key )
+
+    val = lc.getOrgConfig( 'vt' )
+
+    assert( val )
+
+def test_org_urls( oid, key ):
+    lc = limacharlie.Manager( oid, key )
+
+    urls = lc.getOrgURLs()
+
+    assert( isinstance( urls, dict ) )
+
+def test_ingestion_keys( oid, key ):
+    lc = limacharlie.Manager( oid, key )
+
+    testIngestionKeyName = 'test-python-sdk-key'
+
+    assert( {} == lc.setIngestionKey( testIngestionKeyName ) )
+
+    try:
+        assert( testIngestionKeyName in lc.getIngestionKeys() )
+    finally:
+        assert( {} == lc.delIngestionKey( testIngestionKeyName ) )
+
+    assert( testIngestionKeyName not in lc.getIngestionKeys() )

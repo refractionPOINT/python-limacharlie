@@ -97,7 +97,7 @@ class Manager( object ):
             self._refreshSpout()
 
     def _unwrap( self, data ):
-        return json.loads( zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS ) )
+        return json.loads( zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS ).decode() )
 
     def _refreshSpout( self ):
         if not self._is_interactive:
@@ -385,12 +385,7 @@ class Manager( object ):
             a list of Sensor IDs matching the hostname expression.
         '''
 
-        req = { 'hostname' : hostname_expr }
-        sensors = []
-        resp = self._apiCall( 'hostnames/%s' % self._oid, GET, queryParams = req )
-        for sid, hostname in resp[ 'sid' ]:
-            sensors.append( self.sensor( sid, self._inv_id ) )
-        return sensors
+        return self.getSensorsWithHostname( hostname_expr )
 
     def rules( self, namespace = None ):
         '''Get the list of all Detection & Response rules for the Organization.
