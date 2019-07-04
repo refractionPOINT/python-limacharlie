@@ -44,16 +44,15 @@ class Logs( object ):
         try:
             u = urllib2.urlopen( request )
         except urllib2.HTTPError as e:
-            raise Exception( '%s: %s' % ( str( e ), e.read() ) )
+            raise Exception( '%s: %s' % ( str( e ), e.read().decode() ) )
         try:
-            response = json.loads( u.read() )
+            response = json.loads( u.read().decode() )
         except:
             response = {}
         return response
 
 def main():
     import argparse
-    import getpass
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io logs' )
 

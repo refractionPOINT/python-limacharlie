@@ -229,7 +229,7 @@ class Replay( object ):
         for result in results:
             if not isinstance( result, dict ):
                 raise result
-            for k, v in result.iteritems():
+            for k, v in result.items():
                 if isinstance( v, ( int, float ) ):
                     if k not in final:
                         final[ k ] = 0
@@ -353,7 +353,7 @@ def main():
     ruleContent = None
     if args.ruleContent is not None:
         with open( args.ruleContent, 'rb' ) as f:
-            ruleContent = f.read()
+            ruleContent = f.read().decode()
         try:
             ruleContent = yaml.safe_load( ruleContent )
         except:
@@ -391,7 +391,7 @@ def main():
     else:
         # We are using an events file.
         with open( args.events, 'rb' ) as f:
-            fileContent = f.read()
+            fileContent = f.read().decode()
         # We support two formats.
         try:
             if "\n" in fileContent and not fileContent.startswith( "[" ):

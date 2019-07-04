@@ -22,7 +22,7 @@ import tempfile
 import socket
 import traceback
 
-from .utils import *
+from .utils import LcApiException
 
 class Firehose( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in push mode.'''
@@ -179,8 +179,8 @@ class Firehose( object ):
         sock.setsockopt( socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 2 )
 
         try:
-            sock = self._sslCtx.wrap_socket( sock, 
-                                             server_side = True, 
+            sock = self._sslCtx.wrap_socket( sock,
+                                             server_side = True,
                                              do_handshake_on_connect = True,
                                              suppress_ragged_eofs = True )
         except:
@@ -293,7 +293,7 @@ if __name__ == "__main__":
 
     _printToStderr( "Registering..." )
     man = limacharlie.Manager( oid = args.oid, secret_api_key = secretApiKey )
-    fh = limacharlie.Firehose( man, args.listen_interface, args.data_type, 
+    fh = limacharlie.Firehose( man, args.listen_interface, args.data_type,
                                public_dest = args.public_dest,
                                name = args.name,
                                inv_id = args.inv_id,

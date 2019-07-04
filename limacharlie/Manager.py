@@ -17,7 +17,6 @@ else:
     from urllib.request import urlopen
     from urllib.parse import urlencode
 
-import urllib
 import uuid
 import json
 import traceback

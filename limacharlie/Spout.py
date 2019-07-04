@@ -8,7 +8,7 @@ import requests
 import uuid
 import time
 
-from .utils import *
+from .utils import LcApiException
 
 _CLOUD_KEEP_ALIVES = 60
 _TIMEOUT_SEC = ( _CLOUD_KEEP_ALIVES * 2 ) + 1

@@ -5,7 +5,6 @@ import gevent
 from gevent.lock import Semaphore
 from gevent.queue import Queue
 import gevent.pool
-import random
 import uuid
 
 class Hunter( gevent.Greenlet ):
@@ -74,7 +73,6 @@ class Hunter( gevent.Greenlet ):
                         gevent.spawn_later( 0, sensorOrCallback, response )
                     else:
                         sensorOrCallback.responses.put_nowait( response )
-
 
     def track( self, sensor, callback = None ):
         '''Start tracking the responses from the specified Sensor.

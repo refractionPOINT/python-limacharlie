@@ -10,7 +10,7 @@ DELETE = 'DELETE'
 
 class FutureResults( object ):
     '''Represents a Future promise of results from a task sent to a Sensor.'''
-    
+
     def __init__( self ):
         self._nReceivedResults = 0
         self._newResultEvent = gevent.event.Event()
@@ -101,11 +101,11 @@ def _xm_( o, path, isWildcardDepth = False ):
             elif '?' == curToken:
                 if 1 < len( tokens ):
                     result = []
-                    for elem in o.itervalues():
+                    for elem in o.values():
                         if _isDynamicType( elem ):
                             result += _xm_( elem, tokens[ 1 : ], False )
 
-            elif o.has_key( curToken ):
+            elif curToken in o:
                 if isEndPoint:
                     result = [ o[ curToken ] ] if not _isListType( o[ curToken ] ) else o[ curToken ]
                 elif _isDynamicType( o[ curToken ] ):
@@ -113,7 +113,7 @@ def _xm_( o, path, isWildcardDepth = False ):
 
             if isWildcardDepth:
                 tmpTokens = tokens[ : ]
-                for elem in o.itervalues():
+                for elem in o.values():
                     if _isDynamicType( elem ):
                         result += _xm_( elem, tmpTokens, True )
     elif issubclass( oType, list ) or oType is tuple:

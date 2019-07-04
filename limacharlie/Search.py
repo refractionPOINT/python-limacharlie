@@ -14,7 +14,7 @@ class Search( object ):
     def __init__( self, environment = None, output = '-' ):
         self._environmentsToQuery = {}
         with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-            conf = yaml.load( f.read() )
+            conf = yaml.load( f.read().decode() )
             if environment is not None:
                 conf = conf.get( 'env', {} ).get( environment, None )
                 if conf is None:

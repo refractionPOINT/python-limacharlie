@@ -1,5 +1,5 @@
 from .Sensor import Sensor
-from .utils import *
+from .utils import LcApiException
 import json
 import yaml
 

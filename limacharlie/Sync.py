@@ -255,7 +255,7 @@ class Sync( object ):
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
         with open( configFile, 'rb' ) as f:
-            asConf = yaml.load( f.read() )
+            asConf = yaml.load( f.read().decode() )
         if 'version' not in asConf:
             raise LcConfigException( 'Version not found.' )
         if self._confVersion < asConf[ 'version' ]:
@@ -366,7 +366,7 @@ if __name__ == '__main__':
             secretKey = os.path.abspath( secretKey )
             print( "Using API Key in: %s" % secretKey )
             with open( secretKey, 'rb' ) as f:
-                secretKey = f.read().strip()
+                secretKey = f.read().decode().strip()
     else:
         secretKey = None
 
