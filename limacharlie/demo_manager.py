@@ -4,13 +4,13 @@ import json
 
 if __name__ == "__main__":
     def debugPrint( msg ):
-        print msg
-        
+        print( msg )
+
     # This example uses interactive credentials, but see the README for alternative
     # ways of getting credentials.
 
-    man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ), 
-                               secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ), 
+    man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ),
+                               secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ),
                                print_debug_fn = debugPrint )
 
     all_sensors = man.sensors()
@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     print( "Got %s sensors." % len( all_sensors ) )
 
-    print( "First sensor %s has the tags: %s" % ( all_sensors[ 0 ].sid, 
+    print( "First sensor %s has the tags: %s" % ( all_sensors[ 0 ].sid,
                                                   all_sensors[ 0 ].getTags() ) )
 
     for single_sensor in all_sensors:

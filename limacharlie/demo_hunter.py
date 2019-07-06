@@ -17,7 +17,7 @@ def signal_handler():
 gevent.signal( signal.SIGINT, signal_handler )
 
 def debugPrint( msg ):
-    print msg
+    print( msg )
 
 class TestHunter( limacharlie.Hunter ):
     def init( self ):
@@ -79,7 +79,7 @@ h = None
 if __name__ == "__main__":
     import argparse
     print( "Starting" )
-    
+
     # This example uses interactive credentials, but see the README for alternative
     # ways of getting credentials.
 
@@ -93,16 +93,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.is_firehose:
-        h = TestHunter( raw_input( 'Enter OID: ' ), 
+        h = TestHunter( raw_input( 'Enter OID: ' ),
                         getpass.getpass( prompt = 'Enter secret API key: ' ),
                         listen_on = raw_input( 'Local Interface: ' ),
                         public_dest = raw_input( 'Public Interface: ' ),
                         print_debug_fn = debugPrint )
     else:
-        h = TestHunter( raw_input( 'Enter OID: ' ), 
+        h = TestHunter( raw_input( 'Enter OID: ' ),
                         getpass.getpass( prompt = 'Enter secret API key: ' ),
                         print_debug_fn = debugPrint )
     h.start()
     gevent.joinall( [ h ] )
-    
+
     print( "Exiting" )
