@@ -1,3 +1,8 @@
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
 
 def main():
     import argparse
@@ -21,13 +26,19 @@ def main():
     args = parser.parse_args()
 
     if args.action.lower() == 'login':
-        oid = raw_input( 'Enter your Organization ID (UUID): ' )
+        if _IS_PYTHON_2:
+            oid = raw_input( 'Enter your Organization ID (UUID): ' )
+        else:
+            oid = input( 'Enter your Organization ID (UUID): ' )
         try:
             uuid.UUID( oid )
         except:
             print( "Invalid OID" )
             sys.exit( 1 )
-        alias = raw_input( 'Enter a name for this access (alias), or leave empty to set default: ' )
+        if _IS_PYTHON_2:
+            alias = raw_input( 'Enter a name for this access (alias), or leave empty to set default: ' )
+        else:
+            alias = input( 'Enter a name for this access (alias), or leave empty to set default: ' )
         if '' == alias:
             alias = 'default'
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
@@ -45,7 +56,7 @@ def main():
             conf[ 'env' ].setdefault( alias, {} )[ 'oid' ] = oid
             conf[ 'env' ].setdefault( alias, {} )[ 'api_key' ] = secretApiKey
         with open( os.path.expanduser( '~/.limacharlie' ), 'wb' ) as f:
-            f.write( yaml.safe_dump( conf, default_flow_style = False ) )
+            f.write( yaml.safe_dump( conf, default_flow_style = False ).encode() )
         os.chown( os.path.expanduser( '~/.limacharlie' ), os.getuid(), os.getgid() )
         os.chmod( os.path.expanduser( '~/.limacharlie' ), stat.S_IWUSR | stat.S_IRUSR )
         print( "Credentials have been stored to: %s" % os.path.expanduser( '~/.limacharlie' ) )
@@ -56,7 +67,7 @@ def main():
                 conf = yaml.load( f.read() )
             print( "Current environment: %s\n" % ( os.environ.get( 'LC_CURRENT_ENV', 'default' ) ) )
             print( "Available environments:" )
-            for env in conf.get( 'env', {} ).iterkeys():
+            for env in conf.get( 'env', {} ).keys():
                 print( env )
             if 'oid' in conf and 'api_key' in conf:
                 print( 'default' )
@@ -88,12 +99,12 @@ def main():
                     "management.yaml",
                     "fim.yaml",
                 ]
-            }, default_flow_style = False ) )
+            }, default_flow_style = False ).encode() )
         with open( os.path.join( rootPath, 'outputs.yaml' ), 'wb' ) as f:
             f.write( yaml.safe_dump( {
                 "version" : 2,
                 "ouputs" : {}
-            }, default_flow_style = False ) )
+            }, default_flow_style = False ).encode() )
         with open( os.path.join( rootPath, 'management.yaml' ), 'wb' ) as f:
             f.write( yaml.safe_dump( {
                 "version" : 2,
@@ -159,11 +170,11 @@ def main():
                         ]
                     }
                 }
-            }, default_flow_style = False ) )
+            }, default_flow_style = False ).encode() )
         with open( os.path.join( rootPath, 'fim.yaml' ), 'wb' ) as f:
             f.write( yaml.safe_dump( {
                 "version" : 2,
-            }, default_flow_style = False ) )
+            }, default_flow_style = False ).encode() )
     else:
         raise Exception( 'invalid action' )
 

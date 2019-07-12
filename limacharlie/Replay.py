@@ -1,19 +1,15 @@
-from gevent import monkey; monkey.patch_all()
+from gevent import monkey
+monkey.patch_all()
 from gevent.lock import BoundedSemaphore
 from . import Manager
 from .utils import LcApiException
 
-import os
-import os.path
 import uuid
-import urllib2
-import base64
 import json
 import yaml
 import gevent
 import time
 import sys
-import time
 
 class Replay( object ):
     '''Interface to query historical sensor data in Insight with specific D&R rules.'''
@@ -101,7 +97,7 @@ class Replay( object ):
 
     def _scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None ):
         # print( "Starting query %s-%s for %s" % ( startTime, endTime, sid ) )
-        qStart = time.time()
+        # qStart = time.time()
 
         try:
             if self._apiURL is None:
@@ -184,7 +180,7 @@ class Replay( object ):
         Returns:
             a dict containing results of the query.
         '''
-        qStart = time.time()
+        # qStart = time.time()
 
         with self._statusMutex:
             self._sensorPending = 1
@@ -233,12 +229,12 @@ class Replay( object ):
         for result in results:
             if not isinstance( result, dict ):
                 raise result
-            for k, v in result.iteritems():
+            for k, v in result.items():
                 if isinstance( v, ( int, float ) ):
                     if k not in final:
                         final[ k ] = 0
                     final[ k ] += v
-                elif isinstance( v, ( str, unicode, bytes ) ):
+                elif isinstance( v, ( str, bytes ) ):
                     final.setdefault( k, [] ).append( v )
                 elif isinstance( v, dict ):
                     final.setdefault( k, {} ).update( v )
@@ -357,7 +353,7 @@ def main():
     ruleContent = None
     if args.ruleContent is not None:
         with open( args.ruleContent, 'rb' ) as f:
-            ruleContent = f.read()
+            ruleContent = f.read().decode()
         try:
             ruleContent = yaml.safe_load( ruleContent )
         except:
@@ -387,15 +383,15 @@ def main():
                                                     ruleContent = ruleContent )
         elif args.isEntireOrg:
             response = replay.scanEntireOrg( start,
-                                            end,
-                                            ruleName = args.ruleName,
-                                            ruleContent = ruleContent )
+                                             end,
+                                             ruleName = args.ruleName,
+                                             ruleContent = ruleContent )
         else:
             raise LcApiException( '--sid or --entire-org must be specified' )
     else:
         # We are using an events file.
         with open( args.events, 'rb' ) as f:
-            fileContent = f.read()
+            fileContent = f.read().decode()
         # We support two formats.
         try:
             if "\n" in fileContent and not fileContent.startswith( "[" ):

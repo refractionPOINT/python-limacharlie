@@ -5,14 +5,14 @@ import getpass
 
 if __name__ == "__main__":
     def debugPrint( msg ):
-        print msg
-        
+        print( msg )
+
     # This example uses interactive credentials, but see the README for alternative
     # ways of getting credentials.
 
     print( "We are starting in interactive mode." )
-    man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ), 
-                               secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ), 
+    man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ),
+                               secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ),
                                print_debug_fn = None,
                                inv_id = str( uuid.uuid4() ),
                                is_interactive = True )

@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "2.14.1"
+__version__ = "2.14.2"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -23,7 +23,7 @@ if GLOBAL_API_KEY is None:
         _credsFile = os.path.expanduser( '~/.limacharlie' )
     if os.path.isfile( _credsFile ):
         with open( _credsFile, 'rb' ) as f:
-            _credsFile = yaml.load( f.read() )
+            _credsFile = yaml.safe_load( f.read() )
             _lcEnv = os.environ.get( 'LC_CURRENT_ENV', 'default' )
             if _lcEnv == '':
                 _lcEnv = 'default'

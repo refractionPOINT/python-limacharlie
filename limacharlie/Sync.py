@@ -1,6 +1,7 @@
 from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
+from .utils import _isStringCompat
 
 import uuid
 import os
@@ -19,20 +20,20 @@ class Sync( object ):
         self._man = Manager( self._oid, self._apiKey )
 
     def _coreRuleContent( self, rule ):
-        return { k : v for k, v in rule.iteritems() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
+        return { k : v for k, v in rule.items() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
 
     def _coreOutputContent( self, output ):
-        return { k : v for k, v in output.iteritems() if k != 'name' }
+        return { k : v for k, v in output.items() if k != 'name' }
 
     def _coreIntegrityContent( self, rule ):
-        rule = { k : v for k, v in rule.iteritems() if k not in ( 'by', 'updated' ) }
+        rule = { k : v for k, v in rule.items() if k not in ( 'by', 'updated' ) }
         rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
         rule[ 'platforms' ] = rule[ 'filters' ][ 'platforms' ]
         del( rule[ 'filters' ] )
         return rule
 
     def _coreLoggingContent( self, rule ):
-        rule = { k : v for k, v in rule.iteritems() if k not in ( 'by', 'updated' ) }
+        rule = { k : v for k, v in rule.items() if k not in ( 'by', 'updated' ) }
         rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
         rule[ 'platforms' ] = rule[ 'filters' ][ 'platforms' ]
         del( rule[ 'filters' ] )
@@ -135,13 +136,14 @@ class Sync( object ):
             # Get the current rules, we will try not to push for no reason.
             currentRules = {}
             for namespace in availableNamespaces:
-                currentRules.update( { k : self._coreRuleContent( v ) for k, v in self._man.rules( namespace = namespace ).iteritems() } )
+                currentRules.update( { k : self._coreRuleContent( v ) for k, v in self._man.rules( namespace = namespace ).items() } )
 
             # Start by adding the rules with isReplace.
-            for ruleName, rule in asConf.get( 'rules', {} ).iteritems():
+            for ruleName, rule in asConf.get( 'rules', {} ).items():
                 rule = self._coreRuleContent( rule )
                 ruleNamespace = rule.get( 'namespace', 'general' )
                 # Check to see if it is already in the current rules and in the right format.
+                previousNamespace = None
                 if ruleName in currentRules:
                     previousNamespace = currentRules[ ruleName ].get( 'namespace', 'general' )
                     if ( self._isJsonEqual( rule[ 'detect' ], currentRules[ ruleName ][ 'detect' ] ) and
@@ -152,7 +154,7 @@ class Sync( object ):
                         continue
 
                 if not isDryRun:
-                    if ruleNamespace != previousNamespace:
+                    if previousNamespace is not None and ruleNamespace != previousNamespace:
                         # Looks like the rule changed namespace.
                         self._man.del_rule( ruleName, namespace = previousNamespace )
                     self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True, namespace = ruleNamespace )
@@ -166,7 +168,7 @@ class Sync( object ):
                     currentRules.update( self._man.rules( namespace = namespace ) )
                 # Now if isForce was specified, list existing rules and remove the ones
                 # not in our list.
-                for ruleName, rule in currentRules.iteritems():
+                for ruleName, rule in currentRules.items():
                     # Ignore special replicant rules.
                     if ruleName.startswith( '__' ):
                         continue
@@ -177,22 +179,22 @@ class Sync( object ):
 
         if not isNoOutputs:
             # Get the current outputs, we will try not to push for no reason.
-            currentOutputs = { k : self._coreOutputContent( v ) for k, v in self._man.outputs().iteritems() }
+            currentOutputs = { k : self._coreOutputContent( v ) for k, v in self._man.outputs().items() }
 
-            for outputName, output in asConf.get( 'outputs', {} ).iteritems():
+            for outputName, output in asConf.get( 'outputs', {} ).items():
                 if outputName in currentOutputs:
                     if self._isJsonEqual( output, currentOutputs[ outputName ] ):
                         # Exact same, no point in pushing.
                         yield ( '=', 'output', outputName )
                         continue
                 if not isDryRun:
-                    self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.iteritems() if k not in ( 'module', 'for' ) } )
+                    self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.items() if k not in ( 'module', 'for' ) } )
                 yield ( '+', 'output', outputName )
 
             if isForce:
                 # Now if isForce was specified, list the existing outputs and remove the ones
                 # not in our list.
-                for outputName, output in self._man.outputs().iteritems():
+                for outputName, output in self._man.outputs().items():
                     if outputName not in asConf[ 'outputs' ]:
                         if not isDryRun:
                             self._man.del_output( outputName )
@@ -200,9 +202,9 @@ class Sync( object ):
 
         if not isNoIntegrity:
             integrityReplicant = Integrity( self._man )
-            currentIntegrityRules = { k : self._coreIntegrityContent( v ) for k, v in integrityReplicant.getRules().iteritems() }
+            currentIntegrityRules = { k : self._coreIntegrityContent( v ) for k, v in integrityReplicant.getRules().items() }
 
-            for ruleName, rule in asConf.get( 'integrity', {} ).iteritems():
+            for ruleName, rule in asConf.get( 'integrity', {} ).items():
                 if ruleName in currentIntegrityRules:
                     if self._isJsonEqual( rule, currentIntegrityRules[ ruleName ] ):
                         # Exact same, no point in pushing.
@@ -218,7 +220,7 @@ class Sync( object ):
             if isForce:
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
-                for ruleName, rule in integrityReplicant.getRules().iteritems():
+                for ruleName, rule in integrityReplicant.getRules().items():
                     if ruleName not in asConf[ 'integrity' ]:
                         if not isDryRun:
                             integrityReplicant.removeRule( ruleName )
@@ -226,8 +228,8 @@ class Sync( object ):
 
         if not isNoLogging:
             loggingReplicant = Logging( self._man )
-            currentLoggingRules = { k : self._coreLoggingContent( v ) for k, v in loggingReplicant.getRules().iteritems() }
-            for ruleName, rule in asConf.get( 'logging', {} ).iteritems():
+            currentLoggingRules = { k : self._coreLoggingContent( v ) for k, v in loggingReplicant.getRules().items() }
+            for ruleName, rule in asConf.get( 'logging', {} ).items():
                 if ruleName in currentLoggingRules:
                     if self._isJsonEqual( rule, currentLoggingRules[ ruleName ] ):
                         # Exact same, no point in pushing.
@@ -243,7 +245,7 @@ class Sync( object ):
             if isForce:
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
-                for ruleName, rule in loggingReplicant.getRules().iteritems():
+                for ruleName, rule in loggingReplicant.getRules().items():
                     if ruleName not in asConf[ 'logging' ]:
                         if not isDryRun:
                             loggingReplicant.removeRule( ruleName )
@@ -255,17 +257,17 @@ class Sync( object ):
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
         with open( configFile, 'rb' ) as f:
-            asConf = yaml.load( f.read() )
+            asConf = yaml.load( f.read().decode() )
         if 'version' not in asConf:
             raise LcConfigException( 'Version not found.' )
         if self._confVersion < asConf[ 'version' ]:
             raise LcConfigException( 'Version not supported.' )
 
         includes = asConf.get( 'include', [] )
-        if isinstance( includes, ( str, unicode ) ):
+        if _isStringCompat( includes ):
             includes = [ includes ]
         for include in includes:
-            if not isinstance( include, ( str, unicode ) ):
+            if not _isStringCompat( include ):
                 raise LcConfigException( 'Include should be a string, not %s' % ( str( type( include ) ), ) )
             # Config files are always evaluated relative to the current one.
             contextPath = os.path.dirname( configFile )
@@ -366,7 +368,7 @@ if __name__ == '__main__':
             secretKey = os.path.abspath( secretKey )
             print( "Using API Key in: %s" % secretKey )
             with open( secretKey, 'rb' ) as f:
-                secretKey = f.read().strip()
+                secretKey = f.read().decode().strip()
     else:
         secretKey = None
 

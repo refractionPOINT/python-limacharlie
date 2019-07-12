@@ -1,10 +1,24 @@
-import urllib2
-import urllib
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
+if _IS_PYTHON_2:
+    from urllib2 import HTTPError
+    from urllib2 import Request as URLRequest
+    from urllib2 import urlopen
+    from urllib import urlencode
+else:
+    from urllib.error import HTTPError
+    from urllib.request import Request as URLRequest
+    from urllib.request import urlopen
+    from urllib.parse import urlencode
+
 import uuid
 import json
 import traceback
 import cmd
-import sys
 import zlib
 import base64
 from functools import wraps
@@ -83,7 +97,7 @@ class Manager( object ):
             self._refreshSpout()
 
     def _unwrap( self, data ):
-        return json.loads( zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS ) )
+        return json.loads( zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS ).decode() )
 
     def _refreshSpout( self ):
         if not self._is_interactive:
@@ -106,11 +120,11 @@ class Manager( object ):
                 authData[ 'uid' ] = self._uid
             else:
                 authData[ 'oid' ] = self._oid
-            request = urllib2.Request( API_TO_JWT_URL,
-                                       urllib.urlencode( authData ) )
+            request = URLRequest( API_TO_JWT_URL,
+                                  urlencode( authData ).encode() )
             request.get_method = lambda: "POST"
-            u = urllib2.urlopen( request )
-            self._jwt = json.loads( u.read() )[ 'jwt' ]
+            u = urlopen( request )
+            self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
             u.close()
         except Exception as e:
             self._jwt = None
@@ -126,30 +140,30 @@ class Manager( object ):
                 url = '%s/%s' % ( altRoot, url )
 
             if queryParams is not None:
-                url = '%s?%s' % ( url, urllib.urlencode( queryParams ) )
+                url = '%s?%s' % ( url, urlencode( queryParams ) )
 
-            request = urllib2.Request( url,
-                                       rawBody if rawBody is not None else urllib.urlencode( params, doseq = True ),
-                                       headers = headers )
+            request = URLRequest( url,
+                                  rawBody if rawBody is not None else urlencode( params, doseq = True ).encode(),
+                                  headers = headers )
             request.get_method = lambda: verb
             request.add_header( 'User-Agent', 'lc-py-api' )
             if contentType is not None:
                 request.add_header( 'Content-Type', contentType )
-            u = urllib2.urlopen( request )
+            u = urlopen( request )
             try:
                 data = u.read()
                 if 0 != len( data ):
-                    resp = json.loads( data )
+                    resp = json.loads( data.decode() )
                 else:
                     resp = {}
             except ValueError as e:
                 LcApiException( "Failed to decode data from API: %s" % e )
             u.close()
             ret = ( 200, resp )
-        except urllib2.HTTPError as e:
+        except HTTPError as e:
             errorBody = e.read()
             try:
-                ret = ( e.getcode(), json.loads( errorBody ) )
+                ret = ( e.getcode(), json.loads( errorBody.decode() ) )
             except:
                 ret = ( e.getcode(), errorBody )
 
@@ -357,7 +371,7 @@ class Manager( object ):
         '''
 
         req = { 'name' : name, 'module' : module, 'type' : type }
-        for k, v in kwargs.iteritems():
+        for k, v in kwargs.items():
             req[ k ] = v
         return self._apiCall( 'outputs/%s' % self._oid, POST, req )
 
@@ -371,12 +385,7 @@ class Manager( object ):
             a list of Sensor IDs matching the hostname expression.
         '''
 
-        req = { 'hostname' : hostname_expr }
-        sensors = []
-        resp = self._apiCall( 'hostnames/%s' % self._oid, GET, queryParams = req )
-        for sid, hostname in resp[ 'sid' ]:
-            sensors.append( self.sensor( sid, self._inv_id ) )
-        return sensors
+        return self.getSensorsWithHostname( hostname_expr )
 
     def rules( self, namespace = None ):
         '''Get the list of all Detection & Response rules for the Organization.
@@ -530,7 +539,7 @@ class Manager( object ):
         Returns:
             a dict with keys as time ranges and values are maps of object types to object name lists.
         '''
-        for objType, objNames in objects.iteritems():
+        for objType, objNames in objects.items():
             objects[ objType ] = list( objNames )
         req = {
             'objects' : json.dumps( objects ),
@@ -656,7 +665,8 @@ class Manager( object ):
         return data
 
 def _eprint( msg ):
-    print >> sys.stderr, msg
+    sys.stderr.write( msg )
+    sys.stderr.write( "\n" )
 
 def _report_errors( func ):
     @wraps( func )

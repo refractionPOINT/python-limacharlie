@@ -1,5 +1,6 @@
-from Sensor import Sensor
-from .utils import *
+from .Sensor import Sensor
+from .utils import LcApiException
+from .utils import _isStringCompat
 import json
 import yaml
 
@@ -121,7 +122,7 @@ class Replay( _Replicant ):
         if ruleName is not None:
             req[ 'rule_name' ] = ruleName
         if ruleContent is not None:
-            if isinstance( ruleContent, ( str, unicode ) ):
+            if _isStringCompat( ruleContent ):
                 try:
                     ruleContent = yaml.safeLoad( ruleContent )
                 except:

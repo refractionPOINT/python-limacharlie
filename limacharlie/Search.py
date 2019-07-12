@@ -5,7 +5,6 @@ import gevent.pool
 import gevent.lock
 import gevent.queue
 import os.path
-import json
 import yaml
 import traceback
 
@@ -15,7 +14,7 @@ class Search( object ):
     def __init__( self, environment = None, output = '-' ):
         self._environmentsToQuery = {}
         with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-            conf = yaml.load( f.read() )
+            conf = yaml.load( f.read().decode() )
             if environment is not None:
                 conf = conf.get( 'env', {} ).get( environment, None )
                 if conf is None:
@@ -28,14 +27,14 @@ class Search( object ):
                         'oid' : conf[ 'oid' ],
                         'api_key' : conf[ 'api_key' ]
                     }
-        
+
         if '-' == output:
             self._output = None
         else:
             self._output = open( output, 'wb' )
 
         self._mutex = gevent.lock.BoundedSemaphore()
-    
+
     def getNumEnvironments( self ):
         return len( self._environmentsToQuery )
 
@@ -44,9 +43,9 @@ class Search( object ):
 
         results = gevent.queue.Queue()
 
-        for envName, env in self._environmentsToQuery.iteritems():
+        for envName, env in self._environmentsToQuery.items():
             threads.add( gevent.spawn_later( 0, self._queryThread, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards ) )
-        
+
         threads.join( timeout = 60 )
 
         outputs = []
@@ -67,7 +66,7 @@ class Search( object ):
     def _queryThread( self, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards ):
         try:
             lc = Manager( env[ 'oid' ], env[ 'api_key' ] )
-            
+
             try:
                 isInsightEnabled = lc.isInsightEnabled()
             except:
@@ -75,8 +74,8 @@ class Search( object ):
             if not isInsightEnabled:
                 self._safePrint( "Skipping %s (%s) as Insight is not enabled." % ( envName, env[ 'oid' ], ) )
                 return
-            
-            result = lc.getObjectInformation( 
+
+            result = lc.getObjectInformation(
                 iocType,
                 iocName,
                 info,
@@ -95,7 +94,6 @@ class Search( object ):
 
 def main():
     import argparse
-    import getpass
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io search' )
     parser.add_argument( '-t', '--type',

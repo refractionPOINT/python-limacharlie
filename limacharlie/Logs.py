@@ -1,9 +1,23 @@
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
+if _IS_PYTHON_2:
+    from urllib.error import HTTPError
+    from urllib.request import Request as URLRequest
+    from urllib.request import urlopen
+else:
+    from urllib.error import HTTPError
+    from urllib.request import Request as URLRequest
+    from urllib.request import urlopen
+
 from . import Manager
 
 import os
 import os.path
 import uuid
-import urllib2
 import base64
 import json
 
@@ -38,22 +52,21 @@ class Logs( object ):
             headers[ 'lc-path' ] = base64.b64encode( os.path.abspath( originalPath ) )
 
         with open( filePath, 'rb' ) as f:
-            request = urllib2.Request( str( 'https://%s/ingest' % ( self._uploadUrl, ) ),
-                                       data = f.read(),
-                                       headers = headers )
+            request = URLRequest( str( 'https://%s/ingest' % ( self._uploadUrl, ) ),
+                                  data = f.read(),
+                                  headers = headers )
         try:
-            u = urllib2.urlopen( request )
-        except urllib2.HTTPError as e:
-            raise Exception( '%s: %s' % ( str( e ), e.read() ) )
+            u = urlopen( request )
+        except HTTPError as e:
+            raise Exception( '%s: %s' % ( str( e ), e.read().decode() ) )
         try:
-            response = json.loads( u.read() )
+            response = json.loads( u.read().decode() )
         except:
             response = {}
         return response
 
 def main():
     import argparse
-    import getpass
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io logs' )
 
