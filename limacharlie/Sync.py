@@ -143,6 +143,7 @@ class Sync( object ):
                 rule = self._coreRuleContent( rule )
                 ruleNamespace = rule.get( 'namespace', 'general' )
                 # Check to see if it is already in the current rules and in the right format.
+                previousNamespace = None
                 if ruleName in currentRules:
                     previousNamespace = currentRules[ ruleName ].get( 'namespace', 'general' )
                     if ( self._isJsonEqual( rule[ 'detect' ], currentRules[ ruleName ][ 'detect' ] ) and
@@ -153,7 +154,7 @@ class Sync( object ):
                         continue
 
                 if not isDryRun:
-                    if ruleNamespace != previousNamespace:
+                    if previousNamespace is not None and ruleNamespace != previousNamespace:
                         # Looks like the rule changed namespace.
                         self._man.del_rule( ruleName, namespace = previousNamespace )
                     self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True, namespace = ruleNamespace )
