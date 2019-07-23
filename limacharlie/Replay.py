@@ -3,6 +3,7 @@ monkey.patch_all()
 from gevent.lock import BoundedSemaphore
 from . import Manager
 from .utils import LcApiException
+from .utils import parallelExec
 
 import uuid
 import json
@@ -83,7 +84,7 @@ class Replay( object ):
             with self._statusMutex:
                 self._queryPending += len( windows )
 
-            results = self._parallelExec( lambda w: self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent ), windows, maxConcurrent = self._maxConcurrent )
+            results = parallelExec( lambda w: self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent ), windows, maxConcurrent = self._maxConcurrent )
         finally:
             with self._statusMutex:
                 self._sensorPending -= 1
@@ -161,7 +162,7 @@ class Replay( object ):
         with self._statusMutex:
             self._sensorPending = len( sensors )
 
-        results = self._parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent ), sensors, maxConcurrent = self._maxConcurrent )
+        results = parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent ), sensors, maxConcurrent = self._maxConcurrent )
 
         with self._statusMutex:
             if self._queryStartedAt is not None:
@@ -244,21 +245,6 @@ class Replay( object ):
                 else:
                     raise LcApiException( 'unexpected data type: %s' % ( type( v ), ) )
         return final
-
-    def _parallelExec( self, f, objects, timeout = None, maxConcurrent = None ):
-        g = gevent.pool.Pool( size = maxConcurrent )
-        results = g.imap_unordered( lambda o: self._retExecOrExc( f, o, timeout ), objects )
-        return list( results )
-
-    def _retExecOrExc( self, f, o, timeout ):
-        try:
-            if timeout is None:
-                return f( o )
-            else:
-                with gevent.Timeout( timeout ):
-                    return f( o )
-        except ( Exception, gevent.Timeout ) as e:
-            return e
 
 def main():
     import argparse
