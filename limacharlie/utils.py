@@ -137,3 +137,18 @@ def _isStringCompat( s ):
     if _IS_PYTHON_2:
         return isinstance( s, ( str, unicode ) )
     return isinstance( s, str )
+
+def parallelExec( self, f, objects, timeout = None, maxConcurrent = None ):
+    g = gevent.pool.Pool( size = maxConcurrent )
+    results = g.imap_unordered( lambda o: self._retExecOrExc( f, o, timeout ), objects )
+    return list( results )
+
+def _retExecOrExc( self, f, o, timeout ):
+    try:
+        if timeout is None:
+            return f( o )
+        else:
+            with gevent.Timeout( timeout ):
+                return f( o )
+    except ( Exception, gevent.Timeout ) as e:
+        return e
