@@ -132,3 +132,42 @@ class Replay( _Replicant ):
                         raise LcApiException( 'rule content not JSON and not YAML' )
             req[ 'rule_content' ] = ruleContent
         return self._manager.replicantRequest( 'replay', req, True )
+
+class Exfil( _Replicant ):
+    def getRules( self ):
+        return self._manager.replicantRequest( 'exfil', {
+            'action' : 'list_rules',
+        }, False )
+
+    def addEventRule( self, ruleName, events = [], tags = [], platforms = [] ):
+        return self._manager.replicantRequest( 'exfil', {
+            'action' : 'add_event_rule',
+            'name' : ruleName,
+            'events' : events,
+            'tags' : tags,
+            'platforms' : platforms,
+        }, False )
+
+    def removeEventRule( self, ruleName ):
+        return self._manager.replicantRequest( 'exfil', {
+            'action' : 'remove_event_rule',
+            'name' : ruleName,
+        }, False )
+
+    def addWatchRule( self, ruleName, event, operator, value, path = [], tags = [], platforms = [] ):
+        return self._manager.replicantRequest( 'exfil', {
+            'action' : 'add_watch',
+            'name' : ruleName,
+            'operator' : operator,
+            'event' : event,
+            'value' : value,
+            'path' : path,
+            'tags' : tags,
+            'platforms' : platforms,
+        }, False )
+
+    def removeWatchRule( self, ruleName ):
+        return self._manager.replicantRequest( 'exfil', {
+            'action' : 'remove_watch',
+            'name' : ruleName,
+        }, False )

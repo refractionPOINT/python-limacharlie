@@ -597,7 +597,7 @@ class Manager( object ):
             Dict with general success, or data from Replicant if isSynchronous.
         '''
         data = self._apiCall( 'replicant/%s/%s' % ( self._oid, replicantName ), POST, {
-            'request_data' : base64.b64encode( json.dumps( data ) ),
+            'request_data' : base64.b64encode( json.dumps( data ).encode() ),
             'is_async' : isSynchronous,
         } )
         return data

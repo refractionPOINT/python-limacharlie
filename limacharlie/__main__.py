@@ -76,7 +76,7 @@ def main():
         else:
             # Selecting a specific environment.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-                conf = yaml.load( f.read() )
+                conf = yaml.safe_load( f.read() )
             if args.opt_arg == '':
                 args.opt_arg = 'default'
             if ( args.opt_arg not in conf[ 'env' ] ) and args.opt_arg != 'default':
