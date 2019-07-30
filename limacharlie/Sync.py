@@ -1,7 +1,14 @@
 from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
+from .Replicants import Exfil
 from .utils import _isStringCompat
+
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
 
 import uuid
 import os
@@ -39,23 +46,20 @@ class Sync( object ):
         del( rule[ 'filters' ] )
         return rule
 
-    def _recursiveOrderDict( self, d ):
-        if isinstance( d, list ) or isinstance( d, tuple ):
-            return sorted( d )
-        if isinstance( d, dict ):
-            return sorted( { k : self._recursiveOrderDict( v ) for k, v in d.items() }.items() )
-        return d
+    def _coreExfilContent( self, rule ):
+        rule = { k : v for k, v in rule.items() if k not in ( 'by', 'updated' ) }
+        rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
+        rule[ 'platforms' ] = rule[ 'filters' ][ 'platforms' ]
+        del( rule[ 'filters' ] )
+        return rule
 
     def _isJsonEqual( self, a, b ):
-        r1 = self._recursiveOrderDict( a )
-        r2 = self._recursiveOrderDict( b )
-
-        if json.dumps( r1 ) != json.dumps( r2 ):
+        if json.dumps( a, sort_keys = True ) != json.dumps( b, sort_keys = True ):
             return False
 
         return True
 
-    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False ):
+    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -76,7 +80,7 @@ class Sync( object ):
             for namespace in availableNamespaces:
                 rules.update( self._man.rules( namespace = namespace ) )
 
-            for ruleName, rule in rules.items():
+            for ruleName, rule in list( rules.items() ):
                 # Special rules from replicants are ignored.
                 if ruleName.startswith( '__' ):
                     del( rules[ ruleName ] )
@@ -98,10 +102,17 @@ class Sync( object ):
             for ruleName, rule in loggingRules.items():
                 loggingRules[ ruleName ] = self._coreLoggingContent( rule )
             asConf[ 'logging' ] = loggingRules
+        if not isNoExfil:
+            exfilRules = Exfil( self._man ).getRules()
+            for ruleName, rule in exfilRules[ 'watch' ].items():
+                exfilRules[ 'watch' ][ ruleName ] = self._coreExfilContent( rule )
+            for ruleName, rule in exfilRules[ 'list' ].items():
+                exfilRules[ 'list' ][ ruleName ] = self._coreExfilContent( rule )
+            asConf[ 'exfil' ] = exfilRules
         with open( toConfigFile, 'wb' ) as f:
-            f.write( yaml.safe_dump( asConf, default_flow_style = False ) )
+            f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -152,7 +163,9 @@ class Sync( object ):
                         # Exact same, no point in pushing.
                         yield ( '=', 'rule', ruleName )
                         continue
-
+                if 'test' == ruleName:
+                    print( currentRules[ ruleName ] )
+                    print( rule )
                 if not isDryRun:
                     if previousNamespace is not None and ruleNamespace != previousNamespace:
                         # Looks like the rule changed namespace.
@@ -251,13 +264,56 @@ class Sync( object ):
                             loggingReplicant.removeRule( ruleName )
                         yield ( '-', 'logging', ruleName )
 
-        if not isNoLogging:
-            pass
+        if not isNoExfil:
+            exfilReplicant = Exfil( self._man )
+            currentExfilRules = exfilReplicant.getRules()
+            for ruleName, rule in asConf.get( 'exfil', {} ).get( 'watch', {} ).items():
+                if ruleName in currentExfilRules.get( 'watch', {} ):
+                    if self._isJsonEqual( rule, self._coreExfilContent( currentExfilRules[ 'watch' ][ ruleName ] ) ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'exfil-watch', ruleName )
+                        continue
+                if not isDryRun:
+                    exfilReplicant.addWatchRule( ruleName,
+                                                 event = rule[ 'event' ],
+                                                 operator = rule[ 'operator' ],
+                                                 value = rule[ 'value' ],
+                                                 path = rule[ 'path' ],
+                                                 tags = rule.get( 'tags', [] ),
+                                                 platforms = rule.get( 'platforms', [] ) )
+                yield ( '+', 'exfil-watch', ruleName )
+
+            for ruleName, rule in asConf.get( 'exfil', {} ).get( 'list', {} ).items():
+                if ruleName in currentExfilRules.get( 'list', {} ):
+                    if self._isJsonEqual( rule, self._coreExfilContent( currentExfilRules[ 'list' ][ ruleName ] ) ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'exfil-list', ruleName )
+                        continue
+                if not isDryRun:
+                    exfilReplicant.addEventRule( ruleName,
+                                                 events = rule[ 'events' ],
+                                                 tags = rule.get( 'tags', [] ),
+                                                 platforms = rule.get( 'platforms', [] ) )
+                yield ( '+', 'exfil-list', ruleName )
+
+            if isForce:
+                # Now if isForce was specified, list the existing rules and remove the ones
+                # not in our list.
+                for ruleName, rule in exfilReplicant.getRules().get( 'watch', {} ).items():
+                    if ruleName not in asConf[ 'exfil' ].get( 'watch', {} ):
+                        if not isDryRun:
+                            exfilReplicant.removeWatchRule( ruleName )
+                        yield ( '-', 'exfil-watch', ruleName )
+                for ruleName, rule in exfilReplicant.getRules().get( 'list', {} ).items():
+                    if ruleName not in asConf[ 'exfil' ].get( 'list', {} ):
+                        if not isDryRun:
+                            exfilReplicant.removeEventRule( ruleName )
+                        yield ( '-', 'exfil-list', ruleName )
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
         with open( configFile, 'rb' ) as f:
-            asConf = yaml.load( f.read().decode() )
+            asConf = yaml.safe_load( f.read().decode() )
         if 'version' not in asConf:
             raise LcConfigException( 'Version not found.' )
         if self._confVersion < asConf[ 'version' ]:
@@ -334,6 +390,12 @@ if __name__ == '__main__':
                          action = 'store_true',
                          dest = 'isNoLogging',
                          help = 'if specified, ignore Logging Replicants from operations' )
+    parser.add_argument( '--no-exfil',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNoExfil',
+                         help = 'if specified, ignore Exfil Replicants from operations' )
     parser.add_argument( '-c', '--config',
                          type = str,
                          default = 'LCConf',
@@ -358,12 +420,17 @@ if __name__ == '__main__':
         print( '!!! NO INTEGRITY REPLICANT !!!' )
     if args.isNoLogging:
         print( '!!! NO LOGGING REPLICANT !!!' )
+    if args.isNoExfil:
+        print( '!!! NO EXFIL REPLICANT !!!' )
 
     if args.apiKey is not None:
         secretKey = args.apiKey.strip()
         if '-' == secretKey:
             print( "Using API Key from STDIN" )
-            secretKey = raw_input().strip()
+            if _IS_PYTHON_2:
+                secretKey = raw_input().strip()
+            else:
+                secretKey = input().strip()
         else:
             secretKey = os.path.abspath( secretKey )
             print( "Using API Key in: %s" % secretKey )
@@ -379,7 +446,7 @@ if __name__ == '__main__':
     s = Sync( args.oid, secretKey )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging )
+        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil ):
             print( '%s %s %s' % ( modification, category, element ) )

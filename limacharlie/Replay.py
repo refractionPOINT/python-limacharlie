@@ -209,7 +209,7 @@ class Replay( object ):
                                               {},
                                               altRoot = self._apiURL,
                                               queryParams = req,
-                                              rawBody = json.dumps( body ),
+                                              rawBody = json.dumps( body ).encode(),
                                               contentType = 'application/json' )
 
                     break
