@@ -49,7 +49,7 @@ class Replay( object ):
 
         gevent.spawn_later( timing, self._reportStatus )
 
-    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None ):
+    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False ):
         '''Scan a specific sensor's data with a D&R rule.
 
         Args:
@@ -58,6 +58,7 @@ class Replay( object ):
             endTime (int): seconds epoch to stop scanning at.
             ruleName (str): the name of an existing D&R rule to use.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
+            isRunTrace (bool): if True, generate a trace of the evaluation.
 
         Returns:
             a dict containing results of the query.
@@ -84,7 +85,7 @@ class Replay( object ):
             with self._statusMutex:
                 self._queryPending += len( windows )
 
-            results = parallelExec( lambda w: self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent ), windows, maxConcurrent = self._maxConcurrent )
+            results = parallelExec( lambda w: self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace ), windows, maxConcurrent = self._maxConcurrent )
         finally:
             with self._statusMutex:
                 self._sensorPending -= 1
@@ -96,7 +97,7 @@ class Replay( object ):
 
         return self._rollupResults( results )
 
-    def _scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None ):
+    def _scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False ):
         # print( "Starting query %s-%s for %s" % ( startTime, endTime, sid ) )
         # qStart = time.time()
 
@@ -108,6 +109,8 @@ class Replay( object ):
                 'start' : startTime,
                 'end' : endTime,
             }
+            if isRunTrace:
+                req[ 'trace' ] = 'true'
             body = None
             if ruleName is not None:
                 req[ 'rule_name' ] = ruleName
@@ -140,7 +143,7 @@ class Replay( object ):
 
         return resp
 
-    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None ):
+    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False ):
         '''Scan an entire organization's data with a D&R rule.
 
         Args:
@@ -148,6 +151,7 @@ class Replay( object ):
             endTime (int): seconds epoch to stop scanning at.
             ruleName (str): the name of an existing D&R rule to use.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
+            isRunTrace (bool): if True, generate a trace of the evaluation.
 
         Returns:
             a dict containing results of the query.
@@ -162,7 +166,7 @@ class Replay( object ):
         with self._statusMutex:
             self._sensorPending = len( sensors )
 
-        results = parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent ), sensors, maxConcurrent = self._maxConcurrent )
+        results = parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace ), sensors, maxConcurrent = self._maxConcurrent )
 
         with self._statusMutex:
             if self._queryStartedAt is not None:
@@ -170,13 +174,14 @@ class Replay( object ):
 
         return self._rollupResults( results )
 
-    def scanEvents( self, events, ruleName = None, ruleContent = None ):
+    def scanEvents( self, events, ruleName = None, ruleContent = None, isRunTrace = False ):
         '''Scan the specific events with a D&R rule.
 
         Args:
             events (list): list of events to scan.
             ruleName (str): the name of an existing D&R rule to use.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
+            isRunTrace (bool): if True, generate a trace of the evaluation.
 
         Returns:
             a dict containing results of the query.
@@ -200,6 +205,9 @@ class Replay( object ):
                 body[ 'rule' ] = ruleContent
             else:
                 raise LcApiException( 'no rule specified' )
+
+            if isRunTrace:
+                req[ 'trace' ] = 'true'
 
             nRetry = 0
             while True:
@@ -248,7 +256,6 @@ class Replay( object ):
 
 def main():
     import argparse
-    import getpass
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io replay detection and response' )
 
@@ -327,7 +334,14 @@ def main():
                          default = True,
                          required = False,
                          dest = 'isInteractive',
-                         help = 'if set and --sid is not set, replay traffic from entire organization.' )
+                         help = 'if set, will not print status update to stdout.' )
+
+    parser.add_argument( '--trace',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'isRunTrace',
+                         help = 'if set will output a trace of each operator evaluation and the result' )
 
     args = parser.parse_args()
 
@@ -366,12 +380,14 @@ def main():
                                                     start,
                                                     end,
                                                     ruleName = args.ruleName,
-                                                    ruleContent = ruleContent )
+                                                    ruleContent = ruleContent,
+                                                    isRunTrace = args.isRunTrace )
         elif args.isEntireOrg:
             response = replay.scanEntireOrg( start,
                                              end,
                                              ruleName = args.ruleName,
-                                             ruleContent = ruleContent )
+                                             ruleContent = ruleContent,
+                                             isRunTrace = args.isRunTrace )
         else:
             raise LcApiException( '--sid or --entire-org must be specified' )
     else:
@@ -392,7 +408,8 @@ def main():
             sys.exit( 1 )
         response = replay.scanEvents( events,
                                       ruleName = args.ruleName,
-                                      ruleContent = ruleContent )
+                                      ruleContent = ruleContent,
+                                      isRunTrace = args.isRunTrace )
 
     if args.isInteractive:
         # If this is interactive, we displayed progress, so we need a new line.
