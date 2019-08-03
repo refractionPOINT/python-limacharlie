@@ -680,7 +680,7 @@ class Manager( object ):
 
         '''
         data = self._apiCall( 'orgs/%s/resources' % ( self._oid, ), GET, {} )
-        return data
+        return data.get( 'resources', None )
 
     def subscribeToResource( self, name ):
         '''Subscribe the organization to the specific resource.
@@ -713,7 +713,7 @@ class Manager( object ):
 
         '''
         data = self._apiCall( 'orgs/%s/users' % ( self._oid, ), GET, {} )
-        return data
+        return data.get( 'users', None )
 
     def addUser( self, email ):
         '''Add a user to an organization.
@@ -742,7 +742,7 @@ class Manager( object ):
 
         '''
         data = self._apiCall( 'orgs/%s/users/permissions' % ( self._oid, ), GET, {} )
-        return data
+        return data.get( 'user_permissions', None )
 
     def addUserPermission( self, email, permission ):
         '''Add a user to an organization.
