@@ -322,7 +322,9 @@ class Sync( object ):
                         yield ( '+', 'resource', fullResName )
                     else:
                         yield ( '=', 'resource', fullResName )
-            if isForce:
+            # Only force "resources" if it is present in the config.
+            # This avoids unexpected disabling of all configs.
+            if isForce and 'resources' in asConf:
                 for cat in currentResources:
                     for resName in currentResources[ cat ]:
                         if resName not in asConf.get( 'resources', {} ).get( cat, [] ):
