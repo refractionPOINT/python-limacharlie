@@ -59,7 +59,7 @@ class Sync( object ):
 
         return True
 
-    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False ):
+    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -109,10 +109,12 @@ class Sync( object ):
             for ruleName, rule in exfilRules[ 'list' ].items():
                 exfilRules[ 'list' ][ ruleName ] = self._coreExfilContent( rule )
             asConf[ 'exfil' ] = exfilRules
+        if not isNoResources:
+            asConf[ 'resources' ] = self._man.getSubscriptions()
         with open( toConfigFile, 'wb' ) as f:
             f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -309,6 +311,25 @@ class Sync( object ):
                         if not isDryRun:
                             exfilReplicant.removeEventRule( ruleName )
                         yield ( '-', 'exfil-list', ruleName )
+        if not isNoResources:
+            currentResources = self._man.getSubscriptions()
+            for cat in asConf.get( 'resources', {} ):
+                for resName in asConf[ 'resources' ][ cat ]:
+                    fullResName = '%s/%s' % ( cat, resName )
+                    if resName not in currentResources.get( cat, [] ):
+                        if not isDryRun:
+                            self._man.subscribeToResource( fullResName )
+                        yield ( '+', 'resource', fullResName )
+                    else:
+                        yield ( '=', 'resource', fullResName )
+            if isForce:
+                for cat in currentResources:
+                    for resName in currentResources[ cat ]:
+                        if resName not in asConf.get( 'resources', {} ).get( cat, [] ):
+                            fullResName = '%s/%s' % ( cat, resName )
+                            if not isDryRun:
+                                self._man.unsubscribeFromResource( fullResName )
+                            yield ( '-', 'resource', fullResName )
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
@@ -396,6 +417,12 @@ if __name__ == '__main__':
                          action = 'store_true',
                          dest = 'isNoExfil',
                          help = 'if specified, ignore Exfil Replicants from operations' )
+    parser.add_argument( '--no-resources',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNoResources',
+                         help = 'if specified, ignore resource subscriptions from operations' )
     parser.add_argument( '-c', '--config',
                          type = str,
                          default = 'LCConf',
@@ -446,7 +473,7 @@ if __name__ == '__main__':
     s = Sync( args.oid, secretKey )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil )
+        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources ):
             print( '%s %s %s' % ( modification, category, element ) )

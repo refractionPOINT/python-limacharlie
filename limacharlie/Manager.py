@@ -664,6 +664,112 @@ class Manager( object ):
         } )
         return data
 
+    def setOrgQuota( self, quota ):
+        '''Set a new sensor quota for the organization.
+
+        Args:
+            quota (int): the new quota value.
+        '''
+        data = self._apiCall( 'orgs/%s/quota' % ( self._oid, ), POST, {
+            'quota' : int( quota ),
+        } )
+        return data
+
+    def getSubscriptions( self ):
+        '''Get the list of resources the organization is subscribed to.
+
+        '''
+        data = self._apiCall( 'orgs/%s/resources' % ( self._oid, ), GET, {} )
+        return data.get( 'resources', None )
+
+    def subscribeToResource( self, name ):
+        '''Subscribe the organization to the specific resource.
+
+        Args:
+            name (str): name of the resource like lookup/test-res.
+        '''
+        resCat, resName = name.split( '/' )
+        data = self._apiCall( 'orgs/%s/resources' % ( self._oid, ), POST, {
+            'res_cat': resCat,
+            'res_name' : resName,
+        } )
+        return data
+
+    def unsubscribeFromResource( self, name ):
+        '''Unsubscribe the organization from the specific resource.
+
+        Args:
+            name (str): name of the resource like lookup/test-res.
+        '''
+        resCat, resName = name.split( '/' )
+        data = self._apiCall( 'orgs/%s/resources' % ( self._oid, ), DELETE, {
+            'res_cat': resCat,
+            'res_name' : resName,
+        } )
+        return data
+
+    def getUsers( self ):
+        '''Get the list of users in the organization.
+
+        '''
+        data = self._apiCall( 'orgs/%s/users' % ( self._oid, ), GET, {} )
+        return data.get( 'users', None )
+
+    def addUser( self, email ):
+        '''Add a user to an organization.
+
+        Args:
+            email (str): email of the user to add.
+        '''
+        data = self._apiCall( 'orgs/%s/users' % ( self._oid, ), POST, {
+            'email' : email,
+        } )
+        return data
+
+    def removeUser( self, email ):
+        '''Remove user from an organization.
+
+        Args:
+            email (str): email of the user to remove.
+        '''
+        data = self._apiCall( 'orgs/%s/users' % ( self._oid, ), DELETE, {
+            'email' : email,
+        } )
+        return data
+
+    def getUserPermissions( self ):
+        '''Get the list of users and their permissions.
+
+        '''
+        data = self._apiCall( 'orgs/%s/users/permissions' % ( self._oid, ), GET, {} )
+        return data.get( 'user_permissions', None )
+
+    def addUserPermission( self, email, permission ):
+        '''Add a user to an organization.
+
+        Args:
+            email (str): email of the user to add.
+            permission (str): permission to add to the user.
+        '''
+        data = self._apiCall( 'orgs/%s/users/permissions' % ( self._oid, ), POST, {
+            'email' : email,
+            'perm' : permission,
+        } )
+        return data
+
+    def removeUserPermission( self, email, permission ):
+        '''Remove user from an organization.
+
+        Args:
+            email (str): email of the user to remove.
+            permission (str): permission to remove from the user.
+        '''
+        data = self._apiCall( 'orgs/%s/users/permissions' % ( self._oid, ), DELETE, {
+            'email' : email,
+            'perm' : permission,
+        } )
+        return data
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
