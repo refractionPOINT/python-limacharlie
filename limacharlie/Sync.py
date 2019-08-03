@@ -315,18 +315,20 @@ class Sync( object ):
             currentResources = self._man.getSubscriptions()
             for cat in asConf.get( 'resources', {} ):
                 for resName in asConf[ 'resources' ][ cat ]:
-                    if currentResources.get( cat, {} ).get( resName, None ) is None:
-                        fullResName = '%s/%s' % ( cat, resName )
+                    fullResName = '%s/%s' % ( cat, resName )
+                    if resName not in currentResources.get( cat, [] ):
                         if not isDryRun:
                             self._man.subscribeToResource( fullResName )
                         yield ( '+', 'resource', fullResName )
+                    else:
+                        yield ( '=', 'resource', fullResName )
             if isForce:
                 for cat in currentResources:
                     for resName in currentResources[ cat ]:
-                        if asConf.get( 'resources', {} ).get( cat, {} ).get( resName, None ) is None:
+                        if resName not in asConf.get( 'resources', {} ).get( cat, [] ):
                             fullResName = '%s/%s' % ( cat, resName )
                             if not isDryRun:
-                                self._man.unsubscribeToResource( fullResName )
+                                self._man.unsubscribeFromResource( fullResName )
                             yield ( '-', 'resource', fullResName )
 
     def _loadEffectiveConfig( self, configFile ):
