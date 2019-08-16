@@ -21,6 +21,8 @@ import uuid
 import base64
 import json
 
+MAX_UPLOAD_PART_SIZE = ( 1024 * 1024 * 15 )
+
 class Logs( object ):
     def __init__( self, manager, accessToken = None ):
         self._lc = manager
@@ -39,7 +41,7 @@ class Logs( object ):
             self._uploadUrl = self._lc.getOrgURLs()[ 'logs' ]
 
         headers = {
-            'Authorization' : 'Basic %s' % ( base64.b64encode( '%s:%s' % ( self._lc._oid, self._accessToken ) ), )
+            'Authorization' : 'Basic %s' % ( base64.b64encode( ( '%s:%s' % ( self._lc._oid, self._accessToken ) ).encode() ).decode(), )
         }
 
         if source is not None:
@@ -49,20 +51,58 @@ class Logs( object ):
         if payloadId is not None:
             headers[ 'lc-payload-id' ] = payloadId
         if originalPath is not None:
-            headers[ 'lc-path' ] = base64.b64encode( os.path.abspath( originalPath ) )
+            headers[ 'lc-path' ] = base64.b64encode( os.path.abspath( originalPath ).encode() ).decode()
 
         with open( filePath, 'rb' ) as f:
-            request = URLRequest( str( 'https://%s/ingest' % ( self._uploadUrl, ) ),
-                                  data = f.read(),
-                                  headers = headers )
-        try:
-            u = urlopen( request )
-        except HTTPError as e:
-            raise Exception( '%s: %s' % ( str( e ), e.read().decode() ) )
-        try:
-            response = json.loads( u.read().decode() )
-        except:
-            response = {}
+            # Get the file size.
+            f.seek( 0, 2 )
+            fileSize = f.tell()
+            f.seek( 0 )
+
+            if MAX_UPLOAD_PART_SIZE > fileSize:
+                # Simple single-chunk upload.
+                request = URLRequest( str( 'https://%s/ingest' % ( self._uploadUrl, ) ),
+                                      data = f.read(),
+                                      headers = headers )
+
+                try:
+                    u = urlopen( request )
+                except HTTPError as e:
+                    raise Exception( '%s: %s' % ( str( e ), e.read().decode() ) )
+                try:
+                    response = json.loads( u.read().decode() )
+                except:
+                    response = {}
+            else:
+                # Multi-part upload.
+                partId = 0
+                if payloadId is None:
+                    headers[ 'lc-payload-id' ] = str( uuid.uuid4() )
+
+                while True:
+                    chunk = f.read( MAX_UPLOAD_PART_SIZE )
+                    if not chunk:
+                        break
+
+                    if len( chunk ) != MAX_UPLOAD_PART_SIZE:
+                        headers[ 'lc-part' ] = "done"
+                    else:
+                        headers[ 'lc-part' ] = str( partId )
+
+                    request = URLRequest( str( 'https://%s/ingest' % ( self._uploadUrl, ) ),
+                                          data = chunk,
+                                          headers = headers )
+                    try:
+                        u = urlopen( request )
+                    except HTTPError as e:
+                        raise Exception( '%s: %s' % ( str( e ), e.read().decode() ) )
+                    try:
+                        response = json.loads( u.read().decode() )
+                    except:
+                        response = {}
+
+                    partId += 1
+
         return response
 
 def main():
@@ -92,7 +132,7 @@ def main():
                          type = str,
                          required = False,
                          dest = 'hint',
-                         default = 'txt',
+                         default = 'auto',
                          help = 'log type hint of the upload.' )
 
     parser.add_argument( '--payload-id',
@@ -109,9 +149,16 @@ def main():
                          default = None,
                          help = 'access token to upload.' )
 
+    parser.add_argument( '--oid',
+                         type = lambda o: str( uuid.UUID( o ) ),
+                         required = False,
+                         dest = 'oid',
+                         default = None,
+                         help = 'organization id to upload for.' )
+
     args = parser.parse_args()
 
-    logs = Logs( Manager( None, None ), args.accessToken )
+    logs = Logs( Manager( args.oid, None ), args.accessToken )
 
     originalPath = args.originalPath
     if args.originalPath is None:
