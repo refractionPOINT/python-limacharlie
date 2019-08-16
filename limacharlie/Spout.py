@@ -92,7 +92,7 @@ class Spout( object ):
 
     def _cleanupFutures( self ):
         now = time.time()
-        for trackingId, futureInfo in self._futures.items():
+        for trackingId, futureInfo in list( self._futures.items() ):
             ttl = futureInfo[ 1 ]
             if ttl < now:
                 self._futures.pop( trackingId, None )
