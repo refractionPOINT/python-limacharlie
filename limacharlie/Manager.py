@@ -130,9 +130,12 @@ class Manager( object ):
             self._jwt = None
             raise LcApiException( 'Failed to get JWT from API key: %s' % e )
 
-    def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None ):
+    def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False ):
         try:
-            headers = { "Authorization" : "bearer %s" % self._jwt }
+            if not isNoAuth:
+                headers = { "Authorization" : "bearer %s" % self._jwt }
+            else:
+                headers = {}
 
             if altRoot is None:
                 url = '%s/%s/%s' % ( ROOT_URL, API_VERSION, url )
@@ -171,16 +174,16 @@ class Manager( object ):
 
         return ret
 
-    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None ):
-        if self._jwt is None:
+    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False ):
+        if not isNoAuth and self._jwt is None:
             if self._onRefreshAuth is not None:
                 self._onRefreshAuth( self )
             else:
                 self._refreshJWT()
 
-        code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
+        code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType, isNoAuth = isNoAuth )
 
-        if code == HTTP_UNAUTHORIZED:
+        if code == HTTP_UNAUTHORIZED and not isNoAuth:
             if self._onRefreshAuth is not None:
                 self._onRefreshAuth( self )
             else:
@@ -628,7 +631,7 @@ class Manager( object ):
         Returns:
             Dictionary of resource types to URLs.
         '''
-        data = self._apiCall( 'orgs/%s/url' % ( self._oid, ), GET )
+        data = self._apiCall( 'orgs/%s/url' % ( self._oid, ), GET, isNoAuth = True )
         return data.get( 'url', None )
 
     def getIngestionKeys( self ):
