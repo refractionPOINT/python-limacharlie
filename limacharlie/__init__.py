@@ -45,4 +45,5 @@ from .Hunter import Hunter
 from .Webhook import Webhook
 from .Sync import Sync
 from .SpotCheck import SpotCheck
+from .Payloads import Payloads
 from .utils import LcApiException

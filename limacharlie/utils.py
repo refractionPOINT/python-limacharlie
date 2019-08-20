@@ -13,6 +13,7 @@ class LcApiException ( Exception ):
 GET = 'GET'
 POST = 'POST'
 DELETE = 'DELETE'
+PUT = 'PUT'
 
 class FutureResults( object ):
     '''Represents a Future promise of results from a task sent to a Sensor.'''
