@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "2.16.2"
+__version__ = "2.16.3"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -45,4 +45,5 @@ from .Hunter import Hunter
 from .Webhook import Webhook
 from .Sync import Sync
 from .SpotCheck import SpotCheck
+from .Payloads import Payloads
 from .utils import LcApiException
