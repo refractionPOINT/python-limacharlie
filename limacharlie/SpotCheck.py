@@ -366,16 +366,16 @@ if __name__ == "__main__":
                 break
 
     def _reportHit( sensor, mtd ):
-        print( "! (%s): %s" % ( sensor, json.dumps( mtd  ) ) )
+        print( "! (%s / %s): %s" % ( sensor, sensor.hostname(), json.dumps( mtd  ) ) )
 
     def _onError( sensor, error ):
-        print( "X (%s): %s" % ( sensor, error ) )
+        print( "X (%s / %s): %s" % ( sensor, sensor.hostname(), error ) )
 
     def _onOffline( sensor ):
-        print( "? (%s)" % ( sensor, ) )
+        print( "? (%s / %s)" % ( sensor, sensor.hostname() ) )
 
     def _onDone( sensor ):
-        print( ". (%s)" % ( sensor, ) )
+        print( ". (%s / %s)" % ( sensor, sensor.hostname() ) )
 
     checker = SpotCheck( args.oid,
                          secretApiKey,
