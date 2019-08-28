@@ -180,7 +180,7 @@ if __name__ == "__main__":
     parser.add_argument( '--extra-params',
                          type = lambda x: json.loads( x ),
                          required = False,
-                         default = None,
+                         default = {},
                          dest = 'extra_params',
                          help = 'extra parameters to pass to the manager.' )
     parser.add_argument( '-f', '--file',
