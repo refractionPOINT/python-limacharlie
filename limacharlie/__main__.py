@@ -45,7 +45,7 @@ def main():
         conf = {}
         try:
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-                conf = yaml.load( f.read() )
+                conf = yaml.safe_load( f.read() )
         except:
             pass
         if 'default' == alias:
@@ -64,7 +64,7 @@ def main():
         if args.opt_arg is None:
             # General listing of existing environments.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-                conf = yaml.load( f.read() )
+                conf = yaml.safe_load( f.read() )
             print( "Current environment: %s\n" % ( os.environ.get( 'LC_CURRENT_ENV', 'default' ) ) )
             print( "Available environments:" )
             for env in conf.get( 'env', {} ).keys():
