@@ -110,6 +110,8 @@ class Replay( object ):
         # print( "Starting query %s-%s for %s" % ( startTime, endTime, sid ) )
         # qStart = time.time()
 
+        resp = None
+
         try:
             if self._apiURL is None:
                 # Get the ingest URL from the API.
@@ -272,6 +274,48 @@ class Replay( object ):
 
         return resp
 
+    def validateRule( self, ruleContent = None ):
+        '''Validate a D&R rule compiles properly.
+
+        Args:
+            ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
+
+        Returns:
+            a dict containing results of the query.
+        '''
+        # qStart = time.time()
+
+        if self._apiURL is None:
+            # Get the ingest URL from the API.
+            self._apiURL = 'https://%s/' % ( self._replayURL, )
+        req = {}
+        body = {
+            'rule' : ruleContent,
+        }
+        if ruleContent is None:
+            raise LcApiException( 'no rule specified' )
+
+        nRetry = 0
+        while True:
+            try:
+                resp = self._lc._apiCall( 'validate/%s' % ( self._lc._oid, ),
+                                          'POST',
+                                          {},
+                                          altRoot = self._apiURL,
+                                          queryParams = req,
+                                          rawBody = json.dumps( body ).encode(),
+                                          contentType = 'application/json' )
+
+                break
+            except:
+                nRetry += 1
+                if nRetry > 5:
+                    raise
+                time.sleep( 2 * nRetry )
+        # print( "Finished query %s-%s for %s in %s seconds" % ( startTime, endTime, sid, time.time() - qStart ) )
+
+        return resp
+
     def _rollupResults( self, results ):
         final = {}
         for result in results:
@@ -396,6 +440,13 @@ def main():
                          default = None,
                          help = 'limits the number of rule evaluations to approximately this number.' )
 
+    parser.add_argument( '--validate',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'isValidate',
+                         help = 'if set will only validate the rule compiles properly' )
+
     args = parser.parse_args()
 
     replay = Replay( Manager( None, None ),
@@ -415,60 +466,63 @@ def main():
             except:
                 raise LcApiException( 'rule content not valid yaml or json' )
 
-    if args.events is None:
-        if ( args.start is None or args.end is None ) and args.lastSeconds is None:
-            raise LcApiException( 'must specify start and end, or last-seconds' )
-
-    if args.events is None:
-        # We want to use Insight-based events.
-        start = args.start
-        end = args.end
-        if start is None and end is None and args.lastSeconds is not None:
-            now = int( time.time() )
-            start = now - args.lastSeconds
-            end = now
-
-        if args.sid is not None:
-            response = replay.scanHistoricalSensor( str( args.sid ),
-                                                    start,
-                                                    end,
-                                                    ruleName = args.ruleName,
-                                                    ruleContent = ruleContent,
-                                                    isRunTrace = args.isRunTrace,
-                                                    limitEvent = args.limitEvent,
-                                                    limitEval = args.limitEval )
-        elif args.isEntireOrg:
-            response = replay.scanEntireOrg( start,
-                                             end,
-                                             ruleName = args.ruleName,
-                                             ruleContent = ruleContent,
-                                             isRunTrace = args.isRunTrace,
-                                             limitEvent = args.limitEvent,
-                                             limitEval = args.limitEval )
-        else:
-            raise LcApiException( '--sid or --entire-org must be specified' )
+    if args.isValidate:
+        response = replay.validateRule( ruleContent )
     else:
-        # We are using an events file.
-        with open( args.events, 'rb' ) as f:
-            fileContent = f.read().decode()
-        # We support two formats.
-        try:
-            if "\n" in fileContent and not fileContent.startswith( "[" ):
-                # This is newline-delimited like you get from LC Outputs.
-                events = [ json.loads( e ) for e in fileContent.split( '\n' ) ]
+        if args.events is None:
+            if ( args.start is None or args.end is None ) and args.lastSeconds is None:
+                raise LcApiException( 'must specify start and end, or last-seconds' )
+
+        if args.events is None:
+            # We want to use Insight-based events.
+            start = args.start
+            end = args.end
+            if start is None and end is None and args.lastSeconds is not None:
+                now = int( time.time() )
+                start = now - args.lastSeconds
+                end = now
+
+            if args.sid is not None:
+                response = replay.scanHistoricalSensor( str( args.sid ),
+                                                        start,
+                                                        end,
+                                                        ruleName = args.ruleName,
+                                                        ruleContent = ruleContent,
+                                                        isRunTrace = args.isRunTrace,
+                                                        limitEvent = args.limitEvent,
+                                                        limitEval = args.limitEval )
+            elif args.isEntireOrg:
+                response = replay.scanEntireOrg( start,
+                                                 end,
+                                                 ruleName = args.ruleName,
+                                                 ruleContent = ruleContent,
+                                                 isRunTrace = args.isRunTrace,
+                                                 limitEvent = args.limitEvent,
+                                                 limitEval = args.limitEval )
             else:
-                # This is a JSON list containing all the events like you get
-                # from the historical view download button.
-                events = json.loads( fileContent )
-        except:
-            print( "!!! Invalid events provided. Content should be a JSON LIST of events or newline-separated JSON." )
-            sys.exit( 1 )
-        response = replay.scanEvents( events,
-                                      ruleName = args.ruleName,
-                                      ruleContent = ruleContent,
-                                      isRunTrace = args.isRunTrace,
-                                      limitEvent = args.limitEvent,
-                                      limitEval = args.limitEval )
+                raise LcApiException( '--sid or --entire-org must be specified' )
+        else:
+            # We are using an events file.
+            with open( args.events, 'rb' ) as f:
+                fileContent = f.read().decode()
+            # We support two formats.
+            try:
+                if "\n" in fileContent and not fileContent.startswith( "[" ):
+                    # This is newline-delimited like you get from LC Outputs.
+                    events = [ json.loads( e ) for e in fileContent.split( '\n' ) ]
+                else:
+                    # This is a JSON list containing all the events like you get
+                    # from the historical view download button.
+                    events = json.loads( fileContent )
+            except:
+                print( "!!! Invalid events provided. Content should be a JSON LIST of events or newline-separated JSON." )
+                sys.exit( 1 )
+            response = replay.scanEvents( events,
+                                          ruleName = args.ruleName,
+                                          ruleContent = ruleContent,
+                                          isRunTrace = args.isRunTrace,
+                                          limitEvent = args.limitEvent,
+                                          limitEval = args.limitEval )
 
     if args.isInteractive:
         # If this is interactive, we displayed progress, so we need a new line.
