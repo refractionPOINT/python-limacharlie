@@ -23,6 +23,7 @@ setup( name = 'limacharlie',
                'limacharlie-search=limacharlie.Search:main',
                'limacharlie-upload=limacharlie.Logs:main',
                'limacharlie-replay=limacharlie.Replay:main',
+               'limacharlie-dr=limacharlie.DRCli:main',
            ],
        },
 )
