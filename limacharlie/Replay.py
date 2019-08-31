@@ -322,7 +322,14 @@ class Replay( object ):
             if not isinstance( result, dict ):
                 raise result
             for k, v in result.items():
-                if isinstance( v, ( int, float ) ):
+                if isinstance( v, bool ):
+                    # MUST test for bool before int because in Python
+                    # a bool IS an instance of an INT.....
+                    if k not in final:
+                        final[ k ] = v
+                    elif not final[ k ] and v:
+                        final[ k ] = v
+                elif isinstance( v, ( int, float ) ):
                     if k not in final:
                         final[ k ] = 0
                     final[ k ] += v
