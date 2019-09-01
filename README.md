@@ -75,7 +75,7 @@ This is the object returned by `manager.sensor( sensor_id )`.
 It supports a `task`, `tag`, `untag` and `getTags` functions. This
 is the main way to interact with a specific sensor.
 
-#### Integrated Behavior
+#### Interactive Behavior
 This mode is available by specifying an `inv_id` and `is_interactive = True` to a
 Manager object. It makes the Manager setup the relevant comms channels so that any
 Sensor objects it produces support the `.request()` function which behaves like the
@@ -89,13 +89,13 @@ Some Python API classes support being executed directly from the command line
 to provide easier access to some of the capabilities.
 
 #### Firehose
-`limacharlie.Firehose 1.2.3.4:9424 event -n firehose_test -t fh_test --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
+`python -m limacharlie.Firehose 1.2.3.4:9424 event -n firehose_test -t fh_test --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
 Listens on interface `1.2.3.4`, port `9424` for incoming connections from LimaCharlie.io.
 Receives only events from hosts tagged with `fh_test`.
 
 #### Spout
-`limacharlie.Spout event --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
+`python -m limacharlie.Spout event --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
 Behaves similarly to the Firehose, but instead of listenning from an internet accessible port, it
 connects to the `output.limacharlie.io` service to stream the output over HTTP. This means the Spout
@@ -105,14 +105,14 @@ It is MUCH more convenient for short term ad-hoc outputs, but it is less reliabl
 very large amounts of data.
 
 #### Shell
-`limacharlie.Manager --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
+`python -m limacharlie.Manager --oid c82e5c17-d519-4ef5-a4ac-caa4a95d31ca`
 
 Starting the `Manager` module directly starts an interactive shell to limacharlie.io.
 
 #### Config Syncing
-`limacharlie.Sync fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+`python -m limacharlie.Sync fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
-`limacharlie.Sync push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+`python -m limacharlie.Sync push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
 The `fetch` command will get a list of the Detection & Response rules in your
 organization and will write them to the config file specified or the default
@@ -127,10 +127,11 @@ The `--config` allows you to specify an alternate config file and the `--api-key
 you to specify a file on disk where the API should be read from (otherwise, of if `-` is
 specified as a file, the API Key is read from STDIN).
 
-All these capabilities are also supported directly by the `limacharlie.Sync` object.
+All these capabilities are also supported directly by the `python -m limacharlie.Sync` object.
 
-The Sync functionality currently supports D&R rules as well as Outputs. The `--no-rules` and
-`--no-outputs` flags can be used to ignore one or the other in config files and sync.
+The Sync functionality currently supports all common useful configurations. The `--no-rules` and
+`--no-outputs` flags can be used to ignore one or the other in config files and sync. Additional
+flags are also supported, see `python -m limacharlie.Sync --help`.
 
 To understand better the config format, do a `fetch` from your organization or have
 a look at the [samples](limacharlie/sample_configs/). Notice the use of the `include`
@@ -138,13 +139,26 @@ statement. Using this statement you can combine multiple config files together, 
 it ideal for the management of complex rule sets and their versioning.
 
 #### Spot Checks
-`limacharlie.SpotCheck --no-macos --no-linux --tags vip --file c:\\evil.exe`
+`python -m limacharlie.SpotCheck --no-macos --no-linux --tags vip --file c:\\evil.exe`
 
 Used to perform Organization-wide checks for specific indicators of compromise. Available as a custom
 API `SpotCheck` object or as a module from the command line. Supports many types of IoCs like file names,
 directories, registry keys, file hashes and yara signatures.
 
-For detailed usage: `limacharlie.SpotCheck --help`
+For detailed usage: `python -m limacharlie.SpotCheck --help`
+
+#### Search
+`limacharlie-search --help`
+Shortcut utility to perform IOC searches across all locally configured organizations.
+
+#### Upload
+`limacharlie-upload --help`
+Shortcut utility to upload [External Logs](https://doc.limacharlie.io/en/master/external_logs/) directly to
+LimaCharlie with just the CLI (no Agent).
+
+#### Replay
+`limacharlie-replay --help`
+Shortcut utility to perform [Replay](https://doc.limacharlie.io/en/master/replay/) jobs from the CLI.
 
 ### Examples:
 * [Basic Manager Operations](limacharlie/demo_manager.py)

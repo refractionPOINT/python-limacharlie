@@ -26,6 +26,8 @@ class Replay( object ):
         self._statusMutex = BoundedSemaphore()
         self._queryPending = 0
         self._sensorPending = 0
+        self._limitEvent = None
+        self._imitEval = None
         self._queryStartedAt = None
         if self._isInteracive:
             self._queryStartedAt = time.time()
@@ -49,7 +51,7 @@ class Replay( object ):
 
         gevent.spawn_later( timing, self._reportStatus )
 
-    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False ):
+    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
         '''Scan a specific sensor's data with a D&R rule.
 
         Args:
@@ -59,6 +61,8 @@ class Replay( object ):
             ruleName (str): the name of an existing D&R rule to use.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
             isRunTrace (bool): if True, generate a trace of the evaluation.
+            limitEvent (int): approximately limit the number of events evaluated.
+            limitEval (int): approximately limit the number of rule evaluations.
 
         Returns:
             a dict containing results of the query.
@@ -70,6 +74,11 @@ class Replay( object ):
             if 0 == self._sensorPending:
                 isSingleQuery = True
                 self._sensorPending = 1
+                # Only initialize the limits if we are not called for
+                # an org-wide query. Otherwise the caller will have
+                # set the limits already.
+                self._limitEvent = limitEvent
+                self._limitEval = limitEval
 
         try:
             # Split up the total time into windows we can query in parallel.
@@ -101,6 +110,8 @@ class Replay( object ):
         # print( "Starting query %s-%s for %s" % ( startTime, endTime, sid ) )
         # qStart = time.time()
 
+        resp = None
+
         try:
             if self._apiURL is None:
                 # Get the ingest URL from the API.
@@ -111,6 +122,18 @@ class Replay( object ):
             }
             if isRunTrace:
                 req[ 'trace' ] = 'true'
+
+            # If limits were reached, short circuit the execution.
+            with self._statusMutex:
+                if self._limitEvent is not None:
+                    if 0 >= self._limitEvent:
+                        return {}
+                    req[ 'limit_event' ] = str( self._limitEvent )
+                if self._limitEval is not None:
+                    if 0 >= self._limitEval:
+                        return {}
+                    req[ 'limit_eval' ] = str( self._limitEval )
+
             body = None
             if ruleName is not None:
                 req[ 'rule_name' ] = ruleName
@@ -139,11 +162,18 @@ class Replay( object ):
         finally:
             with self._statusMutex:
                 self._queryPending -= 1
+
+                # If there are limits, compute the left-over quota.
+                if isinstance( resp, dict ):
+                    if self._limitEvent is not None:
+                        self._limitEvent -= resp.get( 'num_events', 0 )
+                    if self._limitEval is not None:
+                        self._limitEval -= resp.get( 'num_evals', 0 )
         # print( "Finished query %s-%s for %s in %s seconds" % ( startTime, endTime, sid, time.time() - qStart ) )
 
         return resp
 
-    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False ):
+    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
         '''Scan an entire organization's data with a D&R rule.
 
         Args:
@@ -152,6 +182,8 @@ class Replay( object ):
             ruleName (str): the name of an existing D&R rule to use.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
             isRunTrace (bool): if True, generate a trace of the evaluation.
+            limitEvent (int): approximately limit the number of events evaluated.
+            limitEval (int): approximately limit the number of rule evaluations.
 
         Returns:
             a dict containing results of the query.
@@ -165,6 +197,8 @@ class Replay( object ):
 
         with self._statusMutex:
             self._sensorPending = len( sensors )
+            self._limitEvent = limitEvent
+            self._limitEval = limitEval
 
         results = parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace ), sensors, maxConcurrent = self._maxConcurrent )
 
@@ -174,7 +208,7 @@ class Replay( object ):
 
         return self._rollupResults( results )
 
-    def scanEvents( self, events, ruleName = None, ruleContent = None, isRunTrace = False ):
+    def scanEvents( self, events, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
         '''Scan the specific events with a D&R rule.
 
         Args:
@@ -182,6 +216,8 @@ class Replay( object ):
             ruleName (str): the name of an existing D&R rule to use.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
             isRunTrace (bool): if True, generate a trace of the evaluation.
+            limitEvent (int): approximately limit the number of events evaluated.
+            limitEval (int): approximately limit the number of rule evaluations.
 
         Returns:
             a dict containing results of the query.
@@ -209,6 +245,11 @@ class Replay( object ):
             if isRunTrace:
                 req[ 'trace' ] = 'true'
 
+            if limitEvent is not None:
+                req[ 'limit_event' ] = str( limitEvent )
+            if limitEval is not None:
+                req[ 'limit_eval' ] = str( limitEval )
+
             nRetry = 0
             while True:
                 try:
@@ -233,13 +274,62 @@ class Replay( object ):
 
         return resp
 
+    def validateRule( self, ruleContent = None ):
+        '''Validate a D&R rule compiles properly.
+
+        Args:
+            ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
+
+        Returns:
+            a dict containing results of the query.
+        '''
+        # qStart = time.time()
+
+        if self._apiURL is None:
+            # Get the ingest URL from the API.
+            self._apiURL = 'https://%s/' % ( self._replayURL, )
+        req = {}
+        body = {
+            'rule' : ruleContent,
+        }
+        if ruleContent is None:
+            raise LcApiException( 'no rule specified' )
+
+        nRetry = 0
+        while True:
+            try:
+                resp = self._lc._apiCall( 'validate/%s' % ( self._lc._oid, ),
+                                          'POST',
+                                          {},
+                                          altRoot = self._apiURL,
+                                          queryParams = req,
+                                          rawBody = json.dumps( body ).encode(),
+                                          contentType = 'application/json' )
+
+                break
+            except:
+                nRetry += 1
+                if nRetry > 5:
+                    raise
+                time.sleep( 2 * nRetry )
+        # print( "Finished query %s-%s for %s in %s seconds" % ( startTime, endTime, sid, time.time() - qStart ) )
+
+        return resp
+
     def _rollupResults( self, results ):
         final = {}
         for result in results:
             if not isinstance( result, dict ):
                 raise result
             for k, v in result.items():
-                if isinstance( v, ( int, float ) ):
+                if isinstance( v, bool ):
+                    # MUST test for bool before int because in Python
+                    # a bool IS an instance of an INT.....
+                    if k not in final:
+                        final[ k ] = v
+                    elif not final[ k ] and v:
+                        final[ k ] = v
+                elif isinstance( v, ( int, float ) ):
                     if k not in final:
                         final[ k ] = 0
                     final[ k ] += v
@@ -343,6 +433,27 @@ def main():
                          dest = 'isRunTrace',
                          help = 'if set will output a trace of each operator evaluation and the result' )
 
+    parser.add_argument( '--limit-event',
+                         type = int,
+                         required = False,
+                         dest = 'limitEvent',
+                         default = None,
+                         help = 'limits the number of events evaluated to approximately this number.' )
+
+    parser.add_argument( '--limit-eval',
+                         type = int,
+                         required = False,
+                         dest = 'limitEval',
+                         default = None,
+                         help = 'limits the number of rule evaluations to approximately this number.' )
+
+    parser.add_argument( '--validate',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'isValidate',
+                         help = 'if set will only validate the rule compiles properly' )
+
     args = parser.parse_args()
 
     replay = Replay( Manager( None, None ),
@@ -362,57 +473,69 @@ def main():
             except:
                 raise LcApiException( 'rule content not valid yaml or json' )
 
-    if args.events is None:
-        if ( args.start is None or args.end is None ) and args.lastSeconds is None:
-            raise LcApiException( 'must specify start and end, or last-seconds' )
-
-    if args.events is None:
-        # We want to use Insight-based events.
-        start = args.start
-        end = args.end
-        if start is None and end is None and args.lastSeconds is not None:
-            now = int( time.time() )
-            start = now - args.lastSeconds
-            end = now
-
-        if args.sid is not None:
-            response = replay.scanHistoricalSensor( str( args.sid ),
-                                                    start,
-                                                    end,
-                                                    ruleName = args.ruleName,
-                                                    ruleContent = ruleContent,
-                                                    isRunTrace = args.isRunTrace )
-        elif args.isEntireOrg:
-            response = replay.scanEntireOrg( start,
-                                             end,
-                                             ruleName = args.ruleName,
-                                             ruleContent = ruleContent,
-                                             isRunTrace = args.isRunTrace )
-        else:
-            raise LcApiException( '--sid or --entire-org must be specified' )
+    if args.isValidate:
+        response = replay.validateRule( ruleContent )
     else:
-        # We are using an events file.
-        with open( args.events, 'rb' ) as f:
-            fileContent = f.read().decode()
-        # We support two formats.
-        try:
-            if "\n" in fileContent and not fileContent.startswith( "[" ):
-                # This is newline-delimited like you get from LC Outputs.
-                events = [ json.loads( e ) for e in fileContent.split( '\n' ) ]
+        if args.events is None:
+            if ( args.start is None or args.end is None ) and args.lastSeconds is None:
+                raise LcApiException( 'must specify start and end, or last-seconds' )
+
+        if args.events is None:
+            # We want to use Insight-based events.
+            start = args.start
+            end = args.end
+            if start is None and end is None and args.lastSeconds is not None:
+                now = int( time.time() )
+                start = now - args.lastSeconds
+                end = now
+
+            if args.sid is not None:
+                response = replay.scanHistoricalSensor( str( args.sid ),
+                                                        start,
+                                                        end,
+                                                        ruleName = args.ruleName,
+                                                        ruleContent = ruleContent,
+                                                        isRunTrace = args.isRunTrace,
+                                                        limitEvent = args.limitEvent,
+                                                        limitEval = args.limitEval )
+            elif args.isEntireOrg:
+                response = replay.scanEntireOrg( start,
+                                                 end,
+                                                 ruleName = args.ruleName,
+                                                 ruleContent = ruleContent,
+                                                 isRunTrace = args.isRunTrace,
+                                                 limitEvent = args.limitEvent,
+                                                 limitEval = args.limitEval )
             else:
-                # This is a JSON list containing all the events like you get
-                # from the historical view download button.
-                events = json.loads( fileContent )
-        except:
-            print( "!!! Invalid events provided. Content should be a JSON LIST of events or newline-separated JSON." )
-            sys.exit( 1 )
-        response = replay.scanEvents( events,
-                                      ruleName = args.ruleName,
-                                      ruleContent = ruleContent,
-                                      isRunTrace = args.isRunTrace )
+                raise LcApiException( '--sid or --entire-org must be specified' )
+        else:
+            # We are using an events file.
+            with open( args.events, 'rb' ) as f:
+                fileContent = f.read().decode()
+            # We support two formats.
+            try:
+                if "\n" in fileContent and not fileContent.startswith( "[" ):
+                    # This is newline-delimited like you get from LC Outputs.
+                    events = [ json.loads( e ) for e in fileContent.split( '\n' ) ]
+                else:
+                    # This is a JSON list containing all the events like you get
+                    # from the historical view download button.
+                    events = json.loads( fileContent )
+            except:
+                print( "!!! Invalid events provided. Content should be a JSON LIST of events or newline-separated JSON." )
+                sys.exit( 1 )
+            response = replay.scanEvents( events,
+                                          ruleName = args.ruleName,
+                                          ruleContent = ruleContent,
+                                          isRunTrace = args.isRunTrace,
+                                          limitEvent = args.limitEvent,
+                                          limitEval = args.limitEval )
 
     if args.isInteractive:
         # If this is interactive, we displayed progress, so we need a new line.
         print( "" )
 
     print( json.dumps( response, indent = 2 ) )
+
+if '__main__' == __name__:
+    main()
