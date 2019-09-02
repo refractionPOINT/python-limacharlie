@@ -19,7 +19,7 @@ def do_list( args ):
         rule.pop( 'respond', None )
         rule.pop( 'name', None )
         rule.pop( 'oid', None )
-    printData( rules )
+    printData( { ruleName: rule for ruleName, rule in rules.items() if not ruleName.startswith( '_' ) } )
 
 def do_get( args ):
     if args.ruleName is None:
