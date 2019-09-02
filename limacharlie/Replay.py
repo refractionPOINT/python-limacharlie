@@ -138,7 +138,7 @@ class Replay( object ):
             if ruleName is not None:
                 req[ 'rule_name' ] = ruleName
             elif ruleContent is not None:
-                body = json.dumps( ruleContent )
+                body = json.dumps( ruleContent ).encode()
             else:
                 raise LcApiException( 'no rule specified' )
 
@@ -514,15 +514,21 @@ def main():
                 fileContent = f.read().decode()
             # We support two formats.
             try:
-                if "\n" in fileContent and not fileContent.startswith( "[" ):
+                try:
+                    # This is a JSON list containing all the events like you get
+                    # from the historical view download button. Or just single
+                    # JSON event.
+                    events = json.loads( fileContent )
+                except:
                     # This is newline-delimited like you get from LC Outputs.
                     events = [ json.loads( e ) for e in fileContent.split( '\n' ) ]
-                else:
-                    # This is a JSON list containing all the events like you get
-                    # from the historical view download button.
-                    events = json.loads( fileContent )
+
+                # If the result is a dictionary and not a list we assume this was
+                # just a single event so we will wrap it.
+                if isinstance( events, dict ):
+                    events = [ events ]
             except:
-                print( "!!! Invalid events provided. Content should be a JSON LIST of events or newline-separated JSON." )
+                print( "!!! Invalid events provided. Content should be a JSON event, a JSON LIST of events or newline-separated JSON." )
                 sys.exit( 1 )
             response = replay.scanEvents( events,
                                           ruleName = args.ruleName,
