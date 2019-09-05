@@ -1,8 +1,12 @@
 import uuid
-import json
 import time
 
-from .utils import *
+from .utils import LcApiException
+from .utils import GET
+from .utils import DELETE
+from .utils import POST
+from .utils import FutureResults
+from .utils import enhanceEvent
 
 import gevent
 

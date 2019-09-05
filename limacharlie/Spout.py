@@ -70,25 +70,22 @@ class Spout( object ):
             spoutParams[ 'sid' ] = self._sid
         for k, v in extra_params.items():
             spoutParams[ k ] = v
-        # Spouts work by doing a POST to the output.limacharlie.io service with the
-        # OID, Secret Key and any Output parameters we want. This POST will return
-        # us an HTTP 303 See Other with the actual URL where the output will be
-        # created for us. We take note of this redirect URL so that if need to
-        # reconnect later we don't need to re-do the POST again. The redirected URL
-        # contains a path with a randomized value which is what we use a short term
-        # shared secret to get the data stream since we are not limiting connections
-        # by IP.
-        self._hConn = requests.post( 'https://output.limacharlie.io/output/%s' % ( self._oid, ),
-                                     data = spoutParams,
-                                     stream = True,
-                                     allow_redirects = True,
-                                     timeout = _TIMEOUT_SEC )
+        # Spouts work by doing a POST to the stream.limacharlie.io service with the
+        # OID, Secret Key and any Output parameters we want. The HTTP response will
+        # be a stream of data.
+        self._hConn = self._getStream( spoutParams )
         if self._hConn.status_code != 200:
             raise LcApiException( 'failed to open Spout: %s' % self._hConn.text )
-        self._finalSpoutUrl = self._hConn.history[ 0 ].headers[ 'Location' ]
-        self._threads.add( gevent.spawn( self._handleConnection ) )
+        self._threads.add( gevent.spawn( self._handleConnection, spoutParams ) )
         self._futureCleanupInterval = 30
         self._threads.add( gevent.spawn_later( self._futureCleanupInterval, self._cleanupFutures ) )
+
+    def _getStream( self, spoutParams ):
+        return requests.post( 'https://stream.limacharlie.io/%s' % ( self._oid, ),
+                              data = spoutParams,
+                              stream = True,
+                              allow_redirects = False,
+                              timeout = _TIMEOUT_SEC )
 
     def _cleanupFutures( self ):
         now = time.time()
@@ -129,7 +126,7 @@ class Spout( object ):
         '''
         self._futures[ tracking_id ] = ( future, time.time() + ttl )
 
-    def _handleConnection( self ):
+    def _handleConnection( self, spoutParams ):
         while not self._isStop:
             self._man._printDebug( "Stream started." )
             try:
@@ -163,10 +160,7 @@ class Spout( object ):
                 self._man._printDebug( "Stream closed." )
 
             if not self._isStop:
-                self._hConn = requests.get( self._finalSpoutUrl,
-                                            stream = True,
-                                            allow_redirects = False,
-                                            timeout = _TIMEOUT_SEC )
+                self._hConn = self._getStream( spoutParams )
 
 def _signal_handler():
     global sp
