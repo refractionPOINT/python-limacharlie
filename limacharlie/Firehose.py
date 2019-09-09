@@ -27,7 +27,7 @@ from .utils import LcApiException
 class Firehose( object ):
     '''Listener object to receive data (Events, Detects or Audit) from a limacharlie.io Organization in push mode.'''
 
-    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, ssl_cert = None, ssl_key = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, sid = None, is_delete_on_failure = False ):
+    def __init__( self, manager, listen_on, data_type, public_dest = None, name = None, ssl_cert = None, ssl_key = None, is_parse = True, max_buffer = 1024, inv_id = None, tag = None, cat = None, sid = None, is_delete_on_failure = False, on_dropped = None ):
         '''Create a listener and optionally register it with limacharlie.io automatically.
 
         If name is None, the Firehose will assume the Output is already created
@@ -52,6 +52,7 @@ class Firehose( object ):
             cat (str): only receive Detections of this Category.
             sid (str): only receive Detections and Events from this Sensor.
             is_delete_on_failure (bool): if set to True, delete the Firehose output on failure (in LC cloud).
+            on_dropped (func): callback called with a data item when the item will otherwise be dropped.
         '''
 
         self._manager = manager
@@ -71,6 +72,7 @@ class Firehose( object ):
         self._is_parse = is_parse
         self._max_buffer = max_buffer
         self._dropped = 0
+        self._on_dropped = on_dropped
         self._is_delete_on_failure = is_delete_on_failure
 
         self._ssl_cert = ssl_cert
@@ -214,7 +216,12 @@ class Firehose( object ):
                         else:
                             self.queue.put_nowait( buff )
                     except:
-                        self.dropped += 1
+                        self._dropped += 1
+                        if self._on_dropped is not None:
+                            if self._is_parse:
+                                self._on_dropped( json.loads( buff ) )
+                            else:
+                                self._on_dropped( buff )
                     buff = None
             except:
                 self._manager._printDebug( 'error decoding data' )
