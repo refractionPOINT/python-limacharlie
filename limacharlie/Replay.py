@@ -51,7 +51,7 @@ class Replay( object ):
 
         gevent.spawn_later( timing, self._reportStatus )
 
-    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
+    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isIgnoreState = False ):
         '''Scan a specific sensor's data with a D&R rule.
 
         Args:
@@ -63,6 +63,7 @@ class Replay( object ):
             isRunTrace (bool): if True, generate a trace of the evaluation.
             limitEvent (int): approximately limit the number of events evaluated.
             limitEval (int): approximately limit the number of rule evaluations.
+            isIgnoreState (bool): if True, parallelize processing of single sensors to increase performance but limit effectiveness of stateful detection.
 
         Returns:
             a dict containing results of the query.
@@ -94,7 +95,21 @@ class Replay( object ):
             with self._statusMutex:
                 self._queryPending += len( windows )
 
-            results = parallelExec( lambda w: self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace ), windows, maxConcurrent = self._maxConcurrent )
+            if isIgnoreState:
+                # Just run it all together.
+                results = parallelExec( lambda w: self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, isIgnoreState = isIgnoreState ), windows, maxConcurrent = self._maxConcurrent )
+            else:
+                # We need to iterate one at a time and keep passing the state along.
+                results = []
+                state = None
+                for w in windows:
+                    tmpResult = self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, isIgnoreState = isIgnoreState, state = state )
+                    if 'state' in tmpResult:
+                        # Extract the state update so we can pass it to the next call.
+                        state = tmpResult[ 'state' ]
+                        # Remove the state data from the result.
+                        del( tmpResult[ 'state' ] )
+                    results.append( tmpResult )
         finally:
             with self._statusMutex:
                 self._sensorPending -= 1
@@ -106,7 +121,7 @@ class Replay( object ):
 
         return self._rollupResults( results )
 
-    def _scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False ):
+    def _scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, isIgnoreState = False, state = None ):
         # print( "Starting query %s-%s for %s" % ( startTime, endTime, sid ) )
         # qStart = time.time()
 
@@ -122,6 +137,8 @@ class Replay( object ):
             }
             if isRunTrace:
                 req[ 'trace' ] = 'true'
+            if isIgnoreState is False:
+                req[ 'return_state' ] = 'true'
 
             # If limits were reached, short circuit the execution.
             with self._statusMutex:
@@ -134,13 +151,20 @@ class Replay( object ):
                         return {}
                     req[ 'limit_eval' ] = str( self._limitEval )
 
-            body = None
+            body = {}
+            if state is not None:
+                body[ 'state' ] = state
             if ruleName is not None:
                 req[ 'rule_name' ] = ruleName
             elif ruleContent is not None:
-                body = json.dumps( ruleContent ).encode()
+                body[ 'rule' ] = ruleContent
             else:
                 raise LcApiException( 'no rule specified' )
+
+            if 0 == len( body ):
+                body = None
+            else:
+                body = json.dumps( body ).encode()
 
             nRetry = 0
             while True:
@@ -173,7 +197,7 @@ class Replay( object ):
 
         return resp
 
-    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
+    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isIgnoreState = False ):
         '''Scan an entire organization's data with a D&R rule.
 
         Args:
@@ -184,6 +208,7 @@ class Replay( object ):
             isRunTrace (bool): if True, generate a trace of the evaluation.
             limitEvent (int): approximately limit the number of events evaluated.
             limitEval (int): approximately limit the number of rule evaluations.
+            isIgnoreState (bool): if True, parallelize processing of single sensors to increase performance but limit effectiveness of stateful detection.
 
         Returns:
             a dict containing results of the query.
@@ -200,7 +225,7 @@ class Replay( object ):
             self._limitEvent = limitEvent
             self._limitEval = limitEval
 
-        results = parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace ), sensors, maxConcurrent = self._maxConcurrent )
+        results = parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, isIgnoreState = isIgnoreState ), sensors, maxConcurrent = self._maxConcurrent )
 
         with self._statusMutex:
             if self._queryStartedAt is not None:
@@ -454,6 +479,13 @@ def main():
                          dest = 'isValidate',
                          help = 'if set will only validate the rule compiles properly' )
 
+    parser.add_argument( '--ignore-state',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'isIgnoreState',
+                         help = 'if set, processing from single sensors will be parallelized increasing performance but limiting effectiveness of stateful detection.' )
+
     args = parser.parse_args()
 
     replay = Replay( Manager( None, None ),
@@ -497,7 +529,8 @@ def main():
                                                         ruleContent = ruleContent,
                                                         isRunTrace = args.isRunTrace,
                                                         limitEvent = args.limitEvent,
-                                                        limitEval = args.limitEval )
+                                                        limitEval = args.limitEval,
+                                                        isIgnoreState = args.isIgnoreState )
             elif args.isEntireOrg:
                 response = replay.scanEntireOrg( start,
                                                  end,
@@ -505,7 +538,8 @@ def main():
                                                  ruleContent = ruleContent,
                                                  isRunTrace = args.isRunTrace,
                                                  limitEvent = args.limitEvent,
-                                                 limitEval = args.limitEval )
+                                                 limitEval = args.limitEval,
+                                                 isIgnoreState = args.isIgnoreState )
             else:
                 raise LcApiException( '--sid or --entire-org must be specified' )
         else:
