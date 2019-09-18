@@ -56,6 +56,7 @@ class Firehose( object ):
         '''
 
         self._manager = manager
+        self._keepRunning = True
         self._listen_on = listen_on.split( ':' )
         if 1 < len( self._listen_on ):
             self._listen_on_port = int( self._listen_on[ 1 ] )
@@ -155,6 +156,7 @@ class Firehose( object ):
     def shutdown( self ):
         '''Stop receiving data and potentially unregister the Output (if created here).'''
 
+        self._keepRunning = False
         if self._name is not None:
             self._manager._printDebug( 'Unregistering.' )
             self._manager.del_output( self._output_name )
@@ -191,7 +193,7 @@ class Firehose( object ):
             return
 
         curData = []
-        while True:
+        while self._keepRunning:
             try:
                 data = sock.recv( 1024 * 512 )
                 if not data: break
