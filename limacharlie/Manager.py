@@ -382,7 +382,7 @@ class Manager( object ):
         '''Get the Sensor objects for hosts matching a hostname expression.
 
         Args:
-            hostname_expr (str): hostname to look for, where '%' is a wildcard.
+            hostname_expr (str): hostname prefix to look for.
 
         Returns:
             a list of Sensor IDs matching the hostname expression.
