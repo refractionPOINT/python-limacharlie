@@ -21,6 +21,7 @@ import traceback
 import cmd
 import zlib
 import base64
+import time
 from functools import wraps
 
 from .Sensor import Sensor
@@ -40,11 +41,12 @@ API_VERSION = 'v1'
 API_TO_JWT_URL = 'https://app.limacharlie.io/jwt'
 
 HTTP_UNAUTHORIZED = 401
+HTTP_TOO_MANY_REQUESTS = 429
 
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None, onRefreshAuth = None ):
+    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None, onRefreshAuth = None, isRetryQuotaErrors = False ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -57,6 +59,7 @@ class Manager( object ):
             jwt (str): optionally specify a single JWT to use for authentication.
             uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID.
             onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
+            isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
         '''
         # If no creds were provided, use the global ones.
         if oid is None:
@@ -91,6 +94,7 @@ class Manager( object ):
         self._spout = None
         self._is_interactive = is_interactive
         self._extra_params = extra_params
+        self._isRetryQuotaErrors = isRetryQuotaErrors
         if self._is_interactive:
             if not self._inv_id:
                 raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
@@ -189,6 +193,24 @@ class Manager( object ):
             else:
                 self._refreshJWT()
             code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
+
+        if code == HTTP_TOO_MANY_REQUESTS and self._isRetryQuotaErrors:
+            while True:
+                time.sleep( 10 )
+                code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
+
+                if code == HTTP_UNAUTHORIZED:
+                    if isNoAuth:
+                        break
+
+                    if self._onRefreshAuth is not None:
+                        self._onRefreshAuth( self )
+                    else:
+                        self._refreshJWT()
+                    continue
+
+                if HTTP_TOO_MANY_REQUESTS != code:
+                    break
 
         if 200 != code:
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )
@@ -382,7 +404,7 @@ class Manager( object ):
         '''Get the Sensor objects for hosts matching a hostname expression.
 
         Args:
-            hostname_expr (str): hostname to look for, where '%' is a wildcard.
+            hostname_expr (str): hostname prefix to look for.
 
         Returns:
             a list of Sensor IDs matching the hostname expression.

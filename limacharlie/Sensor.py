@@ -21,6 +21,9 @@ class Sensor( object ):
 
     _ARCHITECTURE_X86 = 0x00000001
     _ARCHITECTURE_X64 = 0x00000002
+    _ARCHITECTURE_ARM = 0x00000003
+    _ARCHITECTURE_ARM64 = 0x00000004
+    _ARCHITECTURE_ALPINE64 = 0x00000005
 
     def __init__( self, manager, sid ):
         try:
@@ -214,6 +217,9 @@ class Sensor( object ):
         archToString = {
             self._ARCHITECTURE_X86 : 'x86',
             self._ARCHITECTURE_X64 : 'x64',
+            self._ARCHITECTURE_ARM : 'arm',
+            self._ARCHITECTURE_ARM64 : 'arm64',
+            self._ARCHITECTURE_ALPINE64 : 'alpine64',
         }
         data = data[ 'info' ]
 
@@ -221,8 +227,8 @@ class Sensor( object ):
         self._architecture = data[ 'arch' ]
         self._hostname = data.get( 'hostname', None )
 
-        data[ 'plat' ] = platToString[ data[ 'plat' ] ]
-        data[ 'arch' ] = archToString[ data[ 'arch' ] ]
+        data[ 'plat' ] = platToString.get( data[ 'plat' ], data[ 'plat' ] )
+        data[ 'arch' ] = archToString.get( data[ 'arch' ], data[ 'arch' ] )
 
         return data
 
