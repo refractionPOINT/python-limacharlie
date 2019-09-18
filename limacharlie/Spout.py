@@ -75,7 +75,7 @@ class Spout( object ):
         # be a stream of data.
         self._hConn = self._getStream( spoutParams )
         if self._hConn.status_code != 200:
-            raise LcApiException( 'failed to open Spout: %s' % self._hConn.text )
+            raise LcApiException( 'failed to open Spout (%s): %s' % ( self._hConn.status_code, self._hConn.text ) )
         self._threads.add( gevent.spawn( self._handleConnection, spoutParams ) )
         self._futureCleanupInterval = 30
         self._threads.add( gevent.spawn_later( self._futureCleanupInterval, self._cleanupFutures ) )
