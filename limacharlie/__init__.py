@@ -10,6 +10,33 @@ __copyright__ = "Copyright (c) 2018 Refraction Point, Inc"
 import os
 import yaml
 
+def _getEnvironmentCreds( name ):
+    credsFile = os.environ.get( 'LC_CREDS_FILE', None )
+    if credsFile is None:
+        credsFile = os.path.expanduser( '~/.limacharlie' )
+    if not os.path.isfile( credsFile ):
+        return ( None, None, None )
+    with open( credsFile, 'rb' ) as f:
+        credsFile = yaml.safe_load( f.read() )
+
+        if name == 'default':
+            # Default creds are at the top of the creds file.
+            oid = credsFile.get( 'oid', None )
+            uid = credsFile.get( 'uid', None )
+            key = credsFile.get( 'api_key', None )
+
+            return ( oid, uid, key )
+
+        if name not in credsFile.get( 'env', {} ):
+            return ( None, None, None )
+
+        envData = credsFile[ 'env' ][ name ]
+        oid = envData.get( 'oid', None )
+        uid = envData.get( 'uid', None )
+        key = envData.get( 'api_key', None )
+
+        return ( oid, uid, key )
+
 # Global credentials are acquired in the following order:
 # 1- LC_OID and LC_API_KEY environment variables.
 # 2- LC_CREDS_FILE environment variable points to a YAML file with "oid: <OID>" and "api_key: <KEY>".
@@ -18,25 +45,10 @@ GLOBAL_OID = os.environ.get( 'LC_OID', None )
 GLOBAL_UID = os.environ.get( 'LC_UID', None )
 GLOBAL_API_KEY = os.environ.get( 'LC_API_KEY', None )
 if GLOBAL_API_KEY is None:
-    _credsFile = os.environ.get( 'LC_CREDS_FILE', None )
-    if _credsFile is None:
-        _credsFile = os.path.expanduser( '~/.limacharlie' )
-    if os.path.isfile( _credsFile ):
-        with open( _credsFile, 'rb' ) as f:
-            _credsFile = yaml.safe_load( f.read() )
-            _lcEnv = os.environ.get( 'LC_CURRENT_ENV', 'default' )
-            if _lcEnv == '':
-                _lcEnv = 'default'
-            if _lcEnv == 'default':
-                GLOBAL_OID = _credsFile.get( 'oid', None )
-                GLOBAL_API_KEY = _credsFile.get( 'api_key', None )
-                GLOBAL_UID = _credsFile.get( 'uid', None )
-            else:
-                if _credsFile.get( 'env', {} ).get( _lcEnv, None ) is None:
-                    raise Exception( "LimaCharlie environment specified in LC_CURRENT_ENV could not be found in local config file: ~/.limacharlie" )
-                GLOBAL_OID = _credsFile[ 'env' ][ _lcEnv ][ 'oid' ]
-                GLOBAL_UID = _credsFile[ 'env' ][ _lcEnv ].get( 'uid', None )
-                GLOBAL_API_KEY = _credsFile[ 'env' ][ _lcEnv ][ 'api_key' ]
+    _lcEnv = os.environ.get( 'LC_CURRENT_ENV', 'default' )
+    if _lcEnv == '':
+        _lcEnv = 'default'
+    GLOBAL_OID, GLOBAL_UID, GLOBAL_API_KEY = _getEnvironmentCreds( _lcEnv )
 
 from .Manager import Manager
 from .Firehose import Firehose
