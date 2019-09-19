@@ -611,19 +611,19 @@ class Manager( object ):
         } )
         return data.get( 'sid', None )
 
-    def replicantRequest( self, replicantName, data, isSynchronous = False ):
+    def replicantRequest( self, replicantName, data, isAsynchronous = False ):
         '''Issue a request to a Replicant.
 
         Args:
             replicantName (str): the name of the Replicant to task.
             data (dict): JSON data to send to the Replicant as a request.
-            isSynchronous (bool): if set to True, wait for data from the Replicant and return it.
+            isAsynchronous (bool): if set to False, wait for data from the Replicant and return it.
         Returns:
             Dict with general success, or data from Replicant if isSynchronous.
         '''
         data = self._apiCall( 'replicant/%s/%s' % ( self._oid, replicantName ), POST, {
             'request_data' : base64.b64encode( json.dumps( data ).encode() ),
-            'is_async' : isSynchronous,
+            'is_async' : isAsynchronous,
         } )
         return data
 
