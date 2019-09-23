@@ -4,14 +4,6 @@ limacharlie package
 Submodules
 ----------
 
-limacharlie.DRCli module
-------------------------
-
-.. automodule:: limacharlie.DRCli
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 limacharlie.Firehose module
 ---------------------------
 
