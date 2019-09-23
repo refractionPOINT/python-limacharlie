@@ -1,3 +1,5 @@
+from limacharlie import Manager
+
 # Detect if this is Python 2 or 3
 import sys
 _IS_PYTHON_2 = False
@@ -12,8 +14,6 @@ else:
     from urllib.error import HTTPError
     from urllib.request import Request as URLRequest
     from urllib.request import urlopen
-
-from . import Manager
 
 import os
 import os.path
