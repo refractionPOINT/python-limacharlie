@@ -9,104 +9,104 @@ limacharlie.Firehose module
 
 .. automodule:: limacharlie.Firehose
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Logs module
 -----------------------
 
 .. automodule:: limacharlie.Logs
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Manager module
 --------------------------
 
 .. automodule:: limacharlie.Manager
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Payloads module
 ---------------------------
 
 .. automodule:: limacharlie.Payloads
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Replay module
 -------------------------
 
 .. automodule:: limacharlie.Replay
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Replicants module
 -----------------------------
 
 .. automodule:: limacharlie.Replicants
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Search module
 -------------------------
 
 .. automodule:: limacharlie.Search
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Sensor module
 -------------------------
 
 .. automodule:: limacharlie.Sensor
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.SpotCheck module
 ----------------------------
 
 .. automodule:: limacharlie.SpotCheck
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Spout module
 ------------------------
 
 .. automodule:: limacharlie.Spout
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Sync module
 -----------------------
 
 .. automodule:: limacharlie.Sync
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.Webhook module
 --------------------------
 
 .. automodule:: limacharlie.Webhook
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 limacharlie.utils module
 ------------------------
 
 .. automodule:: limacharlie.utils
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
 
 
 Module contents
@@ -114,5 +114,5 @@ Module contents
 
 .. automodule:: limacharlie
     :members:
-    :undoc-members:
-    :show-inheritance:
+    :no-undoc-members:
+    :show-inheritence:
