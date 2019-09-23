@@ -1,12 +1,15 @@
 # LimaCharlie.io CLI and Python API
 
+![LimaCharlie.io](https://storage.googleapis.com/limacharlie-io/logo_fast_glitch.gif)
+
 This Python library is a simple abstraction to the LimaCharlie.io REST API.
+
 For more information on LimaCharlie.io: [https://limacharlie.io](https://limacharlie.io).
-For more information on the REST API: [https://api.limacharlie.io](https://api.limacharlie.io).
 
 ## Documentation
 * Python API Doc: https://python-limacharlie.readthedocs.io/en/latest/
 * General LimaCharlie Doc: https://doc.limacharlie.io/
+* REST API: [https://api.limacharlie.io](https://api.limacharlie.io)
 
 ## Getting Started
 The Python API uses the LimaCharlie.io REST API. The REST API currently
