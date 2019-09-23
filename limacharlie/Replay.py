@@ -16,6 +16,15 @@ class Replay( object ):
     '''Interface to query historical sensor data in Insight with specific D&R rules.'''
 
     def __init__( self, manager, maxTimeWindow = ( 60 * 60 * 24 * 1 ), maxConcurrent = 10, isInteractive = False ):
+        '''Create a Replay manager object.
+
+        Args:
+            manager (limacharlie.Manager): manager providing authentication.
+            maxTimeWindow (int): number of seconds to split sensor data during analysis.
+            maxConcurrent (int): number of sensors windows to process in parallel.
+            isInteractive (bool): if True, display progress updates to standard out.
+        '''
+
         self._lc = manager
         self._apiURL = None
         self._maxTimeWindow = maxTimeWindow

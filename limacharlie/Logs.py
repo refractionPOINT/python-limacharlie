@@ -24,7 +24,16 @@ import json
 MAX_UPLOAD_PART_SIZE = ( 1024 * 1024 * 15 )
 
 class Logs( object ):
+    '''Helper object to upload External Logs to limacharlie.io without going through a sensor.'''
+
     def __init__( self, manager, accessToken = None ):
+        '''Create a Log manager object to prepare for upload.
+
+        Args:
+            manager (limacharlie.Manager obj): a Manager to use for identification (NOT authentication since API key is not required for this utility class).
+            accessToken (str): an ingestion key to use for log upload.
+        '''
+
         self._lc = manager
         self._accessToken = accessToken
 
@@ -36,6 +45,15 @@ class Logs( object ):
         self._uploadUrl = None
 
     def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False, originalPath = None ):
+        '''Upload a log.
+
+        Args:
+            filePath (str): path to the file to upload.
+            source (str): optional source identifier for where the log came from.
+            hint (str): optional data format hint for the log.
+            payloadId (str): optional unique payload identifier for the log, used to perform idempotent uploads.
+            allowMultipart (bool): unused, if True will perform multi-part upload for large logs.
+        '''
         if self._uploadUrl is None:
             # Get the ingest URL from the API.
             self._uploadUrl = self._lc.getOrgURLs()[ 'logs' ]

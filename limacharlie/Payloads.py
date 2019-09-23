@@ -20,7 +20,15 @@ from .utils import DELETE
 from .utils import LcApiException
 
 class Payloads( object ):
+    '''Helper object to manage executable Payloads for sensors.'''
+
     def __init__( self, manager ):
+        '''Create a Payload object.
+
+        Args:
+            manager (limacharlie.Manager): manager providing authentication.
+        '''
+
         self._manager = manager
 
     def list( self ):
