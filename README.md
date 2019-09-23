@@ -1,4 +1,4 @@
-# LimaCharlie.io Python API
+# LimaCharlie.io CLI and Python API
 
 This Python library is a simple abstraction to the LimaCharlie.io REST API.
 For more information on LimaCharlie.io: [https://limacharlie.io](https://limacharlie.io).
