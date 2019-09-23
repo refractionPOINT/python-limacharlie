@@ -7,9 +7,9 @@ if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
 if _IS_PYTHON_2:
-    from urllib.error import HTTPError
-    from urllib.request import Request as URLRequest
-    from urllib.request import urlopen
+    from urllib2 import HTTPError
+    from urllib2 import Request as URLRequest
+    from urllib2 import urlopen
 else:
     from urllib.error import HTTPError
     from urllib.request import Request as URLRequest
@@ -54,6 +54,7 @@ class Logs( object ):
             payloadId (str): optional unique payload identifier for the log, used to perform idempotent uploads.
             allowMultipart (bool): unused, if True will perform multi-part upload for large logs.
         '''
+
         if self._uploadUrl is None:
             # Get the ingest URL from the API.
             self._uploadUrl = self._lc.getOrgURLs()[ 'logs' ]
