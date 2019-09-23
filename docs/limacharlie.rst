@@ -20,14 +20,6 @@ limacharlie.Firehose module
     :undoc-members:
     :show-inheritance:
 
-limacharlie.Hunter module
--------------------------
-
-.. automodule:: limacharlie.Hunter
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 limacharlie.Logs module
 -----------------------
 
@@ -112,46 +104,6 @@ limacharlie.Webhook module
 --------------------------
 
 .. automodule:: limacharlie.Webhook
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-limacharlie.demo\_firehose module
----------------------------------
-
-.. automodule:: limacharlie.demo_firehose
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-limacharlie.demo\_hunter module
--------------------------------
-
-.. automodule:: limacharlie.demo_hunter
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-limacharlie.demo\_interactive\_sensor module
---------------------------------------------
-
-.. automodule:: limacharlie.demo_interactive_sensor
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-limacharlie.demo\_manager module
---------------------------------
-
-.. automodule:: limacharlie.demo_manager
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-limacharlie.demo\_spout module
-------------------------------
-
-.. automodule:: limacharlie.demo_spout
     :members:
     :undoc-members:
     :show-inheritance:
