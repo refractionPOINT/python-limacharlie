@@ -50,9 +50,11 @@ class Sensor( object ):
     def waitToComeOnline( self, timeout ):
         '''Wait for the sensor to be online.
 
-        :param timeout: number of seconds to wait up to
+        Args:
+            timeout (int): number of seconds to wait up to
 
-        :return True if sensor is back or False if timeout
+        Returns:
+            True if sensor is back or False if timeout
         '''
         deadline = time.time() + timeout
 

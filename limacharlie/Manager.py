@@ -34,6 +34,7 @@ from .utils import DELETE
 from limacharlie import GLOBAL_OID
 from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
+from limacharlie import _getEnvironmentCreds
 
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
@@ -46,12 +47,13 @@ HTTP_TOO_MANY_REQUESTS = 429
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid, secret_api_key, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None, onRefreshAuth = None, isRetryQuotaErrors = False ):
+    def __init__( self, oid = None, secret_api_key = None, environment = None, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None, onRefreshAuth = None, isRetryQuotaErrors = False ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
-            oid (str): a limacharlie.io organization ID.
-            secret_api_key (str): an API key for the organization, as provided by limacharlie.io.
+            oid (str): a limacharlie.io organization ID, default environment if unset.
+            secret_api_key (str): an API key for the organization, as provided by limacharlie.io, default environment if unset.
+            environment (str): an environment name as defined in "limacharlie login" to use.
             inv_id (str): an investigation ID that will be used/propagated to other APIs using this Manager instance.
             print_debug_fn (function(message)): a callback function that will receive detailed debug messages.
             is_interactive (bool): if True, the manager will provide a root investigation and Spout so that tasks sent to Sensors can be tracked in realtime automatically; requires an inv_id to be set.
@@ -61,18 +63,24 @@ class Manager( object ):
             onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
             isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
         '''
-        # If no creds were provided, use the global ones.
-        if oid is None:
-            if GLOBAL_OID is None:
-                raise Exception( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
-            oid = GLOBAL_OID
-        if uid is None:
-            if GLOBAL_UID is not None:
-                uid = GLOBAL_UID
-        if secret_api_key is None:
-            if GLOBAL_API_KEY is None and jwt is None:
-                raise Exception( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
-            secret_api_key = GLOBAL_API_KEY
+        # If an environment is specified, try to get its creds.
+        if environment is not None:
+            oid, uid, secret_api_key = _getEnvironmentCreds( environment )
+            if secret_api_key is None or ( oid is None and uid is None ):
+                raise LcApiException( 'LimaCharlie environment not configured, use "limacharlie login".')
+        else:
+            # Otherwise, try to take the values in parameter. But if
+            # they are not present, use the GLOBAL values.
+            if oid is None and uid is None:
+                if GLOBAL_OID is None:
+                    raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
+                oid = GLOBAL_OID
+                if GLOBAL_UID is not None:
+                    uid = GLOBAL_UID
+            if secret_api_key is None and jwt is None:
+                if GLOBAL_API_KEY is None:
+                    raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
+                secret_api_key = GLOBAL_API_KEY
 
         try:
             uuid.UUID( oid )

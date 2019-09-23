@@ -11,7 +11,16 @@ import traceback
 validIOCs = ( 'file_hash', 'file_name', 'file_path', 'ip', 'domain', 'user' )
 
 class Search( object ):
+    '''Helper object to perform cross-organization IOC searches.'''
+
     def __init__( self, environment = None, output = '-' ):
+        '''Create a Search object specifying which environments to search.
+
+        Args:
+            environment (str): optional specific environment name to search.
+            output (str): optional file path where to output results.
+        '''
+
         self._environmentsToQuery = {}
         with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
             conf = yaml.load( f.read().decode() )
@@ -39,6 +48,19 @@ class Search( object ):
         return len( self._environmentsToQuery )
 
     def query( self, iocType, iocName, info, isCaseInsensitive = False, isWithWildcards = False ):
+        '''Performa a search.
+
+        Args:
+            iocType (str): type of IOC to search for.
+            iocName (str): name of the IOC to search for.
+            info (str): information type to retrieve.
+            isCaseInsensitive (bool): if True, search for IOC in a case insensitive way.
+            isWithWildcards (bool): if True, use "%" as a wildcard in the IOC name.
+
+        Returns:
+            Dict of requested information.
+        '''
+
         threads = gevent.pool.Group()
 
         results = gevent.queue.Queue()

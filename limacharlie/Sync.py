@@ -20,7 +20,16 @@ class LcConfigException( Exception ):
     pass
 
 class Sync( object ):
+    '''Sync object to fetch and apply configs to and from organizations.'''
+
     def __init__( self, oid, apiKey ):
+        '''Create a Sync object.
+
+        Args:
+            oid (str): organization ID to operate on.
+            apiKey (str): API key to use for Syncing.
+        '''
+
         self._confVersion = 2
         self._oid = oid
         self._apiKey = apiKey

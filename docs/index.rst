@@ -6,9 +6,7 @@
 Python-LimaCharlie API Documentation
 ==============================================
 
-LimaCharlie.io is an Endpoint Security platform by Refraction Point, Inc.
-
-https://refractionpoint.com
+LimaCharlie.io is Security Infrastructure as a Service platform.
 
 https://limacharlie.io
 

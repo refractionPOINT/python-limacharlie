@@ -42,6 +42,16 @@ def main():
         if '' == alias:
             alias = 'default'
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+        if _IS_PYTHON_2:
+            uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' )
+        else:
+            uid = input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' )
+        try:
+            if uid != '':
+                uuid.UUID( uid )
+        except:
+            print( "Invalid UID" )
+            sys.exit( 1 )
         conf = {}
         try:
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
@@ -51,10 +61,14 @@ def main():
         if 'default' == alias:
             conf[ 'oid' ] = oid
             conf[ 'api_key' ] = secretApiKey
+            if uid != '':
+                conf[ 'uid' ] = uid
         else:
             conf.setdefault( 'env', {} )
             conf[ 'env' ].setdefault( alias, {} )[ 'oid' ] = oid
             conf[ 'env' ].setdefault( alias, {} )[ 'api_key' ] = secretApiKey
+            if uid != '':
+                conf[ 'env' ].setdefault( alias, {} )[ 'uid' ] = uid
         with open( os.path.expanduser( '~/.limacharlie' ), 'wb' ) as f:
             f.write( yaml.safe_dump( conf, default_flow_style = False ).encode() )
         os.chown( os.path.expanduser( '~/.limacharlie' ), os.getuid(), os.getgid() )

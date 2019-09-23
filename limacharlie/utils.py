@@ -8,6 +8,8 @@ import gevent.event
 import gevent.lock
 
 class LcApiException ( Exception ):
+    '''Exception type used for various errors in the LimaCharlie SDK.'''
+
     pass
 
 GET = 'GET'
@@ -46,6 +48,7 @@ class FutureResults( object ):
         Returns:
             a list of new results, or an empty list if timeout is reached.
         '''
+
         if self._newResultEvent.wait( timeout = timeout ):
             with self._lock:
                 self._newResultEvent.clear()
@@ -55,6 +58,15 @@ class FutureResults( object ):
         return []
 
 def enhanceEvent( evt ):
+    '''Wrap an event with an _enhancedDict providing utility functions getOne() and getAll().
+
+    Args:
+        evt (dict): event to wrap.
+
+    Returns:
+        wrapped event.
+    '''
+
     if 'event' in evt:
         evt[ 'event' ] = _enhancedDict( evt[ 'event' ] )
     if 'routing' in evt:
@@ -63,10 +75,30 @@ def enhanceEvent( evt ):
 
 # Helper functions
 class _enhancedDict( dict ):
+    '''Dictionary with helper functions getOne() and getAll() to get element at given path.'''
+
     def getAll( self, *args, **kwargs ):
+        '''Get all elements in matching path.
+
+        Args:
+            path (str): path to get within the data.
+
+        Returns:
+            list of matching elements.
+        '''
+
         return _xm_( self, *args, **kwargs )
 
     def getOne( self, *args, **kwargs ):
+        '''Get one element in matching path.
+
+        Args:
+            path (str): path to get within the data.
+
+        Returns:
+            matching element or None if not found.
+        '''
+
         return _x_( self, *args, **kwargs )
 
 def _isDynamicType( e ):
@@ -140,6 +172,18 @@ def _isStringCompat( s ):
     return isinstance( s, str )
 
 def parallelExec( f, objects, timeout = None, maxConcurrent = None ):
+    '''Execute a function on a list of objects in parallel.
+
+    Args:
+        f (callable): function to apply to each object.
+        objects (iterable): list of objects to apply the function on.
+        timeout (int): maximum number of seconds to wait for collection of calls.
+        maxConcurrent (int): maximum number of function application to do concurrently.
+
+    Returns:
+        list of return values (or Exception if an exception occured).
+    '''
+
     g = gevent.pool.Pool( size = maxConcurrent )
     results = g.imap_unordered( lambda o: _retExecOrExc( f, o, timeout ), objects )
     return list( results )

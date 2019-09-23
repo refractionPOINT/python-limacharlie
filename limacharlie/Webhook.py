@@ -5,6 +5,12 @@ class Webhook( object ):
     '''Helper class for various activities related to webhooks from limacharlie.io.'''
 
     def __init__( self, secret_key ):
+        '''Create a Webhook object.
+
+        Args:
+            secret_key (str): shared secret used in the webhook Output configuration in limacharlie.io.
+        '''
+
         self._secretKey = secret_key
 
     def isSignatureValid( self, dataFromHook, signature ):
