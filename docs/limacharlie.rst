@@ -4,6 +4,14 @@ limacharlie package
 Submodules
 ----------
 
+limacharlie.DRCli module
+------------------------
+
+.. automodule:: limacharlie.DRCli
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 limacharlie.Firehose module
 ---------------------------
 
@@ -20,10 +28,50 @@ limacharlie.Hunter module
     :undoc-members:
     :show-inheritance:
 
+limacharlie.Logs module
+-----------------------
+
+.. automodule:: limacharlie.Logs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 limacharlie.Manager module
 --------------------------
 
 .. automodule:: limacharlie.Manager
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+limacharlie.Payloads module
+---------------------------
+
+.. automodule:: limacharlie.Payloads
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+limacharlie.Replay module
+-------------------------
+
+.. automodule:: limacharlie.Replay
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+limacharlie.Replicants module
+-----------------------------
+
+.. automodule:: limacharlie.Replicants
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+limacharlie.Search module
+-------------------------
+
+.. automodule:: limacharlie.Search
     :members:
     :undoc-members:
     :show-inheritance:
