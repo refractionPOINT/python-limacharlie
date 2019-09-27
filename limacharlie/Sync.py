@@ -237,8 +237,6 @@ class Sync( object ):
                 # not in our list.
                 for ruleName, rule in currentRules.items():
                     # Ignore special replicant rules.
-                    if ruleName.startswith( '__' ):
-                        continue
                     if ruleName not in asConf[ 'fps' ]:
                         if not isDryRun:
                             self._man.del_fp( ruleName )
