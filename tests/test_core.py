@@ -22,6 +22,7 @@ def test_credentials( oid, key ):
         'org.conf.get',
         'ingestkey.ctrl',
         'audit.get',
+        'fp.ctrl',
     ] ) )
 
 def test_whoami( oid, key ):
