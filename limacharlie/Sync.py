@@ -38,6 +38,9 @@ class Sync( object ):
     def _coreRuleContent( self, rule ):
         return { k : v for k, v in rule.items() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
 
+    def _coreFPContent( self, rule ):
+        return { k : v for k, v in rule.items() if k in ( 'name', 'rule' ) }
+
     def _coreOutputContent( self, output ):
         return { k : v for k, v in output.items() if k != 'name' }
 
@@ -68,7 +71,7 @@ class Sync( object ):
 
         return True
 
-    def fetch( self, toConfigFile, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
+    def fetch( self, toConfigFile, isNoRules = False, isNoFPs = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -96,6 +99,12 @@ class Sync( object ):
                     continue
                 rules[ ruleName ] = self._coreRuleContent( rule )
             asConf[ 'rules' ] = rules
+        if not isNoFPs:
+            fps = self._man.fps()
+
+            for ruleName, rule in list( fps.items() ):
+                rules[ ruleName ] = self._coreFPContent( rule )
+            asConf[ 'fps' ] = rules
         if not isNoOutputs:
             outputs = self._man.outputs()
             for outputName, output in outputs.items():
@@ -123,7 +132,7 @@ class Sync( object ):
         with open( toConfigFile, 'wb' ) as f:
             f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoFPs = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -200,6 +209,40 @@ class Sync( object ):
                         if not isDryRun:
                             self._man.del_rule( ruleName, namespace = rule.get( 'namespace', 'general' ) )
                         yield ( '-', 'rule', ruleName )
+
+        if not isNoFPs:
+            # Get the current rules, we will try not to push for no reason.
+            currentRules = { k : self._coreFPContent( v ) for k, v in self._man.fps().items() }
+
+            # Start by adding the rules with isReplace.
+            for ruleName, rule in asConf.get( 'fps', {} ).items():
+                rule = self._coreFPContent( rule )
+                # Check to see if it is already in the current rules and in the right format.
+                if ruleName in currentRules:
+                    if self._isJsonEqual( rule[ 'rule' ], currentRules[ ruleName ][ 'rule' ] ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'fp', ruleName )
+                        continue
+                if not isDryRun:
+                    self._man.add_fp( ruleName, rule[ 'rule' ], isReplace = True )
+                yield ( '+', 'rule', ruleName )
+
+            # If we are not told to isForce, this is it.
+            if isForce:
+                # Check all the namespaces we have access to.
+                currentRules = {}
+                for namespace in availableNamespaces:
+                    currentRules.update( self._man.fps( namespace = namespace ) )
+                # Now if isForce was specified, list existing rules and remove the ones
+                # not in our list.
+                for ruleName, rule in currentRules.items():
+                    # Ignore special replicant rules.
+                    if ruleName.startswith( '__' ):
+                        continue
+                    if ruleName not in asConf[ 'fps' ]:
+                        if not isDryRun:
+                            self._man.del_fp( ruleName )
+                        yield ( '-', 'fp', ruleName )
 
         if not isNoOutputs:
             # Get the current outputs, we will try not to push for no reason.
@@ -404,6 +447,12 @@ if __name__ == '__main__':
                          action = 'store_true',
                          dest = 'isNoRules',
                          help = 'if specified, ignore D&R rules from operations' )
+    parser.add_argument( '--no-fp',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNoFPs',
+                         help = 'if specified, ignore False Psitive rules from operations' )
     parser.add_argument( '--no-outputs',
                          required = False,
                          default = False,
@@ -484,7 +533,7 @@ if __name__ == '__main__':
     s = Sync( args.oid, secretKey )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources )
+        s.fetch( args.config, isNoRules = args.isNoRules, isNoFPs = args.isNoFPs, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoFPs = args.isNoFPs, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources ):
             print( '%s %s %s' % ( modification, category, element ) )
