@@ -229,10 +229,8 @@ class Sync( object ):
 
             # If we are not told to isForce, this is it.
             if isForce:
-                # Check all the namespaces we have access to.
-                currentRules = {}
-                for namespace in availableNamespaces:
-                    currentRules.update( self._man.fps( namespace = namespace ) )
+                currentRules = self._man.fps()
+
                 # Now if isForce was specified, list existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in currentRules.items():
