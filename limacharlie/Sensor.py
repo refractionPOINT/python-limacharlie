@@ -356,6 +356,12 @@ class Sensor( object ):
         batches = self.getHistoricOverview( timestamp, timestamp + ( 60 * 60 * 2 ) )
         return 0 != len( batches )
 
+    def delete( self ):
+        '''Delete the sensor. It will not be able to connect to the cloud anymore, but will not be uninstalled.abs
+        '''
+
+        return self._manager._apiCall( '%s' % self.sid, DELETE, {} )
+
     def __str__( self ):
         return self.sid
 
