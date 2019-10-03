@@ -22,6 +22,7 @@ def test_credentials( oid, key ):
         'org.conf.get',
         'ingestkey.ctrl',
         'audit.get',
+        'fp.ctrl',
     ] ) )
 
 def test_whoami( oid, key ):
@@ -118,6 +119,25 @@ def test_rules_namespace( oid, key ):
         assert( {} == lc.del_rule( testRuleName, namespace = testNamespace ) )
 
     assert( testRuleName not in lc.rules( namespace = testNamespace ) )
+
+def test_fps( oid, key ):
+    lc = limacharlie.Manager( oid, key )
+
+    testRuleName = 'test-lc-python-sdk-fp'
+
+    assert( {} == lc.add_fp( testRuleName, {
+        'op' : 'is',
+        'path' : 'cat',
+        'value' : 'test-sdk-detection'
+    }, isReplace = True ) )
+
+    try:
+        rules = lc.fps()
+        assert( testRuleName in rules )
+    finally:
+        assert( {} == lc.del_fp( testRuleName ) )
+
+    assert( testRuleName not in lc.fps() )
 
 def test_org_config( oid, key ):
     lc = limacharlie.Manager( oid, key )

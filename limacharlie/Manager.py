@@ -486,6 +486,59 @@ class Manager( object ):
 
         return self._apiCall( 'rules/%s' % self._oid, POST, req )
 
+
+    def fps( self ):
+        '''Get the list of all False Positive rules for the Organization.
+
+        Returns:
+            a list of False Positive rules (JSON).
+        '''
+
+        req = {}
+
+        resp = self._apiCall( 'fp/%s' % self._oid, GET, queryParams = req )
+        return resp
+
+    def del_fp( self, name ):
+        '''Remove a False Positive rule from the Organization.
+
+        Args:
+            name (str): the name of the rule to remove.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        req = {
+            'name' : name,
+        }
+
+        return self._apiCall( 'fp/%s' % self._oid, DELETE, req )
+
+    def add_fp( self, name, rule, isReplace = False ):
+        '''Add a False Positive rule to the Organization.
+
+        For detailed explanation and possible rules parameters
+        see the official documentation, naming is the same as for the
+        REST interface.
+
+        Args:
+            name (str): name to give to the rule.
+            isReplace (boolean): if True, replace existing rule with the same name.
+            detection (dict): dictionary representing the False Positive rule content.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        req = {
+            'name' : name,
+            'is_replace' : 'true' if isReplace else 'false',
+            'rule' : json.dumps( rule ),
+        }
+
+        return self._apiCall( 'fp/%s' % self._oid, POST, req )
+
     def isInsightEnabled( self ):
         '''Check to see if Insight (retention) is enabled on this organization.
 
