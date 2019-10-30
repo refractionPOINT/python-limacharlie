@@ -519,7 +519,9 @@ def main():
     else:
         if args.events is None:
             if ( args.start is None or args.end is None ) and args.lastSeconds is None:
-                raise LcApiException( 'must specify start and end, or last-seconds' )
+                print( 'must specify start and end, or last-seconds' )
+                parser.print_help()
+                sys.exit(1)
 
         if args.events is None:
             # We want to use Insight-based events.
