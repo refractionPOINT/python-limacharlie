@@ -157,11 +157,13 @@ class Firehose( object ):
         '''Stop receiving data and potentially unregister the Output (if created here).'''
 
         self._keepRunning = False
-        if self._name is not None:
-            self._manager._printDebug( 'Unregistering.' )
-            self._manager.del_output( self._output_name )
-        self._server.close()
-        self._manager._printDebug( 'Closed.' )
+        try:
+            if self._name is not None:
+                self._manager._printDebug( 'Unregistering.' )
+                self._manager.del_output( self._output_name )
+        finally:
+            self._server.close()
+            self._manager._printDebug( 'Closed.' )
 
     def getDropped( self ):
         '''Get the number of messages dropped because queue was full.'''
