@@ -299,8 +299,9 @@ class Sensor( object ):
             eventType (str): return events only of this type.
 
         Returns:
-            a list of events.
+            a generator of events.
         '''
+        cursor = '-'
         start = int( start )
         end = int( end )
         if limit is not None:
@@ -318,8 +319,12 @@ class Sensor( object ):
         if eventType is not None:
             req[ 'event_type' ] = eventType
 
-        data = self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, queryParams = req )
-        return [ enhanceEvent( e ) for e in self._manager._unwrap( data[ 'events' ] ) ]
+        while cursor:
+            req[ 'cursor' ] = cursor
+            data = self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, queryParams = req )
+            cursor = data.get( 'next_cursor', None )
+            for event in self._manager._unwrap( data[ 'events' ] ):
+                yield enhanceEvent( event )
 
     def getHistoricOverview( self, start, end ):
         '''Get a list of timestamps representing where sensor data is available in Insight (retention).

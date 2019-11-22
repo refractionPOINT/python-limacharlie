@@ -29,6 +29,10 @@ def test_detections( oid, key ):
         limit = 10
     )
 
+    # The return is a generator so we
+    # will unravel it.
+    detections = list( detections )
+
     assert( isinstance( detections, list ) )
 
 def test_object_informaton( oid, key ):

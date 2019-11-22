@@ -486,7 +486,6 @@ class Manager( object ):
 
         return self._apiCall( 'rules/%s' % self._oid, POST, req )
 
-
     def fps( self ):
         '''Get the list of all False Positive rules for the Organization.
 
@@ -560,8 +559,9 @@ class Manager( object ):
             cat (str): return dects only from this category.
 
         Returns:
-            a list of detects.
+            a generator of detects.
         '''
+        cursor = '-'
         start = int( start )
         end = int( end )
         if limit is not None:
@@ -579,8 +579,12 @@ class Manager( object ):
         if cat is not None:
             req[ 'cat' ] = cat
 
-        data = self._apiCall( 'insight/%s/detections' % ( self._oid, ), GET, queryParams = req )
-        return self._unwrap( data[ 'detects' ] )
+        while cursor:
+            req[ 'cursor' ] = cursor
+            data = self._apiCall( 'insight/%s/detections' % ( self._oid, ), GET, queryParams = req )
+            cursor = data.get( 'next_cursor', None )
+            for detect in self._unwrap( data[ 'detects' ] ):
+                yield detect
 
     def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False ):
         '''Get information about an object (indicator) using Insight (retention) data.
