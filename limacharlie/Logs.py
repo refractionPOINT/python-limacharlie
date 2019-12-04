@@ -44,7 +44,7 @@ class Logs( object ):
         self._accessToken = str( uuid.UUID( str( self._accessToken ) ) )
         self._uploadUrl = None
 
-    def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False, originalPath = None ):
+    def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False, originalPath = None, nDaysRetention = 30 ):
         '''Upload a log.
 
         Args:
@@ -53,6 +53,7 @@ class Logs( object ):
             hint (str): optional data format hint for the log.
             payloadId (str): optional unique payload identifier for the log, used to perform idempotent uploads.
             allowMultipart (bool): unused, if True will perform multi-part upload for large logs.
+            nDaysRetention (int): number of days the data should be retained in the cloud.
         '''
 
         if self._uploadUrl is None:
@@ -71,6 +72,8 @@ class Logs( object ):
             headers[ 'lc-payload-id' ] = payloadId
         if originalPath is not None:
             headers[ 'lc-path' ] = base64.b64encode( os.path.abspath( originalPath ).encode() ).decode()
+        if nDaysRetention is not None:
+            headers[ 'lc-retention-days' ] = str( nDaysRetention )
 
         with open( filePath, 'rb' ) as f:
             # Get the file size.
@@ -175,6 +178,13 @@ def main():
                          default = None,
                          help = 'organization id to upload for.' )
 
+    parser.add_argument( '--days-retention',
+                         type = int,
+                         required = False,
+                         dest = 'retention',
+                         default = None,
+                         help = 'number of days of retention for the data.' )
+
     args = parser.parse_args()
 
     logs = Logs( Manager( args.oid, None ), args.accessToken )
@@ -188,6 +198,7 @@ def main():
                             hint = args.hint,
                             payloadId = args.payloadId,
                             allowMultipart = False,
-                            originalPath = originalPath )
+                            originalPath = originalPath,
+                            nDaysRetention = args.retention )
 
     print( json.dumps( response ) )
