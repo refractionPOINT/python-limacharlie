@@ -364,6 +364,19 @@ class Manager( object ):
 
         return sensors
 
+    def sensorsWithTag( self, tag ):
+        '''Get a list of sensors that have the matching tag.
+
+        Args:
+            tag (str): a tag to look for.
+
+        Returns:
+            a list of Sensor objects.
+        '''
+
+        resp = self._apiCall( 'tags/%s/%s' % ( self._oid, tag ), GET, queryParams = {} )
+        return [ Sensor( self, sid ) for sid in resp.keys() ]
+
     def outputs( self ):
         '''Get the list of all Outputs configured for the Organization.
 
