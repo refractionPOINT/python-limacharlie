@@ -9,11 +9,13 @@ if _IS_PYTHON_2:
     from urllib2 import Request as URLRequest
     from urllib2 import urlopen
     from urllib import urlencode
+    from urllib import quote as urlescape
 else:
     from urllib.error import HTTPError
     from urllib.request import Request as URLRequest
     from urllib.request import urlopen
     from urllib.parse import urlencode
+    from urllib.parse import quote as urlescape
 
 import uuid
 import json
@@ -374,7 +376,7 @@ class Manager( object ):
             a list of Sensor objects.
         '''
 
-        resp = self._apiCall( 'tags/%s/%s' % ( self._oid, tag ), GET, queryParams = {} )
+        resp = self._apiCall( 'tags/%s/%s' % ( self._oid, urlescape( tag, tuple() ) ), GET, queryParams = {} )
         return [ Sensor( self, sid ) for sid in resp.keys() ]
 
     def outputs( self ):
