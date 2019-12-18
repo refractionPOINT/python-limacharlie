@@ -374,7 +374,7 @@ class Manager( object ):
             a list of Sensor objects.
         '''
 
-        resp = self._apiCall( 'tags/%s/%s' % ( self._oid, urlescape( tag, tuple() ) ), GET, queryParams = {} )
+        resp = self._apiCall( 'tags/%s/%s' % ( self._oid, urlescape( tag, '' ) ), GET, queryParams = {} )
         return [ Sensor( self, sid ) for sid in resp.keys() ]
 
     def outputs( self ):
