@@ -35,7 +35,7 @@ def test_whoami( oid, key ):
 def test_sensors( oid, key ):
     lc = limacharlie.Manager( oid, key )
 
-    sensors = lc.sensors()
+    sensors = list( lc.sensors() )
     assert( isinstance( sensors, list ) )
 
 def test_outputs( oid, key ):

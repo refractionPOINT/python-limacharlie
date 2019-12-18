@@ -17,7 +17,7 @@ def test_spout( oid, key ):
 
     try:
         # First we need to make sure we have a sensor to test against.
-        sensors = lc.sensors()
+        sensors = list( lc.sensors() )
         assert( 0 != len( sensors ) )
 
         # We will pick the first sensor in the list that is online.
