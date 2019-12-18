@@ -334,37 +334,35 @@ class Manager( object ):
         return s
 
     def sensors( self, inv_id = None, is_next = False ):
-        '''Get the list of all Sensors in the Organization.
+        '''Gets all Sensors in the Organization.
 
         The sensors may or may not be online.
 
         Args:
             inv_id (str): investigation ID to add to all actions done using these objects.
-            is_next (bool): if set to True, will get the next slice of Sensors (if previous call to .sensors() hit the maximum number returned).
 
         Returns:
-            a list of Sensor objects.
+            a generator of Sensor objects.
         '''
 
-        if is_next and self._lastSensorListContinuationToken is None:
-            return None
+        continuationToken = None
 
-        params = {}
-        if is_next:
-            if self._lastSensorListContinuationToken is None:
-                return []
-            params[ 'continuation_token' ] = self._lastSensorListContinuationToken
-            self._lastSensorListContinuationToken = None
+        while True:
+            params = {}
 
-        sensors = []
-        resp = self._apiCall( 'sensors/%s' % self._oid, GET, queryParams = params )
-        if inv_id is None:
-            inv_id = self._inv_id
-        for s in resp[ 'sensors' ]:
-            sensors.append( self.sensor( s[ 'sid' ], inv_id ) )
-        self._lastSensorListContinuationToken = resp.get( 'continuation_token', None )
+            if continuationToken is not None:
+                params[ 'continuation_token' ] = continuationToken
 
-        return sensors
+            resp = self._apiCall( 'sensors/%s' % self._oid, GET, queryParams = params )
+            if inv_id is None:
+                inv_id = self._inv_id
+
+            for s in resp[ 'sensors' ]:
+                yield self.sensor( s[ 'sid' ], inv_id )
+
+            continuationToken = resp.get( 'continuation_token', None )
+            if continuationToken is None:
+                break
 
     def sensorsWithTag( self, tag ):
         '''Get a list of sensors that have the matching tag.
