@@ -104,7 +104,13 @@ class Spout( object ):
         self._isStop = True
 
         if self._hConn is not None:
-            self._hConn.close()
+            try:
+                self._hConn.close()
+            except:
+                # Ignore errors on shutdown. In python 3 there
+                # can be a reentrant exception because of the BufferedIO
+                # and HTTPResponse object at close time.
+                pass
 
         self._threads.join( timeout = 2 )
 
