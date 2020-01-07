@@ -14,6 +14,6 @@ def test_credentials( oid, key ):
 def test_replicants_available( oid, key ):
     lc = limacharlie.Manager( oid, key )
 
-    replicants = lc.getAvailableReplicants()
+    replicants = list( lc.getAvailableReplicants() )
 
-    assert( isinstance( replicants, list ) )
+    assert( 0 != len( replicants ) )
