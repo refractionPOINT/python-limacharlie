@@ -20,10 +20,7 @@ setup( name = 'limacharlie',
        entry_points = {
            'console_scripts': [
                'limacharlie=limacharlie.__main__:main',
-               'limacharlie-search=limacharlie.Search:main',
                'limacharlie-upload=limacharlie.Logs:main',
-               'limacharlie-replay=limacharlie.Replay:main',
-               'limacharlie-dr=limacharlie.DRCli:main',
            ],
        },
 )

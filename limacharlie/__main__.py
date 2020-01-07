@@ -13,17 +13,20 @@ def main():
     import os
     import yaml
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials) and "use" (use specific credentials)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
                          default = None,
                          help = 'optional argument depending on action' )
 
-    args = parser.parse_args()
+    # Hack around a bit so that we can pass the help
+    # to the proper sub-command line.
+    rootArgs = sys.argv[ 1 : 2 ]
+    args = parser.parse_args( rootArgs )
 
     if args.action.lower() == 'login':
         if _IS_PYTHON_2:
@@ -97,6 +100,15 @@ def main():
                 print( "Environment not found" )
                 sys.exit( 1 )
             print( 'export LC_CURRENT_ENV="%s"' % args.opt_arg )
+    elif args.action.lower() == 'dr':
+        from .DRCli import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'search':
+        from .Search import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'replay':
+        from .Replay import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     else:
         raise Exception( 'invalid action' )
 
