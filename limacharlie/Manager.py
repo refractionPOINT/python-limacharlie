@@ -142,7 +142,7 @@ class Manager( object ):
             u.close()
         except Exception as e:
             self._jwt = None
-            raise LcApiException( 'Failed to get JWT from API key: %s' % e )
+            raise LcApiException( 'Failed to get JWT from API key oid=%s uid=%s: %s' % ( self._oid, self._uid, e, ) )
 
     def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False ):
         try:
