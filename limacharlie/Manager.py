@@ -125,7 +125,7 @@ class Manager( object ):
         if self._debug is not None:
             self._debug( msg )
 
-    def _refreshJWT( self ):
+    def _refreshJWT( self, expiry = None ):
         try:
             if self._secret_api_key is None:
                 raise Exception( 'No API key set' )
@@ -134,6 +134,8 @@ class Manager( object ):
                 authData[ 'uid' ] = self._uid
             else:
                 authData[ 'oid' ] = self._oid
+            if expiry is not None:
+                authData[ 'expiry' ] = int( expiry )
             request = URLRequest( API_TO_JWT_URL,
                                   urlencode( authData ).encode() )
             request.get_method = lambda: "POST"
