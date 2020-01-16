@@ -133,7 +133,7 @@ class Manager( object ):
             authData = { "secret" : self._secret_api_key }
             if self._uid is not None:
                 authData[ 'uid' ] = self._uid
-            else:
+            if self._oid is not None:
                 authData[ 'oid' ] = self._oid
             if expiry is not None:
                 authData[ 'expiry' ] = int( expiry )
