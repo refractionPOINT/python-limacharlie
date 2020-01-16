@@ -113,6 +113,12 @@ def main():
     elif args.action.lower() == 'sync':
         from .Sync import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'who':
+        from . import Manager
+        tmpManager = Manager()
+        print( "OID: %s" % ( tmpManager._oid, ) )
+        print( "UID: %s" % ( tmpManager._uid, ) )
+        print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
     else:
         raise Exception( 'invalid action' )
 
