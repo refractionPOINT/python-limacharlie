@@ -168,9 +168,9 @@ It is MUCH more convenient for short term ad-hoc outputs, but it is less reliabl
 very large amounts of data.
 
 #### Sync
-`python -m limacharlie.Sync fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+`limacharlie sync fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
-`python -m limacharlie.Sync push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+`limacharlie sync push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
 The `fetch` command will get a list of the Detection & Response rules in your
 organization and will write them to the config file specified or the default
@@ -185,11 +185,11 @@ The `--config` allows you to specify an alternate config file and the `--api-key
 you to specify a file on disk where the API should be read from (otherwise, of if `-` is
 specified as a file, the API Key is read from STDIN).
 
-All these capabilities are also supported directly by the `python -m limacharlie.Sync` object.
+All these capabilities are also supported directly by the `limacharlie.Sync` object.
 
 The Sync functionality currently supports all common useful configurations. The `--no-rules` and
 `--no-outputs` flags can be used to ignore one or the other in config files and sync. Additional
-flags are also supported, see `python -m limacharlie.Sync --help`.
+flags are also supported, see `limacharlie sync --help`.
 
 To understand better the config format, do a `fetch` from your organization or have
 a look at the [samples](limacharlie/sample_configs/). Notice the use of the `include`
@@ -206,7 +206,7 @@ directories, registry keys, file hashes and yara signatures.
 For detailed usage: `python -m limacharlie.SpotCheck --help`
 
 #### Search
-`limacharlie-search --help`
+`limacharlie search --help`
 Shortcut utility to perform IOC searches across all locally configured organizations.
 
 #### Upload
@@ -215,9 +215,9 @@ Shortcut utility to upload [External Logs](https://doc.limacharlie.io/en/master/
 LimaCharlie with just the CLI (no Agent).
 
 #### Replay
-`limacharlie-replay --help`
+`limacharlie replay --help`
 Shortcut utility to perform [Replay](https://doc.limacharlie.io/en/master/replay/) jobs from the CLI.
 
 #### Detection & Response
-`limacharlie-dr --help`
+`limacharlie dr --help`
 Shortcut utility to manage Detection and Response rules over the CLI.
