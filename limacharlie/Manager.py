@@ -61,7 +61,7 @@ class Manager( object ):
             is_interactive (bool): if True, the manager will provide a root investigation and Spout so that tasks sent to Sensors can be tracked in realtime automatically; requires an inv_id to be set.
             extra_params (dict): optional key / values passed to interactive spout.
             jwt (str): optionally specify a single JWT to use for authentication.
-            uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID.
+            uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID, set to False to override the current environment.
             onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
             isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
         '''
@@ -73,10 +73,11 @@ class Manager( object ):
         else:
             # Otherwise, try to take the values in parameter. But if
             # they are not present, use the GLOBAL values.
-            if oid is None and uid is None:
+            if oid is None:
                 if GLOBAL_OID is None:
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 oid = GLOBAL_OID
+            if uid is None:
                 if GLOBAL_UID is not None:
                     uid = GLOBAL_UID
             if secret_api_key is None and jwt is None:
@@ -94,7 +95,7 @@ class Manager( object ):
             if jwt is None:
                 raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
         self._oid = oid
-        self._uid = uid
+        self._uid = uid if uid else None
         self._onRefreshAuth = onRefreshAuth
         self._secret_api_key = secret_api_key
         self._jwt = jwt

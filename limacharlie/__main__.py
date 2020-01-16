@@ -51,7 +51,8 @@ def main():
             uid = input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' )
         try:
             if uid != '':
-                uuid.UUID( uid )
+                if 20 > len( uid ):
+                    raise Exception()
         except:
             print( "Invalid UID" )
             sys.exit( 1 )
@@ -108,6 +109,9 @@ def main():
         cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'replay':
         from .Replay import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'sync':
+        from .Sync import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
     else:
         raise Exception( 'invalid action' )
