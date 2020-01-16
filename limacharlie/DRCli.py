@@ -51,7 +51,7 @@ def do_remove( args ):
     Manager( None, None ).del_rule( args.ruleName, namespace = args.namespace )
     printData( 'Removed' )
 
-def main():
+def main( sourceArgs = None ):
     import argparse
 
     actions = {
@@ -61,7 +61,7 @@ def main():
         'remove' : do_remove,
     }
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io DR CLI' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie dr' )
     parser.add_argument( 'action',
                          type = str,
                          help = 'the action to take, one of: %s' % ( ', '.join( actions.keys(), ) ) )
@@ -92,7 +92,7 @@ def main():
                          dest = 'isReplace',
                          help = 'replace the rule by that name if it already exists.' )
 
-    args = parser.parse_args()
+    args = parser.parse_args( sourceArgs )
 
     actions[ args.action.lower() ]( args )
 

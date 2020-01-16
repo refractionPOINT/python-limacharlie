@@ -7,28 +7,35 @@ import gevent.queue
 import os.path
 import yaml
 import traceback
+import functools
 
 validIOCs = ( 'file_hash', 'file_name', 'file_path', 'ip', 'domain', 'user' )
 
 class Search( object ):
     '''Helper object to perform cross-organization IOC searches.'''
 
-    def __init__( self, environment = None, output = '-' ):
+    def __init__( self, environments = None, output = '-' ):
         '''Create a Search object specifying which environments to search.
 
         Args:
-            environment (str): optional specific environment name to search.
+            environments (list of str): optional list of specific environment names to search.
             output (str): optional file path where to output results.
         '''
 
         self._environmentsToQuery = {}
         with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
             conf = yaml.load( f.read().decode() )
-            if environment is not None:
-                conf = conf.get( 'env', {} ).get( environment, None )
-                if conf is None:
-                    raise Exception( 'environment %s not found' % ( environment, ) )
-                self._environmentsToQuery[ environment ] = conf
+            if 'oid' in conf and 'api_key' in conf and conf.get( 'env', {} ).get( 'default', None ) is None:
+                conf.setdefault( 'env', {} )[ 'default' ] = {
+                    'oid' : conf[ 'oid' ],
+                    'api_key' : conf[ 'api_key' ]
+                }
+            if 0 != len( environments ):
+                for envName in environments:
+                    envConf = conf.get( 'env', {} ).get( envName, None )
+                    if envConf is None:
+                        raise Exception( 'environment %s not found' % ( envName, ) )
+                    self._environmentsToQuery[ envName ] = envConf
             else:
                 self._environmentsToQuery = conf.get( 'env', {} )
                 if 'oid' in conf and 'api_key' in conf:
@@ -83,7 +90,7 @@ class Search( object ):
         else:
             self._output.write( yaml.safe_dump( outputs, default_flow_style = False ) )
 
-        self._safePrint( "Done, %s results." % ( reduce( lambda x, y: x + ( len( y[ 'result' ] ) if info != 'summary' else 1 ), outputs, 0 ) ) )
+        self._safePrint( "Done, %s results." % ( functools.reduce( lambda x, y: x + ( len( y[ 'result' ] ) if info != 'summary' else 1 ), outputs, 0 ) ) )
 
     def _queryThread( self, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards ):
         try:
@@ -114,10 +121,10 @@ class Search( object ):
         with self._mutex:
             print( msg )
 
-def main():
+def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io search' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie search' )
     parser.add_argument( '-t', '--type',
                          type = str,
                          required = True,
@@ -151,12 +158,13 @@ def main():
                          dest = 'is_with_wildcards',
                          help = 'make the search using the "%%" wildcard.' )
 
-    parser.add_argument( '-e', '--environment',
+    parser.add_argument( '-e', '--environments',
                          type = str,
                          required = False,
-                         dest = 'environment',
-                         default = None,
-                         help = 'the name of the LimaCharlie environment (as defined in ~/.limacharlie) to use, otherwise all environments are used.' )
+                         dest = 'environments',
+                         default = [],
+                         nargs = '*',
+                         help = 'the name of the LimaCharlie environments (as defined in ~/.limacharlie) to use, otherwise all environments are used.' )
 
     parser.add_argument( '--output',
                          type = str,
@@ -165,9 +173,9 @@ def main():
                          default = '-',
                          help = 'location where to send output, "-" by default outputs human readable to stdout, otherwise it should be a file where YAML will be written to.' )
 
-    args = parser.parse_args()
+    args = parser.parse_args( sourceArgs )
 
-    search = Search( environment = args.environment, output = args.output )
+    search = Search( environments = args.environments, output = args.output )
 
     print( "Querying %s environments for %s (%s) to %s." % ( search.getNumEnvironments(), args.ioc, args.type, args.output ) )
 

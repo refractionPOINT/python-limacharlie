@@ -1,6 +1,6 @@
 from setuptools import setup
 
-__version__ = "2.19.4"
+__version__ = "3.0.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -20,10 +20,7 @@ setup( name = 'limacharlie',
        entry_points = {
            'console_scripts': [
                'limacharlie=limacharlie.__main__:main',
-               'limacharlie-search=limacharlie.Search:main',
                'limacharlie-upload=limacharlie.Logs:main',
-               'limacharlie-replay=limacharlie.Replay:main',
-               'limacharlie-dr=limacharlie.DRCli:main',
            ],
        },
 )

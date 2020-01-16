@@ -378,7 +378,7 @@ class Replay( object ):
                     raise LcApiException( 'unexpected data type: %s' % ( type( v ), ) )
         return final
 
-def main():
+def main( sourceArgs = None ):
     import argparse
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io replay detection and response' )
@@ -495,7 +495,7 @@ def main():
                          dest = 'isIgnoreState',
                          help = 'if set, processing from single sensors will be parallelized increasing performance but limiting effectiveness of stateful detection.' )
 
-    args = parser.parse_args()
+    args = parser.parse_args( sourceArgs )
 
     replay = Replay( Manager( None, None ),
                      isInteractive = args.isInteractive,

@@ -22,18 +22,16 @@ class LcConfigException( Exception ):
 class Sync( object ):
     '''Sync object to fetch and apply configs to and from organizations.'''
 
-    def __init__( self, oid, apiKey ):
+    def __init__( self, oid = None, env = None ):
         '''Create a Sync object.
 
         Args:
             oid (str): organization ID to operate on.
-            apiKey (str): API key to use for Syncing.
+            env (str): environment name to use.
         '''
 
         self._confVersion = 2
-        self._oid = oid
-        self._apiKey = apiKey
-        self._man = Manager( self._oid, self._apiKey )
+        self._man = Manager( oid = oid, environment = env )
 
     def _coreRuleContent( self, rule ):
         return { k : v for k, v in rule.items() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
@@ -100,6 +98,7 @@ class Sync( object ):
                 rules[ ruleName ] = self._coreRuleContent( rule )
             asConf[ 'rules' ] = rules
         if not isNoFPs:
+            rules = {}
             fps = self._man.fps()
 
             for ruleName, rule in list( fps.items() ):
@@ -413,10 +412,10 @@ class Sync( object ):
 
         return asConf
 
-if __name__ == '__main__':
+def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io sync' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie sync' )
     parser.add_argument( 'action',
                          type = lambda x: str( x ).lower().strip(),
                          help = 'the action to perform, one of "fetch" or "push".' )
@@ -424,7 +423,14 @@ if __name__ == '__main__':
                          type = lambda x: str( uuid.UUID( x.strip() ) ),
                          required = False,
                          dest = 'oid',
+                         default = None,
                          help = 'the OID to authenticate as, if not specified global creds will be used.' )
+    parser.add_argument( '-e', '--environment',
+                         type = str,
+                         required = False,
+                         dest = 'environment',
+                         default = None,
+                         help = 'the name of the LimaCharlie environment (as defined in ~/.limacharlie) to use, otherwise global creds will be used.' )
     parser.add_argument( '-f', '--force',
                          required = False,
                          default = False,
@@ -485,13 +491,7 @@ if __name__ == '__main__':
                          required = False,
                          dest = 'config',
                          help = 'path to the LCConf file to use' )
-    parser.add_argument( '-k', '--api-key',
-                         type = str,
-                         default = None,
-                         required = False,
-                         dest = 'apiKey',
-                         help = 'path to the file holding your API Key, or "-" to consume it from STDIN' )
-    args = parser.parse_args()
+    args = parser.parse_args( sourceArgs )
 
     if args.isDryRun:
         print( '!!! DRY RUN !!!' )
@@ -506,30 +506,17 @@ if __name__ == '__main__':
     if args.isNoExfil:
         print( '!!! NO EXFIL REPLICANT !!!' )
 
-    if args.apiKey is not None:
-        secretKey = args.apiKey.strip()
-        if '-' == secretKey:
-            print( "Using API Key from STDIN" )
-            if _IS_PYTHON_2:
-                secretKey = raw_input().strip()
-            else:
-                secretKey = input().strip()
-        else:
-            secretKey = os.path.abspath( secretKey )
-            print( "Using API Key in: %s" % secretKey )
-            with open( secretKey, 'rb' ) as f:
-                secretKey = f.read().decode().strip()
-    else:
-        secretKey = None
-
     if args.action not in ( 'fetch', 'push' ):
         print( "Action %s is not supported." % args.action )
         sys.exit( 1 )
 
-    s = Sync( args.oid, secretKey )
+    s = Sync( oid = args.oid, env = args.environment )
 
     if 'fetch' == args.action:
         s.fetch( args.config, isNoRules = args.isNoRules, isNoFPs = args.isNoFPs, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources )
     elif 'push' == args.action:
         for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isNoRules = args.isNoRules, isNoFPs = args.isNoFPs, isNoOutputs = args.isNoOutputs, isNoIntegrity = args.isNoIntegrity, isNoLogging = args.isNoLogging, isNoExfil = args.isNoExfil, isNoResources = args.isNoResources ):
             print( '%s %s %s' % ( modification, category, element ) )
+
+if __name__ == '__main__':
+    main()
