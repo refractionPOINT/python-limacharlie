@@ -200,7 +200,7 @@ class Firehose( object ):
                 data = sock.recv( 1024 * 512 )
                 if not data: break
 
-                chunks = [ c for c in data.split( '\n' ) ]
+                chunks = [ c for c in data.split( b'\n' ) ]
 
                 # This is a pure continuation.
                 if 1 == len( chunks ):
@@ -210,7 +210,7 @@ class Firehose( object ):
                 # Every chunk is an event boundary.
                 for c in chunks:
                     curData.append( c )
-                    buff = ''.join( curData )
+                    buff = b''.join( curData )
                     curData = []
                     if 0 == len( buff ):
                         continue
