@@ -67,6 +67,8 @@ def main():
             conf[ 'api_key' ] = secretApiKey
             if uid != '':
                 conf[ 'uid' ] = uid
+            else:
+                conf.pop( 'uid', None )
         else:
             conf.setdefault( 'env', {} )
             conf[ 'env' ].setdefault( alias, {} )[ 'oid' ] = oid
