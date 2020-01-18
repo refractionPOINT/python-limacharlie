@@ -32,6 +32,7 @@ class Spout( object ):
 
         self._man = man
         self._oid = man._oid
+        self._uid = man._uid
         self._data_type = data_type
         self._cat = cat
         self._tag = tag
@@ -68,6 +69,8 @@ class Spout( object ):
             spoutParams[ 'cat' ] = self._cat
         if sid is not None:
             spoutParams[ 'sid' ] = self._sid
+        if self._uid:
+            spoutParams[ 'uid' ] = self._uid
         for k, v in extra_params.items():
             spoutParams[ k ] = v
         # Spouts work by doing a POST to the stream.limacharlie.io service with the
