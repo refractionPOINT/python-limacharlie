@@ -73,10 +73,13 @@ class Sync( object ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
-            toConfigFile (str): the path to the local config file.
+            toConfigFile (str, dict): the path to the local config file or dict where to store config.
         '''
-        toConfigFile = os.path.abspath( toConfigFile )
-        asConf = { 'version' : self._confVersion }
+        if not isinstance( toConfigFile, dict ):
+            toConfigFile = os.path.abspath( toConfigFile )
+            asConf = { 'version' : self._confVersion }
+        else:
+            asConf = toConfigFile
         if not isNoRules:
             rules = {}
             # Check which namespaces we have access to.
@@ -128,8 +131,9 @@ class Sync( object ):
             asConf[ 'exfil' ] = exfilRules
         if not isNoResources:
             asConf[ 'resources' ] = self._man.getSubscriptions()
-        with open( toConfigFile, 'wb' ) as f:
-            f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
+        if not isinstance( toConfigFile, dict ):
+            with open( toConfigFile, 'wb' ) as f:
+                f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
     def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoFPs = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
@@ -213,7 +217,7 @@ class Sync( object ):
                     # Ignore special replicant rules.
                     if ruleName.startswith( '__' ):
                         continue
-                    if ruleName not in asConf[ 'rules' ]:
+                    if ruleName not in asConf.get( 'rules', {} ):
                         if not isDryRun:
                             self._man.del_rule( ruleName, namespace = rule.get( 'namespace', 'general' ) )
                         yield ( '-', 'rule', ruleName )
@@ -243,7 +247,7 @@ class Sync( object ):
                 # not in our list.
                 for ruleName, rule in currentRules.items():
                     # Ignore special replicant rules.
-                    if ruleName not in asConf[ 'fps' ]:
+                    if ruleName not in asConf.get( 'fps', {} ):
                         if not isDryRun:
                             self._man.del_fp( ruleName )
                         yield ( '-', 'fp', ruleName )
@@ -266,7 +270,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing outputs and remove the ones
                 # not in our list.
                 for outputName, output in self._man.outputs().items():
-                    if outputName not in asConf[ 'outputs' ]:
+                    if outputName not in asConf.get( 'outputs', {} ):
                         if not isDryRun:
                             self._man.del_output( outputName )
                         yield ( '-', 'output', outputName )
@@ -292,7 +296,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in integrityReplicant.getRules().items():
-                    if ruleName not in asConf[ 'integrity' ]:
+                    if ruleName not in asConf.get( 'integrity', {} ):
                         if not isDryRun:
                             integrityReplicant.removeRule( ruleName )
                         yield ( '-', 'integrity', ruleName )
@@ -317,7 +321,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in loggingReplicant.getRules().items():
-                    if ruleName not in asConf[ 'logging' ]:
+                    if ruleName not in asConf.get( 'logging', {} ):
                         if not isDryRun:
                             loggingReplicant.removeRule( ruleName )
                         yield ( '-', 'logging', ruleName )
@@ -358,7 +362,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in exfilReplicant.getRules().get( 'watch', {} ).items():
-                    if ruleName not in asConf[ 'exfil' ].get( 'watch', {} ):
+                    if ruleName not in asConf.get( 'exfil', {} ).get( 'watch', {} ):
                         if not isDryRun:
                             exfilReplicant.removeWatchRule( ruleName )
                         yield ( '-', 'exfil-watch', ruleName )
@@ -370,7 +374,7 @@ class Sync( object ):
         if not isNoResources:
             currentResources = self._man.getSubscriptions()
             for cat in asConf.get( 'resources', {} ):
-                for resName in asConf[ 'resources' ][ cat ]:
+                for resName in asConf.get( 'resources', {} )[ cat ]:
                     fullResName = '%s/%s' % ( cat, resName )
                     if resName not in currentResources.get( cat, [] ):
                         if not isDryRun:
@@ -432,8 +436,7 @@ class Sync( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ):
-            yield ret
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = False, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
 
     def pushFPs( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the FP rules in a local config file to the effective configuration in the cloud.
@@ -446,8 +449,7 @@ class Sync( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = False, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ):
-            yield ret
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = False, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
 
     def pushOutputs( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the outputs in a local config file to the effective configuration in the cloud.
@@ -460,8 +462,7 @@ class Sync( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = False, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ):
-            yield ret
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = False, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
 
     def pushIntegrity( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Integrity configs in a local config file to the effective configuration in the cloud.
@@ -474,8 +475,7 @@ class Sync( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = False, isNoLogging = True, isNoExfil = True, isNoResources = True ):
-            yield ret
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = False, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
 
     def pushLogging( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Logging configs in a local config file to the effective configuration in the cloud.
@@ -488,8 +488,7 @@ class Sync( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = False, isNoExfil = True, isNoResources = True ):
-            yield ret
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = False, isNoExfil = True, isNoResources = True ) )
 
     def pushExfil( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Exfil configs in a local config file to the effective configuration in the cloud.
@@ -502,8 +501,7 @@ class Sync( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = False, isNoResources = True ):
-            yield ret
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = False, isNoResources = True ) )
 
     def pushResources( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Resources configs in a local config file to the effective configuration in the cloud.
@@ -516,8 +514,7 @@ class Sync( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = False ):
-            yield ret
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = False ) )
 
 def main( sourceArgs = None ):
     import argparse
