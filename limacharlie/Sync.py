@@ -73,10 +73,13 @@ class Sync( object ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
-            toConfigFile (str): the path to the local config file.
+            toConfigFile (str, dict): the path to the local config file or dict where to store config.
         '''
-        toConfigFile = os.path.abspath( toConfigFile )
-        asConf = { 'version' : self._confVersion }
+        if not isinstance( toConfigFile, dict ):
+            toConfigFile = os.path.abspath( toConfigFile )
+            asConf = { 'version' : self._confVersion }
+        else:
+            asConf = toConfigFile
         if not isNoRules:
             rules = {}
             # Check which namespaces we have access to.
@@ -128,32 +131,42 @@ class Sync( object ):
             asConf[ 'exfil' ] = exfilRules
         if not isNoResources:
             asConf[ 'resources' ] = self._man.getSubscriptions()
-        with open( toConfigFile, 'wb' ) as f:
-            f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
+        if not isinstance( toConfigFile, dict ):
+            with open( toConfigFile, 'wb' ) as f:
+                f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
     def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoFPs = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
+        Users should favor using the "push<Type>()" convenience functions instead of the
+        main "push()" function as they are safer to use in the event support for new
+        data-types is added to the "push()" function.
+
         Args:
-            fromConfigFile (str): the path to the config file.
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
             isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
             isDryRun (boolean): if True will only simulate the effect of a push.
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        fromConfigFile = os.path.abspath( fromConfigFile )
+        if isinstance( fromConfigFile, dict ):
+            # The config is already in memory.
+            asConf = fromConfigFile
+        else:
+            # Load the config file from disk.
+            fromConfigFile = os.path.abspath( fromConfigFile )
 
-        # Config files are always evaluated relative to the current one.
-        contextPath = os.path.dirname( fromConfigFile )
-        currentPath = os.getcwd()
-        os.chdir( contextPath )
+            # Config files are always evaluated relative to the current one.
+            contextPath = os.path.dirname( fromConfigFile )
+            currentPath = os.getcwd()
+            os.chdir( contextPath )
 
-        # This function also does the bulk of the validation.
-        asConf = self._loadEffectiveConfig( fromConfigFile )
+            # This function also does the bulk of the validation.
+            asConf = self._loadEffectiveConfig( fromConfigFile )
 
-        # Revert the previous CWD.
-        os.chdir( currentPath )
+            # Revert the previous CWD.
+            os.chdir( currentPath )
 
         if not isNoRules:
             # Check all the namespaces we have access to.
@@ -204,7 +217,7 @@ class Sync( object ):
                     # Ignore special replicant rules.
                     if ruleName.startswith( '__' ):
                         continue
-                    if ruleName not in asConf[ 'rules' ]:
+                    if ruleName not in asConf.get( 'rules', {} ):
                         if not isDryRun:
                             self._man.del_rule( ruleName, namespace = rule.get( 'namespace', 'general' ) )
                         yield ( '-', 'rule', ruleName )
@@ -234,7 +247,7 @@ class Sync( object ):
                 # not in our list.
                 for ruleName, rule in currentRules.items():
                     # Ignore special replicant rules.
-                    if ruleName not in asConf[ 'fps' ]:
+                    if ruleName not in asConf.get( 'fps', {} ):
                         if not isDryRun:
                             self._man.del_fp( ruleName )
                         yield ( '-', 'fp', ruleName )
@@ -257,7 +270,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing outputs and remove the ones
                 # not in our list.
                 for outputName, output in self._man.outputs().items():
-                    if outputName not in asConf[ 'outputs' ]:
+                    if outputName not in asConf.get( 'outputs', {} ):
                         if not isDryRun:
                             self._man.del_output( outputName )
                         yield ( '-', 'output', outputName )
@@ -283,7 +296,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in integrityReplicant.getRules().items():
-                    if ruleName not in asConf[ 'integrity' ]:
+                    if ruleName not in asConf.get( 'integrity', {} ):
                         if not isDryRun:
                             integrityReplicant.removeRule( ruleName )
                         yield ( '-', 'integrity', ruleName )
@@ -308,7 +321,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in loggingReplicant.getRules().items():
-                    if ruleName not in asConf[ 'logging' ]:
+                    if ruleName not in asConf.get( 'logging', {} ):
                         if not isDryRun:
                             loggingReplicant.removeRule( ruleName )
                         yield ( '-', 'logging', ruleName )
@@ -349,7 +362,7 @@ class Sync( object ):
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in exfilReplicant.getRules().get( 'watch', {} ).items():
-                    if ruleName not in asConf[ 'exfil' ].get( 'watch', {} ):
+                    if ruleName not in asConf.get( 'exfil', {} ).get( 'watch', {} ):
                         if not isDryRun:
                             exfilReplicant.removeWatchRule( ruleName )
                         yield ( '-', 'exfil-watch', ruleName )
@@ -361,7 +374,7 @@ class Sync( object ):
         if not isNoResources:
             currentResources = self._man.getSubscriptions()
             for cat in asConf.get( 'resources', {} ):
-                for resName in asConf[ 'resources' ][ cat ]:
+                for resName in asConf.get( 'resources', {} )[ cat ]:
                     fullResName = '%s/%s' % ( cat, resName )
                     if resName not in currentResources.get( cat, [] ):
                         if not isDryRun:
@@ -411,6 +424,97 @@ class Sync( object ):
                     asConf.setdefault( cat, {} ).update( subCat )
 
         return asConf
+
+    def pushRules( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the D&R rules in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = False, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
+
+    def pushFPs( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the FP rules in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = False, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
+
+    def pushOutputs( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the outputs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = False, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
+
+    def pushIntegrity( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Integrity configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = False, isNoLogging = True, isNoExfil = True, isNoResources = True ) )
+
+    def pushLogging( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Logging configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = False, isNoExfil = True, isNoResources = True ) )
+
+    def pushExfil( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Exfil configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = False, isNoResources = True ) )
+
+    def pushResources( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Resources configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = False ) )
 
 def main( sourceArgs = None ):
     import argparse
