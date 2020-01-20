@@ -134,6 +134,10 @@ class Sync( object ):
     def push( self, fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoFPs = False, isNoOutputs = False, isNoIntegrity = False, isNoLogging = False, isNoExfil = False, isNoResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
+        Users should favor using the "push<Type>()" convenience functions instead of the
+        main "push()" function as they are safer to use in the event support for new
+        data-types is added to the "push()" function.
+
         Args:
             fromConfigFile (str/dict): the path to the config file or dict of a config file content.
             isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
