@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -121,6 +121,7 @@ def main():
         print( "OID: %s" % ( tmpManager._oid, ) )
         print( "UID: %s" % ( tmpManager._uid, ) )
         print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
+        print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
     else:
         raise Exception( 'invalid action' )
 
