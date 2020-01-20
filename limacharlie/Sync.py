@@ -135,25 +135,30 @@ class Sync( object ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
-            fromConfigFile (str): the path to the config file.
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
             isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
             isDryRun (boolean): if True will only simulate the effect of a push.
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        fromConfigFile = os.path.abspath( fromConfigFile )
+        if isinstance( fromConfigFile, dict ):
+            # The config is already in memory.
+            asConf = fromConfigFile
+        else:
+            # Load the config file from disk.
+            fromConfigFile = os.path.abspath( fromConfigFile )
 
-        # Config files are always evaluated relative to the current one.
-        contextPath = os.path.dirname( fromConfigFile )
-        currentPath = os.getcwd()
-        os.chdir( contextPath )
+            # Config files are always evaluated relative to the current one.
+            contextPath = os.path.dirname( fromConfigFile )
+            currentPath = os.getcwd()
+            os.chdir( contextPath )
 
-        # This function also does the bulk of the validation.
-        asConf = self._loadEffectiveConfig( fromConfigFile )
+            # This function also does the bulk of the validation.
+            asConf = self._loadEffectiveConfig( fromConfigFile )
 
-        # Revert the previous CWD.
-        os.chdir( currentPath )
+            # Revert the previous CWD.
+            os.chdir( currentPath )
 
         if not isNoRules:
             # Check all the namespaces we have access to.
@@ -411,6 +416,104 @@ class Sync( object ):
                     asConf.setdefault( cat, {} ).update( subCat )
 
         return asConf
+
+    def pushRules( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the D&R rules in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = False, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ):
+            yield ret
+
+    def pushFPs( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the FP rules in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = False, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ):
+            yield ret
+
+    def pushOutputs( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the outputs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = False, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = True ):
+            yield ret
+
+    def pushIntegrity( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Integrity configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = False, isNoLogging = True, isNoExfil = True, isNoResources = True ):
+            yield ret
+
+    def pushLogging( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Logging configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = False, isNoExfil = True, isNoResources = True ):
+            yield ret
+
+    def pushExfil( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Exfil configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = False, isNoResources = True ):
+            yield ret
+
+    def pushResources( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Resources configs in a local config file to the effective configuration in the cloud.
+
+        Args:
+            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
+            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
+            isDryRun (boolean): if True will only simulate the effect of a push.
+
+        Returns:
+            a generator of changes as tuple (changeType, dataType, dataName).
+        '''
+        for ret in self.push( fromConfigFile, isForce = False, isDryRun = False, isNoRules = True, isNoFPs = True, isNoOutputs = True, isNoIntegrity = True, isNoLogging = True, isNoExfil = True, isNoResources = False ):
+            yield ret
 
 def main( sourceArgs = None ):
     import argparse
