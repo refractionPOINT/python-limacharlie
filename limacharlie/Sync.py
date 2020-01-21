@@ -22,16 +22,20 @@ class LcConfigException( Exception ):
 class Sync( object ):
     '''Sync object to fetch and apply configs to and from organizations.'''
 
-    def __init__( self, oid = None, env = None ):
+    def __init__( self, oid = None, env = None, manager = None ):
         '''Create a Sync object.
 
         Args:
             oid (str): organization ID to operate on.
             env (str): environment name to use.
+            manager (limacharlie.Manager): Manager object to use instead.
         '''
 
         self._confVersion = 2
-        self._man = Manager( oid = oid, environment = env )
+        if manager is None:
+            self._man = Manager( oid = oid, environment = env )
+        else:
+            self._man = manager
 
     def _coreRuleContent( self, rule ):
         return { k : v for k, v in rule.items() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
