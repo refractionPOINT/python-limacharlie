@@ -692,30 +692,38 @@ class Manager( object ):
         } )
         return data.get( 'sid', None )
 
-    def replicantRequest( self, replicantName, data, isAsynchronous = False ):
-        '''Issue a request to a Replicant.
+    def serviceRequest( self, replicantName, data, isAsynchronous = False ):
+        '''Issue a request to a Service.
 
         Args:
-            replicantName (str): the name of the Replicant to task.
-            data (dict): JSON data to send to the Replicant as a request.
-            isAsynchronous (bool): if set to False, wait for data from the Replicant and return it.
+            serviceName (str): the name of the Service to task.
+            data (dict): JSON data to send to the Service as a request.
+            isAsynchronous (bool): if set to False, wait for data from the Service and return it.
         Returns:
-            Dict with general success, or data from Replicant if isSynchronous.
+            Dict with general success, or data from Service if isSynchronous.
         '''
-        data = self._apiCall( 'replicant/%s/%s' % ( self._oid, replicantName ), POST, {
+        data = self._apiCall( 'service/%s/%s' % ( self._oid, serviceName ), POST, {
             'request_data' : base64.b64encode( json.dumps( data ).encode() ),
             'is_async' : isAsynchronous,
         } )
         return data
 
-    def getAvailableReplicants( self ):
-        '''Get the list of Replicants currently available.
+    def replicantRequest( self, *args, **kwargs ):
+        # Maintained for backwards compatibility post rename replicant => service.
+        return self.serviceRequest( *args, **kwargs )
+
+    def getAvailableServices( self ):
+        '''Get the list of Services currently available.
 
         Returns:
-            List of Replicant names.
+            List of Service names.
         '''
-        data = self._apiCall( 'replicant/%s' % ( self._oid, ), GET )
+        data = self._apiCall( 'service/%s' % ( self._oid, ), GET )
         return data.get( 'replicants', None )
+
+    def getAvailableReplicants( self ):
+        # Maintained for backwards compatibility post rename replicant => service.
+        return self.getAvailableServices()
 
     def getOrgConfig( self, configName ):
         '''Get the value of a per-organization config.

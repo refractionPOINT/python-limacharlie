@@ -58,3 +58,4 @@ from .Sync import Sync
 from .SpotCheck import SpotCheck
 from .Payloads import Payloads
 from .utils import LcApiException
+from . import Replicants as services
