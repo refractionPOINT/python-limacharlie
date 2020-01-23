@@ -1,5 +1,10 @@
-from gevent import monkey
-monkey.patch_all()
+try:
+    from gevent import monkey
+    monkey.patch_all()
+except monkey.MonkeyPatchWarning as e:
+    import sys
+    sys.stderr.write( "%s\n" % ( e, ) )
+    sys.stderr.flush()
 from gevent.server import StreamServer
 from gevent.queue import Queue
 
