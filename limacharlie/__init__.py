@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "3.1.2"
+__version__ = "3.1.3"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -58,3 +58,4 @@ from .Sync import Sync
 from .SpotCheck import SpotCheck
 from .Payloads import Payloads
 from .utils import LcApiException
+from . import Replicants as services
