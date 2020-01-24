@@ -692,7 +692,7 @@ class Manager( object ):
         } )
         return data.get( 'sid', None )
 
-    def serviceRequest( self, replicantName, data, isAsynchronous = False ):
+    def serviceRequest( self, serviceName, data, isAsynchronous = False ):
         '''Issue a request to a Service.
 
         Args:
