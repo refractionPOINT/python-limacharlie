@@ -1,7 +1,7 @@
 import limacharlie
 
 def test_sensors( oid, key ):
-    sync = limacharlie.Sync()
+    sync = limacharlie.Sync( manager = limacharlie.Manager( oid, key ) )
 
     sync.pushRules( {}, isForce = True )
 
