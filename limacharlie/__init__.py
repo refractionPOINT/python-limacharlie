@@ -57,5 +57,6 @@ from .Webhook import Webhook
 from .Sync import Sync
 from .SpotCheck import SpotCheck
 from .Payloads import Payloads
+from .Logs import Logs
 from .utils import LcApiException
 from . import Replicants as services

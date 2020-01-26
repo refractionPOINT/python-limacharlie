@@ -111,8 +111,11 @@ class Manager( object ):
                 raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
             self._refreshSpout()
 
-    def _unwrap( self, data ):
-        return json.loads( zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS ).decode() )
+    def _unwrap( self, data, isRaw = False ):
+        if isRaw:
+            return zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS )
+        else:
+            return json.loads( zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS ).decode() )
 
     def _refreshSpout( self ):
         if not self._is_interactive:

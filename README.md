@@ -209,10 +209,15 @@ For detailed usage: `python -m limacharlie.SpotCheck --help`
 `limacharlie search --help`
 Shortcut utility to perform IOC searches across all locally configured organizations.
 
-#### Upload
-`limacharlie-upload --help`
+#### Logs Upload
+`limacharlie logs upload --help`
 Shortcut utility to upload [External Logs](https://doc.limacharlie.io/en/master/external_logs/) directly to
 LimaCharlie with just the CLI (no Agent).
+
+#### Logs Download
+`limacharlie logs get_original --help`
+Shortcut utility to download [External Logs](https://doc.limacharlie.io/en/master/external_logs/) in
+LimaCharlie locally.
 
 #### Replay
 `limacharlie replay --help`

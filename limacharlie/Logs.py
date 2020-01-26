@@ -1,4 +1,6 @@
 from limacharlie import Manager
+from .utils import LcApiException
+from .utils import GET
 
 # Detect if this is Python 2 or 3
 import sys
@@ -20,6 +22,8 @@ import os.path
 import uuid
 import base64
 import json
+import requests
+import time
 
 MAX_UPLOAD_PART_SIZE = ( 1024 * 1024 * 15 )
 
@@ -39,9 +43,10 @@ class Logs( object ):
 
         if self._accessToken is None:
             # Load the token from an environment variable.
-            self._accessToken = os.environ[ 'LC_LOGS_TOKEN' ]
+            self._accessToken = os.environ.get( 'LC_LOGS_TOKEN', None )
 
-        self._accessToken = str( uuid.UUID( str( self._accessToken ) ) )
+        if self._accessToken is not None:
+            self._accessToken = str( uuid.UUID( str( self._accessToken ) ) )
         self._uploadUrl = None
 
     def upload( self, filePath, source = None, hint = None, payloadId = None, allowMultipart = False, originalPath = None, nDaysRetention = 30 ):
@@ -55,6 +60,9 @@ class Logs( object ):
             allowMultipart (bool): unused, if True will perform multi-part upload for large logs.
             nDaysRetention (int): number of days the data should be retained in the cloud.
         '''
+
+        if self._accessToken is None:
+            raise LcApiException( 'access token not specified' )
 
         if self._uploadUrl is None:
             # Get the ingest URL from the API.
@@ -127,10 +135,87 @@ class Logs( object ):
 
         return response
 
-def main():
+    def getOriginal( self, payloadId, filePath = None, fileObj = None ):
+        response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
+
+        # Response can either be inline if small enough.
+        if 'payload' in response:
+            data = self._lc._unwrap( response[ 'payload' ], isRaw = True )
+            if filePath is not None:
+                with open( filePath, 'wb' ) as f:
+                    f.write( data )
+            elif fileObj is not None:
+                fileObj.write( data )
+            response.pop( 'payload', None )
+        # Or it can be a GCS signed URL.
+        elif 'export' in response:
+            # The export is asynchronous, so we will retry
+            # every 5 seconds up to 5 minutes.
+            status = None
+            for _ in range( int( 300 / 5 ) ):
+                dataReq = requests.get( response[ 'export' ], stream = True )
+                status = dataReq.status_code
+                if 200 == status:
+                    break
+                dataReq.close()
+                dataReq = None
+                if 404 != status:
+                    break
+                time.sleep( 5 )
+
+            if dataReq is None:
+                raise LcApiException( "Failed to get log payload: %s." % ( status, ) )
+
+            try:
+                if filePath is not None:
+                    with open( filePath, 'wb' ) as f:
+                        for chunk in dataReq.iter_content( chunk_size = 1024 * 512 ):
+                            if not chunk:
+                                continue
+                            f.write( chunk )
+                elif fileObj is not None:
+                    for chunk in dataReq.iter_content( chunk_size = 1024 * 512 ):
+                        if not chunk:
+                            continue
+                        fileObj.write( chunk )
+                response.pop( 'export', None )
+            finally:
+                dataReq.close()
+
+        return response
+
+def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io logs' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie logs' )
+
+    actions = {
+        'upload' : main_upload,
+        'get_original' : main_getOriginal,
+    }
+
+    parser.add_argument( 'log_action',
+                         type = str,
+                         help = 'action to take, one of %s' % ( ', '.join( actions.keys(), ) ) )
+
+    parser.add_argument( 'opt_arg',
+                         type = str,
+                         nargs = "?",
+                         default = None,
+                         help = 'optional argument depending on log_action' )
+
+    args = parser.parse_args( sourceArgs[ 0 : 1 ] )
+
+    if args.log_action not in actions:
+        print( "Unknown action: %s" % ( args.log_action, ) )
+        sys.exit( 1 )
+
+    return actions[ args.log_action ]( sourceArgs[ 1 : ] )
+
+def main_upload( sourceArgs = None ):
+    import argparse
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie logs upload' )
 
     parser.add_argument( 'log_file',
                          type = str,
@@ -185,7 +270,7 @@ def main():
                          default = None,
                          help = 'number of days of retention for the data.' )
 
-    args = parser.parse_args()
+    args = parser.parse_args( sourceArgs )
 
     logs = Logs( Manager( args.oid, None ), args.accessToken )
 
@@ -200,5 +285,25 @@ def main():
                             allowMultipart = False,
                             originalPath = originalPath,
                             nDaysRetention = args.retention )
+
+    print( json.dumps( response ) )
+
+def main_getOriginal( sourceArgs = None ):
+    import argparse
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie logs get_original' )
+
+    parser.add_argument( 'payloadid',
+                         type = str,
+                         help = 'unique identifier of the log uploaded.' )
+    parser.add_argument( 'destination',
+                         type = str,
+                         help = 'file path where to download the log.' )
+
+    args = parser.parse_args( sourceArgs )
+
+    logs = Logs( Manager() )
+
+    response = logs.getOriginal( args.payloadid, filePath = args.destination )
 
     print( json.dumps( response ) )
