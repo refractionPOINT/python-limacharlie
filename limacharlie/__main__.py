@@ -30,7 +30,7 @@ def main():
 
     if args.action.lower() == 'login':
         if _IS_PYTHON_2:
-            oid = raw_input( 'Enter your Organization ID (UUID): ' )
+            oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
         else:
             oid = input( 'Enter your Organization ID (UUID): ' )
         try:
@@ -39,14 +39,14 @@ def main():
             print( "Invalid OID" )
             sys.exit( 1 )
         if _IS_PYTHON_2:
-            alias = raw_input( 'Enter a name for this access (alias), or leave empty to set default: ' )
+            alias = raw_input( 'Enter a name for this access (alias), or leave empty to set default: ' ) # noqa
         else:
             alias = input( 'Enter a name for this access (alias), or leave empty to set default: ' )
         if '' == alias:
             alias = 'default'
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
         if _IS_PYTHON_2:
-            uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' )
+            uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' ) # noqa
         else:
             uid = input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' )
         try:
@@ -122,6 +122,9 @@ def main():
         print( "UID: %s" % ( tmpManager._uid, ) )
         print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
         print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
+    elif args.action.lower() == 'logs':
+        from .Logs import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     else:
         raise Exception( 'invalid action' )
 
