@@ -136,6 +136,14 @@ class Logs( object ):
         return response
 
     def getOriginal( self, payloadId, filePath = None, fileObj = None ):
+        '''Download an orginal log.
+
+        Args:
+            payloadId (str): the payload identifier to download.
+            filePath (str): optional path where to download the file to.
+            fileObj (file obj): optional file object where to write the log.
+        '''
+
         response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
 
         # Response can either be inline if small enough.
