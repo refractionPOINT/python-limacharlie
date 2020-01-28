@@ -695,6 +695,24 @@ class Manager( object ):
         } )
         return data.get( 'sid', None )
 
+    def getSensorsWithIp( self, ip, start, end ):
+        '''Get the list of sensor IDs that used the given IP during the time range.
+
+        Args:
+            ip (str): the IP address used.
+            start (int): beginning of the time range to look for.
+            end (int): end of the time range to look for.
+
+        Returns:
+            List of sid.
+        '''
+        data = self._apiCall( 'ips/%s' % ( self._oid, ), GET, queryParams = {
+            'ip' : str( ip ),
+            'start' : int( start ),
+            'end' : int( end ),
+        } )
+        return data.get( 'sid', None )
+
     def serviceRequest( self, serviceName, data, isAsynchronous = False ):
         '''Issue a request to a Service.
 
