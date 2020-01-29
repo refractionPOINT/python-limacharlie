@@ -227,12 +227,7 @@ class Replay( object ):
         Returns:
             a dict containing results of the query.
         '''
-        sensors = self._lc.sensors()
-        while True:
-            moreSensors = self._lc.sensors( is_next = True )
-            if moreSensors is None:
-                break
-            sensors += moreSensors
+        sensors = list( self._lc.sensors() )
 
         with self._statusMutex:
             self._sensorPending = len( sensors )
