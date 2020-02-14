@@ -146,6 +146,13 @@ class Logs( object ):
 
         response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
 
+        # If no local output is specified, we interpret this
+        # as an asynchronous export request.
+        if filePath is None and fileObj is None:
+            if 'payload' in response:
+                return response[ 'payload' ]
+            return response[ 'export' ]
+
         # Response can either be inline if small enough.
         if 'payload' in response:
             data = self._lc._unwrap( response[ 'payload' ], isRaw = True )

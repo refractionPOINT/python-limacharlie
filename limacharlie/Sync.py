@@ -92,6 +92,8 @@ class Sync( object ):
                 availableNamespaces.append( 'general' )
             if self._man.testAuth( permissions = [ 'dr.list.managed' ] ):
                 availableNamespaces.append( 'managed' )
+            if self._man.testAuth( permissions = [ 'dr.list.replicant' ] ):
+                availableNamespaces.append( 'replicant' )
 
             # Fetch the rules from all the namespaces we have access to.
             for namespace in availableNamespaces:
@@ -179,6 +181,8 @@ class Sync( object ):
                 availableNamespaces.append( 'general' )
             if self._man.testAuth( permissions = [ 'dr.list.managed' ] ):
                 availableNamespaces.append( 'managed' )
+            if self._man.testAuth( permissions = [ 'dr.list.replicant' ] ):
+                availableNamespaces.append( 'replicant' )
 
             # Get the current rules, we will try not to push for no reason.
             currentRules = {}
@@ -199,9 +203,6 @@ class Sync( object ):
                         # Exact same, no point in pushing.
                         yield ( '=', 'rule', ruleName )
                         continue
-                if 'test' == ruleName:
-                    print( currentRules[ ruleName ] )
-                    print( rule )
                 if not isDryRun:
                     if previousNamespace is not None and ruleNamespace != previousNamespace:
                         # Looks like the rule changed namespace.
