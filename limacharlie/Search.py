@@ -9,7 +9,14 @@ import yaml
 import traceback
 import functools
 
-validIOCs = ( 'file_hash', 'file_name', 'file_path', 'ip', 'domain', 'user' )
+validIOCs = (
+    'file_hash',
+    'file_name',
+    'file_path',
+    'ip', 'domain',
+    'user',
+    'service_name',
+)
 
 class Search( object ):
     '''Helper object to perform cross-organization IOC searches.'''
@@ -135,7 +142,7 @@ def main( sourceArgs = None ):
                          type = str,
                          required = True,
                          dest = 'ioc',
-                         help = 'the valid of the IOC to search for' )
+                         help = 'the value of the IOC to search for' )
 
     parser.add_argument( '-i', '--info',
                          type = str,
@@ -179,7 +186,7 @@ def main( sourceArgs = None ):
 
     print( "Querying %s environments for %s (%s) to %s." % ( search.getNumEnvironments(), args.ioc, args.type, args.output ) )
 
-    results = search.query(
+    _ = search.query(
         args.type,
         args.ioc,
         args.info,
