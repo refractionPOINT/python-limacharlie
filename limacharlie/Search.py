@@ -31,7 +31,7 @@ class Search( object ):
 
         self._environmentsToQuery = {}
         with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-            conf = yaml.load( f.read().decode() )
+            conf = yaml.safe_load( f.read().decode() )
             if 'oid' in conf and 'api_key' in conf and conf.get( 'env', {} ).get( 'default', None ) is None:
                 conf.setdefault( 'env', {} )[ 'default' ] = {
                     'oid' : conf[ 'oid' ],
