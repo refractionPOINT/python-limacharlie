@@ -2,6 +2,7 @@ from .Manager import Manager
 from gevent.queue import Queue
 import gevent.pool
 import gevent
+from gevent.lock import BoundedSemaphore
 import uuid
 import traceback
 import json
@@ -10,14 +11,15 @@ import base64
 class SpotCheck( object ):
     '''Representation of the process of looking for various Indicators of Compromise on the fleet.'''
 
-    def __init__( self, oid, secret_api_key, cb_check, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, tags = None ):
+    def __init__( self, oid, secret_api_key, cb_check, cb_on_start_check = None, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, tags = None ):
         '''Perform a check for specific characteristics on all hosts matching some parameters.
 
         Args:
             oid (uuid str): the Organization ID, if None, global credentials will be used.
             secret_api_key (str): the secret API key, if None, global credentials will be used.
             cb_check (func(Sensor)): callback function for every matching sensor, implements main check logic, returns True when check is finalized.
-            cb_on_check_done (func(Sensor)): callabck when a sensor is done with a check.
+            cb_on_check_done (func(Sensor)): callback when a sensor is done with a check.
+            cb_on_start_check (func(Sensor)): callback when a sensor is starting evaluation.
             cb_on_offline (func(Sensor)): callback when a sensor is offline so checking is delayed.
             cb_on_error (func(Sensor, stackTrace)): callback when an error occurs while checking a sensor.
             n_concurrent (int): number of sensors that should be checked concurrently, defaults to 1.
@@ -29,6 +31,7 @@ class SpotCheck( object ):
         '''
         self._cbCheck = cb_check
         self._cbOnCheckDone = cb_on_check_done
+        self._cbOnStartCheck = cb_on_start_check
         self._cbOnOffline = cb_on_offline
         self._cbOnError = cb_on_error
         self._nConcurrent = n_concurrent
@@ -44,6 +47,8 @@ class SpotCheck( object ):
         self._stopEvent = gevent.event.Event()
 
         self._sensorsLeftToCheck = Queue()
+        self._lock = BoundedSemaphore()
+        self._pendingReCheck = 0
 
         self._lc = Manager( oid, secret_api_key, inv_id = 'spotcheck-%s' % str( uuid.uuid4() )[ : 4 ], is_interactive = True, extra_params = extra_params )
 
@@ -51,13 +56,8 @@ class SpotCheck( object ):
         '''Start the SpotCheck process, returns immediately.
         '''
         # We start by listing all the sensors in the org using paging.
-        sensors = None
-        while True:
-            sensors = self._lc.sensors( is_next = sensors is not None )
-            if sensors is None:
-                break
-            for sensor in sensors:
-                self._sensorsLeftToCheck.put( sensor )
+        for sensor in self._lc.sensors():
+            self._sensorsLeftToCheck.put( sensor )
 
         # Now that we have a list of sensors, we'll spawn n_concurrent spot checks,
         for _ in range( self._nConcurrent ):
@@ -87,8 +87,14 @@ class SpotCheck( object ):
             try:
                 sensor = self._sensorsLeftToCheck.get_nowait()
             except:
-                # If there are no more sensors to check, we can exit.
-                return
+                # Check to see if some sensors are pending a re-check
+                # after being offline.
+                with self._lock:
+                    # If there are no more sensors to check, we can exit.
+                    if 0 == self._pendingReCheck and 0 == len( self._sensorsLeftToCheck ):
+                        return
+                gevent.sleep( 2 )
+                continue
 
             # Check to see if the platform matches
             if self._isWindows is False or self._isLinux is False or self._isMacos is False:
@@ -110,10 +116,19 @@ class SpotCheck( object ):
             if not sensor.isOnline():
                 if self._cbOnOffline is not None:
                     self._cbOnOffline( sensor )
+
                 # Re-add it to sensors to check, after the timeout.
-                gevent.sleep( self._nSecBetweenOnlineChecks )
-                self._sensorsLeftToCheck.put( sensor )
+                def _doReCheck( s ):
+                    with self._lock:
+                        self._sensorsLeftToCheck.put( s )
+                        self._pendingReCheck -= 1
+                with self._lock:
+                    self._pendingReCheck += 1
+                self._threads.add( gevent.spawn_later( self._nSecBetweenOnlineChecks, _doReCheck, sensor ) )
                 continue
+
+            if self._cbOnStartCheck is not None:
+                self._cbOnStartCheck( sensor )
 
             # By this point we have a sensor and it's likely online.
             try:
@@ -377,9 +392,13 @@ if __name__ == "__main__":
     def _onDone( sensor ):
         print( ". (%s / %s)" % ( sensor, sensor.hostname() ) )
 
+    def _onStartCheck( sensor ):
+        print( "> (%s / %s)" % ( sensor, sensor.hostname() ) )
+
     checker = SpotCheck( args.oid,
                          secretApiKey,
                          _genericSpotCheck,
+                         cb_on_start_check = _onStartCheck,
                          cb_on_check_done = _onDone,
                          cb_on_offline = _onOffline,
                          cb_on_error = _onError,
@@ -388,6 +407,5 @@ if __name__ == "__main__":
                          is_macos = args.is_macos,
                          tags = args.tags,
                          extra_params = args.extra_params )
-
     checker.start()
     checker.wait( 60 * 60 * 24 * 30 * 365 )
