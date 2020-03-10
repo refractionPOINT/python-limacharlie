@@ -4,6 +4,8 @@ from .utils import GET
 from .utils import DELETE
 
 class Job( object ):
+    '''Representation of a Job created by Services.'''
+
     def __init__( self, manager, data ):
         self._man = manager
         self.jobId = None
@@ -35,6 +37,8 @@ class Job( object ):
             self.activity = data[ 'record' ].get( 'hist', None )
 
     def update( self ):
+        '''Fetch any updates to the job found in the cloud.'''
+
         data = self._man._apiCall( 'job/%s/%s' % ( self._man._oid, self.jobId ), GET, queryParams = {
             'is_compressed' : 'true',
             'with_data' : 'false',
@@ -44,6 +48,8 @@ class Job( object ):
         self._parseData( data )
 
     def fetchDetails( self ):
+        '''Fetch detailed activity for this job in the cloud.'''
+
         data = self._man._apiCall( 'job/%s/%s' % ( self._man._oid, self.jobId ), GET, queryParams = {
             'is_compressed' : 'true',
             'with_data' : 'true',
@@ -53,9 +59,16 @@ class Job( object ):
         self._parseData( data )
 
     def delete( self ):
+        '''Delete this job.'''
+
         self._man._apiCall( 'job/%s/%s' % ( self._oid, self.jobId ), DELETE )
 
     def isFinished( self ):
+        '''Check if this job has terminated.
+
+        Returns:
+            True if the job is finished.
+        '''
         return self.finished is not None
 
     def __str__( self ):

@@ -12,6 +12,14 @@ limacharlie.Firehose module
     :no-undoc-members:
     :show-inheritance:
 
+limacharlie.Jobs module
+-----------------------
+
+.. automodule:: limacharlie.Jobs
+    :members:
+    :no-undoc-members:
+    :show-inheritance:
+
 limacharlie.Logs module
 -----------------------
 
