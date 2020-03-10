@@ -33,6 +33,8 @@ from .utils import GET
 from .utils import POST
 from .utils import DELETE
 
+from .Jobs import Job
+
 from limacharlie import GLOBAL_OID
 from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
@@ -904,6 +906,44 @@ class Manager( object ):
             'perm' : permission,
         } )
         return data
+
+    def getJobs( self, startTime, endTime, limit = None, sid = None ):
+        '''Get all the jobs in an organization in a time window.
+
+        Args:
+            startTime (int): second epoch of the start of the time window.
+            endTime (int): second epoch of the end of the time window.
+            limit (int): optional maximum number of jobs to return.
+            sid (str): optionally only return jobs that relate to this sensor ID.
+        Returns:
+            a Job object.
+        '''
+        params = {
+            'start' : startTime,
+            'end' : endTime,
+            'is_compressed' : 'true',
+            'with_data' : 'false',
+        }
+        if limit is not None:
+            params[ 'limit' ] = limit
+        if sid is not None:
+            params[ 'sid' ] = sid
+        data = self._apiCall( 'job/%s' % ( self._oid, ), GET, queryParams = params )
+        data = self._unwrap( data[ 'jobs' ] )
+        data = [ Job( self, job ) for jobId, job in data.items() ]
+        return data
+
+    def getJob( self, jobId ):
+        '''Get a specific job.
+
+        Args:
+            jobId (str): job ID of the job to get.
+        Returns:
+            a Job object.
+        '''
+        job = Job( self, { 'job_id' : jobId } )
+        job.update()
+        return job
 
 def _eprint( msg ):
     sys.stderr.write( msg )
