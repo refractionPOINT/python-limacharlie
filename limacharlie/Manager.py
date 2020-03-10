@@ -33,6 +33,8 @@ from .utils import GET
 from .utils import POST
 from .utils import DELETE
 
+from .Jobs import Job
+
 from limacharlie import GLOBAL_OID
 from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
@@ -904,6 +906,25 @@ class Manager( object ):
             'perm' : permission,
         } )
         return data
+
+    def getJobs( self, startTime, endTime, limit = None, sid = None ):
+        params = {
+            'start' : startTime,
+            'end' : endTime,
+            'is_compressed' : 'true',
+            'with_data' : 'false',
+        }
+        if limit is not None:
+            params[ 'limit' ] = limit
+        data = self._apiCall( 'job/%s' % ( self._oid, ), GET, queryParams = params )
+        data = self._unwrap( data[ 'jobs' ] )
+        data = [ Job( self, job ) for jobId, job in data.items() ]
+        return data
+
+    def getJob( self, jobId ):
+        job = Job( self, { 'job_id' : jobId } )
+        job.update()
+        return job
 
 def _eprint( msg ):
     sys.stderr.write( msg )
