@@ -18,12 +18,14 @@ class Sensor( object ):
     _PLATFORM_MACOS = 0x30000000
     _PLATFORM_IOS = 0x40000000
     _PLATFORM_ANDROID = 0x50000000
+    _PLATFORM_CHROMEOS = 0x60000000
 
     _ARCHITECTURE_X86 = 0x00000001
     _ARCHITECTURE_X64 = 0x00000002
     _ARCHITECTURE_ARM = 0x00000003
     _ARCHITECTURE_ARM64 = 0x00000004
     _ARCHITECTURE_ALPINE64 = 0x00000005
+    _ARCHITECTURE_CHROME = 0x00000006
 
     def __init__( self, manager, sid ):
         try:
@@ -277,6 +279,28 @@ class Sensor( object ):
             # If the platform has not been cached yet, retrieve the info.
             self.getInfo()
         return self._platform == self._PLATFORM_LINUX
+
+    def isChrome( self ):
+        '''Checks if the sensor is on Chrome.
+
+        Returns:
+            True if the sensor is Chrome.
+        '''
+        if self._architecture is None:
+            # If the platform has not been cached yet, retrieve the info.
+            self.getInfo()
+        return self._architecture == self._ARCHITECTURE_CHROME
+
+    def isChromeOS( self ):
+        '''Checks if the sensor is on ChromeOS.
+
+        Returns:
+            True if the sensor is on ChromeOS.
+        '''
+        if self._architecture is None:
+            # If the platform has not been cached yet, retrieve the info.
+            self.getInfo()
+        return self._platform == self._PLATFORM_CHROMEOS
 
     def hostname( self ):
         '''Get the hostname of this sensor.
