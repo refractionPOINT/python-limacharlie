@@ -172,6 +172,7 @@ def test_api_keys( oid, key ):
 
     keyName = 'automated-test-key-name'
     perms = [ 'org.get', 'sensor.task', 'sensor.get' ]
+    perms.sort()
 
     keys = lc.getApiKeys()
     assert( 0 != len( keys ) )
@@ -186,6 +187,7 @@ def test_api_keys( oid, key ):
     assert( response[ 'key_hash' ] in keys )
     tmpKey = keys[ response[ 'key_hash' ] ]
     assert( keyName == tmpKey[ 'name' ] )
+    tmpKey[ 'priv' ].sort()
     assert( tmpKey[ 'priv' ] == perms )
 
     lc.removeApiKey( response[ 'key_hash' ] )
