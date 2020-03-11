@@ -23,7 +23,7 @@ def test_spout( oid, key ):
         # We will pick the first sensor in the list that is online.
         targetSensor = None
         for sensor in sensors:
-            if sensor.isOnline():
+            if ( not sensor.isChrome() ) and sensor.isOnline():
                 targetSensor = sensor
                 print( "Found sensor %s online, using it for test." % ( sensor, ) )
                 break

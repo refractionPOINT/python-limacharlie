@@ -166,3 +166,30 @@ def test_ingestion_keys( oid, key ):
         assert( {} == lc.delIngestionKey( testIngestionKeyName ) )
 
     assert( testIngestionKeyName not in lc.getIngestionKeys() )
+
+def test_api_keys( oid, key ):
+    lc = limacharlie.Manager( oid, key )
+
+    keyName = 'automated-test-key-name'
+    perms = [ 'org.get', 'sensor.task', 'sensor.get' ]
+    perms.sort()
+
+    keys = lc.getApiKeys()
+    assert( 0 != len( keys ) )
+
+    response = lc.addApiKey( keyName, perms )
+    assert( response )
+    assert( response[ 'success' ] )
+    assert( response[ 'api_key' ] )
+    assert( response[ 'key_hash' ] )
+
+    keys = lc.getApiKeys()
+    assert( response[ 'key_hash' ] in keys )
+    tmpKey = keys[ response[ 'key_hash' ] ]
+    assert( keyName == tmpKey[ 'name' ] )
+    tmpKey[ 'priv' ].sort()
+    assert( tmpKey[ 'priv' ] == perms )
+
+    lc.removeApiKey( response[ 'key_hash' ] )
+    keys = lc.getApiKeys()
+    assert( response[ 'key_hash' ] not in keys )
