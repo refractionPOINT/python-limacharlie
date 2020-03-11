@@ -945,6 +945,39 @@ class Manager( object ):
         job.update()
         return job
 
+    def getApiKeys( self ):
+        '''Get the list of API keys in the organization.
+
+        '''
+        data = self._apiCall( 'orgs/%s/keys' % ( self._oid, ), GET, {} )
+        return data.get( 'api_keys', None )
+
+    def addApiKey( self, keyName, permissions = [] ):
+        '''Add an API key to an organization.
+
+        Args:
+            keyName (str): name of the key to add.
+            permissions (str[]): list of permissions for the key.
+        Returns:
+            the secret value of the new API key.
+        '''
+        data = self._apiCall( 'orgs/%s/keys' % ( self._oid, ), POST, {
+            'key_name' : keyName,
+            'perms' : ",".join( permissions ),
+        } )
+        return data
+
+    def removeApiKey( self, keyHash ):
+        '''Remove an API key from an organization.
+
+        Args:
+            keyHash (str): key hash of the key to remove.
+        '''
+        data = self._apiCall( 'orgs/%s/keys' % ( self._oid, ), DELETE, {
+            'key_hash' : keyHash,
+        } )
+        return data
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
