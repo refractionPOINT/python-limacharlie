@@ -81,7 +81,14 @@ def main():
         os.chmod( os.path.expanduser( '~/.limacharlie' ), stat.S_IWUSR | stat.S_IRUSR )
         print( "Credentials have been stored to: %s" % os.path.expanduser( '~/.limacharlie' ) )
     elif args.action.lower() == 'use':
-        if args.opt_arg is None:
+        parser = argparse.ArgumentParser( prog = 'limacharlie use' )
+        parser.add_argument( 'environment_name',
+                             type = str,
+                             nargs = "?",
+                             default = None,
+                             help = 'name of the environment to use.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        if args.environment_name is None:
             # General listing of existing environments.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
                 conf = yaml.safe_load( f.read() )
@@ -97,12 +104,12 @@ def main():
             # Selecting a specific environment.
             with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
                 conf = yaml.safe_load( f.read() )
-            if args.opt_arg == '':
-                args.opt_arg = 'default'
-            if ( args.opt_arg not in conf[ 'env' ] ) and args.opt_arg != 'default':
+            if args.environment_name == '':
+                args.environment_name = 'default'
+            if ( args.environment_name not in conf[ 'env' ] ) and args.environment_name != 'default':
                 print( "Environment not found" )
                 sys.exit( 1 )
-            print( 'export LC_CURRENT_ENV="%s"' % args.opt_arg )
+            print( 'export LC_CURRENT_ENV="%s"' % args.environment_name )
     elif args.action.lower() == 'dr':
         from .DRCli import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
