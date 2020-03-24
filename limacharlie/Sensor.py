@@ -313,7 +313,7 @@ class Sensor( object ):
             self.getInfo()
         return self._hostname
 
-    def getHistoricEvents( self, start, end, limit = None, eventType = None ):
+    def getHistoricEvents( self, start, end, limit = None, eventType = None, isForward = True ):
         '''Get the events for this sensor between the two times, requires Insight (retention) enabled.
 
         Args:
@@ -321,6 +321,7 @@ class Sensor( object ):
             end (int): end unix (seconds) timestamp to feth events to.
             limit (int): maximum number of events to return.
             eventType (str): return events only of this type.
+            isForward (bool): return events in ascending order.
 
         Returns:
             a generator of events.
@@ -335,6 +336,7 @@ class Sensor( object ):
             'start' : start,
             'end' : end,
             'is_compressed' : 'true',
+            'is_forward' : 'true' if isForward else 'false',
         }
 
         if limit is not None:
