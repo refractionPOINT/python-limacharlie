@@ -203,8 +203,8 @@ def test_isolation( oid, key ):
         if not sensor.isOnline():
             continue
         assert( not sensor.isIsolatedFromNetwork() )
-        assert( sensor.isolateNetwork() )
+        sensor.isolateNetwork()
         assert( sensor.isIsolatedFromNetwork() )
-        assert( sensor.rejoinNetwork() )
+        sensor.rejoinNetwork()
         assert( not sensor.isIsolatedFromNetwork() )
         break
