@@ -193,3 +193,18 @@ def test_api_keys( oid, key ):
     lc.removeApiKey( response[ 'key_hash' ] )
     keys = lc.getApiKeys()
     assert( response[ 'key_hash' ] not in keys )
+
+def test_isolation( oid, key ):
+    lc = limacharlie.Manager( oid, key )
+
+    for sensor in lc.sensors():
+        if sensor.isMac():
+            continue
+        if not sensor.isOnline():
+            continue
+        assert( not sensor.isIsolatedFromNetwork() )
+        sensor.isolateNetwork()
+        assert( sensor.isIsolatedFromNetwork() )
+        sensor.rejoinNetwork()
+        assert( not sensor.isIsolatedFromNetwork() )
+        break

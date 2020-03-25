@@ -230,6 +230,8 @@ class Sensor( object ):
         self._platform = data[ 'plat' ]
         self._architecture = data[ 'arch' ]
         self._hostname = data.get( 'hostname', None )
+        self._is_isolated = data.get( 'is_isolated', None )
+        self._should_isolate = data.get( 'should_isolate', None )
 
         data[ 'plat' ] = platToString.get( data[ 'plat' ], data[ 'plat' ] )
         data[ 'arch' ] = archToString.get( data[ 'arch' ], data[ 'arch' ] )
@@ -392,6 +394,24 @@ class Sensor( object ):
         '''
 
         return self._manager._apiCall( '%s' % self.sid, DELETE, {} )
+
+    def isIsolatedFromNetwork( self ):
+        '''Determine if the given sensor is marked to be isolated from the network.
+
+        Returns:
+            True if isolated.
+        '''
+        # Network isolation is ephemeral, so always refresh.
+        self.getInfo()
+        return self._should_isolate
+
+    def isolateNetwork( self ):
+        '''Mark the sensor for network isolation (persistent).'''
+        return self._manager._apiCall( '%s/isolation' % ( self.sid, ), POST )
+
+    def rejoinNetwork( self ):
+        '''Remove the sensor from network isolation (persistent).'''
+        return self._manager._apiCall( '%s/isolation' % ( self.sid, ), DELETE )
 
     def __str__( self ):
         return self.sid
