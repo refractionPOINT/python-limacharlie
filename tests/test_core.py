@@ -198,6 +198,10 @@ def test_isolation( oid, key ):
     lc = limacharlie.Manager( oid, key )
 
     for sensor in lc.sensors():
+        if sensor.isMac():
+            continue
+        if not sensor.isOnline():
+            continue
         assert( not sensor.isIsolatedFromNetwork() )
         assert( sensor.isolateNetwork() )
         assert( sensor.isIsolatedFromNetwork() )
