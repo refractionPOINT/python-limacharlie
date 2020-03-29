@@ -347,12 +347,18 @@ class Sensor( object ):
         if eventType is not None:
             req[ 'event_type' ] = eventType
 
+        nReturned = 0
         while cursor:
             req[ 'cursor' ] = cursor
             data = self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, queryParams = req )
             cursor = data.get( 'next_cursor', None )
             for event in self._manager._unwrap( data[ 'events' ] ):
                 yield enhanceEvent( event )
+                nReturned += 1
+                if limit is not None and limit <= nReturned:
+                    break
+            if limit is not None and limit <= nReturned:
+                break
 
     def getHistoricOverview( self, start, end ):
         '''Get a list of timestamps representing where sensor data is available in Insight (retention).

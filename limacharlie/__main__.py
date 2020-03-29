@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections", "events"' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -132,6 +132,58 @@ def main():
     elif args.action.lower() == 'logs':
         from .Logs import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'detections':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie detections' )
+        parser.add_argument( 'start',
+                             type = int,
+                             help = 'second-based epoch time to start at.' )
+        parser.add_argument( 'end',
+                             type = int,
+                             help = 'second-based epoch time to end at.' )
+        parser.add_argument( '--limit',
+                             type = int,
+                             default = None,
+                             dest = 'limit',
+                             help = 'maximum number of detections to return.' )
+        parser.add_argument( '--cat',
+                             type = str,
+                             default = None,
+                             dest = 'cat',
+                             help = 'only get detections of this type.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        for detection in _man.getHistoricDetections( args.start, args.end, limit = args.limit, cat = args.cat ):
+            print( json.dumps( detection ) )
+    elif args.action.lower() == 'events':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie events' )
+        parser.add_argument( 'sid',
+                             type = uuid.UUID,
+                             help = 'sensor id to get the events from.' )
+        parser.add_argument( 'start',
+                             type = int,
+                             help = 'second-based epoch time to start at.' )
+        parser.add_argument( 'end',
+                             type = int,
+                             help = 'second-based epoch time to end at.' )
+        parser.add_argument( '--limit',
+                             type = int,
+                             default = None,
+                             dest = 'limit',
+                             help = 'maximum number of events to return.' )
+        parser.add_argument( '--event-type',
+                             type = str,
+                             default = None,
+                             dest = 'eventType',
+                             help = 'only get events of this type.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        _sensor = _man.sensor( str( args.sid ) )
+        for event in _sensor.getHistoricEvents( args.start, args.end, limit = args.limit, eventType = args.eventType ):
+            print( json.dumps( event ) )
     else:
         raise Exception( 'invalid action' )
 

@@ -600,12 +600,18 @@ class Manager( object ):
         if cat is not None:
             req[ 'cat' ] = cat
 
+        nReturned = 0
         while cursor:
             req[ 'cursor' ] = cursor
             data = self._apiCall( 'insight/%s/detections' % ( self._oid, ), GET, queryParams = req )
             cursor = data.get( 'next_cursor', None )
             for detect in self._unwrap( data[ 'detects' ] ):
                 yield detect
+                nReturned += 1
+                if limit is not None and limit <= nReturned:
+                    break
+            if limit is not None and limit <= nReturned:
+                break
 
     def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False ):
         '''Get information about an object (indicator) using Insight (retention) data.
