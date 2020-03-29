@@ -226,3 +226,7 @@ Shortcut utility to perform [Replay](https://doc.limacharlie.io/en/master/replay
 #### Detection & Response
 `limacharlie dr --help`
 Shortcut utility to manage Detection and Response rules over the CLI.
+
+#### Events & Detections
+`limacharlie events --help` and `limacharlie detections --help`
+Print out to STDOUT events or detections matching the parameter.
