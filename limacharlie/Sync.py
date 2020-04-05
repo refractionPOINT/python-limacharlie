@@ -236,13 +236,13 @@ class Sync( object ):
                 rule = self._coreFPContent( rule )
                 # Check to see if it is already in the current rules and in the right format.
                 if ruleName in currentRules:
-                    if self._isJsonEqual( rule[ 'rule' ], currentRules[ ruleName ][ 'rule' ] ):
+                    if self._isJsonEqual( rule[ 'data' ], currentRules[ ruleName ][ 'data' ] ):
                         # Exact same, no point in pushing.
                         yield ( '=', 'fp', ruleName )
                         continue
                 if not isDryRun:
-                    self._man.add_fp( ruleName, rule[ 'rule' ], isReplace = True )
-                yield ( '+', 'rule', ruleName )
+                    self._man.add_fp( ruleName, rule[ 'data' ], isReplace = True )
+                yield ( '+', 'fp', ruleName )
 
             # If we are not told to isForce, this is it.
             if isForce:
