@@ -41,7 +41,7 @@ class Sync( object ):
         return { k : v for k, v in rule.items() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
 
     def _coreFPContent( self, rule ):
-        return { k : v for k, v in rule.items() if k in ( 'name', 'rule' ) }
+        return { k : v for k, v in rule.items() if k in ( 'name', 'data' ) }
 
     def _coreOutputContent( self, output ):
         return { k : v for k, v in output.items() if k != 'name' }
