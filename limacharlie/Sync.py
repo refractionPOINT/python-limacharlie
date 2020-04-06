@@ -131,6 +131,10 @@ class Sync( object ):
         if not isNoExfil:
             exfilRules = Exfil( self._man ).getRules()
             for ruleName, rule in exfilRules[ 'watch' ].items():
+                if '' == rule[ 'operator' ]:
+                    # This is a [secret] rule, let's not mirror it since
+                    # it is handled by a Service.
+                    continue
                 exfilRules[ 'watch' ][ ruleName ] = self._coreExfilContent( rule )
             for ruleName, rule in exfilRules[ 'list' ].items():
                 exfilRules[ 'list' ][ ruleName ] = self._coreExfilContent( rule )
