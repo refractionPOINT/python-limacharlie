@@ -1,5 +1,6 @@
 import uuid
 import time
+import json
 
 from .utils import LcApiException
 from .utils import GET
@@ -394,6 +395,39 @@ class Sensor( object ):
         # during that time frame, so we look for something shortly after.
         batches = self.getHistoricOverview( timestamp, timestamp + ( 60 * 60 * 2 ) )
         return 0 != len( batches )
+
+    def getObjectTimeline( self, start, end, bucketing = 'day', onlyTypes = None ):
+        '''Get summarized information about timeline of Objects (IOCs) for this host.
+
+        Args:
+            start (int): start time (unix seconds epoch) of the period to search.
+            end (int): end time (unix seconds epoch) of the period to search.
+            bucketing (str): granularity of the timeline, one of "hour", "day", "week", "month".
+            onlyTypes (list): list of object types to look for, all if undefined.
+
+        Returns:
+            Dict of timelines per type and object.
+        '''
+        req = {
+            'oid' : self._manager._oid,
+            'start' : start,
+            'end' : end,
+            'bucketing' : bucketing,
+            'sid' : self.sid,
+            'is_compressed' : True,
+            'objects' : json.dumps( { t : [] for t in onlyTypes } ) if onlyTypes is not None else "{}",
+        }
+
+        data = self._manager._apiCall( 'insight/%s/objects_timeline' % ( self._manager._oid, ), POST, req )
+        data = self._manager._unwrap( data[ 'timeline' ] )
+
+        # We don't care about the prevalence counters in this case
+        # so we'll just strip it down.
+        for oType, objects in data.items():
+            for o, timeInfo in objects.items():
+                objects[ o ] = sorted( tuple( timeInfo.keys() ) )
+
+        return data
 
     def delete( self ):
         '''Delete the sensor. It will not be able to connect to the cloud anymore, but will not be uninstalled.abs
