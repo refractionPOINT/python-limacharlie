@@ -11,7 +11,7 @@ import base64
 class SpotCheck( object ):
     '''Representation of the process of looking for various Indicators of Compromise on the fleet.'''
 
-    def __init__( self, oid, secret_api_key, cb_check, cb_on_start_check = None, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, tags = None ):
+    def __init__( self, oid, secret_api_key, cb_check, cb_on_start_check = None, cb_on_check_done = None, cb_on_offline = None, cb_on_error = None, n_concurrent = 1, n_sec_between_online_checks = 60, extra_params = {}, is_windows = True, is_linux = True, is_macos = True, is_chrome = True, tags = None ):
         '''Perform a check for specific characteristics on all hosts matching some parameters.
 
         Args:
@@ -27,6 +27,7 @@ class SpotCheck( object ):
             is_windows (boolean): if True checks apply to Windows sensors, defaults to True.
             is_linux (boolean): if True checks apply to Linux sensors, defaults to True.
             is_macos (boolean): if True checks apply to MacOS sensors, defaults to True.
+            is_chrome (boolean): if True checks apply to Chrome sensors, defaults to True.
             tags (str): comma-seperated list of tags sensors to check must have.
         '''
         self._cbCheck = cb_check
@@ -40,6 +41,7 @@ class SpotCheck( object ):
         self._isWindows = is_windows
         self._isLinux = is_linux
         self._isMacos = is_macos
+        self._isChrome = is_chrome
 
         self._tags = tags
 
@@ -97,13 +99,16 @@ class SpotCheck( object ):
                 continue
 
             # Check to see if the platform matches
-            if self._isWindows is False or self._isLinux is False or self._isMacos is False:
+            if self._isWindows is False or self._isLinux is False or self._isMacos is False or self._isChrome is False:
                 platform = sensor.getInfo()[ 'plat' ]
+                arch = sensor.getInfo()[ 'arch' ]
                 if platform == 'windows' and not self._isWindows:
                     continue
                 if platform == 'linux' and not self._isLinux:
                     continue
                 if platform == 'macos' and not self._isMacos:
+                    continue
+                if arch == 'chrome' and not self._isChrome:
                     continue
 
             # If tags were set, check the sensor have them.
@@ -162,6 +167,18 @@ if __name__ == "__main__":
                          required = False,
                          dest = 'oid',
                          help = 'the OID to authenticate as, if not specified global creds are used.' )
+    parser.add_argument( '-t', '--tag',
+                         type = str,
+                         required = False,
+                         dest = 'tag',
+                         default = None,
+                         help = 'tag sensors where a match is found with this tag.' )
+    parser.add_argument( '-tt', '--tag-ttl',
+                         type = int,
+                         required = False,
+                         dest = 'tag_ttl',
+                         default = 60 * 60 * 24 * 7,
+                         help = 'ttl of the tag to set.' )
     parser.add_argument( '-n', '--n-concurrent',
                          type = int,
                          required = False,
@@ -186,6 +203,12 @@ if __name__ == "__main__":
                          required = False,
                          dest = 'is_macos',
                          help = 'do NOT apply to MacOS agents.' )
+    parser.add_argument( '--no-chrome',
+                         action = 'store_false',
+                         default = True,
+                         required = False,
+                         dest = 'is_chrome',
+                         help = 'do NOT apply to Chrome agents.' )
     parser.add_argument( '--tags',
                          type = lambda x: [ _.strip().lower() for _ in x.split( ',' ) ],
                          required = False,
@@ -382,6 +405,8 @@ if __name__ == "__main__":
 
     def _reportHit( sensor, mtd ):
         print( "! (%s / %s): %s" % ( sensor, sensor.hostname(), json.dumps( mtd  ) ) )
+        if args.tag is not None:
+            sensor.tag( args.tag, args.tag_ttl )
 
     def _onError( sensor, error ):
         print( "X (%s / %s): %s" % ( sensor, sensor.hostname(), error ) )
@@ -405,6 +430,7 @@ if __name__ == "__main__":
                          is_windows = args.is_windows,
                          is_linux = args.is_linux,
                          is_macos = args.is_macos,
+                         is_chrome = args.is_chrome,
                          tags = args.tags,
                          extra_params = args.extra_params )
     checker.start()

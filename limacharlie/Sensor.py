@@ -218,6 +218,7 @@ class Sensor( object ):
             self._PLATFORM_MACOS : 'macos',
             self._PLATFORM_IOS : 'ios',
             self._PLATFORM_ANDROID : 'android',
+            self._PLATFORM_CHROMEOS : 'chromeos',
         }
         archToString = {
             self._ARCHITECTURE_X86 : 'x86',
@@ -225,6 +226,7 @@ class Sensor( object ):
             self._ARCHITECTURE_ARM : 'arm',
             self._ARCHITECTURE_ARM64 : 'arm64',
             self._ARCHITECTURE_ALPINE64 : 'alpine64',
+            self._ARCHITECTURE_CHROME : 'chrome',
         }
         data = data[ 'info' ]
 
