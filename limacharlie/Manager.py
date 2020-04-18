@@ -47,6 +47,8 @@ API_TO_JWT_URL = 'https://app.limacharlie.io/jwt'
 
 HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
+HTTP_GATEWAY_TIMEOUT = 504
+HTTP_OK = 200
 
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
@@ -196,41 +198,53 @@ class Manager( object ):
 
         return ret
 
-    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False ):
+    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, nMaxTotalRetries = 3 ):
+        hasAuthRefreshed = False
+        nRetries = 0
+
+        # If no JWT is ready, prime it.
         if not isNoAuth and self._jwt is None:
+            hasAuthRefreshed = True
             if self._onRefreshAuth is not None:
                 self._onRefreshAuth( self )
             else:
                 self._refreshJWT()
 
-        code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType, isNoAuth = isNoAuth )
+        while nRetries < nMaxTotalRetries:
+            nRetries += 1
 
-        if code == HTTP_UNAUTHORIZED and not isNoAuth:
-            if self._onRefreshAuth is not None:
-                self._onRefreshAuth( self )
-            else:
-                self._refreshJWT()
-            code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
+            code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType, isNoAuth = isNoAuth )
 
-        if code == HTTP_TOO_MANY_REQUESTS and self._isRetryQuotaErrors:
-            while True:
-                time.sleep( 10 )
-                code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType )
-
-                if code == HTTP_UNAUTHORIZED:
-                    if isNoAuth:
-                        break
-
+            if code == HTTP_UNAUTHORIZED:
+                if hasAuthRefreshed:
+                    # We already renewed the JWT once.
+                    break
+                elif not isNoAuth:
+                    # Do our one JWT renew attempt.
+                    hasAuthRefreshed = True
                     if self._onRefreshAuth is not None:
                         self._onRefreshAuth( self )
                     else:
                         self._refreshJWT()
                     continue
-
-                if HTTP_TOO_MANY_REQUESTS != code:
+                else:
+                    # Auth failed, can't renew.
                     break
 
-        if 200 != code:
+            if code == HTTP_TOO_MANY_REQUESTS and self._isRetryQuotaErrors:
+                # Out of quota, wait a bit and retry.
+                time.sleep( 10 )
+                continue
+
+            if code == HTTP_GATEWAY_TIMEOUT:
+                # The API gateway timed out talking to the
+                # backend, we'll give it another shot.
+                continue
+
+            # Some other status code, including 200, so we're done.
+            break
+
+        if code != HTTP_OK:
             raise LcApiException( 'Api failure (%s): %s' % ( code, str( data ) ) )
 
         return data
