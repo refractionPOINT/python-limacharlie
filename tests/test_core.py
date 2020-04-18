@@ -198,6 +198,8 @@ def test_isolation( oid, key ):
     lc = limacharlie.Manager( oid, key )
 
     for sensor in lc.sensors():
+        if sensor.isChrome():
+            continue
         if not ( sensor.isMac() or sensor.isWindows() ):
             continue
         if not sensor.isOnline():
