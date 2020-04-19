@@ -998,6 +998,15 @@ class Manager( object ):
         } )
         return data
 
+    def exportSensorList( self ):
+        '''Perform a bulk export of the entire sensor list.
+
+        Returns:
+            a dictionary of sensors with their information and tags.
+        '''
+        data = self._apiCall( 'export/%s/sensors' % ( self._oid, ), POST, {} )
+        return data
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
