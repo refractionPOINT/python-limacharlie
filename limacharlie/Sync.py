@@ -323,7 +323,9 @@ class Sync( object ):
                     loggingReplicant.addRule( ruleName,
                                               patterns = rule[ 'patterns' ],
                                               tags = rule.get( 'tags', [] ),
-                                              platforms = rule.get( 'platforms', [] ) )
+                                              platforms = rule.get( 'platforms', [] ),
+                                              isDeleteAfter = rule.get( 'is_delete_after', False ),
+                                              isIgnoreCert = rule.get( 'is_ignore_cert', False ) )
                 yield ( '+', 'logging', ruleName )
 
             if isForce:

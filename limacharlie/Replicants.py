@@ -177,7 +177,7 @@ class Logging( _Replicant ):
             'action' : 'list_rules',
         }, False )
 
-    def addRule( self, ruleName, patterns = [], tags = [], platforms = [], isDeleteAfter = False ):
+    def addRule( self, ruleName, patterns = [], tags = [], platforms = [], isDeleteAfter = False, isIgnoreCert = False ):
         '''Add a Log collection rule.
 
         Args:
@@ -186,6 +186,7 @@ class Logging( _Replicant ):
             tags (list of str): list of tags sensors must posses for this rule to apply.
             platforms (list of str): list of platform names this rule applies to.
             isDeleteAfter (bool): if True, delete the Log after retrieval.
+            isIgnoreCert (bool): if True, sensor ignores SSL cert errors during log upload.
         '''
 
         return self._manager.replicantRequest( 'logging', {
@@ -193,6 +194,7 @@ class Logging( _Replicant ):
             'name' : ruleName,
             'patterns' : patterns,
             'is_delete_after' : isDeleteAfter,
+            'is_ignore_cert' : isIgnoreCert,
             'tags' : tags,
             'platforms' : platforms,
         }, False )
