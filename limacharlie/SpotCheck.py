@@ -1,3 +1,11 @@
+try:
+    from gevent import monkey
+    monkey.patch_all()
+except monkey.MonkeyPatchWarning as e:
+    import sys
+    sys.stderr.write( "%s\n" % ( e, ) )
+    sys.stderr.flush()
+
 from .Manager import Manager
 from gevent.queue import Queue
 import gevent.pool
@@ -468,6 +476,7 @@ if __name__ == "__main__":
     checker = SpotCheck( args.oid,
                          secretApiKey,
                          _genericSpotCheck,
+                         n_concurrent = args.nConcurrent,
                          cb_on_start_check = _onStartCheck,
                          cb_on_check_done = _onDone,
                          cb_on_offline = _onOffline,
