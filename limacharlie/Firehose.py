@@ -161,6 +161,9 @@ class Firehose( object ):
     def shutdown( self ):
         '''Stop receiving data and potentially unregister the Output (if created here).'''
 
+        if not self._keepRunning:
+            return
+
         self._keepRunning = False
         try:
             if self._name is not None:

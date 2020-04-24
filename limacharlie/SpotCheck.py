@@ -274,6 +274,24 @@ if __name__ == "__main__":
                          default = [],
                          dest = 'yaraprocesses',
                          help = 'takes 2 arguments, first is a file path to yara signature, second is a process executable path pattern to scan memory and files.' )
+    parser.add_argument( '-r', '--run',
+                         action = 'append',
+                         required = False,
+                         default = [],
+                         dest = 'runs',
+                         help = 'a command to run against each sensor.' )
+    parser.add_argument( '-l', '--log-get',
+                         action = 'append',
+                         required = False,
+                         default = [],
+                         dest = 'logs',
+                         help = 'logs to look for.' )
+    parser.add_argument( '--is-ignore-certs',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'is_ignore_certs',
+                         help = 'ignore SSL cert errors for logs and payloads.' )
 
     args = parser.parse_args()
 
@@ -380,6 +398,27 @@ if __name__ == "__main__":
                 yaraSig = base64.b64encode( f.read() )
             future = sensor.request( 'yara_scan %s -e %s' % ( yaraSig, procPattern.replace( '\\', '\\\\' ) ) )
             _handleYaraTasking( sensor, future )
+
+        for run in args.runs:
+            response = sensor.simpleRequest( run )
+            if not response:
+                raise Exception( 'timeout' )
+
+            _reportHit( sensor, response[ 'event' ] )
+
+        for log in args.logs:
+            cert = ''
+            if args.is_ignore_certs:
+                cert = '--is-ignore-cert'
+            response = sensor.simpleRequest( 'log_get "%s" %s' % ( file.replace( '\\', '\\\\' ), cert ), timeout = 30 )
+            if not response:
+                raise Exception( 'timeout' )
+
+            retCode = response[ 'event' ].get( 'ERROR', None )
+            if 200 != retCode:
+                raise Exception( 'failed: %s' % ( retCode, ) )
+
+            _reportHit( sensor, response[ 'event' ] )
 
         return True
 
