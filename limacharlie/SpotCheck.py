@@ -7,6 +7,7 @@ import uuid
 import traceback
 import json
 import base64
+import sys
 
 class SpotCheck( object ):
     '''Representation of the process of looking for various Indicators of Compromise on the fleet.'''
@@ -444,20 +445,25 @@ if __name__ == "__main__":
 
     def _reportHit( sensor, mtd ):
         print( "! (%s / %s): %s" % ( sensor, sensor.hostname(), json.dumps( mtd  ) ) )
+        sys.stdout.flush()
         if args.tag is not None:
             sensor.tag( args.tag, args.tag_ttl )
 
     def _onError( sensor, error ):
         print( "X (%s / %s): %s" % ( sensor, sensor.hostname(), error ) )
+        sys.stdout.flush()
 
     def _onOffline( sensor ):
         print( "? (%s / %s)" % ( sensor, sensor.hostname() ) )
+        sys.stdout.flush()
 
     def _onDone( sensor ):
         print( ". (%s / %s)" % ( sensor, sensor.hostname() ) )
+        sys.stdout.flush()
 
     def _onStartCheck( sensor ):
         print( "> (%s / %s)" % ( sensor, sensor.hostname() ) )
+        sys.stdout.flush()
 
     checker = SpotCheck( args.oid,
                          secretApiKey,
