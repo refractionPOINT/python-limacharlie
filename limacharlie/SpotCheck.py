@@ -410,7 +410,7 @@ if __name__ == "__main__":
             cert = ''
             if args.is_ignore_certs:
                 cert = '--is-ignore-cert'
-            response = sensor.simpleRequest( 'log_get "%s" %s' % ( log.replace( '\\', '\\\\' ), cert ), timeout = 30 )
+            response = sensor.simpleRequest( 'log_get --file "%s" %s' % ( log.replace( '\\', '\\\\' ), cert ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
 
