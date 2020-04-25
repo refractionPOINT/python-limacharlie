@@ -1,10 +1,3 @@
-try:
-    from gevent import monkey
-    monkey.patch_all()
-except monkey.MonkeyPatchWarning as e:
-    import sys
-    sys.stderr.write( "%s\n" % ( e, ) )
-    sys.stderr.flush()
 from gevent.lock import BoundedSemaphore
 from . import Manager
 from .utils import LcApiException

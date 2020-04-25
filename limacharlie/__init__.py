@@ -50,6 +50,15 @@ if GLOBAL_API_KEY is None:
         _lcEnv = 'default'
     GLOBAL_OID, GLOBAL_UID, GLOBAL_API_KEY = _getEnvironmentCreds( _lcEnv )
 
+if not os.environ.get( 'LC_NO_MONKEY_PATCHING', False ):
+    try:
+        from gevent import monkey
+        monkey.patch_all()
+    except monkey.MonkeyPatchWarning as e:
+        import sys
+        sys.stderr.write( "%s\n" % ( e, ) )
+        sys.stderr.flush()
+
 from .Manager import Manager
 from .Firehose import Firehose
 from .Spout import Spout
