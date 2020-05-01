@@ -491,7 +491,7 @@ class Manager( object ):
 
         return self._apiCall( 'rules/%s' % self._oid, DELETE, req )
 
-    def add_rule( self, name, detection, response, isReplace = False, namespace = None ):
+    def add_rule( self, name, detection, response, isReplace = False, namespace = None, isEnabled = True ):
         '''Add a Rule to the Organization.
 
         For detailed explanation and possible Rules parameters
@@ -504,6 +504,7 @@ class Manager( object ):
             isReplace (boolean): if True, replace existing Rule with the same name.
             detection (dict): dictionary representing the detection component of the Rule.
             response (list): list representing the response component of the Rule.
+            isEnabled (boolean): if True (default), the rule is enabled.
 
         Returns:
             the REST API response (JSON).
@@ -514,6 +515,7 @@ class Manager( object ):
             'is_replace' : 'true' if isReplace else 'false',
             'detection' : json.dumps( detection ),
             'response' : json.dumps( response ),
+            'is_enabled' : 'true' if isEnabled else 'false',
         }
 
         if namespace is not None:

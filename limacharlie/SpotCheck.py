@@ -1,11 +1,3 @@
-try:
-    from gevent import monkey
-    monkey.patch_all()
-except monkey.MonkeyPatchWarning as e:
-    import sys
-    sys.stderr.write( "%s\n" % ( e, ) )
-    sys.stderr.flush()
-
 from .Manager import Manager
 from gevent.queue import Queue
 import gevent.pool
