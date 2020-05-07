@@ -491,7 +491,7 @@ class Manager( object ):
 
         return self._apiCall( 'rules/%s' % self._oid, DELETE, req )
 
-    def add_rule( self, name, detection, response, isReplace = False, namespace = None, isEnabled = True ):
+    def add_rule( self, name, detection, response, isReplace = False, namespace = None, isEnabled = True, ttl = None ):
         '''Add a Rule to the Organization.
 
         For detailed explanation and possible Rules parameters
@@ -505,10 +505,15 @@ class Manager( object ):
             detection (dict): dictionary representing the detection component of the Rule.
             response (list): list representing the response component of the Rule.
             isEnabled (boolean): if True (default), the rule is enabled.
+            ttl (int): number of seconds before the rule should be auto-deleted.
 
         Returns:
             the REST API response (JSON).
         '''
+
+        expireOn = None
+        if ttl is not None:
+            expireOn = str( int( time.time() ) + int( ttl ) )
 
         req = {
             'name' : name,
@@ -517,6 +522,9 @@ class Manager( object ):
             'response' : json.dumps( response ),
             'is_enabled' : 'true' if isEnabled else 'false',
         }
+
+        if expireOn is not None:
+            req[ 'expire_on' ] = expireOn
 
         if namespace is not None:
             req[ 'namespace' ] = namespace
@@ -551,7 +559,7 @@ class Manager( object ):
 
         return self._apiCall( 'fp/%s' % self._oid, DELETE, req )
 
-    def add_fp( self, name, rule, isReplace = False ):
+    def add_fp( self, name, rule, isReplace = False, ttl = None ):
         '''Add a False Positive rule to the Organization.
 
         For detailed explanation and possible rules parameters
@@ -562,16 +570,24 @@ class Manager( object ):
             name (str): name to give to the rule.
             isReplace (boolean): if True, replace existing rule with the same name.
             detection (dict): dictionary representing the False Positive rule content.
+            ttl (int): number of seconds before the rule should be auto-deleted.
 
         Returns:
             the REST API response (JSON).
         '''
+
+        expireOn = None
+        if ttl is not None:
+            expireOn = str( int( time.time() ) + int( ttl ) )
 
         req = {
             'name' : name,
             'is_replace' : 'true' if isReplace else 'false',
             'rule' : json.dumps( rule ),
         }
+
+        if expireOn is not None:
+            req[ 'expire_on' ] = expireOn
 
         return self._apiCall( 'fp/%s' % self._oid, POST, req )
 
