@@ -204,7 +204,6 @@ class Manager( object ):
 
         # If no JWT is ready, prime it.
         if not isNoAuth and self._jwt is None:
-            hasAuthRefreshed = True
             if self._onRefreshAuth is not None:
                 self._onRefreshAuth( self )
             else:
