@@ -327,3 +327,65 @@ class Exfil( _Replicant ):
             'action' : 'remove_watch',
             'name' : ruleName,
         }, False )
+
+class Dumper( _Replicant ):
+    '''Memory dumper service object.'''
+
+    def dump( self, sid ):
+        '''Dump the full memory of a given host.
+
+        Args:
+            sid (str): sensor ID to sweep.
+        '''
+
+        if isinstance( sid, Sensor ):
+            sid = sid.sid
+        return self._manager.replicantRequest( 'dumper', {
+            'sid' : sid,
+        }, True )
+
+class ReliableTasking( _Replicant ):
+    '''Reliable Tasking service object.'''
+
+    def task( self, task, sid = None, tag = None, ttl = None ):
+        '''Issue a task for a set of sensors even if offline.
+
+        Args:
+            task (str): actual task command line to send.
+            sid (str): optional sensor ID to task or '*' for all.
+            tag (str): optional tag to select sensors to send the task to.
+            ttl (int): optional number of seconds before unsent tasks expire, defaults to a week.
+        '''
+
+        req = {
+            'action' : 'task',
+            'task' : task,
+        }
+        if sid is not None:
+            if isinstance( sid, Sensor ):
+                sid = sid.sid
+            req[ 'sid' ] = sid
+        if tag is not None:
+            req[ 'tag' ] = tag
+        if ttl is not None:
+            req[ 'ttl' ] = ttl
+        return self._manager.replicantRequest( 'reliable-tasking', req, True )
+
+    def getTasks( self, sid = None, tag = None ):
+        '''Issue a task for a set of sensors even if offline.
+
+        Args:
+            sid (str): optional sensor ID to get the tasks for or '*' for all.
+            tag (str): optional tag to select sensors to get the tasks for.
+        '''
+
+        req = {
+            'action' : 'list',
+        }
+        if sid is not None:
+            if isinstance( sid, Sensor ):
+                sid = sid.sid
+            req[ 'sid' ] = sid
+        if tag is not None:
+            req[ 'tag' ] = tag
+        return self._manager.replicantRequest( 'reliable-tasking', req, False )
