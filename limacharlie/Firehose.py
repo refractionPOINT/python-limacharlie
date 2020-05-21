@@ -229,7 +229,8 @@ class Firehose( object ):
                                 self._on_dropped( buff )
                     buff = None
             except:
-                self._manager._printDebug( 'error decoding data' )
+                self._manager._printDebug( 'error decoding data: %s' % ( traceback.format_exc(), ) )
+                break
 
         self._manager._printDebug( 'firehose connection closed: %s' % ( address, ) )
         sock.close()
