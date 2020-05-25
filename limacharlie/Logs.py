@@ -291,9 +291,9 @@ def main_upload( sourceArgs = None ):
 
     originalPath = args.originalPath
     if args.originalPath is None:
-        originalPath = args.log_file
+        originalPath = args.artifact_file
 
-    response = logs.upload( args.log_file,
+    response = logs.upload( args.artifact_file,
                             source = args.source,
                             hint = args.hint,
                             payloadId = args.payloadId,
