@@ -232,7 +232,7 @@ def main_upload( sourceArgs = None ):
 
     parser = argparse.ArgumentParser( prog = 'limacharlie artifacts upload' )
 
-    parser.add_argument( 'artifacts_file',
+    parser.add_argument( 'artifact_file',
                          type = str,
                          help = 'path to the artifacts file to upload.' )
 
