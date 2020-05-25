@@ -221,11 +221,11 @@ def main( sourceArgs = None ):
 
     args = parser.parse_args( sourceArgs[ 0 : 1 ] )
 
-    if args.artifact not in actions:
-        print( "Unknown action: %s" % ( args.artifact, ) )
+    if args.artifact_action not in actions:
+        print( "Unknown action: %s" % ( args.artifact_action, ) )
         sys.exit( 1 )
 
-    return actions[ args.artifact ]( sourceArgs[ 1 : ] )
+    return actions[ args.artifact_action ]( sourceArgs[ 1 : ] )
 
 def main_upload( sourceArgs = None ):
     import argparse
