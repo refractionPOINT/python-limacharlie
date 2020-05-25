@@ -202,14 +202,14 @@ class Logs( object ):
 def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie logs' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie artifacts' )
 
     actions = {
         'upload' : main_upload,
         'get_original' : main_getOriginal,
     }
 
-    parser.add_argument( 'log_action',
+    parser.add_argument( 'artifact_action',
                          type = str,
                          help = 'action to take, one of %s' % ( ', '.join( actions.keys(), ) ) )
 
@@ -217,52 +217,52 @@ def main( sourceArgs = None ):
                          type = str,
                          nargs = "?",
                          default = None,
-                         help = 'optional argument depending on log_action' )
+                         help = 'optional argument depending on artifact_action' )
 
     args = parser.parse_args( sourceArgs[ 0 : 1 ] )
 
-    if args.log_action not in actions:
-        print( "Unknown action: %s" % ( args.log_action, ) )
+    if args.artifact not in actions:
+        print( "Unknown action: %s" % ( args.artifact, ) )
         sys.exit( 1 )
 
-    return actions[ args.log_action ]( sourceArgs[ 1 : ] )
+    return actions[ args.artifact ]( sourceArgs[ 1 : ] )
 
 def main_upload( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie logs upload' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie artifacts upload' )
 
-    parser.add_argument( 'log_file',
+    parser.add_argument( 'artifacts_file',
                          type = str,
-                         help = 'path to the log file to upload.' )
+                         help = 'path to the artifacts file to upload.' )
 
     parser.add_argument( '--source',
                          type = str,
                          required = False,
                          dest = 'source',
                          default = None,
-                         help = 'name of the log source to associate with upload.' )
+                         help = 'name of the source to associate with upload.' )
 
     parser.add_argument( '--original-path',
                          type = str,
                          required = False,
                          dest = 'originalPath',
                          default = None,
-                         help = 'override the original path recorded for the log.' )
+                         help = 'override the original path recorded for the artifacts.' )
 
     parser.add_argument( '--hint',
                          type = str,
                          required = False,
                          dest = 'hint',
                          default = 'auto',
-                         help = 'log type hint of the upload.' )
+                         help = 'artifacts type hint of the upload.' )
 
     parser.add_argument( '--payload-id',
                          type = str,
                          required = False,
                          dest = 'payloadId',
                          default = None,
-                         help = 'unique identifier of the log uploaded, can be used to de-duplicate logs.' )
+                         help = 'unique identifier of the artifacts uploaded, can be used to de-duplicate artifacts.' )
 
     parser.add_argument( '--access-token',
                          type = uuid.UUID,
@@ -306,14 +306,14 @@ def main_upload( sourceArgs = None ):
 def main_getOriginal( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie logs get_original' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie artifacts get_original' )
 
     parser.add_argument( 'payloadid',
                          type = str,
-                         help = 'unique identifier of the log uploaded.' )
+                         help = 'unique identifier of the artifact uploaded.' )
     parser.add_argument( 'destination',
                          type = str,
-                         help = 'file path where to download the log.' )
+                         help = 'file path where to download the artifact.' )
 
     args = parser.parse_args( sourceArgs )
 
