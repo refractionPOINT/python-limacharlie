@@ -378,7 +378,7 @@ if __name__ == "__main__":
         for yaraSigFile in args.yarasystem:
             with open( yaraSigFile, 'rb' ) as f:
                 yaraSig = base64.b64encode( f.read() ).decode()
-            future = sensor.request( 'yara_scan %s' % ( yaraSig, ) )
+            future = sensor.request( 'yara_scan %s --is-no-validation' % ( yaraSig, ) )
             _handleYaraTasking( sensor, future )
 
         for yaraSigFile, directory, filePattern, depth in args.yarafiles:
@@ -391,13 +391,13 @@ if __name__ == "__main__":
                 filePath = fileEntry.get( 'FILE_PATH', None )
                 if filePath is None:
                     continue
-                future = sensor.request( 'yara_scan %s -f "%s"' % ( yaraSig, filePath.replace( "\\", "\\\\" ) ) )
+                future = sensor.request( 'yara_scan %s --is-no-validation -f "%s"' % ( yaraSig, filePath.replace( "\\", "\\\\" ) ) )
                 _handleYaraTasking( sensor, future )
 
         for yaraSigFile, procPattern in args.yaraprocesses:
             with open( yaraSigFile, 'rb' ) as f:
                 yaraSig = base64.b64encode( f.read() ).decode()
-            future = sensor.request( 'yara_scan %s -e %s' % ( yaraSig, procPattern.replace( '\\', '\\\\' ) ) )
+            future = sensor.request( 'yara_scan %s --is-no-validation -e %s' % ( yaraSig, procPattern.replace( '\\', '\\\\' ) ) )
             _handleYaraTasking( sensor, future )
 
         for run in args.runs:
