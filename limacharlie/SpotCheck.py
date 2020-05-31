@@ -377,13 +377,13 @@ if __name__ == "__main__":
 
         for yaraSigFile in args.yarasystem:
             with open( yaraSigFile, 'rb' ) as f:
-                yaraSig = base64.b64encode( f.read() )
+                yaraSig = base64.b64encode( f.read() ).decode()
             future = sensor.request( 'yara_scan %s' % ( yaraSig, ) )
             _handleYaraTasking( sensor, future )
 
         for yaraSigFile, directory, filePattern, depth in args.yarafiles:
             with open( yaraSigFile, 'rb' ) as f:
-                yaraSig = base64.b64encode( f.read() )
+                yaraSig = base64.b64encode( f.read() ).decode()
             response = sensor.simpleRequest( 'dir_list "%s" "%s" -d %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth ), timeout = 30 )
             if not response:
                 raise Exception( 'timeout' )
@@ -396,7 +396,7 @@ if __name__ == "__main__":
 
         for yaraSigFile, procPattern in args.yaraprocesses:
             with open( yaraSigFile, 'rb' ) as f:
-                yaraSig = base64.b64encode( f.read() )
+                yaraSig = base64.b64encode( f.read() ).decode()
             future = sensor.request( 'yara_scan %s -e %s' % ( yaraSig, procPattern.replace( '\\', '\\\\' ) ) )
             _handleYaraTasking( sensor, future )
 
