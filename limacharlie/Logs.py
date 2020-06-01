@@ -1,6 +1,7 @@
 from limacharlie import Manager
 from .utils import LcApiException
 from .utils import GET
+from .utils import POST
 
 # Detect if this is Python 2 or 3
 import sys
@@ -24,6 +25,7 @@ import base64
 import json
 import requests
 import time
+import tempfile
 
 MAX_UPLOAD_PART_SIZE = ( 1024 * 1024 * 15 )
 
@@ -135,7 +137,7 @@ class Logs( object ):
 
         return response
 
-    def getOriginal( self, payloadId, filePath = None, fileObj = None ):
+    def getOriginal( self, payloadId, filePath = None, fileObj = None, optParams = {} ):
         '''Download an orginal log.
 
         Args:
@@ -144,11 +146,14 @@ class Logs( object ):
             fileObj (file obj): optional file object where to write the log.
         '''
 
-        response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
+        if optParams is None or 0 == len( optParams ):
+            response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
+        else:
+            response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), POST, params = optParams )
 
         # If no local output is specified, we interpret this
         # as an asynchronous export request.
-        if filePath is None and fileObj is None:
+        if filePath is None and fileObj is None and ( optParams is None or 0 == len( optParams ) ):
             if 'payload' in response:
                 return response[ 'payload' ]
             return response[ 'export' ]
@@ -162,6 +167,8 @@ class Logs( object ):
             elif fileObj is not None:
                 fileObj.write( data )
             response.pop( 'payload', None )
+        elif optParams is not None or 0 != len( optParams ):
+            pass
         # Or it can be a GCS signed URL.
         elif 'export' in response:
             # The export is asynchronous, so we will retry
@@ -198,6 +205,54 @@ class Logs( object ):
                 dataReq.close()
 
         return response
+
+    def listArtifacts( self, type = None, source = None, originalPath = None, after = None, before = None, withData = False, optParams = {} ):
+        '''Get the list of artifacts matching parameters.
+
+        Args:
+            type (str): only list artifacts with type.
+            source (str): only list artifacts from this source.
+            originalPath (str): only list artifacts with this original path.
+            after (int): list artifacts after a given second epoch.
+            before (int): list artifacts before a given second epoch.
+            withData (bool): if True, artifact will be downloaded inline and the return value will be a tuple (artifactRecord, localFilePath).
+        '''
+
+        cursor = '-'
+        start = int( after )
+        end = int( before )
+
+        req = {
+            'end' : end,
+            'start' : start,
+        }
+
+        if type is not None:
+            req[ 'hint' ] = type
+        if source is not None:
+            req[ 'source' ] = source
+
+        while cursor:
+            req[ 'cursor' ] = cursor
+            data = self._lc._apiCall( 'insight/%s/artifacts' % ( self._lc._oid, ), GET, queryParams = req )
+            cursor = data.get( 'next_cursor', None )
+            for artifact in data[ 'logs' ]:
+                # Right now we filter the path in user-mode since it's
+                # not yet supported by the service.
+                if originalPath is not None and artifact[ 'path' ] != originalPath:
+                    continue
+                if not withData:
+                    yield artifact
+                else:
+                    tmpFile = tempfile.NamedTemporaryFile( delete = False )
+                    try:
+                        self.getOriginal( artifact[ 'payload_id' ], tmpFile.name, optParams = optParams )
+                        yield ( artifact, tmpFile.name )
+                    except:
+                        tmpFile.close()
+                        os.unlink( tmpFile.name )
+                        raise
+
 
 def main( sourceArgs = None ):
     import argparse
