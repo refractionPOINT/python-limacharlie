@@ -24,6 +24,7 @@ import base64
 import json
 import requests
 import time
+import tempfile
 
 MAX_UPLOAD_PART_SIZE = ( 1024 * 1024 * 15 )
 
@@ -198,6 +199,54 @@ class Logs( object ):
                 dataReq.close()
 
         return response
+
+    def listArtifacts( self, type = None, source = None, originalPath = None, after = None, before = None, withData = False ):
+        '''Get the list of artifacts matching parameters.
+
+        Args:
+            type (str): only list artifacts with type.
+            source (str): only list artifacts from this source.
+            originalPath (str): only list artifacts with this original path.
+            after (int): list artifacts after a given second epoch.
+            before (int): list artifacts before a given second epoch.
+            withData (bool): if True, artifact will be downloaded inline and the return value will be a tuple (artifactRecord, localFilePath).
+        '''
+
+        cursor = '-'
+        start = int( after )
+        end = int( before )
+
+        req = {
+            'end' : end,
+            'start' : start,
+        }
+
+        if type is not None:
+            req[ 'hint' ] = type
+        if source is not None:
+            req[ 'source' ] = source
+
+        while cursor:
+            req[ 'cursor' ] = cursor
+            data = self._lc._apiCall( 'insight/%s/artifacts' % ( self._lc._oid, ), GET, queryParams = req )
+            cursor = data.get( 'next_cursor', None )
+            for artifact in data[ 'logs' ]:
+                # Right now we filter the path in user-mode since it's
+                # not yet supported by the service.
+                if originalPath is not None and artifact[ 'path' ] != originalPath:
+                    continue
+                if not withData:
+                    yield artifact
+                else:
+                    tmpFile = tempfile.NamedTemporaryFile( delete = False )
+                    try:
+                        self.getOriginal( artifact[ 'payload_id' ], tmpFile.name )
+                        yield ( artifact, tmpFile.name )
+                    except:
+                        tmpFile.close()
+                        os.unlink( tmpFile.name )
+                        raise
+
 
 def main( sourceArgs = None ):
     import argparse
