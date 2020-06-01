@@ -1,6 +1,7 @@
 from limacharlie import Manager
 from .utils import LcApiException
 from .utils import GET
+from .utils import POST
 
 # Detect if this is Python 2 or 3
 import sys
@@ -136,7 +137,7 @@ class Logs( object ):
 
         return response
 
-    def getOriginal( self, payloadId, filePath = None, fileObj = None ):
+    def getOriginal( self, payloadId, filePath = None, fileObj = None, optParams = {} ):
         '''Download an orginal log.
 
         Args:
@@ -145,11 +146,14 @@ class Logs( object ):
             fileObj (file obj): optional file object where to write the log.
         '''
 
-        response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
+        if optParams is None or 0 == len( optParams ):
+            response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
+        else:
+            response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), POST, params = optParams )
 
         # If no local output is specified, we interpret this
         # as an asynchronous export request.
-        if filePath is None and fileObj is None:
+        if filePath is None and fileObj is None and ( optParams is None or 0 == len( optParams ) ):
             if 'payload' in response:
                 return response[ 'payload' ]
             return response[ 'export' ]
@@ -163,6 +167,8 @@ class Logs( object ):
             elif fileObj is not None:
                 fileObj.write( data )
             response.pop( 'payload', None )
+        elif optParams is not None or 0 != len( optParams ):
+            pass
         # Or it can be a GCS signed URL.
         elif 'export' in response:
             # The export is asynchronous, so we will retry
@@ -200,7 +206,7 @@ class Logs( object ):
 
         return response
 
-    def listArtifacts( self, type = None, source = None, originalPath = None, after = None, before = None, withData = False ):
+    def listArtifacts( self, type = None, source = None, originalPath = None, after = None, before = None, withData = False, optParams = {} ):
         '''Get the list of artifacts matching parameters.
 
         Args:
@@ -240,7 +246,7 @@ class Logs( object ):
                 else:
                     tmpFile = tempfile.NamedTemporaryFile( delete = False )
                     try:
-                        self.getOriginal( artifact[ 'payload_id' ], tmpFile.name )
+                        self.getOriginal( artifact[ 'payload_id' ], tmpFile.name, optParams = optParams )
                         yield ( artifact, tmpFile.name )
                     except:
                         tmpFile.close()
