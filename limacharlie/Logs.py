@@ -175,21 +175,26 @@ class Logs( object ):
         elif 'export' in response:
             # The export is asynchronous, so we will retry
             # every 5 seconds up to 10 minutes.
+            maxWaitTime = 60 * 10
+            retryEvery = 5
             if customGetter is not None:
                 # A custom getter was provided, so assume it takes care of auth.
                 # The export is a path to a GCP blob. Break it down into its parts
                 # for code clarity.
                 exportInfo = urlparse( response[ 'export' ] )
                 bucketName, blobName = exportInfo.path.lstrip( '/' ).split( '/', 1 )
-                for _ in range( int( 600 / 5 ) ):
+                for _ in range( int( maxWaitTime / retryEvery ) ):
                     # Getter signals it has been successful by returning true-ish.
                     if customGetter( bucketName, blobName, filePath, fileObj ):
                         break
+                    time.sleep( retryEvery )
+                else:
+                    raise LcApiException( "Failed to get artifact." )
             else:
                 # We attempt to get the data assuming this is an unauthenticated
                 # request like a Signed URL (which is the default provided by LC).
                 status = None
-                for _ in range( int( 600 / 5 ) ):
+                for _ in range( int( maxWaitTime / retryEvery ) ):
                     dataReq = requests.get( response[ 'export' ], stream = True )
                     status = dataReq.status_code
                     if 200 == status:
@@ -198,10 +203,10 @@ class Logs( object ):
                     dataReq = None
                     if 404 != status:
                         break
-                    time.sleep( 5 )
+                    time.sleep( retryEvery )
 
                 if dataReq is None:
-                    raise LcApiException( "Failed to get log payload: %s." % ( status, ) )
+                    raise LcApiException( "Failed to get artifact: %s." % ( status, ) )
 
                 try:
                     if filePath is not None:
