@@ -190,9 +190,8 @@ class Firehose( object ):
                                              server_side = True,
                                              do_handshake_on_connect = True,
                                              suppress_ragged_eofs = True )
-        except:
-            print( traceback.format_exc() )
-            self._manager._printDebug( 'firehose connection closed: %s' % ( address, ) )
+        except Exception as e:
+            self._manager._printDebug( 'firehose connection closed: %s (%s)' % ( address, e ) )
             return
 
         curData = []

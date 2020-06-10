@@ -158,7 +158,7 @@ def test_ingestion_keys( oid, key ):
 
     testIngestionKeyName = 'test-python-sdk-key'
 
-    assert( {} == lc.setIngestionKey( testIngestionKeyName ) )
+    assert( 'key' in lc.setIngestionKey( testIngestionKeyName ) )
 
     try:
         assert( testIngestionKeyName in lc.getIngestionKeys() )

@@ -13,10 +13,12 @@ if _IS_PYTHON_2:
     from urllib2 import HTTPError
     from urllib2 import Request as URLRequest
     from urllib2 import urlopen
+    from urlparse import urlparse
 else:
     from urllib.error import HTTPError
     from urllib.request import Request as URLRequest
     from urllib.request import urlopen
+    from urllib.parse import urlparse
 
 import os
 import os.path
@@ -137,7 +139,7 @@ class Logs( object ):
 
         return response
 
-    def getOriginal( self, payloadId, filePath = None, fileObj = None, optParams = {} ):
+    def getOriginal( self, payloadId, filePath = None, fileObj = None, optParams = {}, customGetter = None ):
         '''Download an orginal log.
 
         Args:
@@ -167,42 +169,60 @@ class Logs( object ):
             elif fileObj is not None:
                 fileObj.write( data )
             response.pop( 'payload', None )
-        elif optParams is not None or 0 != len( optParams ):
+        elif optParams is not None and 0 != len( optParams ) and customGetter is None:
             pass
         # Or it can be a GCS signed URL.
         elif 'export' in response:
             # The export is asynchronous, so we will retry
-            # every 5 seconds up to 5 minutes.
-            status = None
-            for _ in range( int( 300 / 5 ) ):
-                dataReq = requests.get( response[ 'export' ], stream = True )
-                status = dataReq.status_code
-                if 200 == status:
-                    break
-                dataReq.close()
-                dataReq = None
-                if 404 != status:
-                    break
-                time.sleep( 5 )
+            # every 5 seconds up to 10 minutes.
+            maxWaitTime = 60 * 10
+            retryEvery = 5
+            if customGetter is not None:
+                # A custom getter was provided, so assume it takes care of auth.
+                # The export is a path to a GCP blob. Break it down into its parts
+                # for code clarity.
+                exportInfo = urlparse( response[ 'export' ] )
+                bucketName, blobName = exportInfo.path.lstrip( '/' ).split( '/', 1 )
+                for _ in range( int( maxWaitTime / retryEvery ) ):
+                    # Getter signals it has been successful by returning true-ish.
+                    if customGetter( bucketName, blobName, filePath, fileObj ):
+                        break
+                    time.sleep( retryEvery )
+                else:
+                    raise LcApiException( "Failed to get artifact." )
+            else:
+                # We attempt to get the data assuming this is an unauthenticated
+                # request like a Signed URL (which is the default provided by LC).
+                status = None
+                for _ in range( int( maxWaitTime / retryEvery ) ):
+                    dataReq = requests.get( response[ 'export' ], stream = True )
+                    status = dataReq.status_code
+                    if 200 == status:
+                        break
+                    dataReq.close()
+                    dataReq = None
+                    if 404 != status:
+                        break
+                    time.sleep( retryEvery )
 
-            if dataReq is None:
-                raise LcApiException( "Failed to get log payload: %s." % ( status, ) )
+                if dataReq is None:
+                    raise LcApiException( "Failed to get artifact: %s." % ( status, ) )
 
-            try:
-                if filePath is not None:
-                    with open( filePath, 'wb' ) as f:
+                try:
+                    if filePath is not None:
+                        with open( filePath, 'wb' ) as f:
+                            for chunk in dataReq.iter_content( chunk_size = 1024 * 512 ):
+                                if not chunk:
+                                    continue
+                                f.write( chunk )
+                    elif fileObj is not None:
                         for chunk in dataReq.iter_content( chunk_size = 1024 * 512 ):
                             if not chunk:
                                 continue
-                            f.write( chunk )
-                elif fileObj is not None:
-                    for chunk in dataReq.iter_content( chunk_size = 1024 * 512 ):
-                        if not chunk:
-                            continue
-                        fileObj.write( chunk )
-                response.pop( 'export', None )
-            finally:
-                dataReq.close()
+                            fileObj.write( chunk )
+                    response.pop( 'export', None )
+                finally:
+                    dataReq.close()
 
         return response
 
@@ -219,13 +239,12 @@ class Logs( object ):
         '''
 
         cursor = '-'
-        start = int( after )
-        end = int( before )
+        req = {}
 
-        req = {
-            'end' : end,
-            'start' : start,
-        }
+        if after is not None:
+            req[ 'start' ] = int( after )
+        if before is not None:
+            req[ 'end' ] = int( before )
 
         if type is not None:
             req[ 'hint' ] = type
