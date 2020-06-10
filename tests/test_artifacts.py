@@ -50,6 +50,7 @@ def test_artifact_lifecycle( oid, key ):
         for artifactInfo, artifactTmpFile in artifactService.listArtifacts( type = 'txt',
                                                                             source = source,
                                                                             after = uploadTime - 60,
+                                                                            before = int( time.time() ) + 60,
                                                                             withData = True ):
             try:
                 nArtifacts += 1
