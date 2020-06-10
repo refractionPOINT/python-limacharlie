@@ -17,7 +17,8 @@ def test_artifact_lifecycle( oid, key ):
     keyName = "test_ingestion_%s" % ( uuid.uuid4(), )
 
     keyVal = lc.setIngestionKey( keyName )
-    assert( keyVal )
+    assert( keyVal.get( 'key', False ) )
+    keyVal = keyVal[ 'key' ]
 
     source = "test-%s" % ( uuid.uuid4(), )
 
