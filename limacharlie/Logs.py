@@ -239,13 +239,12 @@ class Logs( object ):
         '''
 
         cursor = '-'
-        start = int( after )
-        end = int( before )
+        req = {}
 
-        req = {
-            'end' : end,
-            'start' : start,
-        }
+        if after is not None:
+            req[ 'start' ] = int( after )
+        if before is not None:
+            req[ 'end' ] = int( before )
 
         if type is not None:
             req[ 'hint' ] = type
