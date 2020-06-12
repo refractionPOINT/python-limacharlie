@@ -226,7 +226,7 @@ class Logs( object ):
 
         return response
 
-    def listArtifacts( self, type = None, source = None, originalPath = None, after = None, before = None, withData = False, optParams = {} ):
+    def listArtifacts( self, type = None, source = None, originalPath = None, after = None, before = None, withData = False, optParams = {}, customGetter = None ):
         '''Get the list of artifacts matching parameters.
 
         Args:
@@ -265,7 +265,7 @@ class Logs( object ):
                 else:
                     tmpFile = tempfile.NamedTemporaryFile( delete = False )
                     try:
-                        self.getOriginal( artifact[ 'payload_id' ], tmpFile.name, optParams = optParams )
+                        self.getOriginal( artifact[ 'payload_id' ], tmpFile.name, optParams = optParams, customGetter = customGetter )
                         yield ( artifact, tmpFile.name )
                     except:
                         tmpFile.close()
