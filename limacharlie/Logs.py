@@ -265,7 +265,7 @@ class Logs( object ):
                 else:
                     tmpFile = tempfile.NamedTemporaryFile( delete = False )
                     try:
-                        self.getOriginal( artifact[ 'payload_id' ], tmpFile.name, optParams = optParams, customGetter = customGetter )
+                        artifact = self.getOriginal( artifact[ 'payload_id' ], tmpFile.name, optParams = optParams, customGetter = customGetter )
                         yield ( artifact, tmpFile.name )
                     except:
                         tmpFile.close()
