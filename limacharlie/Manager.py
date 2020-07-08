@@ -644,7 +644,7 @@ class Manager( object ):
             if limit is not None and limit <= nReturned:
                 break
 
-    def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False, limit = None ):
+    def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False, limit = None, isPerObject = None ):
         '''Get information about an object (indicator) using Insight (retention) data.
 
         Args:
@@ -654,6 +654,7 @@ class Manager( object ):
             isCaseSensitive (bool): False to ignore case in the object name.
             isWithWildcards (bool): True to enable use of "%" wildcards in the object name.
             limit (int): optional maximum number of sensors/logs to report, or None for LimaCharlie default.
+            isPerObject (bool): if set, specifies if the results should be groupped per object when a wildcard is present.
 
         Returns:
             a dict with the requested information.
@@ -667,12 +668,18 @@ class Manager( object ):
         if objType not in objTypes:
             raise Exception( 'invalid object type: %s, choose one of %s' % ( objType, objTypes ) )
 
+        perObject = isPerObject
+        if perObject is None:
+            perObject = 'true' if ( isWithWildcards and 'summary' == info ) else 'false'
+        else:
+            perObject = 'true' if perObject else 'false'
+
         req = {
             'name' : objName,
             'info' : info,
             'case_sensitive' : 'true' if isCaseSensitive else 'false',
             'with_wildcards' : 'true' if isWithWildcards else 'false',
-            'per_object' : 'true' if ( isWithWildcards and 'summary' == info ) else 'false',
+            'per_object' : perObject,
         }
 
         if limit is not None:
