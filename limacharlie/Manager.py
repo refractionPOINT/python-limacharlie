@@ -644,7 +644,7 @@ class Manager( object ):
             if limit is not None and limit <= nReturned:
                 break
 
-    def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False ):
+    def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False, limit = None ):
         '''Get information about an object (indicator) using Insight (retention) data.
 
         Args:
@@ -653,6 +653,7 @@ class Manager( object ):
             info (str): the type of information to query for, one of: summary, locations.
             isCaseSensitive (bool): False to ignore case in the object name.
             isWithWildcards (bool): True to enable use of "%" wildcards in the object name.
+            limit (int): optional maximum number of sensors/logs to report, or None for LimaCharlie default.
 
         Returns:
             a dict with the requested information.
@@ -673,6 +674,9 @@ class Manager( object ):
             'with_wildcards' : 'true' if isWithWildcards else 'false',
             'per_object' : 'true' if ( isWithWildcards and 'summary' == info ) else 'false',
         }
+
+        if limit is not None:
+            req[ 'limit' ] = str( limit )
 
         data = self._apiCall( 'insight/%s/objects/%s' % ( self._oid, objType ), GET, queryParams = req )
         return data
