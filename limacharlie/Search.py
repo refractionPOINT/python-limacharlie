@@ -97,7 +97,7 @@ class Search( object ):
             for result in outputs:
                 self._safePrint( "\n%s (%s)\n=========================================\n%s" % ( result[ 'env' ], result[ 'oid' ], yaml.safe_dump( result[ 'result' ], default_flow_style = False ) ) )
         else:
-            self._output.write( yaml.safe_dump( outputs, default_flow_style = False ) )
+            self._output.write( yaml.safe_dump( outputs, default_flow_style = False ).encode() )
 
         self._safePrint( "Done, %s results." % ( functools.reduce( lambda x, y: x + ( len( y[ 'result' ] ) if info != 'summary' else 1 ), outputs, 0 ) ) )
 
