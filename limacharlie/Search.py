@@ -61,7 +61,7 @@ class Search( object ):
     def getNumEnvironments( self ):
         return len( self._environmentsToQuery )
 
-    def query( self, iocType, iocName, info, isCaseInsensitive = False, isWithWildcards = False ):
+    def query( self, iocType, iocName, info, isCaseInsensitive = False, isWithWildcards = False, limit = None ):
         '''Performa a search.
 
         Args:
@@ -70,6 +70,7 @@ class Search( object ):
             info (str): information type to retrieve.
             isCaseInsensitive (bool): if True, search for IOC in a case insensitive way.
             isWithWildcards (bool): if True, use "%" as a wildcard in the IOC name.
+            limit (int): optional maximum number of sensors/logs to report about, otherwise defaults to internal LimaCharlie limit
 
         Returns:
             Dict of requested information.
@@ -80,7 +81,7 @@ class Search( object ):
         results = gevent.queue.Queue()
 
         for envName, env in self._environmentsToQuery.items():
-            threads.add( gevent.spawn_later( 0, self._queryThread, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards ) )
+            threads.add( gevent.spawn_later( 0, self._queryThread, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards, limit ) )
 
         threads.join( timeout = 60 )
 
@@ -99,7 +100,7 @@ class Search( object ):
 
         self._safePrint( "Done, %s results." % ( functools.reduce( lambda x, y: x + ( len( y[ 'result' ] ) if info != 'summary' else 1 ), outputs, 0 ) ) )
 
-    def _queryThread( self, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards ):
+    def _queryThread( self, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards, limit ):
         try:
             lc = Manager( env[ 'oid' ], env[ 'api_key' ] )
 
@@ -116,7 +117,8 @@ class Search( object ):
                 iocName,
                 info,
                 isCaseSensitive = not isCaseInsensitive,
-                isWithWildcards = isWithWildcards
+                isWithWildcards = isWithWildcards,
+                limit = limit
             )
 
             if result and 0 != len( result ):
@@ -180,6 +182,12 @@ def main( sourceArgs = None ):
                          default = '-',
                          help = 'location where to send output, "-" by default outputs human readable to stdout, otherwise it should be a file where YAML will be written to.' )
 
+    parser.add_argument( '-l', '--limit',
+                         type = int,
+                         required = False,
+                         dest = 'limit',
+                         help = 'optional maximum number of sensors/logs to report about, otherwise defaults to internal LimaCharlie limit' )
+
     args = parser.parse_args( sourceArgs )
 
     search = Search( environments = args.environments, output = args.output )
@@ -191,5 +199,6 @@ def main( sourceArgs = None ):
         args.ioc,
         args.info,
         isCaseInsensitive = args.is_case_insensitive,
-        isWithWildcards = args.is_with_wildcards
+        isWithWildcards = args.is_with_wildcards,
+        limit = args.limit
     )
