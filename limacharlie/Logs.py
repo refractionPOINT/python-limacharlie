@@ -361,7 +361,7 @@ def main_upload( sourceArgs = None ):
 
     args = parser.parse_args( sourceArgs )
 
-    logs = Logs( Manager( args.oid, None ), args.accessToken )
+    logs = Logs( Manager( args.oid, None, jwt = "" ), args.accessToken )
 
     originalPath = args.originalPath
     if args.originalPath is None:
