@@ -68,5 +68,6 @@ from .SpotCheck import SpotCheck
 from .Payloads import Payloads
 from .Logs import Logs
 from .Logs import Logs as Artifacts
+from .Comms import Comms
 from .utils import LcApiException
 from . import Replicants as services
