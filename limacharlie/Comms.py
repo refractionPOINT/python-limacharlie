@@ -5,7 +5,10 @@ from .utils import POST
 from .utils import HEAD
 from .utils import PATCH
 
+from .Manager import Manager
+
 import uuid
+import sys
 
 class Comms( object ):
     '''Representation of a limacharlie.io Comms.'''
@@ -97,3 +100,49 @@ class Room( object ):
         if status is not None:
             req[ 'status' ] = str( status )
         return self._manager._apiCall( 'comms/room/%s' % self.rid, POST )
+
+def main( sourceArgs = None ):
+    import argparse
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie comms' )
+    subparsers = parser.add_subparsers( dest = 'object', help = 'object to work with' )
+
+    objects = {
+        'room' : subparsers.add_parser( 'room', help = 'working with rooms' ),
+    }
+
+    # room
+    subparsers_room = objects[ 'room' ].add_subparsers( dest = 'action', help = 'action to take' )
+
+    # room:create
+    parser_room_create = subparsers_room.add_parser( 'create', help = 'create a room' )
+    parser_room_create.add_argument( '--nickname', type = str, help = 'nickname of the room' )
+
+    # room:get
+    parser_room_get = subparsers_room.add_parser( 'get', help = 'get a room' )
+    parser_room_get.add_argument( 'rid', type = str, help = 'room id' )
+
+    args = parser.parse_args( sourceArgs )
+
+    if args.object is None:
+        parser.print_help()
+        sys.exit( 1 )
+    if args.action is None:
+        objects[ args.object ].print_help()
+        sys.exit( 1 )
+
+    def createRoom():
+        return Comms( Manager() ).createRoom( args.nickname )
+
+    def getRoom():
+        return Comms( Manager() ).getDetails( args.rid )
+
+    result = {
+        'room:create' : createRoom,
+        'room:get' : getRoom,
+    }[ '%s:%s' % ( args.object, args.action ) ]()
+
+    print( result, indent = 2 )
+
+if __name__ == '__main__':
+    main()
