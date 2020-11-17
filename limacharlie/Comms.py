@@ -6,9 +6,11 @@ from .utils import HEAD
 from .utils import PATCH
 
 from .Manager import Manager
+from .Manager import ROOT_URL
 
 import uuid
 import sys
+import json
 
 class Comms( object ):
     '''Representation of a limacharlie.io Comms.'''
@@ -29,7 +31,7 @@ class Comms( object ):
         }
         if nickname is not None:
             req[ 'nickname' ] = str( nickname )
-        data = self._manager._apiCall( 'comms/room', POST, req )
+        data = self._manager._apiCall( 'comms/room', POST, req, altRoot = ROOT_URL )
         return Room( self._manager, data[ 'rid' ] )
 
     def getRoom( self, rid ):
@@ -40,7 +42,7 @@ class Comms( object ):
         Returns:
             a Room object.
         '''
-        return Room( rid )
+        return Room( self._manager, rid )
 
 class Room( object ):
     '''Representation of a limacharlie.io Comms Room.'''
@@ -59,11 +61,11 @@ class Room( object ):
         Returns:
             room overview dict.
         '''
-        return self._manager._apiCall( 'comms/room/%s' % self.rid, HEAD )
+        return self._manager._apiCall( 'comms/room/%s' % self.rid, HEAD, altRoot = ROOT_URL )
 
     def delete( self ):
         '''Delete a Room.'''
-        return self._manager._apiCall( 'comms/room/%s' % self.rid, DELETE )
+        return self._manager._apiCall( 'comms/room/%s' % self.rid, DELETE, altRoot = ROOT_URL )
 
     def getDetails( self ):
         '''Get detailed information about the Room.
@@ -71,7 +73,7 @@ class Room( object ):
         Returns:
             room details dict.
         '''
-        return self._manager._apiCall( 'comms/room/%s' % self.rid, GET )
+        return self._manager._apiCall( 'comms/room/%s' % self.rid, GET, altRoot = ROOT_URL )
 
     def merge( self, toMerge = [] ):
         '''Merge a set of Rooms into this Room.
@@ -82,7 +84,7 @@ class Room( object ):
         req = {
             'rid': toMerge,
         }
-        return self._manager._apiCall( 'comms/room/%s' % self.rid, PATCH, req )
+        return self._manager._apiCall( 'comms/room/%s' % self.rid, PATCH, req, altRoot = ROOT_URL )
 
     def update( self, nickname = None, priority = None, status = None ):
         '''Update room information.
@@ -99,7 +101,7 @@ class Room( object ):
             req[ 'priority' ] = int( priority )
         if status is not None:
             req[ 'status' ] = str( status )
-        return self._manager._apiCall( 'comms/room/%s' % self.rid, POST )
+        return self._manager._apiCall( 'comms/room/%s' % self.rid, POST, altRoot = ROOT_URL )
 
 def main( sourceArgs = None ):
     import argparse
@@ -132,17 +134,19 @@ def main( sourceArgs = None ):
         sys.exit( 1 )
 
     def createRoom():
-        return Comms( Manager() ).createRoom( args.nickname )
+        return {
+            'rid': Comms( Manager() ).createRoom( args.nickname ).rid,
+        }
 
     def getRoom():
-        return Comms( Manager() ).getDetails( args.rid )
+        return Comms( Manager() ).getRoom( args.rid ).getDetails()
 
     result = {
         'room:create' : createRoom,
         'room:get' : getRoom,
     }[ '%s:%s' % ( args.object, args.action ) ]()
 
-    print( result, indent = 2 )
+    print( json.dumps( result, indent = 2 ) )
 
 if __name__ == '__main__':
     main()
