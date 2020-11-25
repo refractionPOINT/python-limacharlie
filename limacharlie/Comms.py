@@ -136,7 +136,7 @@ class Room( object ):
             'type' : linkType,
             'value' : linkValue,
         }
-        return self._manager._apiCall( 'comms/room/%s/link' % self.rid, DELETE, req, altRoot = ROOT_URL )
+        return self._manager._apiCall( 'comms/room/%s/link' % self.rid, DELETE, queryParams = req, altRoot = ROOT_URL )
 
 def main( sourceArgs = None ):
     import argparse
