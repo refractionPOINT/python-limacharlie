@@ -15,7 +15,7 @@ setup( name = 'limacharlie',
        license = __license__,
        packages = [ 'limacharlie' ],
        zip_safe = True,
-       install_requires = [ 'gevent', 'requests', 'passlib', 'pyyaml' ],
+       install_requires = [ 'gevent', 'requests', 'passlib', 'pyyaml', 'pyqrcode' ],
        long_description = 'Python API for limacharlie.io, an endpoint detection and response service.',
        entry_points = {
            'console_scripts': [

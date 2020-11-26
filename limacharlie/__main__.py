@@ -187,6 +187,9 @@ def main():
     elif args.action.lower() == 'comms':
         from .Comms import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'net':
+        from .Net import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     else:
         raise Exception( 'invalid action' )
 
