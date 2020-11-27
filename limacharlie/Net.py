@@ -20,12 +20,12 @@ class Net( object ):
     def __init__( self, manager ):
         self._manager = manager
 
-    def provision( self, iid, name, isEmailUserDirectly = False ):
+    def provision( self, iid, names, isEmailUserDirectly = False ):
         '''Provision a new LimaCharlie Net sensor.
 
         Args:
             iid (str): installation key id to use to provision the sensor.
-            name (str): name to give (used as hostname) to sensor, use email address of user if you use isEmailUserDirectly.
+            name (list of str): name(s) to give (used as hostname) to sensor, use email address of user if you use isEmailUserDirectly.
             isEmailUserDirectly (bool): if True, LimaCharlie will email the user set as "name" directly with the credentials.
         Returns:
             provisioning information.
@@ -33,7 +33,7 @@ class Net( object ):
         req = {
             'oid': self._manager._oid,
             'iid': iid,
-            'name': name,
+            'name': names,
             'is_email_to_user': 'true' if isEmailUserDirectly else 'false',
         }
         return self._manager._apiCall( 'net/provision', POST, req, altRoot = ROOT_URL )
@@ -54,7 +54,11 @@ def main( sourceArgs = None ):
     # client:create
     parser_client_create = subparsers_client.add_parser( 'provision', help = 'provision a new client' )
     parser_client_create.add_argument( 'iid', type = str, help = 'installation key id' )
-    parser_client_create.add_argument( 'name', type = str, help = 'client name (hostname or email)' )
+    parser_client_create.add_argument( '--name',
+                                       action = 'append',
+                                       nargs = '+',
+                                       dest = 'names',
+                                       help = 'client name (hostname or email)' )
     parser_client_create.add_argument( '--is-email-user',
                                        action = 'store_true',
                                        default = False,
@@ -72,10 +76,11 @@ def main( sourceArgs = None ):
         sys.exit( 1 )
 
     def provisionClient():
-        res = Net( Manager() ).provision( args.iid, args.name, isEmailUserDirectly = args.isEmail )
-        conf = res.get( 'wg_conf', None )
-        if conf is not None:
-            print( pyqrcode.create( conf ).terminal() )
+        res = Net( Manager() ).provision( args.iid, args.names, isEmailUserDirectly = args.isEmail )
+        confs = res.get( 'wg_conf', None )
+        if confs is not None:
+            for conf in confs:
+                print( pyqrcode.create( conf ).terminal() )
         return res
 
     result = {
