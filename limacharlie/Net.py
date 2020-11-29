@@ -12,8 +12,6 @@ import uuid
 import sys
 import json
 
-import pyqrcode
-
 class Net( object ):
     '''Representation of a limacharlie.io Net.'''
 
@@ -38,6 +36,21 @@ class Net( object ):
         }
         return self._manager._apiCall( 'net/provision', POST, req, altRoot = ROOT_URL )
 
+    def getUsage( self, sid = None ):
+        '''Get usage information for Net sensor.
+
+        Args:
+            sid (str): optional, specifies which sensor id to get the information about, entire org otherwise.
+        Returns:
+            usage information.
+        '''
+        req = {
+            'oid': self._manager._oid,
+        }
+        if sid is not None:
+            req[ 'sid' ] = sid
+        return self._manager._apiCall( 'net/usage', GET, queryParams = req, altRoot = ROOT_URL )
+
 def main( sourceArgs = None ):
     import argparse
 
@@ -55,7 +68,6 @@ def main( sourceArgs = None ):
     parser_client_create = subparsers_client.add_parser( 'provision', help = 'provision a new client' )
     parser_client_create.add_argument( 'iid', type = str, help = 'installation key id' )
     parser_client_create.add_argument( '--name',
-                                       action = 'append',
                                        nargs = '+',
                                        dest = 'names',
                                        help = 'client name (hostname or email)' )
@@ -65,6 +77,13 @@ def main( sourceArgs = None ):
                                        required = False,
                                        dest = 'isEmail',
                                        help = 'if set, limacharlie will email users creds directly' )
+
+    # client:usage
+    parser_client_usage = subparsers_client.add_parser( 'usage', help = 'get client usage information' )
+    parser_client_usage.add_argument( '--sid',
+                                      type = str,
+                                      default = None,
+                                      help = 'sensor id of the client to get the usage for, otherwise entire org is reported' )
 
     args = parser.parse_args( sourceArgs )
 
@@ -76,15 +95,14 @@ def main( sourceArgs = None ):
         sys.exit( 1 )
 
     def provisionClient():
-        res = Net( Manager() ).provision( args.iid, args.names, isEmailUserDirectly = args.isEmail )
-        confs = res.get( 'wg_conf', None )
-        if confs is not None:
-            for conf in confs:
-                print( pyqrcode.create( conf ).terminal() )
-        return res
+        return Net( Manager() ).provision( args.iid, args.names, isEmailUserDirectly = args.isEmail )
+
+    def getClientUsage():
+        return Net( Manager() ).getUsage( args.sid )
 
     result = {
         'client:provision' : provisionClient,
+        'client:usage' : getClientUsage,
     }[ '%s:%s' % ( args.object, args.action ) ]()
 
     print( json.dumps( result, indent = 2 ) )
