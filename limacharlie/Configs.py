@@ -20,10 +20,10 @@ class LcConfigException( Exception ):
     pass
 
 class Configs( object ):
-    '''Sync object to fetch and apply configs to and from organizations.'''
+    '''Configs object to fetch and apply configs to and from organizations.'''
 
     def __init__( self, oid = None, env = None, manager = None ):
-        '''Create a Sync object.
+        '''Create a Configs object.
 
         Args:
             oid (str): organization ID to operate on.
@@ -530,7 +530,7 @@ class Configs( object ):
 def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie sync' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie configs' )
     parser.add_argument( 'action',
                          type = lambda x: str( x ).lower().strip(),
                          help = 'the action to perform, one of "fetch" or "push".' )
