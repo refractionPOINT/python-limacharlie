@@ -400,11 +400,11 @@ class Configs( object ):
                         yield ( '-', 'exfil-list', ruleName )
         if isResources:
             currentResources = self._man.getSubscriptions()
-            for cat in asConf.get( 'resources', {} ):
+            for cat, confResources in asConf.get( 'resources', {} ).items():
                 if cat == 'service':
                     # Alias Service to Replicant
                     cat = 'replicant'
-                for resName in asConf.get( 'resources', {} )[ cat ]:
+                for resName in confResources:
                     fullResName = '%s/%s' % ( cat, resName )
                     if resName not in currentResources.get( cat, [] ):
                         if not isDryRun:
@@ -415,9 +415,13 @@ class Configs( object ):
             # Only force "resources" if it is present in the config.
             # This avoids unexpected disabling of all configs.
             if isForce and 'resources' in asConf:
-                for cat in currentResources:
-                    for resName in currentResources[ cat ]:
-                        if resName not in asConf.get( 'resources', {} ).get( cat, [] ):
+                for cat, catResources in currentResources.items():
+                    for resName in catResources:
+                        internalCat = cat
+                        if internalCat == 'replicant':
+                            # Alias replicant to service
+                            internalCat = 'service'
+                        if resName not in asConf.get( 'resources', {} ).get( internalCat, [] ):
                             fullResName = '%s/%s' % ( cat, resName )
                             if not isDryRun:
                                 self._man.unsubscribeFromResource( fullResName )
