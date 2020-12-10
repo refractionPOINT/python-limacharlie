@@ -44,7 +44,7 @@ class Configs( object ):
         return { k : v for k, v in rule.items() if k in ( 'name', 'data' ) }
 
     def _coreOutputContent( self, output ):
-        return { k : v for k, v in output.items() if k != 'name' }
+        return { k : v for k, v in output.items() if k not in ( 'name', 'oid', 'by' ) }
 
     def _coreIntegrityContent( self, rule ):
         rule = { k : v for k, v in rule.items() if k not in ( 'by', 'updated' ) }
