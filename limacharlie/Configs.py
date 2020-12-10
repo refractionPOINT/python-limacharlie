@@ -129,10 +129,10 @@ class Configs( object ):
                 integrityRules[ ruleName ] = self._coreIntegrityContent( rule )
             asConf[ 'integrity' ] = integrityRules
         if isArtifact:
-            loggingRules = Logging( self._man ).getRules()
-            for ruleName, rule in loggingRules.items():
-                loggingRules[ ruleName ] = self._coreLoggingContent( rule )
-            asConf[ 'logging' ] = loggingRules
+            artifactRules = Logging( self._man ).getRules()
+            for ruleName, rule in artifactRules.items():
+                artifactRules[ ruleName ] = self._coreLoggingContent( rule )
+            asConf[ 'artifact' ] = artifactRules
         if isExfil:
             exfilRules = Exfil( self._man ).getRules()
             for ruleName, rule in exfilRules[ 'watch' ].items():
@@ -328,12 +328,12 @@ class Configs( object ):
 
         if isArtifact:
             artifactService = Logging( self._man )
-            currentLoggingRules = { k : self._coreLoggingContent( v ) for k, v in artifactService.getRules().items() }
-            for ruleName, rule in asConf.get( 'logging', {} ).items():
-                if ruleName in currentLoggingRules:
-                    if self._isJsonEqual( rule, currentLoggingRules[ ruleName ] ):
+            currentartifactRules = { k : self._coreLoggingContent( v ) for k, v in artifactService.getRules().items() }
+            for ruleName, rule in asConf.get( 'artifact', {} ).items():
+                if ruleName in currentartifactRules:
+                    if self._isJsonEqual( rule, currentartifactRules[ ruleName ] ):
                         # Exact same, no point in pushing.
-                        yield ( '=', 'logging', ruleName )
+                        yield ( '=', 'artifact', ruleName )
                         continue
                 if not isDryRun:
                     artifactService.addRule( ruleName,
@@ -342,16 +342,16 @@ class Configs( object ):
                                               platforms = rule.get( 'platforms', [] ),
                                               isDeleteAfter = rule.get( 'is_delete_after', False ),
                                               isIgnoreCert = rule.get( 'is_ignore_cert', False ) )
-                yield ( '+', 'logging', ruleName )
+                yield ( '+', 'artifact', ruleName )
 
             if isForce:
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in artifactService.getRules().items():
-                    if ruleName not in asConf.get( 'logging', {} ):
+                    if ruleName not in asConf.get( 'artifact', {} ):
                         if not isDryRun:
                             artifactService.removeRule( ruleName )
-                        yield ( '-', 'logging', ruleName )
+                        yield ( '-', 'artifact', ruleName )
 
         if isExfil:
             exfilService = Exfil( self._man )
@@ -511,8 +511,8 @@ class Configs( object ):
         '''
         return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = False, isArtifact = True, isExfil = True, isResources = True ) )
 
-    def pushLogging( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the Logging configs in a local config file to the effective configuration in the cloud.
+    def pushArtifact( self, fromConfigFile, isForce = False, isDryRun = False ):
+        '''Convenience function to push the Artifact configs in a local config file to the effective configuration in the cloud.
 
         Args:
             fromConfigFile (str/dict): the path to the config file or dict of a config file content.
