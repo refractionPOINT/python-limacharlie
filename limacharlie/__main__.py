@@ -122,6 +122,9 @@ def main():
     elif args.action.lower() == 'sync':
         from .Sync import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'configs':
+        from .Configs import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'who':
         from . import Manager
         tmpManager = Manager()
