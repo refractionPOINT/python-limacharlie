@@ -31,7 +31,7 @@ class Configs( object ):
             manager (limacharlie.Manager): Manager object to use instead.
         '''
 
-        self._confVersion = 2
+        self._confVersion = 3
         if manager is None:
             self._man = Manager( oid = oid, environment = env )
         else:
