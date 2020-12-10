@@ -73,7 +73,7 @@ class Configs( object ):
 
         return True
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isLogging = False, isExfil = False, isResources = False ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -100,7 +100,7 @@ class Configs( object ):
                 rules.update( self._man.rules( namespace = namespace ) )
 
             for ruleName, rule in list( rules.items() ):
-                # Special rules from replicants are ignored.
+                # Special rules from services are ignored.
                 if ruleName.startswith( '__' ):
                     del( rules[ ruleName ] )
                     continue
@@ -128,7 +128,7 @@ class Configs( object ):
             for ruleName, rule in integrityRules.items():
                 integrityRules[ ruleName ] = self._coreIntegrityContent( rule )
             asConf[ 'integrity' ] = integrityRules
-        if isLogging:
+        if isArtifact:
             loggingRules = Logging( self._man ).getRules()
             for ruleName, rule in loggingRules.items():
                 loggingRules[ ruleName ] = self._coreLoggingContent( rule )
@@ -146,11 +146,18 @@ class Configs( object ):
             asConf[ 'exfil' ] = exfilRules
         if isResources:
             asConf[ 'resources' ] = self._man.getSubscriptions()
+            # Translate the replicant entry to service.
+            for resType, resources in asConf[ 'resources' ].items():
+                if resType != 'replicant':
+                    continue
+                asConf[ 'resources' ][ 'service' ] = asConf[ 'resources' ][ 'replicant' ]
+                asConf[ 'resources' ].pop( 'replicant' )
+                break
         if not isinstance( toConfigFile, dict ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isLogging = False, isExfil = False, isResources = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Users should favor using the "push<Type>()" convenience functions instead of the
@@ -228,7 +235,7 @@ class Configs( object ):
                 # Now if isForce was specified, list existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in currentRules.items():
-                    # Ignore special replicant rules.
+                    # Ignore special service rules.
                     if ruleName.startswith( '__' ):
                         continue
                     if ruleName not in asConf.get( 'rules', {} ):
@@ -260,7 +267,7 @@ class Configs( object ):
                 # Now if isForce was specified, list existing rules and remove the ones
                 # not in our list.
                 for ruleName, rule in currentRules.items():
-                    # Ignore special replicant rules.
+                    # Ignore special service rules.
                     if ruleName not in asConf.get( 'fps', {} ):
                         if not isDryRun:
                             self._man.del_fp( ruleName )
@@ -294,8 +301,8 @@ class Configs( object ):
                         yield ( '-', 'output', outputName )
 
         if isIntegrity:
-            integrityReplicant = Integrity( self._man )
-            currentIntegrityRules = { k : self._coreIntegrityContent( v ) for k, v in integrityReplicant.getRules().items() }
+            integrityService = Integrity( self._man )
+            currentIntegrityRules = { k : self._coreIntegrityContent( v ) for k, v in integrityService.getRules().items() }
 
             for ruleName, rule in asConf.get( 'integrity', {} ).items():
                 if ruleName in currentIntegrityRules:
@@ -304,7 +311,7 @@ class Configs( object ):
                         yield ( '=', 'integrity', ruleName )
                         continue
                 if not isDryRun:
-                    integrityReplicant.addRule( ruleName,
+                    integrityService.addRule( ruleName,
                                                 patterns = rule[ 'patterns' ],
                                                 tags = rule.get( 'tags', [] ),
                                                 platforms = rule.get( 'platforms', [] ) )
@@ -313,15 +320,15 @@ class Configs( object ):
             if isForce:
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
-                for ruleName, rule in integrityReplicant.getRules().items():
+                for ruleName, rule in integrityService.getRules().items():
                     if ruleName not in asConf.get( 'integrity', {} ):
                         if not isDryRun:
-                            integrityReplicant.removeRule( ruleName )
+                            integrityService.removeRule( ruleName )
                         yield ( '-', 'integrity', ruleName )
 
-        if isLogging:
-            loggingReplicant = Logging( self._man )
-            currentLoggingRules = { k : self._coreLoggingContent( v ) for k, v in loggingReplicant.getRules().items() }
+        if isArtifact:
+            artifactService = Logging( self._man )
+            currentLoggingRules = { k : self._coreLoggingContent( v ) for k, v in artifactService.getRules().items() }
             for ruleName, rule in asConf.get( 'logging', {} ).items():
                 if ruleName in currentLoggingRules:
                     if self._isJsonEqual( rule, currentLoggingRules[ ruleName ] ):
@@ -329,7 +336,7 @@ class Configs( object ):
                         yield ( '=', 'logging', ruleName )
                         continue
                 if not isDryRun:
-                    loggingReplicant.addRule( ruleName,
+                    artifactService.addRule( ruleName,
                                               patterns = rule[ 'patterns' ],
                                               tags = rule.get( 'tags', [] ),
                                               platforms = rule.get( 'platforms', [] ),
@@ -340,15 +347,15 @@ class Configs( object ):
             if isForce:
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
-                for ruleName, rule in loggingReplicant.getRules().items():
+                for ruleName, rule in artifactService.getRules().items():
                     if ruleName not in asConf.get( 'logging', {} ):
                         if not isDryRun:
-                            loggingReplicant.removeRule( ruleName )
+                            artifactService.removeRule( ruleName )
                         yield ( '-', 'logging', ruleName )
 
         if isExfil:
-            exfilReplicant = Exfil( self._man )
-            currentExfilRules = exfilReplicant.getRules()
+            exfilService = Exfil( self._man )
+            currentExfilRules = exfilService.getRules()
             for ruleName, rule in asConf.get( 'exfil', {} ).get( 'watch', {} ).items():
                 if ruleName in currentExfilRules.get( 'watch', {} ):
                     if self._isJsonEqual( rule, self._coreExfilContent( currentExfilRules[ 'watch' ][ ruleName ] ) ):
@@ -356,7 +363,7 @@ class Configs( object ):
                         yield ( '=', 'exfil-watch', ruleName )
                         continue
                 if not isDryRun:
-                    exfilReplicant.addWatchRule( ruleName,
+                    exfilService.addWatchRule( ruleName,
                                                  event = rule[ 'event' ],
                                                  operator = rule[ 'operator' ],
                                                  value = rule[ 'value' ],
@@ -372,7 +379,7 @@ class Configs( object ):
                         yield ( '=', 'exfil-list', ruleName )
                         continue
                 if not isDryRun:
-                    exfilReplicant.addEventRule( ruleName,
+                    exfilService.addEventRule( ruleName,
                                                  events = rule[ 'events' ],
                                                  tags = rule.get( 'tags', [] ),
                                                  platforms = rule.get( 'platforms', [] ) )
@@ -381,19 +388,22 @@ class Configs( object ):
             if isForce:
                 # Now if isForce was specified, list the existing rules and remove the ones
                 # not in our list.
-                for ruleName, rule in exfilReplicant.getRules().get( 'watch', {} ).items():
+                for ruleName, rule in exfilService.getRules().get( 'watch', {} ).items():
                     if ruleName not in asConf.get( 'exfil', {} ).get( 'watch', {} ):
                         if not isDryRun:
-                            exfilReplicant.removeWatchRule( ruleName )
+                            exfilService.removeWatchRule( ruleName )
                         yield ( '-', 'exfil-watch', ruleName )
-                for ruleName, rule in exfilReplicant.getRules().get( 'list', {} ).items():
+                for ruleName, rule in exfilService.getRules().get( 'list', {} ).items():
                     if ruleName not in asConf[ 'exfil' ].get( 'list', {} ):
                         if not isDryRun:
-                            exfilReplicant.removeEventRule( ruleName )
+                            exfilService.removeEventRule( ruleName )
                         yield ( '-', 'exfil-list', ruleName )
         if isResources:
             currentResources = self._man.getSubscriptions()
             for cat in asConf.get( 'resources', {} ):
+                if cat == 'service':
+                    # Alias Service to Replicant
+                    cat = 'replicant'
                 for resName in asConf.get( 'resources', {} )[ cat ]:
                     fullResName = '%s/%s' % ( cat, resName )
                     if resName not in currentResources.get( cat, [] ):
@@ -456,7 +466,7 @@ class Configs( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = False, isFPs = True, isOutputs = True, isIntegrity = True, isLogging = True, isExfil = True, isResources = True ) )
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = False, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = True, isResources = True ) )
 
     def pushFPs( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the FP rules in a local config file to the effective configuration in the cloud.
@@ -469,7 +479,7 @@ class Configs( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = False, isOutputs = True, isIntegrity = True, isLogging = True, isExfil = True, isResources = True ) )
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = False, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = True, isResources = True ) )
 
     def pushOutputs( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the outputs in a local config file to the effective configuration in the cloud.
@@ -482,7 +492,7 @@ class Configs( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = False, isIntegrity = True, isLogging = True, isExfil = True, isResources = True ) )
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = False, isIntegrity = True, isArtifact = True, isExfil = True, isResources = True ) )
 
     def pushIntegrity( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Integrity configs in a local config file to the effective configuration in the cloud.
@@ -495,7 +505,7 @@ class Configs( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = False, isLogging = True, isExfil = True, isResources = True ) )
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = False, isArtifact = True, isExfil = True, isResources = True ) )
 
     def pushLogging( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Logging configs in a local config file to the effective configuration in the cloud.
@@ -508,7 +518,7 @@ class Configs( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isLogging = False, isExfil = True, isResources = True ) )
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = False, isExfil = True, isResources = True ) )
 
     def pushExfil( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Exfil configs in a local config file to the effective configuration in the cloud.
@@ -521,7 +531,7 @@ class Configs( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isLogging = True, isExfil = False, isResources = True ) )
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = False, isResources = True ) )
 
     def pushResources( self, fromConfigFile, isForce = False, isDryRun = False ):
         '''Convenience function to push the Resources configs in a local config file to the effective configuration in the cloud.
@@ -534,7 +544,7 @@ class Configs( object ):
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
         '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isLogging = True, isExfil = True, isResources = False ) )
+        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = True, isResources = False ) )
 
 def main( sourceArgs = None ):
     import argparse
@@ -590,19 +600,19 @@ def main( sourceArgs = None ):
                          default = False,
                          action = 'store_true',
                          dest = 'isIntegrity',
-                         help = 'if specified, apply Integrity Replicants from operations' )
-    parser.add_argument( '--logging',
+                         help = 'if specified, apply Integrity Service from operations' )
+    parser.add_argument( '--artifact',
                          required = False,
                          default = False,
                          action = 'store_true',
-                         dest = 'isLogging',
-                         help = 'if specified, apply Logging Replicants from operations' )
+                         dest = 'isArtifact',
+                         help = 'if specified, apply Artifact Service from operations' )
     parser.add_argument( '--exfil',
                          required = False,
                          default = False,
                          action = 'store_true',
                          dest = 'isExfil',
-                         help = 'if specified, apply Exfil Replicants from operations' )
+                         help = 'if specified, apply Exfil Service from operations' )
     parser.add_argument( '--resources',
                          required = False,
                          default = False,
@@ -627,9 +637,9 @@ def main( sourceArgs = None ):
     s = Configs( oid = args.oid, env = args.environment )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isLogging = args.isLogging, isExfil = args.isExfil, isResources = args.isResources )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isLogging = args.isLogging, isExfil = args.isExfil, isResources = args.isResources ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
