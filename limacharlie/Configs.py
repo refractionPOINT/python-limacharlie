@@ -115,7 +115,12 @@ class Configs( object ):
             asConf[ 'fps' ] = rules
         if isOutputs:
             outputs = self._man.outputs()
-            for outputName, output in outputs.items():
+            for outputName, output in list( outputs.items() ):
+                if output.get( 'is_delete_on_failure', 'false' ) == 'true':
+                    # Delete on failure is associated with temporary
+                    # outputs so we won't consider them.
+                    outputs.pop( outputName )
+                    continue
                 outputs[ outputName ] = self._coreOutputContent( output )
             asConf[ 'outputs' ] = outputs
         if isIntegrity:
@@ -279,6 +284,10 @@ class Configs( object ):
                 # Now if isForce was specified, list the existing outputs and remove the ones
                 # not in our list.
                 for outputName, output in self._man.outputs().items():
+                    if output.get( 'is_delete_on_failure', 'false' ) == 'true':
+                        # Delete on failure is associated with temporary
+                        # outputs so we won't consider them.
+                        continue
                     if outputName not in asConf.get( 'outputs', {} ):
                         if not isDryRun:
                             self._man.del_output( outputName )
@@ -602,10 +611,10 @@ def main( sourceArgs = None ):
                          help = 'if specified, apply resource subscriptions from operations' )
     parser.add_argument( '-c', '--config',
                          type = str,
-                         default = 'LCConf',
+                         default = 'lc_conf.yaml',
                          required = False,
                          dest = 'config',
-                         help = 'path to the LCConf file to use' )
+                         help = 'path to the lc_conf.yaml file to use' )
     args = parser.parse_args( sourceArgs )
 
     if args.isDryRun:
