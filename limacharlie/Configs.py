@@ -431,6 +431,8 @@ class Configs( object ):
         configFile = os.path.abspath( configFile )
         with open( configFile, 'rb' ) as f:
             asConf = yaml.safe_load( f.read().decode() )
+        if asConf is None:
+            asConf = {}
         if 'version' not in asConf:
             raise LcConfigException( 'Version not found.' )
         if self._confVersion < asConf[ 'version' ]:
