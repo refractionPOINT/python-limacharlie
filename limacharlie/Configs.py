@@ -37,6 +37,16 @@ class Configs( object ):
         else:
             self._man = manager
 
+        self._configRoots = {
+            'rules',
+            'outputs',
+            'resources',
+            'integrity',
+            'fps',
+            'exfil',
+            'artifact',
+        }
+
     def _coreRuleContent( self, rule ):
         return { k : v for k, v in rule.items() if k in ( 'name', 'detect', 'respond', 'namespace' ) }
 
@@ -455,7 +465,7 @@ class Configs( object ):
             # Revert the previous CWD.
             os.chdir( currentPath )
 
-            for cat in ( 'rules', 'outputs' ):
+            for cat in self._configRoots:
                 subCat = subConf.get( cat, None )
                 if subCat is not None:
                     asConf.setdefault( cat, {} ).update( subCat )
