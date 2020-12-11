@@ -190,6 +190,35 @@ class Configs( object ):
             # Revert the previous CWD.
             os.chdir( currentPath )
 
+        if isResources:
+            currentResources = self._man.getSubscriptions()
+            for cat, confResources in asConf.get( 'resources', {} ).items():
+                if cat == 'service':
+                    # Alias Service to Replicant
+                    cat = 'replicant'
+                for resName in confResources:
+                    fullResName = '%s/%s' % ( cat, resName )
+                    if resName not in currentResources.get( cat, [] ):
+                        if not isDryRun:
+                            self._man.subscribeToResource( fullResName )
+                        yield ( '+', 'resource', fullResName )
+                    else:
+                        yield ( '=', 'resource', fullResName )
+            # Only force "resources" if it is present in the config.
+            # This avoids unexpected disabling of all configs.
+            if isForce and 'resources' in asConf:
+                for cat, catResources in currentResources.items():
+                    for resName in catResources:
+                        internalCat = cat
+                        if internalCat == 'replicant':
+                            # Alias replicant to service
+                            internalCat = 'service'
+                        if resName not in asConf.get( 'resources', {} ).get( internalCat, [] ):
+                            fullResName = '%s/%s' % ( cat, resName )
+                            if not isDryRun:
+                                self._man.unsubscribeFromResource( fullResName )
+                            yield ( '-', 'resource', fullResName )
+
         if isRules:
             # Check all the namespaces we have access to.
             availableNamespaces = []
@@ -398,34 +427,6 @@ class Configs( object ):
                         if not isDryRun:
                             exfilService.removeEventRule( ruleName )
                         yield ( '-', 'exfil-list', ruleName )
-        if isResources:
-            currentResources = self._man.getSubscriptions()
-            for cat, confResources in asConf.get( 'resources', {} ).items():
-                if cat == 'service':
-                    # Alias Service to Replicant
-                    cat = 'replicant'
-                for resName in confResources:
-                    fullResName = '%s/%s' % ( cat, resName )
-                    if resName not in currentResources.get( cat, [] ):
-                        if not isDryRun:
-                            self._man.subscribeToResource( fullResName )
-                        yield ( '+', 'resource', fullResName )
-                    else:
-                        yield ( '=', 'resource', fullResName )
-            # Only force "resources" if it is present in the config.
-            # This avoids unexpected disabling of all configs.
-            if isForce and 'resources' in asConf:
-                for cat, catResources in currentResources.items():
-                    for resName in catResources:
-                        internalCat = cat
-                        if internalCat == 'replicant':
-                            # Alias replicant to service
-                            internalCat = 'service'
-                        if resName not in asConf.get( 'resources', {} ).get( internalCat, [] ):
-                            fullResName = '%s/%s' % ( cat, resName )
-                            if not isDryRun:
-                                self._man.unsubscribeFromResource( fullResName )
-                            yield ( '-', 'resource', fullResName )
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
