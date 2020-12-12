@@ -11,6 +11,7 @@ from .Manager import ROOT_URL
 import uuid
 import sys
 import json
+import yaml
 
 class Net( object ):
     '''Representation of a limacharlie.io Net.'''
@@ -51,6 +52,47 @@ class Net( object ):
             req[ 'sid' ] = sid
         return self._manager._apiCall( 'net/usage', GET, queryParams = req, altRoot = ROOT_URL )
 
+    def getPolicies( self ):
+        '''Get active Net policies.
+
+        Args:
+            sid (str): optional, specifies which sensor id to get the information about, entire org otherwise.
+        Returns:
+            dict of all policies.
+        '''
+        req = {
+            'oid': self._manager._oid,
+        }
+        return self._manager._apiCall( 'net/policy', GET, queryParams = req, altRoot = ROOT_URL ).get( 'policies', {} )
+
+    def setPolicy( self, name, polType, policy ):
+        '''Set new Net policy.
+
+        Args:
+            name (str): policy name.
+            polType (str): policy type.
+            policy (dict): policy content.
+        '''
+        req = {
+            'oid': self._manager._oid,
+            'name': name,
+            'type': polType,
+            'policy': policy,
+        }
+        return self._manager._apiCall( 'net/policy', POST, queryParams = req, altRoot = ROOT_URL )
+
+    def delPolicy( self, name ):
+        '''Delete active Net policy.
+
+        Args:
+            name (str): name of the policy to delete.
+        '''
+        req = {
+            'oid': self._manager._oid,
+            'name': name,
+        }
+        return self._manager._apiCall( 'net/policy', DELETE, queryParams = req, altRoot = ROOT_URL )
+
 def main( sourceArgs = None ):
     import argparse
 
@@ -59,6 +101,7 @@ def main( sourceArgs = None ):
 
     objects = {
         'client' : subparsers.add_parser( 'client', help = 'working with clients' ),
+        'policy' : subparsers.add_parser( 'policy', help = 'working with policies' ),
     }
 
     # client
@@ -85,6 +128,31 @@ def main( sourceArgs = None ):
                                       default = None,
                                       help = 'sensor id of the client to get the usage for, otherwise entire org is reported' )
 
+    # policy
+    subparsers_policy = objects[ 'policy' ].add_subparsers( dest = 'action', help = 'action to take' )
+
+    # policy:get
+    parser_client_usage = subparsers_policy.add_parser( 'get', help = 'get policies' )
+
+    # policy:set
+    parser_client_usage = subparsers_policy.add_parser( 'set', help = 'set policy' )
+    parser_client_usage.add_argument( 'name', type = str, help = 'policy name' )
+    parser_client_usage.add_argument( 'type', type = str, help = 'policy type' )
+    parser_client_usage.add_argument( '--policy-file',
+                                      type = str,
+                                      default = None,
+                                      dest = 'policyFile',
+                                      help = 'path to file with policy content in JSON or YAML format' )
+    parser_client_usage.add_argument( '--policy',
+                                      type = str,
+                                      default = None,
+                                      dest = 'policy',
+                                      help = 'literal policy content in JSON or YAML format' )
+
+    # policy:delete
+    parser_client_usage = subparsers_policy.add_parser( 'delete', help = 'delete policy' )
+    parser_client_usage.add_argument( 'name', type = str, help = 'policy name' )
+
     args = parser.parse_args( sourceArgs )
 
     if args.object is None:
@@ -100,9 +168,32 @@ def main( sourceArgs = None ):
     def getClientUsage():
         return Net( Manager() ).getUsage( args.sid )
 
+    def getPolicies():
+        return Net( Manager() ).getPolicies()
+
+    def setPoliciy():
+        if args.policy is not None:
+            polContent = args.policy
+        elif args.policyFile is not None:
+            polContent = open( args.policyFile, 'rb' ).read().decode()
+        else:
+            raise argparse.ArgumentTypeError( '--policy or --policy-file required' )
+        pol = None
+        if polContent.startswith( '{' ):
+            pol = json.loads( polContent )
+        else:
+            pol = yaml.safe_load( polContent )
+        return Net( Manager() ).setPoliciy( args.name, args.type, pol )
+
+    def delPolicy():
+        return Net( Manager() ).delPolicy( args.name )
+
     result = {
         'client:provision' : provisionClient,
         'client:usage' : getClientUsage,
+        'policy:get' : getPolicies,
+        'policy:set' : setPoliciy,
+        'policy:delete' : delPolicy,
     }[ '%s:%s' % ( args.object, args.action ) ]()
 
     print( json.dumps( result, indent = 2 ) )
