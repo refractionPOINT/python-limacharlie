@@ -31,6 +31,9 @@ class Sync( object ):
             manager (limacharlie.Manager): Manager object to use instead.
         '''
 
+        sys.stderr.write("Sync is now deprecated in favor of Configs...\n")
+        sys.stderr.flush()
+
         self._confVersion = 2
         if manager is None:
             self._man = Manager( oid = oid, environment = env )

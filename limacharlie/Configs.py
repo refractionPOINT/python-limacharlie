@@ -170,14 +170,17 @@ class Configs( object ):
     def push( self, fromConfigFile, isForce = False, isDryRun = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
-        Users should favor using the "push<Type>()" convenience functions instead of the
-        main "push()" function as they are safer to use in the event support for new
-        data-types is added to the "push()" function.
-
         Args:
             fromConfigFile (str/dict): the path to the config file or dict of a config file content.
             isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
             isDryRun (boolean): if True will only simulate the effect of a push.
+            isRules (boolean): if True, push D&R rules.
+            isFPs (boolean): if True, push False Positive rules.
+            isOutputs (boolean): if True, push Outputs.
+            isIntegrity (boolean): if True, push Integrity rules.
+            isArtifact (boolean): if True, push Artifact rules.
+            isExfil (boolean): if True, push Exfil rules.
+            isResources (boolean): if True, push Resource subscriptions.
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
@@ -471,97 +474,6 @@ class Configs( object ):
                     asConf.setdefault( cat, {} ).update( subCat )
 
         return asConf
-
-    def pushRules( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the D&R rules in a local config file to the effective configuration in the cloud.
-
-        Args:
-            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
-            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
-            isDryRun (boolean): if True will only simulate the effect of a push.
-
-        Returns:
-            a generator of changes as tuple (changeType, dataType, dataName).
-        '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = False, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = True, isResources = True ) )
-
-    def pushFPs( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the FP rules in a local config file to the effective configuration in the cloud.
-
-        Args:
-            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
-            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
-            isDryRun (boolean): if True will only simulate the effect of a push.
-
-        Returns:
-            a generator of changes as tuple (changeType, dataType, dataName).
-        '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = False, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = True, isResources = True ) )
-
-    def pushOutputs( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the outputs in a local config file to the effective configuration in the cloud.
-
-        Args:
-            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
-            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
-            isDryRun (boolean): if True will only simulate the effect of a push.
-
-        Returns:
-            a generator of changes as tuple (changeType, dataType, dataName).
-        '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = False, isIntegrity = True, isArtifact = True, isExfil = True, isResources = True ) )
-
-    def pushIntegrity( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the Integrity configs in a local config file to the effective configuration in the cloud.
-
-        Args:
-            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
-            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
-            isDryRun (boolean): if True will only simulate the effect of a push.
-
-        Returns:
-            a generator of changes as tuple (changeType, dataType, dataName).
-        '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = False, isArtifact = True, isExfil = True, isResources = True ) )
-
-    def pushArtifact( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the Artifact configs in a local config file to the effective configuration in the cloud.
-
-        Args:
-            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
-            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
-            isDryRun (boolean): if True will only simulate the effect of a push.
-
-        Returns:
-            a generator of changes as tuple (changeType, dataType, dataName).
-        '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = False, isExfil = True, isResources = True ) )
-
-    def pushExfil( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the Exfil configs in a local config file to the effective configuration in the cloud.
-
-        Args:
-            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
-            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
-            isDryRun (boolean): if True will only simulate the effect of a push.
-
-        Returns:
-            a generator of changes as tuple (changeType, dataType, dataName).
-        '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = False, isResources = True ) )
-
-    def pushResources( self, fromConfigFile, isForce = False, isDryRun = False ):
-        '''Convenience function to push the Resources configs in a local config file to the effective configuration in the cloud.
-
-        Args:
-            fromConfigFile (str/dict): the path to the config file or dict of a config file content.
-            isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
-            isDryRun (boolean): if True will only simulate the effect of a push.
-
-        Returns:
-            a generator of changes as tuple (changeType, dataType, dataName).
-        '''
-        return list( self.push( fromConfigFile, isForce = isForce, isDryRun = isDryRun, isRules = True, isFPs = True, isOutputs = True, isIntegrity = True, isArtifact = True, isExfil = True, isResources = False ) )
 
 def main( sourceArgs = None ):
     import argparse
