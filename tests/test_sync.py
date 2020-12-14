@@ -18,6 +18,7 @@ def test_sensors( oid, key ):
                 'detect' : {
                     'op' : 'is tagged',
                     'tag' : 'test-tag-python-sync',
+                    'event' : 'NEW_PROCESS',
                 },
                 'respond' : [ {
                     'action' : 'report',
@@ -41,6 +42,7 @@ def test_sensors( oid, key ):
         'detect' : {
             'op' : 'is tagged',
             'tag' : 'test-tag-python-sync',
+            'event' : 'NEW_PROCESS',
         },
         'respond' : [ {
             'action' : 'report',
