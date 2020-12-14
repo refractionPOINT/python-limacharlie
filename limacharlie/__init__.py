@@ -64,6 +64,7 @@ from .Firehose import Firehose
 from .Spout import Spout
 from .Webhook import Webhook
 from .Sync import Sync
+from .Configs import Configs
 from .SpotCheck import SpotCheck
 from .Payloads import Payloads
 from .Logs import Logs
