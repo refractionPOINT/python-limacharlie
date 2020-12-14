@@ -4,6 +4,14 @@ limacharlie package
 Submodules
 ----------
 
+limacharlie.Configs module
+--------------------------
+
+.. automodule:: limacharlie.Configs
+    :members:
+    :no-undoc-members:
+    :show-inheritance:
+
 limacharlie.Firehose module
 ---------------------------
 
