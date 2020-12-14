@@ -132,8 +132,8 @@ The `Search` object allows you to perform an IOC search across multiple organiza
 The `SpotCheck` object (sometimes called Fleet Check) allows you to manage an active (query sensors directly
 as opposed to searching on indexed historical data) search for various IOCs on an organization's sensors.
 
-#### Sync
-The `Sync` is used to retrieve an organization's configuration as a config file, or apply
+#### Configs
+The `Configs` is used to retrieve an organization's configuration as a config file, or apply
 an existing config file to an organization. This is the concept of Infrastructure As Code.
 
 #### Webhook
@@ -167,14 +167,14 @@ allows you to get ad-hoc output like the Firehose, but it also works through NAT
 It is MUCH more convenient for short term ad-hoc outputs, but it is less reliable than a Firehose for
 very large amounts of data.
 
-#### Sync
-`limacharlie sync fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+#### Configs
+`limacharlie configs fetch --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
-`limacharlie sync push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
+`limacharlie configs push --dry-run --oid c82e5c17-d519-4ef5-a4ac-c454a95d31ca`
 
 The `fetch` command will get a list of the Detection & Response rules in your
 organization and will write them to the config file specified or the default
-config file `LCConf` in YAML format.
+config file `lc_conf.yaml` in YAML format.
 
 Then `push` can upload the rules specified in the config file (or the default one)
 to your organization. The optional `--force` argument will remove active rules not
@@ -185,11 +185,11 @@ The `--config` allows you to specify an alternate config file and the `--api-key
 you to specify a file on disk where the API should be read from (otherwise, of if `-` is
 specified as a file, the API Key is read from STDIN).
 
-All these capabilities are also supported directly by the `limacharlie.Sync` object.
+All these capabilities are also supported directly by the `limacharlie.Configs` object.
 
 The Sync functionality currently supports all common useful configurations. The `--no-rules` and
 `--no-outputs` flags can be used to ignore one or the other in config files and sync. Additional
-flags are also supported, see `limacharlie sync --help`.
+flags are also supported, see `limacharlie configs --help`.
 
 To understand better the config format, do a `fetch` from your organization or have
 a look at the [samples](limacharlie/sample_configs/). Notice the use of the `include`

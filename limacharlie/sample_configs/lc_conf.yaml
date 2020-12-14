@@ -1,4 +1,4 @@
-version: 1
+version: 3
 include:
   - subsets/secondary.yml
 rules:
@@ -33,10 +33,10 @@ rules:
       command: history_dump
   shadow-volume-tampering:
     detect:
+      event: NEW_PROCESS
       op: and
       rules:
-      - event: NEW_PROCESS
-        op: is windows
+      - op: is windows
       - op: or
         rules:
         - op: and
