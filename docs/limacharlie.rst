@@ -100,14 +100,6 @@ limacharlie.Spout module
     :no-undoc-members:
     :show-inheritance:
 
-limacharlie.Sync module
------------------------
-
-.. automodule:: limacharlie.Sync
-    :members:
-    :no-undoc-members:
-    :show-inheritance:
-
 limacharlie.Webhook module
 --------------------------
 
