@@ -76,6 +76,7 @@ def test_rules( oid, key ):
     assert( {} == lc.add_rule( testRuleName, {
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
+        'event' : 'NEW_PROCESS',
     }, [ {
         'action' : 'report',
         'name' : 'test-sdk-detection',
@@ -104,6 +105,7 @@ def test_rules_namespace( oid, key ):
     assert( {} == lc.add_rule( testRuleName, {
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
+        'event' : 'NEW_PROCESS',
     }, [ {
         'action' : 'report',
         'name' : 'test-sdk-detection',
