@@ -12,6 +12,7 @@ import uuid
 import sys
 import json
 import yaml
+import os
 
 class Net( object ):
     '''Representation of a limacharlie.io Net.'''
@@ -107,19 +108,29 @@ def main( sourceArgs = None ):
     # client
     subparsers_client = objects[ 'client' ].add_subparsers( dest = 'action', help = 'action to take' )
 
-    # client:create
-    parser_client_create = subparsers_client.add_parser( 'provision', help = 'provision a new client' )
-    parser_client_create.add_argument( 'iid', type = str, help = 'installation key id' )
-    parser_client_create.add_argument( '--name',
-                                       nargs = '+',
-                                       dest = 'names',
-                                       help = 'client name (hostname or email)' )
-    parser_client_create.add_argument( '--is-email-user',
-                                       action = 'store_true',
-                                       default = False,
-                                       required = False,
-                                       dest = 'isEmail',
-                                       help = 'if set, limacharlie will email users creds directly' )
+    # client:provision
+    parser_client_provision = subparsers_client.add_parser( 'provision', help = 'provision a new client' )
+    parser_client_provision.add_argument( 'iid', type = str, help = 'installation key id' )
+    parser_client_provision.add_argument( '--name',
+                                          nargs = '+',
+                                          dest = 'names',
+                                          help = 'client name (hostname or email)' )
+    parser_client_provision.add_argument( '--name-file',
+                                          type = str,
+                                          default = None,
+                                          dest = 'nameFile',
+                                          help = 'file containing newline-separated names to provision' )
+    parser_client_provision.add_argument( '--output',
+                                          type = str,
+                                          default = '-',
+                                          dest = 'output',
+                                          help = 'output directory where to put new config files, or "-" for stdout' )
+    parser_client_provision.add_argument( '--is-email-user',
+                                          action = 'store_true',
+                                          default = False,
+                                          required = False,
+                                          dest = 'isEmail',
+                                          help = 'if set, limacharlie will email users creds directly' )
 
     # client:usage
     parser_client_usage = subparsers_client.add_parser( 'usage', help = 'get client usage information' )
@@ -163,7 +174,20 @@ def main( sourceArgs = None ):
         sys.exit( 1 )
 
     def provisionClient():
-        return Net( Manager() ).provision( args.iid, args.names, isEmailUserDirectly = args.isEmail )
+        names = []
+        if args.nameFile is not None:
+            with open( args.nameFile, 'rb' ) as f:
+                names = [ name.strip() for name in f.read().decode().split( '\n' ) ]
+        else:
+            names = args.names
+        ret = Net( Manager() ).provision( args.iid, names, isEmailUserDirectly = args.isEmail )
+        if args.output == '-':
+            return ret
+        for prov in ret.get( 'provisioned', [] ):
+            outPath = os.path.join( args.output, "%s_%s_%s" % ( prov[ 'oid' ], prov[ 'sid' ], prov[ 'sensor'][ 'name' ] ) )
+            with open( outPath, 'wb' ) as f:
+                f.write( prov[ 'sensor' ][ 'wg_config' ].encode() )
+        return {}
 
     def getClientUsage():
         return Net( Manager() ).getUsage( args.sid )
