@@ -38,6 +38,17 @@ class Net( object ):
         }
         return self._manager._apiCall( 'net/provision', POST, req, altRoot = ROOT_URL )
 
+    def getStatus( self ):
+        '''Get the status of Net for this organization.
+
+        Returns:
+            whether the organization has Net enabled or not.
+        '''
+        req = {
+            'oid': self._manager._oid,
+        }
+        return self._manager._apiCall( 'net/status', GET, queryParams = req, altRoot = ROOT_URL )
+
     def getUsage( self, sid = None ):
         '''Get usage information for Net sensor.
 
@@ -78,9 +89,9 @@ class Net( object ):
             'oid': self._manager._oid,
             'name': name,
             'type': polType,
-            'policy': policy,
+            'policy': json.dumps( policy ),
         }
-        return self._manager._apiCall( 'net/policy', POST, queryParams = req, altRoot = ROOT_URL )
+        return self._manager._apiCall( 'net/policy', POST, req, altRoot = ROOT_URL )
 
     def delPolicy( self, name ):
         '''Delete active Net policy.
@@ -107,6 +118,9 @@ def main( sourceArgs = None ):
 
     # client
     subparsers_client = objects[ 'client' ].add_subparsers( dest = 'action', help = 'action to take' )
+
+    # client:status
+    parser_client_status = subparsers_client.add_parser( 'status', help = 'get net status' )
 
     # client:provision
     parser_client_provision = subparsers_client.add_parser( 'provision', help = 'provision a new client' )
@@ -173,6 +187,9 @@ def main( sourceArgs = None ):
         objects[ args.object ].print_help()
         sys.exit( 1 )
 
+    def getStatus():
+        return Net( Manager() ).getStatus()
+
     def provisionClient():
         names = []
         if args.nameFile is not None:
@@ -195,7 +212,7 @@ def main( sourceArgs = None ):
     def getPolicies():
         return Net( Manager() ).getPolicies()
 
-    def setPoliciy():
+    def setPolicy():
         if args.policy is not None:
             polContent = args.policy
         elif args.policyFile is not None:
@@ -207,16 +224,17 @@ def main( sourceArgs = None ):
             pol = json.loads( polContent )
         else:
             pol = yaml.safe_load( polContent )
-        return Net( Manager() ).setPoliciy( args.name, args.type, pol )
+        return Net( Manager() ).setPolicy( args.name, args.type, pol )
 
     def delPolicy():
         return Net( Manager() ).delPolicy( args.name )
 
     result = {
+        'client:status' : getStatus,
         'client:provision' : provisionClient,
         'client:usage' : getClientUsage,
         'policy:get' : getPolicies,
-        'policy:set' : setPoliciy,
+        'policy:set' : setPolicy,
         'policy:delete' : delPolicy,
     }[ '%s:%s' % ( args.object, args.action ) ]()
 
