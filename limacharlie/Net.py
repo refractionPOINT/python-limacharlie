@@ -139,7 +139,7 @@ def main( sourceArgs = None ):
                                           default = '-',
                                           dest = 'output',
                                           help = 'output directory where to put new config files, or "-" for stdout' )
-    parser_client_provision.add_argument( '--is-email-user',
+    parser_client_provision.add_argument( '--email-user',
                                           action = 'store_true',
                                           default = False,
                                           required = False,
