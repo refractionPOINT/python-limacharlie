@@ -77,13 +77,14 @@ class Net( object ):
         }
         return self._manager._apiCall( 'net/policy', GET, queryParams = req, altRoot = ROOT_URL ).get( 'policies', {} )
 
-    def setPolicy( self, name, polType, policy ):
+    def setPolicy( self, name, polType, policy, expiresOn = None ):
         '''Set new Net policy.
 
         Args:
             name (str): policy name.
             polType (str): policy type.
             policy (dict): policy content.
+            expiresOn (int): optional second epoch when the policy should become invalid.
         '''
         req = {
             'oid': self._manager._oid,
@@ -91,6 +92,8 @@ class Net( object ):
             'type': polType,
             'policy': json.dumps( policy ),
         }
+        if expiresOn is not None:
+            req[ 'expires_on' ] = int( expiresOn )
         return self._manager._apiCall( 'net/policy', POST, req, altRoot = ROOT_URL )
 
     def delPolicy( self, name ):
@@ -110,6 +113,13 @@ def main( sourceArgs = None ):
 
     parser = argparse.ArgumentParser( prog = 'limacharlie net' )
     subparsers = parser.add_subparsers( dest = 'object', help = 'object to work with' )
+
+    parser.add_argument( '--yaml-output',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'isYaml',
+                         help = 'if set, output will be in yaml format instead of json' )
 
     objects = {
         'client' : subparsers.add_parser( 'client', help = 'working with clients' ),
@@ -163,6 +173,11 @@ def main( sourceArgs = None ):
     parser_client_usage = subparsers_policy.add_parser( 'set', help = 'set policy' )
     parser_client_usage.add_argument( 'name', type = str, help = 'policy name' )
     parser_client_usage.add_argument( 'type', type = str, help = 'policy type' )
+    parser_client_usage.add_argument( '--expires-on',
+                                      type = int,
+                                      default = None,
+                                      dest = 'expiresOn',
+                                      help = 'optional second epoch when the policy should expire' )
     parser_client_usage.add_argument( '--policy-file',
                                       type = str,
                                       default = None,
@@ -224,7 +239,7 @@ def main( sourceArgs = None ):
             pol = json.loads( polContent )
         else:
             pol = yaml.safe_load( polContent )
-        return Net( Manager() ).setPolicy( args.name, args.type, pol )
+        return Net( Manager() ).setPolicy( args.name, args.type, pol, expiresOn = args.expiresOn )
 
     def delPolicy():
         return Net( Manager() ).delPolicy( args.name )
@@ -238,7 +253,10 @@ def main( sourceArgs = None ):
         'policy:delete' : delPolicy,
     }[ '%s:%s' % ( args.object, args.action ) ]()
 
-    print( json.dumps( result, indent = 2 ) )
+    if args.isYaml:
+        print( yaml.safe_dump( result, default_flow_style = False ) )
+    else:
+        print( json.dumps( result, indent = 2 ) )
 
 if __name__ == '__main__':
     main()
