@@ -16,6 +16,8 @@ GET = 'GET'
 POST = 'POST'
 DELETE = 'DELETE'
 PUT = 'PUT'
+HEAD = 'HEAD'
+PATCH = 'PATCH'
 
 class FutureResults( object ):
     '''Represents a Future promise of results from a task sent to a Sensor.'''
@@ -168,7 +170,7 @@ def _x_( o, path, isWildcardDepth = False ):
 
 def _isStringCompat( s ):
     if _IS_PYTHON_2:
-        return isinstance( s, ( str, unicode ) )
+        return isinstance( s, ( str, unicode ) ) # noqa: F821
     return isinstance( s, str )
 
 def parallelExec( f, objects, timeout = None, maxConcurrent = None ):

@@ -187,6 +187,12 @@ def main():
         _sensor = _man.sensor( str( args.sid ) )
         for event in _sensor.getHistoricEvents( args.start, args.end, limit = args.limit, eventType = args.eventType ):
             print( json.dumps( event ) )
+    elif args.action.lower() == 'comms':
+        from .Comms import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'net':
+        from .Net import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     else:
         raise Exception( 'invalid action' )
 
