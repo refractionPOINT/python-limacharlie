@@ -69,5 +69,6 @@ from .Payloads import Payloads
 from .Logs import Logs
 from .Logs import Logs as Artifacts
 from .Comms import Comms
+from .Net import Net
 from .utils import LcApiException
 from . import Replicants as services
