@@ -64,6 +64,16 @@ class Net( object ):
             req[ 'sid' ] = sid
         return self._manager._apiCall( 'net/usage', GET, queryParams = req, altRoot = ROOT_URL )
 
+    def getApplicablePolicies( self, sid ):
+        '''Get policies that apply to Net sensor.
+
+        Args:
+            sid (str): sensor id to get the policies for.
+        Returns:
+            policy names.
+        '''
+        return self._manager._apiCall( 'net/policy/applicable/%s' % ( sid, ), GET, altRoot = ROOT_URL )
+
     def getPolicies( self ):
         '''Get active Net policies.
 
@@ -163,6 +173,12 @@ def main( sourceArgs = None ):
                                       default = None,
                                       help = 'sensor id of the client to get the usage for, otherwise entire org is reported' )
 
+    # client:policies
+    parser_client_policies = subparsers_client.add_parser( 'policies', help = 'get policies that apply to client' )
+    parser_client_policies.add_argument( 'sid',
+                                         type = str,
+                                         help = 'sensor id of the client to get the policies of' )
+
     # policy
     subparsers_policy = objects[ 'policy' ].add_subparsers( dest = 'action', help = 'action to take' )
 
@@ -224,6 +240,9 @@ def main( sourceArgs = None ):
     def getClientUsage():
         return Net( Manager() ).getUsage( args.sid )
 
+    def getClientPolicies():
+        return Net( Manager() ).getApplicablePolicies( args.sid )
+
     def getPolicies():
         return Net( Manager() ).getPolicies()
 
@@ -248,6 +267,7 @@ def main( sourceArgs = None ):
         'client:status' : getStatus,
         'client:provision' : provisionClient,
         'client:usage' : getClientUsage,
+        'client:policies' : getClientPolicies,
         'policy:get' : getPolicies,
         'policy:set' : setPolicy,
         'policy:delete' : delPolicy,
