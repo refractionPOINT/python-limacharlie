@@ -137,7 +137,10 @@ class SpotCheck( object ):
                         break
                 if isNegativeMatch:
                     continue
-                if not isTagsMatch and len( self._tags ) != 0:
+                # If no + tags are specified, we match
+                # if all normal tags are there OR if no
+                # normal tags are specified.
+                if not isTagsMatch and len( self._positiveTags ) == 0:
                     if all( [ ( x in sensorTags ) for x in self._tags ] ):
                         isTagsMatch = True
                 if not isTagsMatch:
@@ -236,7 +239,7 @@ if __name__ == "__main__":
                          dest = 'is_chrome',
                          help = 'do NOT apply to Chrome agents.' )
     parser.add_argument( '--tags',
-                         type = lambda x: [ _.strip().lower() for _ in x.split( ',' ) ],
+                         type = lambda x: [ _.strip().lower() for _ in x.split( ',' ) if _.strip() != '' ],
                          required = False,
                          default = None,
                          dest = 'tags',
