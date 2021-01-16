@@ -140,7 +140,7 @@ class SpotCheck( object ):
                 # If no + tags are specified, we match
                 # if all normal tags are there OR if no
                 # normal tags are specified.
-                if not isTagsMatch and len( self._positiveTags ) == 0:
+                if ( not isTagsMatch ) and ( len( self._positiveTags ) == 0 or len( self._tags ) != 0 ):
                     if all( [ ( x in sensorTags ) for x in self._tags ] ):
                         isTagsMatch = True
                 if not isTagsMatch:
