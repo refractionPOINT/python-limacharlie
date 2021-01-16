@@ -29,7 +29,7 @@ class SpotCheck( object ):
             is_linux (boolean): if True checks apply to Linux sensors, defaults to True.
             is_macos (boolean): if True checks apply to MacOS sensors, defaults to True.
             is_chrome (boolean): if True checks apply to Chrome sensors, defaults to True.
-            tags (str): comma-seperated list of tags sensors to check must have.
+            tags (str): comma-seperated list of tags, sensors must have: either one tag with the "+" prefix, not include all tags with "-" prefix, or the sensor has all tags specified without prefix.
         '''
         self._cbCheck = cb_check
         self._cbOnCheckDone = cb_on_check_done
@@ -44,7 +44,17 @@ class SpotCheck( object ):
         self._isMacos = is_macos
         self._isChrome = is_chrome
 
-        self._tags = tags
+        self._tags = []
+        self._positiveTags = []
+        self._negativeTags = []
+        if tags is not None:
+            for tag in tags:
+                if tag.startswith( '+' ):
+                    self._positiveTags.append( tag[1:] )
+                elif tag.startswith( '-' ):
+                    self._negativeTags.append( tag[1:] )
+                else:
+                    self._tags.append( tag )
 
         self._threads = gevent.pool.Group()
         self._stopEvent = gevent.event.Event()
@@ -113,9 +123,24 @@ class SpotCheck( object ):
                     continue
 
             # If tags were set, check the sensor have them.
-            if self._tags is not None:
+            if len( self._tags ) != 0 or len( self._positiveTags ) != 0 or len( self._negativeTags ) != 0:
                 sensorTags = sensor.getTags()
-                if not all( [ ( x in sensorTags ) for x in self._tags ] ):
+                isTagsMatch = False
+                for tag in self._positiveTags:
+                    if tag in sensorTags:
+                        isTagsMatch = True
+                        break
+                isNegativeMatch = False
+                for tag in self._negativeTags:
+                    if tag in sensorTags:
+                        isNegativeMatch = True
+                        break
+                if isNegativeMatch:
+                    continue
+                if not isTagsMatch and len( self._tags ) != 0:
+                    if all( [ ( x in sensorTags ) for x in self._tags ] ):
+                        isTagsMatch = True
+                if not isTagsMatch:
                     continue
 
             # Check to see if the sensor is online.
@@ -215,7 +240,7 @@ if __name__ == "__main__":
                          required = False,
                          default = None,
                          dest = 'tags',
-                         help = 'comma-seperated list of tags of the agents to check.' )
+                         help = 'comma-seperated list of tags, sensors must have: either one tag with the "+" prefix, not include all tags with "-" prefix, or the sensor has all tags specified without prefix.' )
     parser.add_argument( '--extra-params',
                          type = lambda x: json.loads( x ),
                          required = False,
