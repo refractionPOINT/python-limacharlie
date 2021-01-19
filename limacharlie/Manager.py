@@ -1035,6 +1035,21 @@ class Manager( object ):
         data = self._apiCall( 'export/%s/sensors' % ( self._oid, ), POST, {} )
         return data
 
+    def createNewOrg( self, name, location ):
+        '''Request the creation of a new organization.
+
+        Args:
+            name (str): organization name.
+            location (str): location where the organization is created.
+        Returns:
+            dict of info on new organization.
+        '''
+        data = self._apiCall( 'orgs/new', POST, {
+            'name' : name,
+            'loc' : location,
+        } )
+        return data
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
