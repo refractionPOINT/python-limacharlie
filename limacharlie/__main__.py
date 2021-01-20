@@ -193,6 +193,22 @@ def main():
     elif args.action.lower() == 'net':
         from .Net import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'create_org':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie create_org' )
+        parser.add_argument( 'name',
+                             type = str,
+                             help = 'name of the organization to create.' )
+        parser.add_argument( '--location',
+                             type = str,
+                             default = None,
+                             dest = 'loc',
+                             help = 'location where to create the organization, omit to get location list.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        res = _man.createNewOrg( args.name, args.loc )
+        print( json.dumps( res, indent = 2 ) )
     else:
         raise Exception( 'invalid action' )
 

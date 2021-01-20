@@ -77,20 +77,21 @@ class Manager( object ):
         else:
             # Otherwise, try to take the values in parameter. But if
             # they are not present, use the GLOBAL values.
-            if oid is None:
-                if GLOBAL_OID is None:
-                    raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
-                oid = GLOBAL_OID
             if uid is None:
                 if GLOBAL_UID is not None:
                     uid = GLOBAL_UID
+            if oid is None:
+                if GLOBAL_OID is None and uid is None:
+                    raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
+                oid = GLOBAL_OID
             if secret_api_key is None and jwt is None:
                 if GLOBAL_API_KEY is None:
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 secret_api_key = GLOBAL_API_KEY
 
         try:
-            uuid.UUID( oid )
+            if oid is not None:
+                uuid.UUID( oid )
         except:
             raise LcApiException( 'Invalid oid, should be in UUID format.' )
         try:

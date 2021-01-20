@@ -20,13 +20,14 @@ class Net( object ):
     def __init__( self, manager ):
         self._manager = manager
 
-    def provision( self, iid, names, isEmailUserDirectly = False ):
+    def provision( self, iid, names, isEmailUserDirectly = False, withinIPRange = None ):
         '''Provision a new LimaCharlie Net sensor.
 
         Args:
             iid (str): installation key id to use to provision the sensor.
             name (list of str): name(s) to give (used as hostname) to sensor, use email address of user if you use isEmailUserDirectly.
             isEmailUserDirectly (bool): if True, LimaCharlie will email the user set as "name" directly with the credentials.
+            withinIPRange (str): optional IP CIDR range where you prefer the provisioned clients to be in.
         Returns:
             provisioning information.
         '''
@@ -36,6 +37,8 @@ class Net( object ):
             'name': names,
             'is_email_to_user': 'true' if isEmailUserDirectly else 'false',
         }
+        if withinIPRange is not None:
+            req[ 'within_range' ] = withinIPRange
         return self._manager._apiCall( 'net/provision', POST, req, altRoot = ROOT_URL )
 
     def getStatus( self ):
