@@ -573,6 +573,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isForce',
                          help = 'if specified, in a push will remove all rules not in the config file' )
+    parser.add_argument( '-i', '--ignore-inaccessible',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isIgnoreInaccessible',
+                         help = 'if specified, in a push will ignore inaccessible (locked) resources even if --force is specified' )
     parser.add_argument( '--dry-run',
                          required = False,
                          default = False,
@@ -641,7 +647,7 @@ def main( sourceArgs = None ):
     if 'fetch' == args.action:
         s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
