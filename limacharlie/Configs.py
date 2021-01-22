@@ -83,6 +83,13 @@ class Configs( object ):
 
         return True
 
+    def _ignoreLockErrors( self, e, isIgnoreInaccessible ):
+        if not isIgnoreInaccessible:
+            return False
+        if 'lock' in str( e ).lower():
+            return True
+        return False
+
     def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
@@ -167,13 +174,14 @@ class Configs( object ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
             fromConfigFile (str/dict): the path to the config file or dict of a config file content.
             isForce (boolean): if True will remove configurations in the cloud that are not present in the local file.
             isDryRun (boolean): if True will only simulate the effect of a push.
+            isIgnoreInaccessible (boolean): if True, ignore inaccessible resources (locked) even when isForce is True.
             isRules (boolean): if True, push D&R rules.
             isFPs (boolean): if True, push False Positive rules.
             isOutputs (boolean): if True, push Outputs.
@@ -262,10 +270,14 @@ class Configs( object ):
                         yield ( '=', 'rule', ruleName )
                         continue
                 if not isDryRun:
-                    if previousNamespace is not None and ruleNamespace != previousNamespace:
-                        # Looks like the rule changed namespace.
-                        self._man.del_rule( ruleName, namespace = previousNamespace )
-                    self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True, namespace = ruleNamespace )
+                    try:
+                        if previousNamespace is not None and ruleNamespace != previousNamespace:
+                            # Looks like the rule changed namespace.
+                            self._man.del_rule( ruleName, namespace = previousNamespace )
+                        self._man.add_rule( ruleName, rule[ 'detect' ], rule[ 'respond' ], isReplace = True, namespace = ruleNamespace )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
                 yield ( '+', 'rule', ruleName )
 
             # If we are not told to isForce, this is it.
@@ -282,7 +294,11 @@ class Configs( object ):
                         continue
                     if ruleName not in asConf.get( 'rules', {} ):
                         if not isDryRun:
-                            self._man.del_rule( ruleName, namespace = rule.get( 'namespace', 'general' ) )
+                            try:
+                                self._man.del_rule( ruleName, namespace = rule.get( 'namespace', 'general' ) )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
                         yield ( '-', 'rule', ruleName )
 
         if isFPs:
@@ -299,7 +315,11 @@ class Configs( object ):
                         yield ( '=', 'fp', ruleName )
                         continue
                 if not isDryRun:
-                    self._man.add_fp( ruleName, rule[ 'data' ], isReplace = True )
+                    try:
+                        self._man.add_fp( ruleName, rule[ 'data' ], isReplace = True )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
                 yield ( '+', 'fp', ruleName )
 
             # If we are not told to isForce, this is it.
@@ -312,7 +332,11 @@ class Configs( object ):
                     # Ignore special service rules.
                     if ruleName not in asConf.get( 'fps', {} ):
                         if not isDryRun:
-                            self._man.del_fp( ruleName )
+                            try:
+                                self._man.del_fp( ruleName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
                         yield ( '-', 'fp', ruleName )
 
         if isOutputs:
@@ -326,7 +350,11 @@ class Configs( object ):
                         yield ( '=', 'output', outputName )
                         continue
                 if not isDryRun:
-                    self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.items() if k not in ( 'module', 'for' ) } )
+                    try:
+                        self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.items() if k not in ( 'module', 'for' ) } )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
                 yield ( '+', 'output', outputName )
 
             if isForce:
@@ -339,7 +367,11 @@ class Configs( object ):
                         continue
                     if outputName not in asConf.get( 'outputs', {} ):
                         if not isDryRun:
-                            self._man.del_output( outputName )
+                            try:
+                                self._man.del_output( outputName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
                         yield ( '-', 'output', outputName )
 
         if isIntegrity:
@@ -353,10 +385,14 @@ class Configs( object ):
                         yield ( '=', 'integrity', ruleName )
                         continue
                 if not isDryRun:
-                    integrityService.addRule( ruleName,
-                                                patterns = rule[ 'patterns' ],
-                                                tags = rule.get( 'tags', [] ),
-                                                platforms = rule.get( 'platforms', [] ) )
+                    try:
+                        integrityService.addRule( ruleName,
+                                                    patterns = rule[ 'patterns' ],
+                                                    tags = rule.get( 'tags', [] ),
+                                                    platforms = rule.get( 'platforms', [] ) )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
                 yield ( '+', 'integrity', ruleName )
 
             if isForce:
@@ -365,7 +401,11 @@ class Configs( object ):
                 for ruleName, rule in integrityService.getRules().items():
                     if ruleName not in asConf.get( 'integrity', {} ):
                         if not isDryRun:
-                            integrityService.removeRule( ruleName )
+                            try:
+                                integrityService.removeRule( ruleName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
                         yield ( '-', 'integrity', ruleName )
 
         if isArtifact:
@@ -378,12 +418,16 @@ class Configs( object ):
                         yield ( '=', 'artifact', ruleName )
                         continue
                 if not isDryRun:
-                    artifactService.addRule( ruleName,
-                                              patterns = rule[ 'patterns' ],
-                                              tags = rule.get( 'tags', [] ),
-                                              platforms = rule.get( 'platforms', [] ),
-                                              isDeleteAfter = rule.get( 'is_delete_after', False ),
-                                              isIgnoreCert = rule.get( 'is_ignore_cert', False ) )
+                    try:
+                        artifactService.addRule( ruleName,
+                                                patterns = rule[ 'patterns' ],
+                                                tags = rule.get( 'tags', [] ),
+                                                platforms = rule.get( 'platforms', [] ),
+                                                isDeleteAfter = rule.get( 'is_delete_after', False ),
+                                                isIgnoreCert = rule.get( 'is_ignore_cert', False ) )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
                 yield ( '+', 'artifact', ruleName )
 
             if isForce:
@@ -392,7 +436,11 @@ class Configs( object ):
                 for ruleName, rule in artifactService.getRules().items():
                     if ruleName not in asConf.get( 'artifact', {} ):
                         if not isDryRun:
-                            artifactService.removeRule( ruleName )
+                            try:
+                                artifactService.removeRule( ruleName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
                         yield ( '-', 'artifact', ruleName )
 
         if isExfil:
@@ -405,13 +453,17 @@ class Configs( object ):
                         yield ( '=', 'exfil-watch', ruleName )
                         continue
                 if not isDryRun:
-                    exfilService.addWatchRule( ruleName,
-                                                 event = rule[ 'event' ],
-                                                 operator = rule[ 'operator' ],
-                                                 value = rule[ 'value' ],
-                                                 path = rule[ 'path' ],
-                                                 tags = rule.get( 'tags', [] ),
-                                                 platforms = rule.get( 'platforms', [] ) )
+                    try:
+                        exfilService.addWatchRule( ruleName,
+                                                    event = rule[ 'event' ],
+                                                    operator = rule[ 'operator' ],
+                                                    value = rule[ 'value' ],
+                                                    path = rule[ 'path' ],
+                                                    tags = rule.get( 'tags', [] ),
+                                                    platforms = rule.get( 'platforms', [] ) )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
                 yield ( '+', 'exfil-watch', ruleName )
 
             for ruleName, rule in asConf.get( 'exfil', {} ).get( 'list', {} ).items():
@@ -421,10 +473,14 @@ class Configs( object ):
                         yield ( '=', 'exfil-list', ruleName )
                         continue
                 if not isDryRun:
-                    exfilService.addEventRule( ruleName,
-                                                 events = rule[ 'events' ],
-                                                 tags = rule.get( 'tags', [] ),
-                                                 platforms = rule.get( 'platforms', [] ) )
+                    try:
+                        exfilService.addEventRule( ruleName,
+                                                    events = rule[ 'events' ],
+                                                    tags = rule.get( 'tags', [] ),
+                                                    platforms = rule.get( 'platforms', [] ) )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
                 yield ( '+', 'exfil-list', ruleName )
 
             if isForce:
@@ -433,12 +489,20 @@ class Configs( object ):
                 for ruleName, rule in exfilService.getRules().get( 'watch', {} ).items():
                     if ruleName not in asConf.get( 'exfil', {} ).get( 'watch', {} ):
                         if not isDryRun:
-                            exfilService.removeWatchRule( ruleName )
+                            try:
+                                exfilService.removeWatchRule( ruleName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
                         yield ( '-', 'exfil-watch', ruleName )
                 for ruleName, rule in exfilService.getRules().get( 'list', {} ).items():
                     if ruleName not in asConf[ 'exfil' ].get( 'list', {} ):
                         if not isDryRun:
-                            exfilService.removeEventRule( ruleName )
+                            try:
+                                exfilService.removeEventRule( ruleName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
                         yield ( '-', 'exfil-list', ruleName )
 
     def _loadEffectiveConfig( self, configFile ):
