@@ -46,9 +46,9 @@ def main():
             alias = 'default'
         secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
         if _IS_PYTHON_2:
-            uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' ) # noqa
+            uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' ) # noqa
         else:
-            uid = input( 'If this key is a *user* API key, specify your UID, or leave empter for a normal API key (UUID): ' )
+            uid = input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' )
         try:
             if uid != '':
                 if 20 > len( uid ):
