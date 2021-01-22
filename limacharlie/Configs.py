@@ -537,7 +537,7 @@ class Configs( object ):
                 if subCat is not None:
                     # Check if this config is dictionaries
                     # or lists. They need to be updated differntly.
-                    if len( subCat ) != 0 and isinstance( subCat.values()[ 0 ], ( list, tuple ) ):
+                    if len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
                         for k, v in subCat.items():
                             if v in asConf.setdefault( cat, {} ).setdefault( k, [] ):
                                 continue
