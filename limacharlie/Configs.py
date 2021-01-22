@@ -539,9 +539,10 @@ class Configs( object ):
                     # or lists. They need to be updated differntly.
                     if len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
                         for k, v in subCat.items():
-                            if v in asConf.setdefault( cat, {} ).setdefault( k, [] ):
-                                continue
-                            asConf[ cat ][ k ].append( v )
+                            for val in v:
+                                if val in asConf.setdefault( cat, {} ).setdefault( k, [] ):
+                                    continue
+                                asConf[ cat ][ k ].append( val )
                     else:
                         asConf.setdefault( cat, {} ).update( subCat )
 
