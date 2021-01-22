@@ -535,7 +535,15 @@ class Configs( object ):
             for cat in self._configRoots:
                 subCat = subConf.get( cat, None )
                 if subCat is not None:
-                    asConf.setdefault( cat, {} ).update( subCat )
+                    # Check if this config is dictionaries
+                    # or lists. They need to be updated differntly.
+                    if len( subCat ) != 0 and isinstance( subCat.values()[ 0 ], ( list, tuple ) ):
+                        for k, v in subCat.items():
+                            if v in asConf.setdefault( cat, {} ).setdefault( k, [] ):
+                                continue
+                            asConf[ cat ][ k ].append( v )
+                    else:
+                        asConf.setdefault( cat, {} ).update( subCat )
 
         return asConf
 
