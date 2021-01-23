@@ -168,6 +168,11 @@ def main( sourceArgs = None ):
                                           required = False,
                                           dest = 'isEmail',
                                           help = 'if set, limacharlie will email users creds directly' )
+    parser_client_provision.add_argument( '--within-range',
+                                          type = str,
+                                          default = None,
+                                          dest = 'withinRange',
+                                          help = 'if specified, this IP CIDR range will be favored when attributing an internal IP address in lc-net' )
 
     # client:usage
     parser_client_usage = subparsers_client.add_parser( 'usage', help = 'get client usage information' )
@@ -231,7 +236,7 @@ def main( sourceArgs = None ):
                 names = [ name.strip() for name in f.read().decode().split( '\n' ) ]
         else:
             names = args.names
-        ret = Net( Manager() ).provision( args.iid, names, isEmailUserDirectly = args.isEmail )
+        ret = Net( Manager() ).provision( args.iid, names, isEmailUserDirectly = args.isEmail, withinIPRange = args.withinRange )
         if args.output == '-':
             return ret
         for prov in ret.get( 'provisioned', [] ):
