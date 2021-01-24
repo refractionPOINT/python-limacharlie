@@ -20,7 +20,7 @@ class Net( object ):
     def __init__( self, manager ):
         self._manager = manager
 
-    def provision( self, iid, names, isEmailUserDirectly = False, withinIPRange = None ):
+    def provision( self, iid, names, isEmailUserDirectly = False, withinIPRange = None, excludeLocal = None, dnsServers = None ):
         '''Provision a new LimaCharlie Net sensor.
 
         Args:
@@ -28,6 +28,8 @@ class Net( object ):
             name (list of str): name(s) to give (used as hostname) to sensor, use email address of user if you use isEmailUserDirectly.
             isEmailUserDirectly (bool): if True, LimaCharlie will email the user set as "name" directly with the credentials.
             withinIPRange (str): optional IP CIDR range where you prefer the provisioned clients to be in.
+            excludeLocal (str): optional, by default configs generated for clients route all public IP ranges, this comma separated list of CIDRs describes IP ranges to exclude.
+            dnsServers (str): optional, by default configs generated for clients use the Google Public DNS servers (8.8.8.8 and 8.8.4.4), this comma separated list of DNS servers overrides it if specified.
         Returns:
             provisioning information.
         '''
@@ -39,6 +41,10 @@ class Net( object ):
         }
         if withinIPRange is not None:
             req[ 'within_range' ] = withinIPRange
+        if excludeLocal is not None:
+            req[ 'exclude_local_range' ] = excludeLocal
+        if dnsServers is not None:
+            req[ 'dns_server' ] = dnsServers
         return self._manager._apiCall( 'net/provision', POST, req, altRoot = ROOT_URL )
 
     def getStatus( self ):
@@ -173,6 +179,16 @@ def main( sourceArgs = None ):
                                           default = None,
                                           dest = 'withinRange',
                                           help = 'if specified, this IP CIDR range will be favored when attributing an internal IP address in lc-net' )
+    parser_client_provision.add_argument( '--exclude-local-ranges',
+                                          type = str,
+                                          default = None,
+                                          dest = 'excludeLocal',
+                                          help = 'by default configs generated for clients route all public IP ranges, this comma separated list of CIDRs describes IP ranges to exclude' )
+    parser_client_provision.add_argument( '--dns-servers',
+                                          type = str,
+                                          default = None,
+                                          dest = 'dnsServers',
+                                          help = 'by default configs generated for clients use the Google Public DNS servers (8.8.8.8 and 8.8.4.4), this comma separated list of DNS servers overrides it if specified' )
 
     # client:usage
     parser_client_usage = subparsers_client.add_parser( 'usage', help = 'get client usage information' )
@@ -236,7 +252,7 @@ def main( sourceArgs = None ):
                 names = [ name.strip() for name in f.read().decode().split( '\n' ) ]
         else:
             names = args.names
-        ret = Net( Manager() ).provision( args.iid, names, isEmailUserDirectly = args.isEmail, withinIPRange = args.withinRange )
+        ret = Net( Manager() ).provision( args.iid, names, isEmailUserDirectly = args.isEmail, withinIPRange = args.withinRange, excludeLocal = args.excludeLocal, dnsServers = args.dnsServers )
         if args.output == '-':
             return ret
         for prov in ret.get( 'provisioned', [] ):
