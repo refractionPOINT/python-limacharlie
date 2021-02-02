@@ -112,17 +112,17 @@ in real-time, use the interactive mode (as mentioned in the `Spout`) and use eit
 the `request` function to receive replies through a `FutureResults` object or the
 `simpleRequest` to wait for the response and receive it as a return value.
 
-#### Logs
-The `Logs` is a helpful class to upload [external logs](https://doc.limacharlie.io/en/master/external_logs/)
+#### Artifacts
+The `Artifacts` is a helpful class to upload [Artifact Collection](https://doc.limacharlie.io/docs/documentation/docs/external_logs.md)
 to LimaCharlie without going through a sensor.
 
 #### Payloads
-The `Payloads` can be used to manage various executable [payloads](https://doc.limacharlie.io/en/master/payloads/)
+The `Payloads` can be used to manage various executable [payloads](https://doc.limacharlie.io/docs/documentation/docs/payloads.md)
 accessible to sensors.
 
 #### Replay
-The `Replay` object allows you to interact with [Replay](https://doc.limacharlie.io/en/master/replay/)
-jobs managed by LimaCharlie. These allow you to re-run [D&R Rules](https://doc.limacharlie.io/en/master/dr/)
+The `Replay` object allows you to interact with [Replay](https://doc.limacharlie.io/docs/documentation/docs/replay.md)
+jobs managed by LimaCharlie. These allow you to re-run [D&R Rules](https://doc.limacharlie.io/docs/documentation/docs/dr.md)
 on historical data.
 
 #### Search
@@ -209,19 +209,19 @@ For detailed usage: `python -m limacharlie.SpotCheck --help`
 `limacharlie search --help`
 Shortcut utility to perform IOC searches across all locally configured organizations.
 
-#### Logs Upload
-`limacharlie logs upload --help`
-Shortcut utility to upload [External Logs](https://doc.limacharlie.io/en/master/external_logs/) directly to
+#### Artifact Upload
+`limacharlie artifacts upload --help`
+Shortcut utility to upload [Artifact Collection](https://doc.limacharlie.io/docs/documentation/docs/external_logs.md) directly to
 LimaCharlie with just the CLI (no Agent).
 
-#### Logs Download
-`limacharlie logs get_original --help`
-Shortcut utility to download [External Logs](https://doc.limacharlie.io/en/master/external_logs/) in
+#### Artifact Download
+`limacharlie artifacts get_original --help`
+Shortcut utility to download [Artifact Collection](https://doc.limacharlie.io/docs/documentation/docs/external_logs.md) in
 LimaCharlie locally.
 
 #### Replay
 `limacharlie replay --help`
-Shortcut utility to perform [Replay](https://doc.limacharlie.io/en/master/replay/) jobs from the CLI.
+Shortcut utility to perform [Replay](https://doc.limacharlie.io/docs/documentation/docs/replay.md) jobs from the CLI.
 
 #### Detection & Response
 `limacharlie dr --help`
