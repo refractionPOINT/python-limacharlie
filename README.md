@@ -23,7 +23,7 @@ in the REST API that you would like to use, let us know at support@limacharlie.i
 Authenticating to use the SDK / CLI can be done in a few ways.
 
 #### Logging In
-The simplest is to login to an organization using an [API key](https://doc.limacharlie.io/en/master/api_keys/).
+The simplest is to login to an organization using an [API key](https://doc.limacharlie.io/docs/documentation/docs/api_keys.md).
 
 Use `limacharlie login` to store credentials locally. You will need an `OID` (Organization ID) and an API key, both
 of which you can get from the "REST API" section of the web interface.
