@@ -141,10 +141,10 @@ The `Webhook` object demonstrates handling webhooks emited by the LimaCharlie cl
 verifying the shared-secret signing of the webhooks.
 
 ### Examples:
-* [Basic Manager Operations](limacharlie/demo_manager.py)
-* [Basic Firehose Operations](limacharlie/demo_firehose.py)
-* [Basic Spout Operations](limacharlie/demo_spout.py)
-* [Basic Integrated Operations](limacharlie/demo_interactive_sensor.py)
+* [Basic Manager Operations](samples/demo_manager.py)
+* [Basic Firehose Operations](samples/demo_firehose.py)
+* [Basic Spout Operations](samples/demo_spout.py)
+* [Basic Integrated Operations](samples/demo_interactive_sensor.py)
 * [Rules Config Syncing](limacharlie/sample_configs/)
 
 ## Command Line Interface
