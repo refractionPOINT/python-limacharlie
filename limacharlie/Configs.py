@@ -80,7 +80,7 @@ class Configs( object ):
         return rule
 
     def _coreNetPolicyContent( self, rule ):
-        rule = rule[ 'policy' ]
+        rule = { k : v for k, v in rule.items() if k in ( 'policy', 'type' ) }
         return rule
 
     def _isJsonEqual( self, a, b ):
@@ -187,7 +187,7 @@ class Configs( object ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -202,6 +202,7 @@ class Configs( object ):
             isArtifact (boolean): if True, push Artifact rules.
             isExfil (boolean): if True, push Exfil rules.
             isResources (boolean): if True, push Resource subscriptions.
+            isNetPolicy (boolean): if True, push Net Policies.
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
@@ -517,6 +518,43 @@ class Configs( object ):
                                 if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
                                     raise
                         yield ( '-', 'exfil-list', ruleName )
+        if isNetPolicy:
+            # Get the current policies, we will try not to push for no reason.
+            currentRules = { k : self._coreNetPolicyContent( v ) for k, v in Net( self._man ).getPolicies().items() }
+
+            # Start by adding the rules with isReplace.
+            for polName, policy in asConf.get( 'net-policies', {} ).items():
+                policy = self._coreNetPolicyContent( policy )
+                # Check to see if it is already in the current policies and in the right format.
+                if polName in currentRules:
+                    if self._isJsonEqual( policy, currentRules[ polName ] ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'net-pol', polName )
+                        continue
+                if not isDryRun:
+                    try:
+                        Net( self._man ).setPolicy( polName, policy[ 'name' ], policy[ 'type' ] )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
+                yield ( '+', 'net-pol', polName )
+
+            # If we are not told to isForce, this is it.
+            if isForce:
+                currentRules = Net( self._man ).getPolicies()
+
+                # Now if isForce was specified, list existing rules and remove the ones
+                # not in our list.
+                for polName, policy in currentRules.items():
+                    # Ignore special service rules.
+                    if polName not in asConf.get( 'net-policies', {} ):
+                        if not isDryRun:
+                            try:
+                                Net( self._man ).delPolicy( polName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
+                        yield ( '-', 'net-pol', polName )
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
