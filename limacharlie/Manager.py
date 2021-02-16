@@ -355,7 +355,7 @@ class Manager( object ):
             s.setInvId( self._inv_id )
         return s
 
-    def sensors( self, inv_id = None, is_next = False ):
+    def sensors( self, inv_id = None ):
         '''Gets all Sensors in the Organization.
 
         The sensors may or may not be online.

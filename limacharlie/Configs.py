@@ -2,6 +2,7 @@ from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
 from .Replicants import Exfil
+from .Net import Net
 from .utils import _isStringCompat
 
 # Detect if this is Python 2 or 3
@@ -45,6 +46,7 @@ class Configs( object ):
             'fps',
             'exfil',
             'artifact',
+            'net-policies',
         }
 
     def _coreRuleContent( self, rule ):
@@ -77,6 +79,10 @@ class Configs( object ):
         del( rule[ 'filters' ] )
         return rule
 
+    def _coreNetPolicyContent( self, rule ):
+        rule = rule[ 'policy' ]
+        return rule
+
     def _isJsonEqual( self, a, b ):
         if json.dumps( a, sort_keys = True ) != json.dumps( b, sort_keys = True ):
             return False
@@ -90,7 +96,7 @@ class Configs( object ):
             return True
         return False
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -170,6 +176,13 @@ class Configs( object ):
                 asConf[ 'resources' ][ 'service' ] = asConf[ 'resources' ][ 'replicant' ]
                 asConf[ 'resources' ].pop( 'replicant' )
                 break
+        if isNetPolicy:
+            policies = {}
+            pols = Net( self._man ).getPolicies()
+
+            for polName, pol in list( pols.items() ):
+                policies[ polName ] = self._coreNetPolicyContent( pol )
+            asConf[ 'net-policies' ] = policies
         if not isinstance( toConfigFile, dict ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
