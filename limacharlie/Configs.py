@@ -81,6 +81,7 @@ class Configs( object ):
 
     def _coreNetPolicyContent( self, rule ):
         rule = { k : v for k, v in rule.items() if k in ( 'policy', 'type' ) }
+        rule[ 'policy' ] = { k : v for k, v in rule[ 'policy' ].items() if k not in ( 'ingest_key', 'ingest_dest' ) }
         return rule
 
     def _isJsonEqual( self, a, b ):
@@ -533,7 +534,7 @@ class Configs( object ):
                         continue
                 if not isDryRun:
                     try:
-                        Net( self._man ).setPolicy( polName, policy[ 'name' ], policy[ 'type' ] )
+                        Net( self._man ).setPolicy( polName, policy[ 'type' ], policy[ 'policy' ] )
                     except Exception as e:
                         if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
                             raise
@@ -678,6 +679,18 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isResources',
                          help = 'if specified, apply resource subscriptions from operations' )
+    parser.add_argument( '--net-policy',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNetPolicy',
+                         help = 'if specified, apply net policies from operations' )
+    parser.add_argument( '--all',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isAll',
+                         help = 'if specified, apply all configs from operations' )
     parser.add_argument( '-c', '--config',
                          type = str,
                          default = 'lc_conf.yaml',
@@ -693,12 +706,37 @@ def main( sourceArgs = None ):
         print( "Action %s is not supported." % args.action )
         sys.exit( 1 )
 
+    resTypes = [
+        'isRules',
+        'isFPs',
+        'isOutputs',
+        'isIntegrity',
+        'isArtifact',
+        'isExfil',
+        'isResources',
+        'isNetPolicy',
+    ]
+
+    # If All is enabled, enable all types.
+    if args.isAll:
+        for k in resTypes:
+            setattr( args, k, True )
+
+    # Check at least one type is specified, otherwise
+    # it's probably a mistake.
+    for k in resTypes:
+        if getattr( args, k ):
+            break
+    else:
+        print( 'No config types specified, nothing to do!' )
+        sys.exit( 1 )
+
     s = Configs( oid = args.oid, env = args.environment )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
