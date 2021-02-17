@@ -2,6 +2,7 @@ from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
 from .Replicants import Exfil
+from .Net import Net
 from .utils import _isStringCompat
 
 # Detect if this is Python 2 or 3
@@ -45,6 +46,7 @@ class Configs( object ):
             'fps',
             'exfil',
             'artifact',
+            'net-policies',
         }
 
     def _coreRuleContent( self, rule ):
@@ -77,6 +79,11 @@ class Configs( object ):
         del( rule[ 'filters' ] )
         return rule
 
+    def _coreNetPolicyContent( self, rule ):
+        rule = { k : v for k, v in rule.items() if k in ( 'policy', 'type' ) }
+        rule[ 'policy' ] = { k : v for k, v in rule[ 'policy' ].items() if k not in ( 'ingest_key', 'ingest_dest' ) }
+        return rule
+
     def _isJsonEqual( self, a, b ):
         if json.dumps( a, sort_keys = True ) != json.dumps( b, sort_keys = True ):
             return False
@@ -90,7 +97,7 @@ class Configs( object ):
             return True
         return False
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -170,11 +177,18 @@ class Configs( object ):
                 asConf[ 'resources' ][ 'service' ] = asConf[ 'resources' ][ 'replicant' ]
                 asConf[ 'resources' ].pop( 'replicant' )
                 break
+        if isNetPolicy:
+            policies = {}
+            pols = Net( self._man ).getPolicies()
+
+            for polName, pol in list( pols.items() ):
+                policies[ polName ] = self._coreNetPolicyContent( pol )
+            asConf[ 'net-policies' ] = policies
         if not isinstance( toConfigFile, dict ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -189,6 +203,7 @@ class Configs( object ):
             isArtifact (boolean): if True, push Artifact rules.
             isExfil (boolean): if True, push Exfil rules.
             isResources (boolean): if True, push Resource subscriptions.
+            isNetPolicy (boolean): if True, push Net Policies.
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
@@ -504,6 +519,43 @@ class Configs( object ):
                                 if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
                                     raise
                         yield ( '-', 'exfil-list', ruleName )
+        if isNetPolicy:
+            # Get the current policies, we will try not to push for no reason.
+            currentRules = { k : self._coreNetPolicyContent( v ) for k, v in Net( self._man ).getPolicies().items() }
+
+            # Start by adding the rules with isReplace.
+            for polName, policy in asConf.get( 'net-policies', {} ).items():
+                policy = self._coreNetPolicyContent( policy )
+                # Check to see if it is already in the current policies and in the right format.
+                if polName in currentRules:
+                    if self._isJsonEqual( policy, currentRules[ polName ] ):
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'net-pol', polName )
+                        continue
+                if not isDryRun:
+                    try:
+                        Net( self._man ).setPolicy( polName, policy[ 'type' ], policy[ 'policy' ] )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
+                yield ( '+', 'net-pol', polName )
+
+            # If we are not told to isForce, this is it.
+            if isForce:
+                currentRules = Net( self._man ).getPolicies()
+
+                # Now if isForce was specified, list existing rules and remove the ones
+                # not in our list.
+                for polName, policy in currentRules.items():
+                    # Ignore special service rules.
+                    if polName not in asConf.get( 'net-policies', {} ):
+                        if not isDryRun:
+                            try:
+                                Net( self._man ).delPolicy( polName )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
+                        yield ( '-', 'net-pol', polName )
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
@@ -627,6 +679,18 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isResources',
                          help = 'if specified, apply resource subscriptions from operations' )
+    parser.add_argument( '--net-policy',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isNetPolicy',
+                         help = 'if specified, apply net policies from operations' )
+    parser.add_argument( '--all',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isAll',
+                         help = 'if specified, apply all configs from operations' )
     parser.add_argument( '-c', '--config',
                          type = str,
                          default = 'lc_conf.yaml',
@@ -642,12 +706,37 @@ def main( sourceArgs = None ):
         print( "Action %s is not supported." % args.action )
         sys.exit( 1 )
 
+    resTypes = [
+        'isRules',
+        'isFPs',
+        'isOutputs',
+        'isIntegrity',
+        'isArtifact',
+        'isExfil',
+        'isResources',
+        'isNetPolicy',
+    ]
+
+    # If All is enabled, enable all types.
+    if args.isAll:
+        for k in resTypes:
+            setattr( args, k, True )
+
+    # Check at least one type is specified, otherwise
+    # it's probably a mistake.
+    for k in resTypes:
+        if getattr( args, k ):
+            break
+    else:
+        print( 'No config types specified, nothing to do!' )
+        sys.exit( 1 )
+
     s = Configs( oid = args.oid, env = args.environment )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
