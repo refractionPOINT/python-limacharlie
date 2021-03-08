@@ -366,7 +366,7 @@ class Configs( object ):
                         continue
                 if not isDryRun:
                     try:
-                        self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.items() if k not in ( 'module', 'for' ) } )
+                        self._man.add_output( outputName, output[ 'module' ], output[ 'for' ], **{ k : v for k, v in output.items() if k not in ( 'module', 'for', 'name' ) } )
                     except Exception as e:
                         if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
                             raise
