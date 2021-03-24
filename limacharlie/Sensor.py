@@ -431,6 +431,25 @@ class Sensor( object ):
 
         return data
 
+    def getChildrenEvents( self, atom ):
+        '''Get all children events from a given atom.
+
+        Args:
+            atom (string): atom to get the children of.
+
+        Returns:
+            List of events.
+        '''
+        req = {
+            'oid' : self._manager._oid,
+            'is_compressed' : True,
+        }
+
+        data = self._manager._apiCall( 'insight/%s/%s/%s/children' % ( self._manager._oid, self.sid, atom ), GET, queryParams = req )
+        data = self._manager._unwrap( data[ 'events' ] )
+
+        return data
+
     def delete( self ):
         '''Delete the sensor. It will not be able to connect to the cloud anymore, but will not be uninstalled.abs
         '''
