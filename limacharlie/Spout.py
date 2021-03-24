@@ -89,6 +89,8 @@ class Spout( object ):
                               timeout = _TIMEOUT_SEC )
 
     def _cleanupFutures( self ):
+        if self._isStop:
+            return
         now = time.time()
         for trackingId, futureInfo in list( self._futures.items() ):
             ttl = futureInfo[ 1 ]
@@ -112,6 +114,7 @@ class Spout( object ):
                 # can be a reentrant exception because of the BufferedIO
                 # and HTTPResponse object at close time.
                 pass
+            self._hConn = None
 
         self._threads.join( timeout = 2 )
 
