@@ -186,11 +186,11 @@ class SpotCheck( object ):
             if self._cbOnCheckDone is not None:
                 self._cbOnCheckDone( sensor )
 
-if __name__ == "__main__":
+def main( sourceArgs = None ):
     import argparse
     import getpass
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io spotcheck' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie spotcheck' )
     parser.add_argument( '-o', '--oid',
                          type = lambda x: str( uuid.UUID( x ) ),
                          required = False,
@@ -322,7 +322,7 @@ if __name__ == "__main__":
                          dest = 'is_ignore_certs',
                          help = 'ignore SSL cert errors for logs and payloads.' )
 
-    args = parser.parse_args()
+    args = parser.parse_args( sourceArgs )
 
     # Get creds if we need them.
     if args.oid is not None:
@@ -331,8 +331,6 @@ if __name__ == "__main__":
         secretApiKey = None
 
     def _genericSpotCheck( sensor ):
-        global args
-
         for file in args.files:
             response = sensor.simpleRequest( 'file_info "%s"' % file.replace( '\\', '\\\\' ), timeout = 30 )
             if not response:
@@ -509,3 +507,6 @@ if __name__ == "__main__":
                          extra_params = args.extra_params )
     checker.start()
     checker.wait( 60 * 60 * 24 * 30 * 365 )
+
+if __name__ == "__main__":
+    main()
