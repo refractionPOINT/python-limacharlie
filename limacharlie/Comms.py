@@ -11,16 +11,18 @@ from .Manager import ROOT_URL
 import uuid
 import sys
 import json
-from enum import Enum
 
-class RoomMessageType( str, Enum ):
-    '''Possible values of room message types'''
-    Chat = "chat"
-    Detection = "detect"
-    Task = "task"
-    TaskResponse = "task-response"
-    Error = "error"
-    CommandAck = "cmdack"
+if not _IS_PYTHON_2:
+    from enum import Enum
+
+    class RoomMessageType( str, Enum ):
+        '''Possible values of room message types'''
+        Chat = "chat"
+        Detection = "detect"
+        Task = "task"
+        TaskResponse = "task-response"
+        Error = "error"
+        CommandAck = "cmdack"
 
 class Comms( object ):
     '''Representation of a limacharlie.io Comms.'''
