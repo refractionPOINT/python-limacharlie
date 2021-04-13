@@ -12,6 +12,11 @@ import uuid
 import sys
 import json
 
+# Detect if this is Python 2 or 3
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
 if not _IS_PYTHON_2:
     from enum import Enum
 
