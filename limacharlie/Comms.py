@@ -11,6 +11,16 @@ from .Manager import ROOT_URL
 import uuid
 import sys
 import json
+from enum import Enum
+
+class RoomMessageType( str, Enum ):
+    '''Possible values of room message types'''
+    Chat = "chat"
+    Detection = "detect"
+    Task = "task"
+    TaskResponse = "task-response"
+    Error = "error"
+    CommandAck = "cmdack"
 
 class Comms( object ):
     '''Representation of a limacharlie.io Comms.'''
@@ -73,6 +83,29 @@ class Room( object ):
             room overview dict.
         '''
         return self._manager._apiCall( 'comms/room/%s' % self.rid, HEAD, altRoot = ROOT_URL )
+
+    def post( self, messageType, content, parent = None, tags = None ):
+        '''Post a new message to the room
+
+        Args:
+            messageType (RoomMessageType): type of the message.
+            content (str): content of the message.
+            parent (str): stringified uuid of the parent message.
+            tags (str list): list of tags to add to the message.
+
+        Returns:
+            room details dict.
+        '''
+        jsonContent = json.dumps( { 'text' : content } )
+        req = {
+            'type': messageType,
+            'content': jsonContent,
+        }
+        if parent is not None:
+            req[ 'parent' ] = parent
+        if tags is not None:
+            req[ 'tag' ] = tags
+        return self._manager._apiCall( 'comms/messages/%s' % self.rid, POST, req, altRoot = ROOT_URL )
 
     def delete( self ):
         '''Delete a Room.'''
@@ -159,6 +192,14 @@ def main( sourceArgs = None ):
     parser_room_get = subparsers_room.add_parser( 'get', help = 'get a room' )
     parser_room_get.add_argument( 'rid', type = str, help = 'room id' )
 
+    # room:post
+    parser_room_post = subparsers_room.add_parser( 'post', help = 'post to a room' )
+    parser_room_post.add_argument( 'rid', type = str, help = 'room id' )
+    parser_room_post.add_argument( 'type', type = str, help = 'type of message' )
+    parser_room_post.add_argument( 'content', type = str, help = 'content to post' )
+    parser_room_post.add_argument( '--parent', type = str, help = 'parent room id' )
+    parser_room_post.add_argument( '--tags', type = str, help = 'tags to add to the message' )
+
     # room:search
     parser_room_search = subparsers_room.add_parser( 'search', help = 'search for rooms' )
     parser_room_search.add_argument( '--oid', type = str, help = 'on search org oid' )
@@ -201,6 +242,9 @@ def main( sourceArgs = None ):
     def getRoom():
         return Comms( Manager() ).getRoom( args.rid ).getDetails()
 
+    def postRoom():
+        return Comms( Manager() ).getRoom( args.rid ).post( args.type, args.content, args.parent, args.tags )
+
     def searchRooms():
         return Comms( Manager() ).search( filters = vars( args ) )
 
@@ -213,6 +257,7 @@ def main( sourceArgs = None ):
     result = {
         'room:create' : createRoom,
         'room:get' : getRoom,
+        'room:post' : postRoom,
         'room:search' : searchRooms,
         'room:add-link' : addRoomLink,
         'room:remove-link' : removeRoomLink,
