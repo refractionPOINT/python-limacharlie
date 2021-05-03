@@ -1052,6 +1052,130 @@ class Manager( object ):
         } )
         return data
 
+    def getGroups( self ):
+        '''Get all groups this User has access to as an owner.
+
+        '''
+        data = self._apiCall( 'groups', GET, {} )
+        return data.get( 'groups', None )
+
+    def createGroup( self, name ):
+        '''Create a new group.
+
+        Args:
+            name (str): group name.
+        '''
+        return self._apiCall( 'groups', POST, {
+            'name': name,
+        } )
+
+    def getGroup( self, groupId ):
+        '''Get the details about a specific group.
+
+        Args:
+            groupId (str): group id.
+        Returns:
+            dict of group details
+        '''
+        data = self._apiCall( 'groups/%s' % ( groupId, ), GET, {} )
+        return data.get( 'group', None )
+
+    def deleteGroup( self, groupId ):
+        '''Delete a specific group.
+
+        Args:
+            groupId (str): group id.
+        '''
+        return self._apiCall( 'groups/%s' % ( groupId, ), DELETE, {} )
+
+    def addGroupOwner( self, groupId, ownerEmail ):
+        '''Add a new owner to a group.
+
+        Args:
+            groupId (str): group id.
+            ownerEmail (str): email to add.
+        '''
+        return self._apiCall( 'groups/%s/owners' % ( groupId, ), POST, {
+            'member_email' : ownerEmail,
+        } )
+
+    def removeGroupOwner( self, groupId, ownerEmail ):
+        '''Remove an owner from the group.
+
+        Args:
+            groupId (str): group id.
+            ownerEmail (str): email to remove.
+        '''
+        return self._apiCall( 'groups/%s/owners' % ( groupId, ), DELETE, {
+            'member_email' : ownerEmail,
+        } )
+
+    def addGroupMember( self, groupId, memberEmail ):
+        '''Add a User as a member of a group.
+
+        Args:
+            groupId (str): group id.
+            memberEmail (str): email to add.
+        '''
+        return self._apiCall( 'groups/%s/users' % ( groupId, ), POST, {
+            'member_email' : memberEmail,
+        } )
+
+    def removeGroupMember( self, groupId, memberEmail ):
+        '''Remove a User from a group.
+
+        Args:
+            groupId (str): group id.
+            memberEmail (str): email to remove.
+        '''
+        return self._apiCall( 'groups/%s/users' % ( groupId, ), DELETE, {
+            'member_email' : memberEmail,
+        } )
+
+    def setGroupPermissions( self, groupId, permissions = [] ):
+        '''Set the permissions for Users in the group.
+
+        Args:
+            groupId (str): group id.
+            permissions (list of str): list of permissions.
+        '''
+        return self._apiCall( 'groups/%s/permissions' % ( groupId, ), POST, {
+            'perm' : permissions,
+        } )
+
+    def getGroupLogs( self, groupId ):
+        '''Get the audit logs for a group.
+
+        Args:
+            groupId (str): group id.
+        Returns:
+            list of audit entries
+        '''
+        data = self._apiCall( 'groups/%s/logs' % ( groupId, ), GET, {} )
+        return data.get( 'logs', None )
+
+    def addGroupOrg( self, groupId, oid ):
+        '''Add an Org to a group.
+
+        Args:
+            groupId (str): group id.
+            oid (str): organization id to add.
+        '''
+        return self._apiCall( 'groups/%s/orgs' % ( groupId, ), POST, {
+            'oid' : oid,
+        } )
+
+    def removeGroupOrg( self, groupId, oid ):
+        '''Remove an Org from a group.
+
+        Args:
+            groupId (str): group id.
+            oid (str): organization id to remove.
+        '''
+        return self._apiCall( 'groups/%s/orgs' % ( groupId, ), DELETE, {
+            'oid' : oid,
+        } )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
