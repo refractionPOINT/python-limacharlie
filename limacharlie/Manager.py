@@ -335,6 +335,20 @@ class Manager( object ):
         resp = self._apiCall( 'who', GET, {}, altRoot = ROOT_URL )
         return resp
 
+    def userAccessibleOrgs( self ):
+        '''Query the API with a User API to see which organizations the user has access to.
+
+        Returns:
+            A dict with org OIDs and names.
+        '''
+
+        resp = self._apiCall( '/user_key_info', POST, {}, queryParams = {
+            'uid' : self._uid,
+            'secret' : self._secret_api_key,
+            'with_names' : True,
+        }, altRoot = 'https://app.limacharlie.io/' )
+        return resp
+
     def sensor( self, sid, inv_id = None ):
         '''Get a Sensor object for the specific Sensor ID.
 
