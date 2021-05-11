@@ -369,7 +369,10 @@ def main( sourceArgs = None ):
             try:
                 hash.decode( 'hex' )
             except:
-                raise Exception( 'hash contains invalid characters' )
+                try:
+                    bytes.fromhex( hash )
+                except:
+                    raise Exception( 'hash contains invalid characters' )
             response = sensor.simpleRequest( 'dir_find_hash "%s" "%s" -d %s --hash %s' % ( directory.replace( "\\", "\\\\" ), filePattern, depth , hash ), timeout = 3600 )
             if not response:
                 raise Exception( 'timeout' )
