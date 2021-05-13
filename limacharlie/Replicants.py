@@ -177,7 +177,7 @@ class Logging( _Replicant ):
             'action' : 'list_rules',
         }, False )
 
-    def addRule( self, ruleName, patterns = [], tags = [], platforms = [], isDeleteAfter = False, isIgnoreCert = False ):
+    def addRule( self, ruleName, patterns = [], tags = [], platforms = [], isDeleteAfter = False, isIgnoreCert = False, daysRetention = 0 ):
         '''Add a Log collection rule.
 
         Args:
@@ -195,6 +195,7 @@ class Logging( _Replicant ):
             'patterns' : patterns,
             'is_delete_after' : isDeleteAfter,
             'is_ignore_cert' : isIgnoreCert,
+            'days_retention' : daysRetention,
             'tags' : tags,
             'platforms' : platforms,
         }, False )
