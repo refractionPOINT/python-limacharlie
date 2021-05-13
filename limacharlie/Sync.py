@@ -328,7 +328,8 @@ class Sync( object ):
                                               tags = rule.get( 'tags', [] ),
                                               platforms = rule.get( 'platforms', [] ),
                                               isDeleteAfter = rule.get( 'is_delete_after', False ),
-                                              isIgnoreCert = rule.get( 'is_ignore_cert', False ) )
+                                              isIgnoreCert = rule.get( 'is_ignore_cert', False ), 
+                                              daysRetention = rule.get( 'days_retention', 0 ) )
                 yield ( '+', 'logging', ruleName )
 
             if isForce:
