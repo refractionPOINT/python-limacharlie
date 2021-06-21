@@ -823,6 +823,18 @@ class Manager( object ):
         data = self._apiCall( 'configs/%s/%s' % ( self._oid, configName ), GET )
         return data.get( 'value', None )
 
+    def setOrgConfig( self, configName, value ):
+        '''Set the value of a per-organization config.
+
+        Args:
+            configName (str): name of the config to get.
+            value (str): value of the config to set.
+        '''
+        data = self._apiCall( 'configs/%s/%s' % ( self._oid, configName ), POST, {
+            'value' : value,
+        } )
+        return data
+
     def getOrgURLs( self ):
         '''Get the URLs used by various resources in the organization.
 
