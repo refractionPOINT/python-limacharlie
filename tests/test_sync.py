@@ -3,7 +3,8 @@ import limacharlie
 def test_sensors( oid, key ):
     sync = limacharlie.Configs( manager = limacharlie.Manager( oid, key ) )
 
-    sync.push( {}, isForce = True, isRules = True )
+    for change, dataType, elem in sync.push( {}, isForce = True, isRules = True ):
+        pass
 
     allConfigs = {}
     sync.fetch( allConfigs, isRules = True, isResources = True )
@@ -71,7 +72,10 @@ def test_sensors( oid, key ):
             assert( 'rule' == dataType )
             assert( 'second' == elem )
 
-    sync.push( {}, isForce = True, isRules = True )
+    for change, dataType, elem in sync.push( {}, isForce = True, isRules = True ):
+        assert( '-' == change )
+        assert( 'rule' == dataType )
+        assert( 'test-sync-rule' == elem )
 
     allConfigs = {}
     sync.fetch( allConfigs, isRules = True )
