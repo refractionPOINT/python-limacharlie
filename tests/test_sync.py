@@ -7,7 +7,6 @@ def test_sensors( oid, key ):
 
     allConfigs = {}
     sync.fetch( allConfigs, isRules = True, isResources = True )
-    print( allConfigs )
 
     assert( allConfigs )
     assert( 0 != len( allConfigs ) )
@@ -73,3 +72,9 @@ def test_sensors( oid, key ):
             assert( 'second' == elem )
 
     sync.push( {}, isForce = True, isRules = True )
+
+    allConfigs = {}
+    sync.fetch( allConfigs, isRules = True )
+
+    assert( allConfigs )
+    assert( 0 == len( allConfigs.get( 'rules', {} ) ) )
