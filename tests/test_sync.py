@@ -1,13 +1,13 @@
 import limacharlie
 
 def test_sensors( oid, key ):
-    sync = limacharlie.Sync( manager = limacharlie.Manager( oid, key ) )
+    sync = limacharlie.Configs( manager = limacharlie.Manager( oid, key ) )
 
-    sync.pushRules( {}, isForce = True )
+    for change, dataType, elem in sync.push( {}, isForce = True, isRules = True ):
+        pass
 
     allConfigs = {}
-    sync.fetch( allConfigs )
-    print( allConfigs )
+    sync.fetch( allConfigs, isRules = True, isResources = True )
 
     assert( allConfigs )
     assert( 0 != len( allConfigs ) )
@@ -28,13 +28,13 @@ def test_sensors( oid, key ):
         }
     }
 
-    for change, dataType, elem in sync.pushRules( newConfigs ):
+    for change, dataType, elem in sync.push( newConfigs, isRules = True ):
         assert( '+' == change )
         assert( 'rule' == dataType )
         assert( 'test-sync-rule' == elem )
 
     allConfigs = {}
-    sync.fetch( allConfigs )
+    sync.fetch( allConfigs, isRules = True, isResources = True )
 
     assert( 'test-sync-rule' in allConfigs.get( 'rules', {} ) )
 
@@ -50,7 +50,7 @@ def test_sensors( oid, key ):
         } ]
     }
 
-    for change, dataType, elem in sync.pushRules( newConfigs ):
+    for change, dataType, elem in sync.push( newConfigs, isRules = True ):
         if '=' == change:
             assert( '=' == change )
             assert( 'rule' == dataType )
@@ -62,7 +62,7 @@ def test_sensors( oid, key ):
 
     newConfigs[ 'rules' ].pop( 'second', None )
 
-    for change, dataType, elem in sync.pushRules( newConfigs, isForce = True ):
+    for change, dataType, elem in sync.push( newConfigs, isForce = True, isRules = True ):
         if '=' == change:
             assert( '=' == change )
             assert( 'rule' == dataType )
@@ -72,4 +72,13 @@ def test_sensors( oid, key ):
             assert( 'rule' == dataType )
             assert( 'second' == elem )
 
-    sync.pushRules( {}, isForce = True )
+    for change, dataType, elem in sync.push( {}, isForce = True, isRules = True ):
+        assert( '-' == change )
+        assert( 'rule' == dataType )
+        assert( 'test-sync-rule' == elem )
+
+    allConfigs = {}
+    sync.fetch( allConfigs, isRules = True )
+
+    assert( allConfigs )
+    assert( 0 == len( allConfigs.get( 'rules', {} ) ) )

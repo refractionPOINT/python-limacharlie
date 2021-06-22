@@ -47,6 +47,7 @@ class Configs( object ):
             'exfil',
             'artifact',
             'net-policies',
+            'org-value',
         }
 
     def _coreRuleContent( self, rule ):
@@ -97,7 +98,24 @@ class Configs( object ):
             return True
         return False
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False ):
+    def _getSupportedOrgConfigs( self ):
+        return (
+            "vt",
+            "otx",
+            "domain",
+            "shodan",
+            "pagerduty",
+            "twilio",
+        )
+
+    def _getAllOrgConfigValues( self ):
+        currentConfigs = {}
+        for confName in self._getSupportedOrgConfigs():
+            val = self._man.getOrgConfig( confName )
+            currentConfigs[ confName ] = val
+        return currentConfigs
+
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -108,6 +126,10 @@ class Configs( object ):
             asConf = { 'version' : self._confVersion }
         else:
             asConf = toConfigFile
+        if isOrgConfigs:
+            configs = self._getAllOrgConfigValues()
+
+            asConf[ 'org-value' ] = configs
         if isRules:
             rules = {}
             # Check which namespaces we have access to.
@@ -188,7 +210,7 @@ class Configs( object ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -204,6 +226,7 @@ class Configs( object ):
             isExfil (boolean): if True, push Exfil rules.
             isResources (boolean): if True, push Resource subscriptions.
             isNetPolicy (boolean): if True, push Net Policies.
+            isOrgConfigs (boolean): if True, push Org Configs.
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
@@ -254,6 +277,42 @@ class Configs( object ):
                             if not isDryRun:
                                 self._man.unsubscribeFromResource( fullResName )
                             yield ( '-', 'resource', fullResName )
+
+        if isOrgConfigs:
+            # Get the current configs, we will try not to push for no reason.
+            currentConfigs = self._getAllOrgConfigValues()
+
+            # Start by adding the configs with isReplace.
+            for confName, confValue in asConf.get( 'org-value', {} ).items():
+                # Check to see if it is already in the current configs and with the right value.
+                if confName in currentConfigs:
+                    if confValue == currentConfigs[ confName ]:
+                        # Exact same, no point in pushing.
+                        yield ( '=', 'org-value', confName )
+                        continue
+                if not isDryRun:
+                    try:
+                        self._man.setOrgConfig( confName, confValue )
+                    except Exception as e:
+                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                            raise
+                yield ( '+', 'org-config', confName )
+
+            # If we are not told to isForce, this is it.
+            if isForce:
+                currentConfigs = self._getAllOrgConfigValues()
+
+                # Now if isForce was specified, list existing rules and remove the ones
+                # not in our list.
+                for confName, confValue in currentConfigs.items():
+                    if confName not in asConf.get( 'org-value', {} ):
+                        if not isDryRun:
+                            try:
+                                self._man.setOrgConfig( confName, "" )
+                            except Exception as e:
+                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
+                                    raise
+                        yield ( '-', 'org-value', confName )
 
         if isRules:
             # Check all the namespaces we have access to.
@@ -685,6 +744,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isNetPolicy',
                          help = 'if specified, apply net policies from operations' )
+    parser.add_argument( '--org-configs',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isOrgConfigs',
+                         help = 'if specified, apply org configs from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
@@ -715,6 +780,7 @@ def main( sourceArgs = None ):
         'isExfil',
         'isResources',
         'isNetPolicy',
+        'isOrgConfigs',
     ]
 
     # If All is enabled, enable all types.
@@ -734,9 +800,9 @@ def main( sourceArgs = None ):
     s = Configs( oid = args.oid, env = args.environment )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
