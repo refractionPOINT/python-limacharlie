@@ -413,6 +413,15 @@ class Manager( object ):
         resp = self._apiCall( 'tags/%s/%s' % ( self._oid, urlescape( tag, '' ) ), GET, queryParams = {} )
         return [ Sensor( self, sid ) for sid in resp.keys() ]
 
+    def getAllTags( self ):
+        '''Get a list of tags in use by sensors.
+
+        Returns:
+            a list of tags.
+        '''
+
+        return self._apiCall( 'tags/%s' % ( self._oid, ), GET, queryParams = {} )[ 'tags' ]
+
     def outputs( self ):
         '''Get the list of all Outputs configured for the Organization.
 
