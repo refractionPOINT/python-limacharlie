@@ -26,7 +26,7 @@ class Replay( object ):
         self._lc = manager
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
-    def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, ruleContent = None, isRunTrace = False, isIgnoreState = False, limitEvent = None, limitEval = None ):
+    def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None ):
         resp = None
 
         if ruleName is None and ruleContent is None:
@@ -46,11 +46,13 @@ class Replay( object ):
                 },
                 'events' : ruleContent,
             },
-            'is_stateful' : not isIgnoreState,
             'trace' : isRunTrace,
             'limit_event' : 0 if limitEvent is None else limitEvent,
             'limit_eval' : 0 if limitEval is None else limitEval,
         }
+
+        if isStateful is not None:
+            req[ 'is_stateful' ] = isStateful
 
         resp = self._lc._apiCall( '',
                                   'POST',
@@ -61,7 +63,7 @@ class Replay( object ):
 
         return resp
 
-    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isIgnoreState = False ):
+    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
         '''Scan a specific sensor's data with a D&R rule.
 
         Args:
@@ -79,11 +81,11 @@ class Replay( object ):
             a dict containing results of the query.
         '''
 
-        resp = self._scanHistoricalSensor( sid = sid, startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isIgnoreState = isIgnoreState )
+        resp = self._scanHistoricalSensor( sid = sid, startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
         
         return resp
 
-    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isIgnoreState = False ):
+    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
         '''Scan an entire organization's data with a D&R rule.
 
         Args:
@@ -100,7 +102,7 @@ class Replay( object ):
             a dict containing results of the query.
         '''
         
-        resp = self._scanHistoricalSensor( startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isIgnoreState = isIgnoreState )
+        resp = self._scanHistoricalSensor( startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
 
         return resp
 
@@ -227,11 +229,17 @@ def main( sourceArgs = None ):
                          help = 'if set will only validate the rule compiles properly' )
 
     parser.add_argument( '--ignore-state',
-                         action = 'store_true',
-                         default = False,
+                         action = 'store_false',
+                         default = None,
                          required = False,
-                         dest = 'isIgnoreState',
-                         help = 'if set, processing from single sensors will be parallelized increasing performance but limiting effectiveness of stateful detection.' )
+                         dest = 'isStateful',
+                         help = 'if set, processing from single sensors will be parallelized increasing performance but limiting effectiveness of stateful detection. Auto-detect if not set.' )
+    parser.add_argument( '--enforce-state',
+                         action = 'store_true',
+                         default = None,
+                         required = False,
+                         dest = 'isStateful',
+                         help = 'if set, processing of rules will be serialized by sensor to enable stateful detection. Auto-detect if not set.' )
 
     args = parser.parse_args( sourceArgs )
 
@@ -275,7 +283,7 @@ def main( sourceArgs = None ):
                                                         isRunTrace = args.isRunTrace,
                                                         limitEvent = args.limitEvent,
                                                         limitEval = args.limitEval,
-                                                        isIgnoreState = args.isIgnoreState )
+                                                        isStateful = args.isStateful )
             elif args.isEntireOrg:
                 response = replay.scanEntireOrg( start,
                                                  end,
@@ -284,7 +292,7 @@ def main( sourceArgs = None ):
                                                  isRunTrace = args.isRunTrace,
                                                  limitEvent = args.limitEvent,
                                                  limitEval = args.limitEval,
-                                                 isIgnoreState = args.isIgnoreState )
+                                                 isStateful = args.isStateful )
             else:
                 raise LcApiException( '--sid or --entire-org must be specified' )
         else:
