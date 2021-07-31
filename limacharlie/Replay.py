@@ -44,7 +44,7 @@ class Replay( object ):
                     'start_time' : 0 if startTime is None else startTime,
                     'end_time' : 0 if endTime is None else endTime,
                 },
-                'events' : ruleContent,
+                'events' : events,
             },
             'trace' : isRunTrace,
             'limit_event' : 0 if limitEvent is None else limitEvent,
