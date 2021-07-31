@@ -13,7 +13,7 @@ import sys
 class Replay( object ):
     '''Interface to query historical sensor data in Insight with specific D&R rules.'''
 
-    def __init__( self, manager, maxTimeWindow = ( 60 * 60 * 24 * 1 ), maxConcurrent = 10, isInteractive = False ):
+    def __init__( self, manager ):
         '''Create a Replay manager object.
 
         Args:
@@ -24,41 +24,46 @@ class Replay( object ):
         '''
 
         self._lc = manager
-        self._apiURL = None
-        self._maxTimeWindow = maxTimeWindow
-        self._maxConcurrent = maxConcurrent
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
-        self._isInteracive = isInteractive
-        self._statusMutex = BoundedSemaphore()
-        self._queryPending = 0
-        self._sensorPending = 0
-        self._limitEvent = None
-        self._imitEval = None
-        self._queryStartedAt = None
-        if self._isInteracive:
-            self._queryStartedAt = time.time()
-            gevent.spawn_later( 0, self._reportStatus )
+    def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None ):
+        resp = None
 
-    def _reportStatus( self ):
-        timing = 1
-        flag = self._isInteracive
-        if isinstance( self._isInteracive, ( tuple, list ) ):
-            timing, flag = self._isInteracive
-        with self._statusMutex:
-            if self._queryStartedAt is None:
-                # Indicating the query is done, don't print.
-                return
-            if flag is True:
-                sys.stdout.write( "\rSensors pending: %8s, queries pending: %8s, elapsed: %8.2f seconds" % ( self._sensorPending, self._queryPending, time.time() - self._queryStartedAt ) )
-                sys.stdout.flush()
-            else:
-                # Assuming this is a callback instead.
-                flag( self._sensorPending, self._queryPending )
+        if ruleName is None and ruleContent is None:
+            raise LcApiException( 'no rule specified' )
 
-        gevent.spawn_later( timing, self._reportStatus )
+        req = {
+            'oid' : self._lc._oid,
+            'rule_source' : {
+                'rule_name' : '' if ruleName is None else ruleName,
+                'rule' : ruleContent,
+            },
+            'event_source' : {
+                'sensor_events' : {
+                    'sid' : '' if sid is None else sid,
+                    'start_time' : 0 if startTime is None else startTime,
+                    'end_time' : 0 if endTime is None else endTime,
+                },
+                'events' : ruleContent,
+            },
+            'trace' : isRunTrace,
+            'limit_event' : 0 if limitEvent is None else limitEvent,
+            'limit_eval' : 0 if limitEval is None else limitEval,
+        }
 
-    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isIgnoreState = False ):
+        if isStateful is not None:
+            req[ 'is_stateful' ] = isStateful
+
+        resp = self._lc._apiCall( '',
+                                  'POST',
+                                  {},
+                                  altRoot = 'https://%s/' % ( self._replayURL, ),
+                                  rawBody = json.dumps( req ).encode(),
+                                  contentType = 'application/json' )
+
+        return resp
+
+    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
         '''Scan a specific sensor's data with a D&R rule.
 
         Args:
@@ -75,136 +80,12 @@ class Replay( object ):
         Returns:
             a dict containing results of the query.
         '''
-        windows = []
 
-        with self._statusMutex:
-            isSingleQuery = False
-            if 0 == self._sensorPending:
-                isSingleQuery = True
-                self._sensorPending = 1
-                # Only initialize the limits if we are not called for
-                # an org-wide query. Otherwise the caller will have
-                # set the limits already.
-                self._limitEvent = limitEvent
-                self._limitEval = limitEval
-
-        try:
-            # Split up the total time into windows we can query in parallel.
-            if endTime - startTime > self._maxTimeWindow:
-                tmpStart = startTime
-                while tmpStart < endTime:
-                    tmpEnd = min( tmpStart + self._maxTimeWindow, endTime )
-                    windows.append( ( tmpStart, tmpEnd ) )
-                    tmpStart += self._maxTimeWindow
-            else:
-                windows = [ ( startTime, endTime ) ]
-
-            with self._statusMutex:
-                self._queryPending += len( windows )
-
-            if isIgnoreState:
-                # Just run it all together.
-                results = parallelExec( lambda w: self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, isIgnoreState = isIgnoreState ), windows, maxConcurrent = self._maxConcurrent )
-            else:
-                # We need to iterate one at a time and keep passing the state along.
-                results = []
-                state = None
-                for w in windows:
-                    tmpResult = self._scanHistoricalSensor( sid, w[ 0 ], w[ 1 ], ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, isIgnoreState = isIgnoreState, state = state )
-                    if 'state' in tmpResult:
-                        # Extract the state update so we can pass it to the next call.
-                        state = tmpResult[ 'state' ]
-                        # Remove the state data from the result.
-                        del( tmpResult[ 'state' ] )
-                    results.append( tmpResult )
-        finally:
-            with self._statusMutex:
-                self._sensorPending -= 1
-
-        if isSingleQuery:
-            with self._statusMutex:
-                if self._queryStartedAt is not None:
-                    self._queryStartedAt = None
-
-        return self._rollupResults( results )
-
-    def _scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, isIgnoreState = False, state = None ):
-        # print( "Starting query %s-%s for %s" % ( startTime, endTime, sid ) )
-        # qStart = time.time()
-
-        resp = None
-
-        try:
-            if self._apiURL is None:
-                # Get the ingest URL from the API.
-                self._apiURL = 'https://%s/' % ( self._replayURL, )
-            req = {
-                'start' : startTime,
-                'end' : endTime,
-            }
-            if isRunTrace:
-                req[ 'trace' ] = 'true'
-            if isIgnoreState is False:
-                req[ 'return_state' ] = 'true'
-
-            # If limits were reached, short circuit the execution.
-            with self._statusMutex:
-                if self._limitEvent is not None:
-                    if 0 >= self._limitEvent:
-                        return {}
-                    req[ 'limit_event' ] = str( self._limitEvent )
-                if self._limitEval is not None:
-                    if 0 >= self._limitEval:
-                        return {}
-                    req[ 'limit_eval' ] = str( self._limitEval )
-
-            body = {}
-            if state is not None:
-                body[ 'state' ] = state
-            if ruleName is not None:
-                req[ 'rule_name' ] = ruleName
-            elif ruleContent is not None:
-                body[ 'rule' ] = ruleContent
-            else:
-                raise LcApiException( 'no rule specified' )
-
-            if 0 == len( body ):
-                body = None
-            else:
-                body = json.dumps( body ).encode()
-
-            nRetry = 0
-            while True:
-                try:
-                    resp = self._lc._apiCall( 'sensor/%s/%s' % ( self._lc._oid, sid, ),
-                                              'POST',
-                                              {},
-                                              altRoot = self._apiURL,
-                                              queryParams = req,
-                                              rawBody = body,
-                                              contentType = 'application/json' )
-
-                    break
-                except:
-                    nRetry += 1
-                    if nRetry > 5:
-                        raise
-                    time.sleep( 2 * nRetry )
-        finally:
-            with self._statusMutex:
-                self._queryPending -= 1
-
-                # If there are limits, compute the left-over quota.
-                if isinstance( resp, dict ):
-                    if self._limitEvent is not None:
-                        self._limitEvent -= resp.get( 'num_events', 0 )
-                    if self._limitEval is not None:
-                        self._limitEval -= resp.get( 'num_evals', 0 )
-        # print( "Finished query %s-%s for %s in %s seconds" % ( startTime, endTime, sid, time.time() - qStart ) )
-
+        resp = self._scanHistoricalSensor( sid = sid, startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
+        
         return resp
 
-    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isIgnoreState = False ):
+    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
         '''Scan an entire organization's data with a D&R rule.
 
         Args:
@@ -220,20 +101,10 @@ class Replay( object ):
         Returns:
             a dict containing results of the query.
         '''
-        sensors = list( self._lc.sensors() )
+        
+        resp = self._scanHistoricalSensor( startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
 
-        with self._statusMutex:
-            self._sensorPending = len( sensors )
-            self._limitEvent = limitEvent
-            self._limitEval = limitEval
-
-        results = parallelExec( lambda sid: self.scanHistoricalSensor( sid, startTime, endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, isIgnoreState = isIgnoreState ), sensors, maxConcurrent = self._maxConcurrent )
-
-        with self._statusMutex:
-            if self._queryStartedAt is not None:
-                self._queryStartedAt = None
-
-        return self._rollupResults( results )
+        return resp
 
     def scanEvents( self, events, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
         '''Scan the specific events with a D&R rule.
@@ -249,59 +120,12 @@ class Replay( object ):
         Returns:
             a dict containing results of the query.
         '''
-        # qStart = time.time()
 
-        with self._statusMutex:
-            self._sensorPending = 1
-
-        try:
-            if self._apiURL is None:
-                # Get the ingest URL from the API.
-                self._apiURL = 'https://%s/' % ( self._replayURL, )
-            req = {}
-            body = {
-                'events' : events,
-            }
-            if ruleName is not None:
-                req[ 'rule_name' ] = ruleName
-            elif ruleContent is not None:
-                body[ 'rule' ] = ruleContent
-            else:
-                raise LcApiException( 'no rule specified' )
-
-            if isRunTrace:
-                req[ 'trace' ] = 'true'
-
-            if limitEvent is not None:
-                req[ 'limit_event' ] = str( limitEvent )
-            if limitEval is not None:
-                req[ 'limit_eval' ] = str( limitEval )
-
-            nRetry = 0
-            while True:
-                try:
-                    resp = self._lc._apiCall( 'simulate/%s' % ( self._lc._oid, ),
-                                              'POST',
-                                              {},
-                                              altRoot = self._apiURL,
-                                              queryParams = req,
-                                              rawBody = json.dumps( body ).encode(),
-                                              contentType = 'application/json' )
-
-                    break
-                except:
-                    nRetry += 1
-                    if nRetry > 5:
-                        raise
-                    time.sleep( 2 * nRetry )
-        finally:
-            with self._statusMutex:
-                self._queryPending -= 1
-        # print( "Finished query %s-%s for %s in %s seconds" % ( startTime, endTime, sid, time.time() - qStart ) )
+        resp = self._scanHistoricalSensor( events = events, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval )
 
         return resp
 
-    def validateRule( self, ruleContent = None ):
+    def validateRule( self, ruleContent ):
         '''Validate a D&R rule compiles properly.
 
         Args:
@@ -310,66 +134,10 @@ class Replay( object ):
         Returns:
             a dict containing results of the query.
         '''
-        # qStart = time.time()
-
-        if self._apiURL is None:
-            # Get the ingest URL from the API.
-            self._apiURL = 'https://%s/' % ( self._replayURL, )
-        req = {}
-        body = {
-            'rule' : ruleContent,
-        }
-        if ruleContent is None:
-            raise LcApiException( 'no rule specified' )
-
-        nRetry = 0
-        while True:
-            try:
-                resp = self._lc._apiCall( 'validate/%s' % ( self._lc._oid, ),
-                                          'POST',
-                                          {},
-                                          altRoot = self._apiURL,
-                                          queryParams = req,
-                                          rawBody = json.dumps( body ).encode(),
-                                          contentType = 'application/json' )
-
-                break
-            except:
-                nRetry += 1
-                if nRetry > 5:
-                    raise
-                time.sleep( 2 * nRetry )
-        # print( "Finished query %s-%s for %s in %s seconds" % ( startTime, endTime, sid, time.time() - qStart ) )
+        
+        resp = self._scanHistoricalSensor( ruleContent = ruleContent )
 
         return resp
-
-    def _rollupResults( self, results ):
-        final = {}
-        for result in results:
-            if not isinstance( result, dict ):
-                raise result
-            for k, v in result.items():
-                if isinstance( v, bool ):
-                    # MUST test for bool before int because in Python
-                    # a bool IS an instance of an INT.....
-                    if k not in final:
-                        final[ k ] = v
-                    elif not final[ k ] and v:
-                        final[ k ] = v
-                elif isinstance( v, ( int, float ) ):
-                    if k not in final:
-                        final[ k ] = 0
-                    final[ k ] += v
-                elif isinstance( v, ( str, bytes ) ):
-                    final.setdefault( k, [] ).append( v )
-                elif isinstance( v, dict ):
-                    final.setdefault( k, {} ).update( v )
-                elif isinstance( v, ( list, tuple ) ):
-                    tmp = final.setdefault( k, [] )
-                    tmp += list( v )
-                else:
-                    raise LcApiException( 'unexpected data type: %s' % ( type( v ), ) )
-        return final
 
 def main( sourceArgs = None ):
     import argparse
@@ -425,33 +193,12 @@ def main( sourceArgs = None ):
                          default = None,
                          help = 'file path where rule to scan is.' )
 
-    parser.add_argument( '--max-time-window',
-                         type = int,
-                         required = False,
-                         dest = 'maxTimeWindow',
-                         default = ( 60 * 60 * 24 * 1 ),
-                         help = 'maximum number of seconds in a window used to shard the search.' )
-
-    parser.add_argument( '--max-concurrent',
-                         type = int,
-                         required = False,
-                         dest = 'maxConcurrent',
-                         default = 10,
-                         help = 'maximum number of concurrent queries per sensor searched.' )
-
     parser.add_argument( '--last-seconds',
                          type = int,
                          required = False,
                          dest = 'lastSeconds',
                          default = None,
                          help = 'can be specified instead of --start and --end, will make the time window the last X seconds.' )
-
-    parser.add_argument( '--quiet',
-                         action = 'store_false',
-                         default = True,
-                         required = False,
-                         dest = 'isInteractive',
-                         help = 'if set, will not print status update to stdout.' )
 
     parser.add_argument( '--trace',
                          action = 'store_true',
@@ -482,18 +229,21 @@ def main( sourceArgs = None ):
                          help = 'if set will only validate the rule compiles properly' )
 
     parser.add_argument( '--ignore-state',
-                         action = 'store_true',
-                         default = False,
+                         action = 'store_false',
+                         default = None,
                          required = False,
-                         dest = 'isIgnoreState',
-                         help = 'if set, processing from single sensors will be parallelized increasing performance but limiting effectiveness of stateful detection.' )
+                         dest = 'isStateful',
+                         help = 'if set, processing from single sensors will be parallelized increasing performance but limiting effectiveness of stateful detection. Auto-detect if not set.' )
+    parser.add_argument( '--enforce-state',
+                         action = 'store_true',
+                         default = None,
+                         required = False,
+                         dest = 'isStateful',
+                         help = 'if set, processing of rules will be serialized by sensor to enable stateful detection. Auto-detect if not set.' )
 
     args = parser.parse_args( sourceArgs )
 
-    replay = Replay( Manager( None, None ),
-                     isInteractive = args.isInteractive,
-                     maxTimeWindow = args.maxTimeWindow,
-                     maxConcurrent = args.maxConcurrent )
+    replay = Replay( Manager() )
 
     ruleContent = None
     if args.ruleContent is not None:
@@ -508,15 +258,14 @@ def main( sourceArgs = None ):
                 raise LcApiException( 'rule content not valid yaml or json' )
 
     if args.isValidate:
+        if ruleContent is None:
+            raise LcApiException( 'missing rule content to validate' )
         response = replay.validateRule( ruleContent )
     else:
         if args.events is None:
             if ( args.start is None or args.end is None ) and args.lastSeconds is None:
-                print( 'must specify start and end, or last-seconds' )
-                parser.print_help()
-                sys.exit(1)
+                raise LcApiException( 'must specify start and end, or last-seconds' )
 
-        if args.events is None:
             # We want to use Insight-based events.
             start = args.start
             end = args.end
@@ -534,7 +283,7 @@ def main( sourceArgs = None ):
                                                         isRunTrace = args.isRunTrace,
                                                         limitEvent = args.limitEvent,
                                                         limitEval = args.limitEval,
-                                                        isIgnoreState = args.isIgnoreState )
+                                                        isStateful = args.isStateful )
             elif args.isEntireOrg:
                 response = replay.scanEntireOrg( start,
                                                  end,
@@ -543,7 +292,7 @@ def main( sourceArgs = None ):
                                                  isRunTrace = args.isRunTrace,
                                                  limitEvent = args.limitEvent,
                                                  limitEval = args.limitEval,
-                                                 isIgnoreState = args.isIgnoreState )
+                                                 isStateful = args.isStateful )
             else:
                 raise LcApiException( '--sid or --entire-org must be specified' )
         else:
@@ -574,10 +323,6 @@ def main( sourceArgs = None ):
                                           isRunTrace = args.isRunTrace,
                                           limitEvent = args.limitEvent,
                                           limitEval = args.limitEval )
-
-    if args.isInteractive:
-        # If this is interactive, we displayed progress, so we need a new line.
-        print( "" )
 
     print( json.dumps( response, indent = 2 ) )
 
