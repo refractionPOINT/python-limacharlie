@@ -886,6 +886,22 @@ class Manager( object ):
         } )
         return data
 
+    def configureUSPKey( self, name, parse_hint = '', format_re = '' ):
+        '''Set the USP configuration of an Ingestion key.
+
+        Args:
+            name (str): name of the Ingestion key to configure.
+
+        Returns:
+            Dictionary with the key name and value.
+        '''
+        data = self._apiCall( 'insight/%s/ingestion_keys/usp' % ( self._oid, ), POST, {
+            'name' : name,
+            'parse_hint' : parse_hint,
+            'format_re' : format_re,
+        } )
+        return data
+
     def setOrgQuota( self, quota ):
         '''Set a new sensor quota for the organization.
 
