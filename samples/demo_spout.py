@@ -29,3 +29,4 @@ if __name__ == "__main__":
     while True:
         data = sp.queue.get()
         print( json.dumps( data, indent = 2 ) + "\n\n" )
+ 
