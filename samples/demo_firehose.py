@@ -1,6 +1,6 @@
 import limacharlie
 import json
-import gevent
+import gevent.signal
 import signal
 import sys
 import getpass
@@ -12,7 +12,7 @@ if __name__ == "__main__":
         fh.shutdown()
         sys.exit( 0 )
 
-    gevent.signal( signal.SIGINT, signal_handler )
+    gevent.signal.signal( signal.SIGINT, signal_handler )
 
     def debugPrint( msg ):
         print( msg )
@@ -20,14 +20,14 @@ if __name__ == "__main__":
     # This example uses interactive credentials, but see the README for alternative
     # ways of getting credentials.
 
-    man = limacharlie.Manager( oid = raw_input( 'Enter OID: ' ),
+    man = limacharlie.Manager( oid = input( 'Enter OID: ' ),
                                secret_api_key = getpass.getpass( prompt = 'Enter secret API key: ' ),
                                print_debug_fn = debugPrint )
 
-    fh = limacharlie.Firehose( man, 
-                               raw_input( 'Local Interface: ' ),
-                               'event', 
-                               public_dest = raw_input( 'Public Interface: ' ),
+    fh = limacharlie.Firehose( man,
+                               input( 'Local Interface: ' ),
+                               'event',
+                               public_dest = input( 'Public Interface: ' ),
                                name = 'firehose_test' )
 
     while True:
