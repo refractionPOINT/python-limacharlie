@@ -77,6 +77,23 @@ sensor.task( 'os_processes' )
 sensor.task( 'yara_scan -e *evil.exe ' + YARA_SIG )
 ```
 
+### Use of gevent
+Note that the SDK uses the `gevent` package which sometimes has issues with other
+packages that operate at a low level in python. For example, Jupyter notebooks
+may see freezing on importing `limacharlie` and require a tweak to load:
+
+```json
+{
+ "display_name": "IPython 2 w/gevent",
+ "language": "python",
+ "argv": [
+  "python",
+  "-c", "from gevent.monkey import patch_all; patch_all(thread=False); from ipykernel.kernelapp import main; main()",
+  "-f",
+  "{connection_file}"
+ ]
+}
+```
 
 ### Components
 #### Manager
