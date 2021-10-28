@@ -1,4 +1,3 @@
-from typing_extensions import final
 from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
