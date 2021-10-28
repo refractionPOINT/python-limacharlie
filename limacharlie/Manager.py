@@ -788,20 +788,27 @@ class Manager( object ):
         } )
         return data.get( 'sid', None )
 
-    def serviceRequest( self, serviceName, data, isAsynchronous = False ):
+    def serviceRequest( self, serviceName, data, isAsynchronous = False, isImpersonate = False ):
         '''Issue a request to a Service.
 
         Args:
             serviceName (str): the name of the Service to task.
             data (dict): JSON data to send to the Service as a request.
             isAsynchronous (bool): if set to False, wait for data from the Service and return it.
+            isImpersonate (bool): if set to True, request the Service impersonate the caller.
         Returns:
             Dict with general success, or data from Service if isSynchronous.
         '''
-        data = self._apiCall( 'service/%s/%s' % ( self._oid, serviceName ), POST, {
+        req = {
             'request_data' : base64.b64encode( json.dumps( data ).encode() ),
             'is_async' : isAsynchronous,
-        } )
+        }
+        if isImpersonate:
+            # To make sure we have as fresh a JWT as possible,
+            # always do a refresh.
+            self._refreshJWT()
+            req[ 'jwt' ] = self._jwt
+        data = self._apiCall( 'service/%s/%s' % ( self._oid, serviceName ), POST, req )
         return data
 
     def replicantRequest( self, *args, **kwargs ):

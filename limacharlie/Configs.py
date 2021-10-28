@@ -1,3 +1,4 @@
+from typing_extensions import final
 from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
@@ -23,13 +24,14 @@ class LcConfigException( Exception ):
 class Configs( object ):
     '''Configs object to fetch and apply configs to and from organizations.'''
 
-    def __init__( self, oid = None, env = None, manager = None ):
+    def __init__( self, oid = None, env = None, manager = None, isDontUseInfraService = False ):
         '''Create a Configs object.
 
         Args:
             oid (str): organization ID to operate on.
             env (str): environment name to use.
             manager (limacharlie.Manager): Manager object to use instead.
+            isDontUseInfraService (bool): if True, do not use the LimaCharlie infrastructure-service to apply configs.
         '''
 
         self._confVersion = 3
@@ -37,6 +39,8 @@ class Configs( object ):
             self._man = Manager( oid = oid, environment = env )
         else:
             self._man = manager
+
+        self._isDontUseInfraService = isDontUseInfraService
 
         self._configRoots = {
             'rules',
@@ -126,6 +130,36 @@ class Configs( object ):
             asConf = { 'version' : self._confVersion }
         else:
             asConf = toConfigFile
+
+        # If we can use the service, shortcut all this logic
+        # and use the authoritative service in the cloud.
+        if not self._isDontUseInfraService:
+            try:
+                data = self._man.serviceRequest( 'infrastructure-service', {
+                    'action' : 'fetch',
+                    'sync_dr' : isRules,
+                    'sync_outputs' : isOutputs,
+                    'sync_resources' : isResources,
+                    'sync_integrity' : isIntegrity,
+                    'sync_fp' : isFPs,
+                    'sync_exfil' : isExfil,
+                    'sync_artifacts' : isArtifact,
+                    'sync_net_policies' : isNetPolicy,
+                    'sync_org_values' : isOrgConfigs,
+                }, isImpersonate = True )
+
+                for k, v in yaml.safe_load( data[ 'org' ] ).items():
+                    asConf[ k ] = v
+
+                if not isinstance( toConfigFile, dict ):
+                    with open( toConfigFile, 'wb' ) as f:
+                        f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
+
+                return
+            except Exception as e:
+                # If there is any issue, backoff to the old way.
+                pass
+
         if isOrgConfigs:
             configs = self._getAllOrgConfigValues()
 
@@ -248,6 +282,47 @@ class Configs( object ):
 
             # Revert the previous CWD.
             os.chdir( currentPath )
+
+        # If we can use the service, shortcut all this logic
+        # and use the authoritative service in the cloud.
+        if not self._isDontUseInfraService:
+            finalConfig = yaml.safe_dump( asConf )
+            try:
+                # There is one mapping we need to do before
+                # pushing to the Service.
+                if 'service' in asConf.get( 'resources', {} ):
+                    confResources = asConf[ 'resources' ][ 'service' ]
+                    # Alias Service to Replicant
+                    asConf[ 'resources' ].setdefault( 'replicant', list( set( confResources + asConf[ 'resources' ].get( 'replicant', [] ) ) ) )
+                    asConf[ 'resources' ].pop( 'service', None )
+                data = self._man.serviceRequest( 'infrastructure-service', {
+                    'is_dry_run' : isDryRun,
+                    'action' : 'push',
+                    'is_force' : isForce,
+                    'ignore_inaccessible' : isIgnoreInaccessible,
+                    'config' : finalConfig,
+                    'sync_dr' : isRules,
+                    'sync_outputs' : isOutputs,
+                    'sync_resources' : isResources,
+                    'sync_integrity' : isIntegrity,
+                    'sync_fp' : isFPs,
+                    'sync_exfil' : isExfil,
+                    'sync_artifacts' : isArtifact,
+                    'sync_net_policies' : isNetPolicy,
+                    'sync_org_values' : isOrgConfigs,
+                }, isImpersonate = True )
+
+                for op in data.get( 'ops', [] ):
+                    if op[ 'is_added' ]:
+                        yield ( '+', op[ 'type' ], op[ 'name' ] )
+                    if op[ 'is_removed' ]:
+                        yield ( '-', op[ 'type' ], op[ 'name' ] )
+                    if not op[ 'is_added' ] and not op[ 'is_removed' ]:
+                        yield ( '=', op[ 'type' ], op[ 'name' ] )
+                return
+            except Exception as e:
+                # If there is any issue, backoff to the old way.
+                pass
 
         if isResources:
             currentResources = self._man.getSubscriptions()
