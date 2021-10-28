@@ -211,12 +211,12 @@ class Logs( object ):
                 try:
                     if filePath is not None:
                         with open( filePath, 'wb' ) as f:
-                            for chunk in dataReq.iter_content( chunk_size = 1024 * 512 ):
+                            for chunk in dataReq.iter_content( chunk_size = 1024 * 1024 * 5 ):
                                 if not chunk:
                                     continue
                                 f.write( chunk )
                     elif fileObj is not None:
-                        for chunk in dataReq.iter_content( chunk_size = 1024 * 512 ):
+                        for chunk in dataReq.iter_content( chunk_size = 1024 * 1024 * 5 ):
                             if not chunk:
                                 continue
                             fileObj.write( chunk )
