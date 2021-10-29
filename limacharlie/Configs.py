@@ -69,37 +69,11 @@ class Configs( object ):
         del( rule[ 'filters' ] )
         return rule
 
-    def _wrapIntegrityContent( self, rule ):
-        platforms = rule.get( 'platforms', None )
-        tags = rule.get( 'tags', None )
-        if platforms is None and tags is None:
-            return rule
-        rule[ 'filters' ] = {
-            'platforms' : platforms if platforms is not None else [],
-            'tags' : tags if tags is not None else [],
-        }
-        rule.pop( 'platforms', None )
-        rule.pop( 'tags', None )
-        return rule
-
     def _coreLoggingContent( self, rule ):
         rule = { k : v for k, v in rule.items() if k not in ( 'by', 'updated' ) }
         rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
         rule[ 'platforms' ] = rule[ 'filters' ][ 'platforms' ]
         del( rule[ 'filters' ] )
-        return rule
-
-    def _wrapLoggingContent( self, rule ):
-        platforms = rule.get( 'platforms', None )
-        tags = rule.get( 'tags', None )
-        if platforms is None and tags is None:
-            return rule
-        rule[ 'filters' ] = {
-            'platforms' : platforms if platforms is not None else [],
-            'tags' : tags if tags is not None else [],
-        }
-        rule.pop( 'platforms', None )
-        rule.pop( 'tags', None )
         return rule
 
     def _coreExfilContent( self, rule ):
@@ -201,18 +175,6 @@ class Configs( object ):
                     for ruleName, rule in exfilRules.get( 'list', {} ).items():
                         exfilRules[ 'list' ][ ruleName ] = self._coreExfilContent( rule )
                     asConf[ 'exfil' ] = exfilRules
-
-                integrityRules = asConf.get( 'integrity', None )
-                if integrityRules is not None:
-                    for ruleName, rule in integrityRules.items():
-                        integrityRules[ ruleName ] = self._coreIntegrityContent( rule )
-                    asConf[ 'integrity' ] = integrityRules
-
-                artifactRules = asConf.get( 'artifact', None )
-                if artifactRules is not None:
-                    for ruleName, rule in artifactRules.items():
-                        artifactRules[ ruleName ] = self._coreLoggingContent( rule )
-                    asConf[ 'artifact' ] = artifactRules
 
                 if not isinstance( toConfigFile, dict ):
                     with open( toConfigFile, 'wb' ) as f:
@@ -363,18 +325,6 @@ class Configs( object ):
                     for ruleName, rule in exfilRules.get( 'list', {} ).items():
                         exfilRules[ 'list' ][ ruleName ] = self._wrapExfilContent( rule )
                     asConf[ 'exfil' ] = exfilRules
-
-                integrityRules = asConf.get( 'integrity', None )
-                if integrityRules is not None:
-                    for ruleName, rule in integrityRules.items():
-                        integrityRules[ ruleName ] = self._wrapIntegrityContent( rule )
-                    asConf[ 'integrity' ] = integrityRules
-
-                artifactRules = asConf.get( 'artifact', None )
-                if artifactRules is not None:
-                    for ruleName, rule in artifactRules.items():
-                        artifactRules[ ruleName ] = self._wrapLoggingContent( rule )
-                    asConf[ 'artifact' ] = artifactRules
 
                 finalConfig = yaml.safe_dump( asConf )
                 data = self._man.serviceRequest( 'infrastructure-service', {
