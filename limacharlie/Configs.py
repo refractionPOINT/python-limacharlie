@@ -753,15 +753,21 @@ class Configs( object ):
 
             for cat in self._configRoots:
                 subCat = subConf.get( cat, None )
-                if subCat is not None:
-                    # Check if this config is dictionaries
-                    # or lists. They need to be updated differntly.
-                    if len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
+                if subCat is None:
+                    continue
+                # Check if this config is dictionaries
+                # or lists. They need to be updated differntly.
+                if len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
+                    for k, v in subCat.items():
+                        for val in v:
+                            if val in asConf.setdefault( cat, {} ).setdefault( k, [] ):
+                                continue
+                            asConf[ cat ][ k ].append( val )
+                else:
+                    # One more special case for exfil.
+                    if cat == 'exfil':
                         for k, v in subCat.items():
-                            for val in v:
-                                if val in asConf.setdefault( cat, {} ).setdefault( k, [] ):
-                                    continue
-                                asConf[ cat ][ k ].append( val )
+                            asConf.setdefault( cat, {} ).setdefault( k, {} ).update( v )
                     else:
                         asConf.setdefault( cat, {} ).update( subCat )
 
