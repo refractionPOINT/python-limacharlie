@@ -150,6 +150,31 @@ class Configs( object ):
                 for k, v in yaml.safe_load( data[ 'org' ] ).items():
                     asConf[ k ] = v
 
+                # Apply a few of the translation layers.
+                exfilRules = asConf.get( 'exfil', None )
+                if exfilRules is not None:
+                    for ruleName, rule in exfilRules[ 'watch' ].items():
+                        if '' == rule[ 'operator' ]:
+                            # This is a [secret] rule, let's not mirror it since
+                            # it is handled by a Service.
+                            continue
+                        exfilRules[ 'watch' ][ ruleName ] = self._coreExfilContent( rule )
+                    for ruleName, rule in exfilRules[ 'list' ].items():
+                        exfilRules[ 'list' ][ ruleName ] = self._coreExfilContent( rule )
+                    asConf[ 'exfil' ] = exfilRules
+
+                integrityRules = asConf.get( 'integrity', None )
+                if integrityRules is not None:
+                    for ruleName, rule in integrityRules.items():
+                        integrityRules[ ruleName ] = self._coreIntegrityContent( rule )
+                    asConf[ 'integrity' ] = integrityRules
+
+                artifactRules = asConf.get( 'artifact', None )
+                if artifactRules is not None:
+                    for ruleName, rule in artifactRules.items():
+                        artifactRules[ ruleName ] = self._coreLoggingContent( rule )
+                    asConf[ 'artifact' ] = artifactRules
+
                 if not isinstance( toConfigFile, dict ):
                     with open( toConfigFile, 'wb' ) as f:
                         f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
