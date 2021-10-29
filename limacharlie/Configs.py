@@ -766,7 +766,7 @@ class Configs( object ):
                 else:
                     # One more special case for exfil.
                     if cat == 'exfil':
-                        for k, v in subConf.items():
+                        for k, v in subCat.items():
                             asConf.setdefault( cat, {} ).setdefault( k, {} ).update( v )
                     else:
                         asConf.setdefault( cat, {} ).update( subCat )
