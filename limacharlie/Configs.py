@@ -90,7 +90,7 @@ class Configs( object ):
         del( rule[ 'filters' ] )
         return rule
 
-    def _wrapILoggingContent( self, rule ):
+    def _wrapLoggingContent( self, rule ):
         platforms = rule.get( 'platforms', None )
         tags = rule.get( 'tags', None )
         if platforms is None and tags is None:
