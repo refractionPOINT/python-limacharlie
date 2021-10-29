@@ -287,13 +287,6 @@ class Configs( object ):
         # and use the authoritative service in the cloud.
         if not self._isDontUseInfraService:
             try:
-                # There is one mapping we need to do before
-                # pushing to the Service.
-                if 'service' in asConf.get( 'resources', {} ):
-                    confResources = asConf[ 'resources' ][ 'service' ]
-                    # Alias Service to Replicant
-                    asConf[ 'resources' ].setdefault( 'replicant', list( set( confResources + asConf[ 'resources' ].get( 'replicant', [] ) ) ) )
-                    asConf[ 'resources' ].pop( 'service', None )
                 finalConfig = yaml.safe_dump( asConf )
                 data = self._man.serviceRequest( 'infrastructure-service', {
                     'is_dry_run' : isDryRun,
