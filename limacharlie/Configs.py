@@ -74,11 +74,10 @@ class Configs( object ):
         tags = rule.get( 'tags', None )
         if platforms is None and tags is None:
             return rule
-        rule[ 'filters' ] = {}
-        if platforms is not None:
-            rule[ 'filters' ][ 'platforms' ] = platforms
-        if tags is not None:
-            rule[ 'filters' ][ 'tags' ] = tags
+        rule[ 'filters' ] = {
+            'platforms' : platforms if platforms is not None else [],
+            'tags' : tags if tags is not None else [],
+        }
         rule.pop( 'platforms', None )
         rule.pop( 'tags', None )
         return rule
@@ -95,11 +94,10 @@ class Configs( object ):
         tags = rule.get( 'tags', None )
         if platforms is None and tags is None:
             return rule
-        rule[ 'filters' ] = {}
-        if platforms is not None:
-            rule[ 'filters' ][ 'platforms' ] = platforms
-        if tags is not None:
-            rule[ 'filters' ][ 'tags' ] = tags
+        rule[ 'filters' ] = {
+            'platforms' : platforms if platforms is not None else [],
+            'tags' : tags if tags is not None else [],
+        }
         rule.pop( 'platforms', None )
         rule.pop( 'tags', None )
         return rule
@@ -116,11 +114,10 @@ class Configs( object ):
         tags = rule.get( 'tags', None )
         if platforms is None and tags is None:
             return rule
-        rule[ 'filters' ] = {}
-        if platforms is not None:
-            rule[ 'filters' ][ 'platforms' ] = platforms
-        if tags is not None:
-            rule[ 'filters' ][ 'tags' ] = tags
+        rule[ 'filters' ] = {
+            'platforms' : platforms if platforms is not None else [],
+            'tags' : tags if tags is not None else [],
+        }
         rule.pop( 'platforms', None )
         rule.pop( 'tags', None )
         return rule
