@@ -69,6 +69,20 @@ class Configs( object ):
         del( rule[ 'filters' ] )
         return rule
 
+    def _wrapIntegrityContent( self, rule ):
+        platforms = rule.get( 'platforms', None )
+        tags = rule.get( 'tags', None )
+        if platforms is None and tags is None:
+            return rule
+        rule[ 'filters' ] = {}
+        if platforms is not None:
+            rule[ 'filters' ][ 'platforms' ] = platforms
+        if tags is not None:
+            rule[ 'filters' ][ 'tags' ] = tags
+        rule.pop( 'platforms', None )
+        rule.pop( 'tags', None )
+        return rule
+
     def _coreLoggingContent( self, rule ):
         rule = { k : v for k, v in rule.items() if k not in ( 'by', 'updated' ) }
         rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
@@ -76,11 +90,39 @@ class Configs( object ):
         del( rule[ 'filters' ] )
         return rule
 
+    def _wrapILoggingContent( self, rule ):
+        platforms = rule.get( 'platforms', None )
+        tags = rule.get( 'tags', None )
+        if platforms is None and tags is None:
+            return rule
+        rule[ 'filters' ] = {}
+        if platforms is not None:
+            rule[ 'filters' ][ 'platforms' ] = platforms
+        if tags is not None:
+            rule[ 'filters' ][ 'tags' ] = tags
+        rule.pop( 'platforms', None )
+        rule.pop( 'tags', None )
+        return rule
+
     def _coreExfilContent( self, rule ):
         rule = { k : v for k, v in rule.items() if k not in ( 'by', 'updated' ) }
         rule[ 'tags' ] = rule[ 'filters' ][ 'tags' ]
         rule[ 'platforms' ] = rule[ 'filters' ][ 'platforms' ]
         del( rule[ 'filters' ] )
+        return rule
+
+    def _wrapExfilContent( self, rule ):
+        platforms = rule.get( 'platforms', None )
+        tags = rule.get( 'tags', None )
+        if platforms is None and tags is None:
+            return rule
+        rule[ 'filters' ] = {}
+        if platforms is not None:
+            rule[ 'filters' ][ 'platforms' ] = platforms
+        if tags is not None:
+            rule[ 'filters' ][ 'tags' ] = tags
+        rule.pop( 'platforms', None )
+        rule.pop( 'tags', None )
         return rule
 
     def _coreNetPolicyContent( self, rule ):
@@ -153,13 +195,13 @@ class Configs( object ):
                 # Apply a few of the translation layers.
                 exfilRules = asConf.get( 'exfil', None )
                 if exfilRules is not None:
-                    for ruleName, rule in exfilRules[ 'watch' ].items():
+                    for ruleName, rule in exfilRules.get( 'watch', {} ).items():
                         if '' == rule[ 'operator' ]:
                             # This is a [secret] rule, let's not mirror it since
                             # it is handled by a Service.
                             continue
                         exfilRules[ 'watch' ][ ruleName ] = self._coreExfilContent( rule )
-                    for ruleName, rule in exfilRules[ 'list' ].items():
+                    for ruleName, rule in exfilRules.get( 'list', {} ).items():
                         exfilRules[ 'list' ][ ruleName ] = self._coreExfilContent( rule )
                     asConf[ 'exfil' ] = exfilRules
 
@@ -312,6 +354,31 @@ class Configs( object ):
         # and use the authoritative service in the cloud.
         if not self._isDontUseInfraService:
             try:
+                # Apply a few of the translation layers.
+                exfilRules = asConf.get( 'exfil', None )
+                if exfilRules is not None:
+                    for ruleName, rule in exfilRules.get( 'watch', {} ).items():
+                        if '' == rule[ 'operator' ]:
+                            # This is a [secret] rule, let's not mirror it since
+                            # it is handled by a Service.
+                            continue
+                        exfilRules[ 'watch' ][ ruleName ] = self._wrapExfilContent( rule )
+                    for ruleName, rule in exfilRules.get( 'list', {} ).items():
+                        exfilRules[ 'list' ][ ruleName ] = self._wrapExfilContent( rule )
+                    asConf[ 'exfil' ] = exfilRules
+
+                integrityRules = asConf.get( 'integrity', None )
+                if integrityRules is not None:
+                    for ruleName, rule in integrityRules.items():
+                        integrityRules[ ruleName ] = self._wrapIntegrityContent( rule )
+                    asConf[ 'integrity' ] = integrityRules
+
+                artifactRules = asConf.get( 'artifact', None )
+                if artifactRules is not None:
+                    for ruleName, rule in artifactRules.items():
+                        artifactRules[ ruleName ] = self._wrapLoggingContent( rule )
+                    asConf[ 'artifact' ] = artifactRules
+
                 finalConfig = yaml.safe_dump( asConf )
                 data = self._man.serviceRequest( 'infrastructure-service', {
                     'is_dry_run' : isDryRun,
