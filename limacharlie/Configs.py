@@ -157,6 +157,7 @@ class Configs( object ):
                 return
             except Exception as e:
                 # If there is any issue, backoff to the old way.
+                print( "Failed using the infrastructure-service to push configs, using local capability: %s" % ( e, ) )
                 pass
 
         if isOrgConfigs:
@@ -285,7 +286,6 @@ class Configs( object ):
         # If we can use the service, shortcut all this logic
         # and use the authoritative service in the cloud.
         if not self._isDontUseInfraService:
-            finalConfig = yaml.safe_dump( asConf )
             try:
                 # There is one mapping we need to do before
                 # pushing to the Service.
@@ -294,6 +294,7 @@ class Configs( object ):
                     # Alias Service to Replicant
                     asConf[ 'resources' ].setdefault( 'replicant', list( set( confResources + asConf[ 'resources' ].get( 'replicant', [] ) ) ) )
                     asConf[ 'resources' ].pop( 'service', None )
+                finalConfig = yaml.safe_dump( asConf )
                 data = self._man.serviceRequest( 'infrastructure-service', {
                     'is_dry_run' : isDryRun,
                     'action' : 'push',
@@ -321,6 +322,7 @@ class Configs( object ):
                 return
             except Exception as e:
                 # If there is any issue, backoff to the old way.
+                print( "Failed using the infrastructure-service to push configs, using local capability: %s" % ( e, ) )
                 pass
 
         if isResources:
