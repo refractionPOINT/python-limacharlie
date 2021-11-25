@@ -346,7 +346,7 @@ class Manager( object ):
             'uid' : self._uid,
             'secret' : self._secret_api_key,
             'with_names' : True,
-        }, altRoot = 'https://app.limacharlie.io/' )
+        }, altRoot = 'https://app.limacharlie.io/', isNoAuth = True )
         return resp
 
     def sensor( self, sid, inv_id = None ):
