@@ -1,4 +1,3 @@
-gevent
 requests
 passlib
 pyyaml

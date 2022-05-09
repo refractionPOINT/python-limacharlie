@@ -1,5 +1,17 @@
-from gevent.queue import Queue
-import gevent.pool
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
+if _IS_PYTHON_2:
+    from urllib2 import urlopen
+    from Queue import Queue
+else:
+    from urllib.request import urlopen
+    from queue import Queue
+
+import threading
 import sys
 import json
 import requests
@@ -51,7 +63,7 @@ class Spout( object ):
 
         # Setup internal structures.
         self.queue = Queue( maxsize = self._max_buffer )
-        self._threads = gevent.pool.Group()
+        self._threads = []
 
         # Connect to limacharlie.io.
         spoutParams = { 'type' : self._data_type }
@@ -77,9 +89,9 @@ class Spout( object ):
         self._hConn = self._getStream( spoutParams )
         if self._hConn.status_code != 200:
             raise LcApiException( 'failed to open Spout (%s): %s' % ( self._hConn.status_code, self._hConn.text ) )
-        self._threads.add( gevent.spawn( self._handleConnection, spoutParams ) )
+        self._threads.append( threading.Thread( target = self._handleConnection, args = ( spoutParams, ) ) )
         self._futureCleanupInterval = 30
-        self._threads.add( gevent.spawn_later( self._futureCleanupInterval, self._cleanupFutures ) )
+        self._threads.append( threading.Thread( target = self._futureCleanupInterval, args = ( self._cleanupFutures, ) ) )
 
     def _getStream( self, spoutParams ):
         return requests.post( 'https://stream.limacharlie.io/%s' % ( self._oid, ),
@@ -96,7 +108,7 @@ class Spout( object ):
             ttl = futureInfo[ 1 ]
             if ttl < now:
                 self._futures.pop( trackingId, None )
-        self._threads.add( gevent.spawn_later( self._futureCleanupInterval, self._cleanupFutures ) )
+        self._threads.append( threading.Thread( target = self._cleanupFutures ) )
 
     def shutdown( self ):
         '''Stop receiving data.'''
@@ -185,12 +197,11 @@ def _printToStderr( msg ):
 if __name__ == "__main__":
     import argparse
     import getpass
-    import gevent
     import signal
     import limacharlie
 
     sp = None
-    gevent.signal( signal.SIGINT, _signal_handler )
+    signal.signal( signal.SIGINT, _signal_handler )
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io spout' )
     parser.add_argument( 'data_type',

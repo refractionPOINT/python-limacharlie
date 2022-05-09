@@ -1,5 +1,4 @@
-from gevent.server import StreamServer
-from gevent.queue import Queue
+import threading
 
 # Detect if this is Python 2 or 3
 import sys
@@ -9,8 +8,10 @@ if sys.version_info[ 0 ] < 3:
 
 if _IS_PYTHON_2:
     from urllib2 import urlopen
+    from Queue import Queue
 else:
     from urllib.request import urlopen
+    from queue import Queue
 
 import sys
 import ssl
@@ -102,8 +103,17 @@ class Firehose( object ):
         self._sslCtx = ssl.SSLContext( ssl.PROTOCOL_TLSv1_2 )
         self._sslCtx.load_cert_chain( certfile = tmpCert, keyfile = tmpKey )
         self._sslCtx.set_ciphers( 'ECDHE-RSA-AES128-GCM-SHA256' )
-        self._server = StreamServer( ( self._listen_on, self._listen_on_port ), self._handleNewClient )
+        self._serverSock = socket.socket( socket.AF_INET, socket.SOCK_STREAM)
+        self._serverSock.bind( self._listen_on, self._listen_on_port )
+        self._serverSock.listen(0)
+        def _serverThread():
+            while self._keepRunning:
+                conn, addr = self._serverSock.accept()
+                t = threading.Thread( target = self._handleNewClient, args = ( conn, addr ) )
+                t.start()
+        self._server = threading.Thread( target = _serverThread )
         self._server.start()
+
         self._manager._printDebug( 'Listening for connections.' )
 
         # If the name is specified we assume the user wants us to register
@@ -163,7 +173,6 @@ class Firehose( object ):
                 self._manager._printDebug( 'Unregistering.' )
                 self._manager.del_output( self._output_name )
         finally:
-            self._server.close()
             self._manager._printDebug( 'Closed.' )
 
     def getDropped( self ):

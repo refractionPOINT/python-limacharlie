@@ -9,8 +9,6 @@ from .utils import POST
 from .utils import FutureResults
 from .utils import enhanceEvent
 
-import gevent
-
 class Sensor( object ):
     '''Representation of a limacharlie.io Sensor.'''
 
@@ -64,7 +62,7 @@ class Sensor( object ):
         while not self.isOnline():
             if time.time() >= deadline:
                 return False
-            gevent.sleep( min( 60, deadline - time.time() ) )
+            time.sleep( min( 60, deadline - time.time() ) )
 
         return True
 
@@ -133,7 +131,7 @@ class Sensor( object ):
         # Although getting the command result may take a while, the receipt from the sensor
         # should come back quickly so we will implement a static wait for that.
         while True:
-            gevent.sleep( 1 )
+            time.sleep( 1 )
             if future.wasReceived:
                 break
             if time.time() > deadline:

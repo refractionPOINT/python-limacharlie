@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "3.20.2"
+__version__ = "4.0.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -49,15 +49,6 @@ if GLOBAL_API_KEY is None:
     if _lcEnv == '':
         _lcEnv = 'default'
     GLOBAL_OID, GLOBAL_UID, GLOBAL_API_KEY = _getEnvironmentCreds( _lcEnv )
-
-if not os.environ.get( 'LC_NO_MONKEY_PATCHING', False ):
-    try:
-        from gevent import monkey
-        monkey.patch_all()
-    except monkey.MonkeyPatchWarning as e:
-        import sys
-        sys.stderr.write( "%s\n" % ( e, ) )
-        sys.stderr.flush()
 
 from .Manager import Manager
 from .Firehose import Firehose

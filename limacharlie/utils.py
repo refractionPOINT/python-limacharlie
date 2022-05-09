@@ -4,8 +4,8 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
-import gevent.event
-import gevent.lock
+import threading
+import gevent
 
 class LcApiException ( Exception ):
     '''Exception type used for various errors in the LimaCharlie SDK.'''
@@ -24,9 +24,9 @@ class FutureResults( object ):
 
     def __init__( self ):
         self._nReceivedResults = 0
-        self._newResultEvent = gevent.event.Event()
+        self._newResultEvent = threading.Event()
         self._results = []
-        self._lock = gevent.lock.Semaphore()
+        self._lock = threading.Lock()
         self.wasReceived = False
 
     def _addNewResult( self, res ):
