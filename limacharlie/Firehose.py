@@ -243,7 +243,7 @@ class Firehose( object ):
         self._manager._printDebug( 'firehose connection closed: %s' % ( address, ) )
         sock.close()
 
-def _signal_handler():
+def _signal_handler(signal, frame):
     global fh
     _printToStderr( 'You pressed Ctrl+C!' )
     if fh is not None:
@@ -257,12 +257,11 @@ if __name__ == "__main__":
     import argparse
     import getpass
     import uuid
-    import gevent
     import signal
     import limacharlie
 
     fh = None
-    gevent.signal( signal.SIGINT, _signal_handler )
+    signal.signal( signal.SIGINT, handler=_signal_handler )
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io firehose' )
     parser.add_argument( 'listen_interface',
