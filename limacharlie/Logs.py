@@ -149,9 +149,9 @@ class Logs( object ):
         '''
 
         if optParams is None or 0 == len( optParams ):
-            response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), GET )
+            response = self._lc._apiCall( 'insight/%s/artifacts/originals/%s' % ( self._lc._oid, payloadId ), GET )
         else:
-            response = self._lc._apiCall( '/insight/%s/logs/originals/%s' % ( self._lc._oid, payloadId ), POST, params = optParams )
+            response = self._lc._apiCall( 'insight/%s/artifacts/originals/%s' % ( self._lc._oid, payloadId ), POST, params = optParams )
 
         # If no local output is specified, we interpret this
         # as an asynchronous export request.
