@@ -286,10 +286,8 @@ class Manager( object ):
                     if self._onRefreshAuth is not None:
                         self._onRefreshAuth( self )
                     else:
-                        print("refreshJWT")
                         self._refreshJWT()
                 except:
-                    print("jwt")
                     return False
             elif self._jwt is not None:
                 try:
@@ -314,7 +312,6 @@ class Manager( object ):
                 effective = perms[ 'user_perms' ].get( self._oid, [] )
             else:
                 # This is a machine token. Check the current OID is in there.
-                print(perms)
                 if self._oid in perms.get( 'orgs', [] ):
                     effective = perms.get( 'perms', [] )
                 else:
