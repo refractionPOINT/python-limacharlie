@@ -286,8 +286,10 @@ class Manager( object ):
                     if self._onRefreshAuth is not None:
                         self._onRefreshAuth( self )
                     else:
+                        print("refreshJWT")
                         self._refreshJWT()
                 except:
+                    print("jwt")
                     return False
             elif self._jwt is not None:
                 try:
@@ -312,6 +314,7 @@ class Manager( object ):
                 effective = perms[ 'user_perms' ].get( self._oid, [] )
             else:
                 # This is a machine token. Check the current OID is in there.
+                print(perms)
                 if self._oid in perms.get( 'orgs', [] ):
                     effective = perms.get( 'perms', [] )
                 else:
@@ -331,8 +334,7 @@ class Manager( object ):
         Returns:
             A list of organizations and permissions, or a dictionary of organizations with the related permissions.
         '''
-
-        resp = self._apiCall( 'who', GET, {}, altRoot = ROOT_URL )
+        resp = self._apiCall( 'who', GET, {}, altRoot =  "%s/%s" % ( ROOT_URL, API_VERSION ) )
         return resp
 
     def userAccessibleOrgs( self ):
