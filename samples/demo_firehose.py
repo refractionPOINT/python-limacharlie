@@ -1,18 +1,17 @@
 import limacharlie
 import json
-import gevent.signal
 import signal
 import sys
 import getpass
 
 if __name__ == "__main__":
-    def signal_handler():
+    def signal_handler(signal, frame):
         global fh
         print( 'You pressed Ctrl+C!' )
         fh.shutdown()
         sys.exit( 0 )
 
-    gevent.signal.signal( signal.SIGINT, signal_handler )
+    signal.signal( signal.SIGINT, signal_handler )
 
     def debugPrint( msg ):
         print( msg )

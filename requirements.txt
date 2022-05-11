@@ -1,4 +1,4 @@
-gevent
 requests
 passlib
 pyyaml
+futures

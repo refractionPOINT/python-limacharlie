@@ -1,11 +1,12 @@
 # Detect if this is Python 2 or 3
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import sys
+from time import time
 _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
-import gevent.event
-import gevent.lock
+import threading
 
 class LcApiException ( Exception ):
     '''Exception type used for various errors in the LimaCharlie SDK.'''
@@ -24,9 +25,9 @@ class FutureResults( object ):
 
     def __init__( self ):
         self._nReceivedResults = 0
-        self._newResultEvent = gevent.event.Event()
+        self._newResultEvent = threading.Event()
         self._results = []
-        self._lock = gevent.lock.Semaphore()
+        self._lock = threading.Lock()
         self.wasReceived = False
 
     def _addNewResult( self, res ):
@@ -186,8 +187,10 @@ def parallelExec( f, objects, timeout = None, maxConcurrent = None ):
         list of return values (or Exception if an exception occured).
     '''
 
-    g = gevent.pool.Pool( size = maxConcurrent )
-    results = g.imap_unordered( lambda o: _retExecOrExc( f, o, timeout ), objects )
+    results = []
+    with ThreadPoolExecutor( max_workers=maxConcurrent ) as executor:
+        future = executor.map( lambda o: _retExecOrExc( f, o, timeout ), objects, timeout=timeout )
+        results = future.result()
     return list( results )
 
 def _retExecOrExc( f, o, timeout ):
@@ -195,7 +198,6 @@ def _retExecOrExc( f, o, timeout ):
         if timeout is None:
             return f( o )
         else:
-            with gevent.Timeout( timeout ):
-                return f( o )
-    except ( Exception, gevent.Timeout ) as e:
+            return f( o )
+    except ( Exception, TimeoutError ) as e:
         return e

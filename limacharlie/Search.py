@@ -1,9 +1,17 @@
 from limacharlie import Manager
 
-import gevent
-import gevent.pool
-import gevent.lock
-import gevent.queue
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
+if _IS_PYTHON_2:
+    from Queue import Queue
+else:
+    from queue import Queue
+
+import threading
 import os.path
 import yaml
 import traceback
@@ -56,7 +64,7 @@ class Search( object ):
         else:
             self._output = open( output, 'wb' )
 
-        self._mutex = gevent.lock.BoundedSemaphore()
+        self._mutex = threading.Lock()
 
     def getNumEnvironments( self ):
         return len( self._environmentsToQuery )
@@ -77,14 +85,17 @@ class Search( object ):
             Dict of requested information.
         '''
 
-        threads = gevent.pool.Group()
+        threads = []
 
-        results = gevent.queue.Queue()
+        results = Queue()
 
         for envName, env in self._environmentsToQuery.items():
-            threads.add( gevent.spawn_later( 0, self._queryThread, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards, limit, isPerIoc ) )
+            t = threading.Thread( target = self._queryThread, args = ( results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards, limit, isPerIoc ) )
+            threads.append( t )
+            t.start()
 
-        threads.join( timeout = 60 )
+        for t in threads:
+            t.join( timeout = 60 )
 
         outputs = []
         while True:

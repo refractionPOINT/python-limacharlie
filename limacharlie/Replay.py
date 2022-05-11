@@ -1,4 +1,3 @@
-from gevent.lock import BoundedSemaphore
 from . import Manager
 from .utils import LcApiException
 from .utils import parallelExec
@@ -6,7 +5,6 @@ from .utils import parallelExec
 import uuid
 import json
 import yaml
-import gevent
 import time
 import sys
 

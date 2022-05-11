@@ -331,8 +331,7 @@ class Manager( object ):
         Returns:
             A list of organizations and permissions, or a dictionary of organizations with the related permissions.
         '''
-
-        resp = self._apiCall( 'who', GET, {}, altRoot = ROOT_URL )
+        resp = self._apiCall( 'who', GET, {}, altRoot =  "%s/%s" % ( ROOT_URL, API_VERSION ) )
         return resp
 
     def userAccessibleOrgs( self ):
@@ -888,9 +887,7 @@ class Manager( object ):
         Args:
             name (str): name of the Ingestion key to delete.
         '''
-        data = self._apiCall( 'insight/%s/ingestion_keys' % ( self._oid, ), DELETE, {
-            'name' : name,
-        } )
+        data = self._apiCall( 'insight/%s/ingestion_keys?name=%s' % ( self._oid, name ), DELETE, {} )
         return data
 
     def configureUSPKey( self, name, parse_hint = '', format_re = '' ):

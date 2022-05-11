@@ -1,8 +1,20 @@
 from .Manager import Manager
-from gevent.queue import Queue
-import gevent.pool
-import gevent
-from gevent.lock import BoundedSemaphore
+
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
+if _IS_PYTHON_2:
+    from urllib2 import urlopen
+    from Queue import Queue
+else:
+    from urllib.request import urlopen
+    from queue import Queue
+
+import threading
+import time
 import uuid
 import traceback
 import json
@@ -56,11 +68,11 @@ class SpotCheck( object ):
                 else:
                     self._tags.append( tag )
 
-        self._threads = gevent.pool.Group()
-        self._stopEvent = gevent.event.Event()
+        self._threads = []
+        self._stopEvent = threading.Event()
 
         self._sensorsLeftToCheck = Queue()
-        self._lock = BoundedSemaphore()
+        self._lock = threading.Lock()
         self._pendingReCheck = 0
 
         self._lc = Manager( oid, secret_api_key, inv_id = 'spotcheck-%s' % str( uuid.uuid4() )[ : 4 ], is_interactive = True, extra_params = extra_params )
@@ -74,7 +86,9 @@ class SpotCheck( object ):
 
         # Now that we have a list of sensors, we'll spawn n_concurrent spot checks,
         for _ in range( self._nConcurrent ):
-            self._threads.add( gevent.spawn_later( 0, self._performSpotChecks ) )
+            t = threading.Thread( target = self._performSpotChecks )
+            self._threads.append( t )
+            t.start()
 
         # Done, the threads will do the checks.
 
@@ -82,7 +96,7 @@ class SpotCheck( object ):
         '''Stop the SpotCheck process, returns once activity has stopped.
         '''
         self._stopEvent.set()
-        self._threads.join()
+        self.wait()
 
     def wait( self, timeout = None ):
         '''Wait for SpotCheck to be complete, or timeout occurs.
@@ -93,7 +107,12 @@ class SpotCheck( object ):
         Returns:
             True if SpotCheck is finished, False if a timeout was specified and reached before the SpotCheck is done.
         '''
-        return self._threads.join( timeout = timeout )
+        all_done = True
+        for t in self._threads:
+            t.join( timeout = timeout )
+            all_done = all_done & (not t.is_alive())
+
+        return all_done
 
     def _performSpotChecks( self ):
         while not self._stopEvent.wait( timeout = 0 ):
@@ -106,7 +125,7 @@ class SpotCheck( object ):
                     # If there are no more sensors to check, we can exit.
                     if 0 == self._pendingReCheck and 0 == len( self._sensorsLeftToCheck ):
                         return
-                gevent.sleep( 2 )
+                time.sleep( 2 )
                 continue
 
             # Check to see if the platform matches
@@ -158,7 +177,9 @@ class SpotCheck( object ):
                         self._pendingReCheck -= 1
                 with self._lock:
                     self._pendingReCheck += 1
-                self._threads.add( gevent.spawn_later( self._nSecBetweenOnlineChecks, _doReCheck, sensor ) )
+                t = threading.Thread( target = _doReCheck, args = ( sensor, ) )
+                self._threads.append( t )
+                t.start()
                 continue
 
             if self._cbOnStartCheck is not None:
@@ -178,7 +199,7 @@ class SpotCheck( object ):
                 if self._cbOnOffline is not None:
                     self._cbOnOffline( sensor )
                 # Re-add it to sensors to check, after the timeout.
-                gevent.sleep( self._nSecBetweenOnlineChecks )
+                time.sleep( self._nSecBetweenOnlineChecks )
                 self._sensorsLeftToCheck.put( sensor )
                 continue
 
