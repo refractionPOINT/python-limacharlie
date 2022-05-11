@@ -86,7 +86,9 @@ class SpotCheck( object ):
 
         # Now that we have a list of sensors, we'll spawn n_concurrent spot checks,
         for _ in range( self._nConcurrent ):
-            self._threads.append( threading.Thread( target = self._performSpotChecks ) )
+            t = threading.Thread( target = self._performSpotChecks )
+            self._threads.append( t )
+            t.start()
 
         # Done, the threads will do the checks.
 
@@ -94,7 +96,7 @@ class SpotCheck( object ):
         '''Stop the SpotCheck process, returns once activity has stopped.
         '''
         self._stopEvent.set()
-        self._threads.join()
+        self.wait()
 
     def wait( self, timeout = None ):
         '''Wait for SpotCheck to be complete, or timeout occurs.
@@ -105,7 +107,12 @@ class SpotCheck( object ):
         Returns:
             True if SpotCheck is finished, False if a timeout was specified and reached before the SpotCheck is done.
         '''
-        return self._threads.join( timeout = timeout )
+        all_done = True
+        for t in self._threads:
+            t.join( timeout = timeout )
+            all_done = all_done & (not t.is_alive())
+
+        return all_done
 
     def _performSpotChecks( self ):
         while not self._stopEvent.wait( timeout = 0 ):
@@ -170,7 +177,9 @@ class SpotCheck( object ):
                         self._pendingReCheck -= 1
                 with self._lock:
                     self._pendingReCheck += 1
-                self._threads.append( threading.Thread( target = _doReCheck, args = ( sensor, ) ) )
+                t = threading.Thread( target = _doReCheck, args = ( sensor, ) )
+                self._threads.append( t )
+                t.start()
                 continue
 
             if self._cbOnStartCheck is not None:

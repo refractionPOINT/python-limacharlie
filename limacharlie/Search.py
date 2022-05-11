@@ -90,7 +90,9 @@ class Search( object ):
         results = Queue()
 
         for envName, env in self._environmentsToQuery.items():
-            threads.append( threading.Thread( target = self._queryThread, args = ( results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards, limit, isPerIoc ) ) )
+            t = threading.Thread( target = self._queryThread, args = ( results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards, limit, isPerIoc ) )
+            threads.append( t )
+            t.start()
 
         for t in threads:
             t.join( timeout = 60 )

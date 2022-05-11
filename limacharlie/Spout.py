@@ -89,9 +89,13 @@ class Spout( object ):
         self._hConn = self._getStream( spoutParams )
         if self._hConn.status_code != 200:
             raise LcApiException( 'failed to open Spout (%s): %s' % ( self._hConn.status_code, self._hConn.text ) )
-        self._threads.append( threading.Thread( target = self._handleConnection, args = ( spoutParams, ) ) )
+        handleConnectionThread = threading.Thread( target = self._handleConnection, args = ( spoutParams, ) )
+        self._threads.append( handleConnectionThread )
+        handleConnectionThread.start()
         self._futureCleanupInterval = 30
-        self._threads.append( threading.Thread( target = self._futureCleanupInterval, args = ( self._cleanupFutures, ) ) )
+        cleanupFuturesThread = threading.Thread( target = self._cleanupFutures )
+        self._threads.append( cleanupFuturesThread )
+        cleanupFuturesThread.start()
 
     def _getStream( self, spoutParams ):
         return requests.post( 'https://stream.limacharlie.io/%s' % ( self._oid, ),
@@ -101,14 +105,18 @@ class Spout( object ):
                               timeout = _TIMEOUT_SEC )
 
     def _cleanupFutures( self ):
+        time.sleep( self._futureCleanupInterval )
         if self._isStop:
             return
+
         now = time.time()
         for trackingId, futureInfo in list( self._futures.items() ):
             ttl = futureInfo[ 1 ]
             if ttl < now:
                 self._futures.pop( trackingId, None )
-        self._threads.append( threading.Thread( target = self._cleanupFutures ) )
+        cleanupFuturesThread = threading.Thread( target = self._cleanupFutures )
+        self._threads.append( cleanupFuturesThread )
+        cleanupFuturesThread.start()
 
     def shutdown( self ):
         '''Stop receiving data.'''
@@ -128,7 +136,8 @@ class Spout( object ):
                 pass
             self._hConn = None
 
-        self._threads.join( timeout = 2 )
+        for th in self._threads:
+            th.join( timeout = 2 )
 
     def getDropped( self ):
         '''Get the number of messages dropped because queue was full.'''
