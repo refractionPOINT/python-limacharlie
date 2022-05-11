@@ -28,7 +28,10 @@ def main():
     rootArgs = sys.argv[ 1 : 2 ]
     args = parser.parse_args( rootArgs )
 
-    if args.action.lower() == 'login':
+    if args.action.lower() == 'version':
+        from . import __version__
+        print( "LimaCharlie Python SDK Version %s" % ( __version__, ) )
+    elif args.action.lower() == 'login':
         if _IS_PYTHON_2:
             oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
         else:
