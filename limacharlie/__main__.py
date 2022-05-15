@@ -199,6 +199,9 @@ def main():
     elif args.action.lower() == 'net':
         from .Net import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'hive':
+        from .Hive import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'create_org':
         from . import Manager
         import json
