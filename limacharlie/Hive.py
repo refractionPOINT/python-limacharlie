@@ -1,6 +1,7 @@
 from limacharlie import Manager
 import yaml
 import sys
+import json
 
 from .utils import GET
 from .utils import POST
@@ -17,34 +18,47 @@ def reportError( msg ):
     sys.exit( 1 )
 
 def do_list( args, man ):
-    resp = man._apiCall( 'hive/%s/%s' % ( args.hive_name, man._oid ), GET )
+    resp = man._apiCall( 'hive/%s/%s' % ( args.hive_name, args.partitionKey ), GET )
     printData( resp )
 
 def do_get( args, man ):
-    if args.ruleName is None:
-        reportError( 'No rule name specified.' )
-    rule = Manager( None, None ).rules( args.namespace ).get( args.ruleName, None )
-    if rule is None:
-        reportError( 'Rule not found.' )
-    printData( rule )
+    if args.key is None:
+        reportError( 'Key required' )
+
+    resp = man._apiCall( 'hive/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key ), GET )
+    printData( resp )
 
 def do_add( args, man ):
-    ruleFile = args.ruleFile
-    if ruleFile is None:
-        reportError( 'No rule file not specified.' )
-    try:
-        with open( ruleFile, 'rb' ) as f:
-            ruleFile = yaml.safe_load( f.read() )
-    except Exception as e:
-        reportError( 'Error reading rule file yaml: %s' % e )
-    detect = ruleFile.get( 'detect', None )
-    if detect is None:
-        reportError( 'No detect component in rule file.' )
-    response = ruleFile.get( 'respond', None )
-    if response is None:
-        reportError( 'No respond component in rule file.' )
-    Manager( None, None ).add_rule( args.ruleName, detect, response, args.isReplace, namespace = args.namespace )
-    printData( 'Added' )
+    if args.key is None:
+        reportError( 'Key required' )
+
+    target = 'mtd'
+
+    data = None
+    if args.data is not None:
+        data = open( data, 'rb' ).read().decode()
+        data = json.loads( data )
+        target = 'data'
+
+    usrMtd = {}
+    if args.expiry is not None:
+        usrMtd[ 'expiry' ] = args.expiry
+    if args.enabled is not None:
+        usrMtd[ 'enabled' ] = args.enabled.lower() not in ( '0', 'false', 'no' )
+    if args.tags is not None:
+        usrMtd[ 'tags' ] = [ t.strip() for t in args.tags.split( ',' ) ]
+
+    req = {
+        'data' : json.dumps( data ),
+    }
+
+    if args.etag is not None:
+        req[ 'etag' ] = args.etag
+    if len( usrMtd ) != 0:
+        req[ 'usr_mtd' ] = json.dumps( usrMtd )
+
+    resp = man._apiCall( 'hive/%s/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key, target ), POST, req )
+    printData( resp )
 
 def do_remove( args, man ):
     Manager( None, None ).del_rule( args.ruleName, namespace = args.namespace )
@@ -56,7 +70,7 @@ def main( sourceArgs = None ):
     actions = {
         'list' : do_list,
         'get' : do_get,
-        'add' : do_add,
+        'set' : do_add,
         'remove' : do_remove,
     }
 
@@ -115,6 +129,8 @@ def main( sourceArgs = None ):
     args = parser.parse_args( sourceArgs )
 
     man = Manager( None, None )
+    if args.partitionKey is None:
+        args.partitionKey = man._oid
     actions[ args.action.lower() ]( args, man )
 
 if '__main__' == __name__:
