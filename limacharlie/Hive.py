@@ -11,24 +11,37 @@ def printData( data ):
     if isinstance( data, str ):
         print( data )
     else:
-        print( yaml.safe_dump( data, default_flow_style = False ) )
+        print( json.dumps( data, indent = 2 ) )
 
 def reportError( msg ):
     sys.stderr.write( msg + '\n' )
     sys.exit( 1 )
 
-def do_list( args, man ):
+def do_list( args, man, isPrint = True ):
     resp = man._apiCall( 'hive/%s/%s' % ( args.hive_name, args.partitionKey ), GET )
-    printData( resp )
+    if isPrint:
+        printData( resp )
+    return resp
 
-def do_get( args, man ):
+def do_get( args, man, isPrint = True ):
     if args.key is None:
         reportError( 'Key required' )
 
-    resp = man._apiCall( 'hive/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key ), GET )
-    printData( resp )
+    resp = man._apiCall( 'hive/%s/%s/%s/data' % ( args.hive_name, args.partitionKey, args.key ), GET )
+    if isPrint:
+        printData( resp )
+    return resp
 
-def do_add( args, man ):
+def do_get_mtd( args, man, isPrint = True ):
+    if args.key is None:
+        reportError( 'Key required' )
+
+    resp = man._apiCall( 'hive/%s/%s/%s/mtd' % ( args.hive_name, args.partitionKey, args.key ), GET )
+    if isPrint:
+        printData( resp )
+    return resp
+
+def do_add( args, man, isPrint = True ):
     if args.key is None:
         reportError( 'Key required' )
 
@@ -36,7 +49,7 @@ def do_add( args, man ):
 
     data = None
     if args.data is not None:
-        data = open( data, 'rb' ).read().decode()
+        data = open( args.data, 'rb' ).read().decode()
         data = json.loads( data )
         target = 'data'
 
@@ -44,7 +57,7 @@ def do_add( args, man ):
     if args.expiry is not None:
         usrMtd[ 'expiry' ] = args.expiry
     if args.enabled is not None:
-        usrMtd[ 'enabled' ] = args.enabled.lower() not in ( '0', 'false', 'no' )
+        usrMtd[ 'enabled' ] = args.enabled.lower() not in ( '0', 'false', 'no', 'off' )
     if args.tags is not None:
         usrMtd[ 'tags' ] = [ t.strip() for t in args.tags.split( ',' ) ]
 
@@ -58,11 +71,51 @@ def do_add( args, man ):
         req[ 'usr_mtd' ] = json.dumps( usrMtd )
 
     resp = man._apiCall( 'hive/%s/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key, target ), POST, req )
-    printData( resp )
+    if isPrint:
+        printData( resp )
+    return resp
 
-def do_remove( args, man ):
-    Manager( None, None ).del_rule( args.ruleName, namespace = args.namespace )
-    printData( 'Removed' )
+def do_update( args, man, isPrint = True ):
+    if args.key is None:
+        reportError( 'Key required' )
+
+    target = 'mtd'
+
+    data = None
+    if args.data is not None:
+        data = open( args.data, 'rb' ).read().decode()
+        data = json.loads( data )
+        target = 'data'
+        existing = do_get( args, man, isPrint = False )
+        existing[ 'data' ] = json.dumps( data )
+    else:
+        existing = do_get_mtd( args, man, isPrint = False )
+        existing.pop( 'data', None )
+        existing[ 'etag' ] = existing[ 'sys_mtd' ].pop( 'etag' )
+        existing.pop( 'sys_mtd', None )
+
+    if args.expiry is not None:
+        existing[ 'usr_mtd' ][ 'expiry' ] = args.expiry
+    if args.enabled is not None:
+        existing[ 'usr_mtd' ][ 'enabled' ] = args.enabled.lower() not in ( '0', 'false', 'no', 'off' )
+    if args.tags is not None:
+        existing[ 'usr_mtd' ][ 'tags' ] = [ t.strip() for t in args.tags.split( ',' ) ]
+
+    existing[ 'usr_mtd' ] = json.dumps( existing[ 'usr_mtd' ] )
+
+    resp = man._apiCall( 'hive/%s/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key, target ), POST, existing )
+    if isPrint:
+        printData( resp )
+    return resp
+
+def do_remove( args, man, isPrint = True ):
+    if args.key is None:
+        reportError( 'Key required' )
+
+    resp = man._apiCall( 'hive/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key ), DELETE )
+    if isPrint:
+        printData( resp )
+    return resp
 
 def main( sourceArgs = None ):
     import argparse
@@ -70,7 +123,9 @@ def main( sourceArgs = None ):
     actions = {
         'list' : do_list,
         'get' : do_get,
+        'get_mtd' : do_get_mtd,
         'set' : do_add,
+        'update' : do_update,
         'remove' : do_remove,
     }
 
@@ -111,6 +166,7 @@ def main( sourceArgs = None ):
     parser.add_argument( '--expiry',
                          default = None,
                          required = False,
+                         type = int,
                          dest = 'expiry',
                          help = 'a millisecond epoch timestamp when the record should expire.' )
 
