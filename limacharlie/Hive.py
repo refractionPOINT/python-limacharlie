@@ -23,6 +23,14 @@ def do_list( args, man, isPrint = True ):
         printData( resp )
     return resp
 
+def do_list_mtd( args, man, isPrint = True ):
+    resp = man._apiCall( 'hive/%s/%s' % ( args.hive_name, args.partitionKey ), GET )
+    if isPrint:
+        for k, r in resp.items():
+            r[ 'data' ] = None
+        printData( resp )
+    return resp
+
 def do_get( args, man, isPrint = True ):
     if args.key is None:
         reportError( 'Key required' )
@@ -122,6 +130,7 @@ def main( sourceArgs = None ):
 
     actions = {
         'list' : do_list,
+        'list_mtd' : do_list_mtd,
         'get' : do_get,
         'get_mtd' : do_get_mtd,
         'set' : do_add,
