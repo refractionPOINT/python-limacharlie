@@ -1092,19 +1092,23 @@ class Manager( object ):
         data = self._apiCall( 'export/%s/sensors' % ( self._oid, ), POST, {} )
         return data
 
-    def createNewOrg( self, name, location ):
+    def createNewOrg( self, name, location, template = None ):
         '''Request the creation of a new organization.
 
         Args:
             name (str): organization name.
             location (str): location where the organization is created.
+            template (str): optional yaml template to initialize the new organization with.
         Returns:
             dict of info on new organization.
         '''
-        data = self._apiCall( 'orgs/new', POST, {
+        req = {
             'name' : name,
             'loc' : location,
-        } )
+        }
+        if template is not None:
+            req[ 'template' ] = template
+        data = self._apiCall( 'orgs/new', POST, req )
         return data
 
     def getGroups( self ):
