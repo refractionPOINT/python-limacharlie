@@ -1235,6 +1235,39 @@ class Manager( object ):
             'oid' : oid,
         } )
 
+    def getSchemas( self ):
+        '''Get the list of all Schemas available for the Organization.
+
+        Returns:
+            a list of Schema names.
+        '''
+
+        req = {}
+
+        resp = self._apiCall( 'orgs/%s/schema' % self._oid, GET, queryParams = req )
+        return resp
+
+    def getSchema( self, name ):
+        '''Get a specific Schema Definition.
+
+        Returns:
+            a Schema Definition for the given Schema Name.
+        '''
+
+        req = {}
+
+        resp = self._apiCall( 'orgs/%s/schema/%s' % ( self._oid, name ), GET, queryParams = req )
+        return resp
+
+    def resetSchemas( self ):
+        '''Reset the Schema Definition for all Schemas in an Organization.
+        '''
+
+        req = {}
+
+        resp = self._apiCall( 'orgs/%s/schema' % self._oid, DELETE, queryParams = req )
+        return resp
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
