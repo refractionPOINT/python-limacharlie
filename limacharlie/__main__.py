@@ -218,6 +218,23 @@ def main():
         _man = Manager()
         res = _man.createNewOrg( args.name, args.loc )
         print( json.dumps( res, indent = 2 ) )
+    elif args.action.lower() == 'schema':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie schema' )
+        parser.add_argument( '--schema-name',
+                             type = str,
+                             dest = 'name',
+                             default = None,
+                             required = False,
+                             help = 'schema name to retrieve, schema list is returned if not specified.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        if args.name is None:
+            res = _man.getSchemas()
+        else:
+            res = _man.getSchema( name = args.name )
+        print( json.dumps( res, indent = 2 ) )
     else:
         raise Exception( 'invalid action' )
 
