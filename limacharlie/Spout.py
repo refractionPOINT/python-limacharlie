@@ -7,9 +7,11 @@ if sys.version_info[ 0 ] < 3:
 if _IS_PYTHON_2:
     from urllib2 import urlopen
     from Queue import Queue
+    from Queue import Empty
 else:
     from urllib.request import urlopen
     from queue import Queue
+    from queue import Empty
 
 import threading
 import sys
@@ -94,7 +96,7 @@ class Spout( object ):
         handleConnectionThread.start()
         self._futureCleanupInterval = 30
         cleanupFuturesThread = threading.Thread( target = self._cleanupFutures )
-        self._threads.append( cleanupFuturesThread )
+        cleanupFuturesThread.daemon = True
         cleanupFuturesThread.start()
 
     def _getStream( self, spoutParams ):
@@ -105,18 +107,13 @@ class Spout( object ):
                               timeout = _TIMEOUT_SEC )
 
     def _cleanupFutures( self ):
-        time.sleep( self._futureCleanupInterval )
-        if self._isStop:
-            return
-
-        now = time.time()
-        for trackingId, futureInfo in list( self._futures.items() ):
-            ttl = futureInfo[ 1 ]
-            if ttl < now:
-                self._futures.pop( trackingId, None )
-        cleanupFuturesThread = threading.Thread( target = self._cleanupFutures )
-        self._threads.append( cleanupFuturesThread )
-        cleanupFuturesThread.start()
+        while not self._isStop:
+            time.sleep( self._futureCleanupInterval )
+            now = time.time()
+            for trackingId, futureInfo in list( self._futures.items() ):
+                ttl = futureInfo[ 1 ]
+                if ttl < now:
+                    self._futures.pop( trackingId, None )
 
     def shutdown( self ):
         '''Stop receiving data.'''
@@ -193,24 +190,14 @@ class Spout( object ):
             if not self._isStop:
                 self._hConn = self._getStream( spoutParams )
 
-def _signal_handler():
-    global sp
-    _printToStderr( 'You pressed Ctrl+C!' )
-    if sp is not None:
-        sp.shutdown()
-    sys.exit( 0 )
-
 def _printToStderr( msg ):
     sys.stderr.write( str( msg ) + '\n' )
 
-if __name__ == "__main__":
+def main( sourceArgs = None ):
     import argparse
     import getpass
     import signal
     import limacharlie
-
-    sp = None
-    signal.signal( signal.SIGINT, _signal_handler )
 
     parser = argparse.ArgumentParser( prog = 'limacharlie.io spout' )
     parser.add_argument( 'data_type',
@@ -241,8 +228,12 @@ if __name__ == "__main__":
                          dest = 'sid',
                          default = None,
                          help = 'spout should only receive detections or events from this sensor.' )
-    args = parser.parse_args()
-    secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+    args = parser.parse_args( sourceArgs)
+
+    if args.oid is not None:
+        secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+    else:
+        secretApiKey = None
 
     _printToStderr( "Registering..." )
     man = limacharlie.Manager( oid = args.oid, secret_api_key = secretApiKey )
@@ -253,9 +244,22 @@ if __name__ == "__main__":
                             cat = args.cat,
                             sid = args.sid )
 
+    def _signal_handler( signum, frame ):
+        _printToStderr( 'You pressed Ctrl+C!' )
+        sp._isStopStop = True
+        threading.Thread( target = sp.shutdown() ).start()
+
+    signal.signal( signal.SIGINT, _signal_handler )
+
     _printToStderr( "Starting to listen..." )
-    while True:
-        data = sp.queue.get()
+    while not sp._isStop:
+        try:
+            data = sp.queue.get( timeout = 1 )
+        except Empty:
+            continue
         print( json.dumps( data, indent = 2 ) )
 
     _printToStderr( "Exiting." )
+
+if __name__ == "__main__":
+    main()
