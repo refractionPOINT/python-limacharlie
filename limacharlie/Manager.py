@@ -155,7 +155,7 @@ class Manager( object ):
             self._jwt = None
             raise LcApiException( 'Failed to get JWT from API key oid=%s uid=%s: %s' % ( self._oid, self._uid, e, ) )
 
-    def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False ):
+    def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, timeout = None ):
         try:
             if not isNoAuth:
                 headers = { "Authorization" : "bearer %s" % self._jwt }
@@ -177,7 +177,7 @@ class Manager( object ):
             request.add_header( 'User-Agent', 'lc-py-api' )
             if contentType is not None:
                 request.add_header( 'Content-Type', contentType )
-            u = urlopen( request )
+            u = urlopen( request, timeout = timeout )
             try:
                 data = u.read()
                 if 0 != len( data ):
@@ -199,7 +199,7 @@ class Manager( object ):
 
         return ret
 
-    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, nMaxTotalRetries = 3 ):
+    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, nMaxTotalRetries = 3, timeout = 60 * 10 ):
         hasAuthRefreshed = False
         nRetries = 0
 
@@ -213,7 +213,7 @@ class Manager( object ):
         while nRetries < nMaxTotalRetries:
             nRetries += 1
 
-            code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType, isNoAuth = isNoAuth )
+            code, data = self._restCall( url, verb, params, altRoot = altRoot, queryParams = queryParams, rawBody = rawBody, contentType = contentType, isNoAuth = isNoAuth, timeout = timeout )
 
             if code == HTTP_UNAUTHORIZED:
                 if hasAuthRefreshed:
