@@ -1111,6 +1111,27 @@ class Manager( object ):
         data = self._apiCall( 'orgs/new', POST, req )
         return data
 
+    def deleteOrg( self, oid, withConfirmation = None ):
+        '''Request the deletion of an organization.
+
+        Deleting an organization means the total and unrecoverable deletion of ALL data associated.
+
+        This API is used in 2 steps:
+        - Call this API without any "withConfirmation" value specified to get a confirmation token.
+        - Using the confirmation token returned, call the same API with the token. Tokens are valid for 1 minute.
+
+        Args:
+            oid (str): the organization id to delete.
+            withConfirmation (str): optional confirmation value returned by the call to the API without it.
+        Returns:
+            dict of info on new organization.
+        '''
+        if withConfirmation is None:
+            return self._apiCall( 'orgs/%s/delete' % ( oid, ), GET, {} )
+        return self._apiCall( 'orgs/%s/delete' % ( oid, ), DELETE, {
+            'confirmation' : withConfirmation,
+        } )
+
     def getGroups( self ):
         '''Get all groups this User has access to as an owner.
 
