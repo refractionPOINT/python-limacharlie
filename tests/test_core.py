@@ -96,6 +96,9 @@ def test_rules_namespace( oid, key ):
     testRuleName = 'test-lc-python-sdk-rule'
     testNamespace = 'managed'
 
+    for ruleName in lc.rules( namespace = testNamespace ):
+        lc.del_rule( testRuleName, namespace = testNamespace )
+       
     if testRuleName in lc.rules():
         assert( {} == lc.del_rule( testRuleName ) )
 
