@@ -73,6 +73,7 @@ def test_rules( oid, key ):
 
     testRuleName = 'test-lc-python-sdk-rule'
 
+
     assert( {} == lc.add_rule( testRuleName, {
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
@@ -97,7 +98,7 @@ def test_rules_namespace( oid, key ):
     testNamespace = 'managed'
 
     for ruleName in lc.rules( namespace = testNamespace ):
-        lc.del_rule( testRuleName, namespace = testNamespace )
+        lc.del_rule( ruleName , namespace = testNamespace )
        
     if testRuleName in lc.rules():
         assert( {} == lc.del_rule( testRuleName ) )
@@ -105,14 +106,16 @@ def test_rules_namespace( oid, key ):
     if testRuleName in lc.rules( namespace = testNamespace ):
         assert( {} == lc.del_rule( testRuleName, namespace = testNamespace ) )
 
-    assert( {} == lc.add_rule( testRuleName, {
+    resp = lc.add_rule( testRuleName, {
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
         'event' : 'NEW_PROCESS',
     }, [ {
         'action' : 'report',
         'name' : 'test-sdk-detection',
-    } ], isReplace = True, namespace = testNamespace ) )
+    } ], isReplace = True, namespace = testNamespace )
+
+    print(resp)
 
     try:
         rules = lc.rules( namespace = testNamespace )
