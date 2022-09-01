@@ -684,7 +684,7 @@ class Manager( object ):
             a dict with the requested information.
         '''
         infoTypes = ( 'summary', 'locations' )
-        objTypes = ( 'user', 'domain', 'ip', 'hash', 'file_path', 'file_name' )
+        objTypes = ( 'user', 'domain', 'ip', 'file_hash', 'file_path', 'file_name', 'service_name' )
 
         if info not in infoTypes:
             raise Exception( 'invalid information type: %s, choose one of %s' % ( info, infoTypes ) )

@@ -21,7 +21,8 @@ validIOCs = (
     'file_hash',
     'file_name',
     'file_path',
-    'ip', 'domain',
+    'ip', 
+    'domain',
     'user',
     'service_name',
 )
