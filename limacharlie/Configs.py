@@ -51,6 +51,7 @@ class Configs( object ):
             'artifact',
             'net-policies',
             'org-value',
+            'hives',
         }
 
     def _coreRuleContent( self, rule ):
@@ -131,7 +132,7 @@ class Configs( object ):
             currentConfigs[ confName ] = val
         return currentConfigs
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHive={} ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -158,6 +159,7 @@ class Configs( object ):
                     'sync_artifacts' : isArtifact,
                     'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
+                    'sync_hives': isHive, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true}
                 }, isImpersonate = True )
 
                 for k, v in yaml.safe_load( data[ 'org' ] ).items():
@@ -270,7 +272,7 @@ class Configs( object ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -287,6 +289,7 @@ class Configs( object ):
             isResources (boolean): if True, push Resource subscriptions.
             isNetPolicy (boolean): if True, push Net Policies.
             isOrgConfigs (boolean): if True, push Org Configs.
+            isHives (dict{"hive_name": true}): only one hive value is requried for sync push to process passed config data, if empty or null no push will occur
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
@@ -342,6 +345,7 @@ class Configs( object ):
                     'sync_artifacts' : isArtifact,
                     'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
+                    'sync_hives': isHives,
                 }, isImpersonate = True )
 
                 for op in data.get( 'ops', [] ):
