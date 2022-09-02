@@ -126,7 +126,7 @@ def test_hive(oid, key):
         }
     }
 
-    for change, dataType, elem in sync.push(newConfigs, isForce=True, isDryRun=True, isHives={"cloud_sensor":True}):
+    for change, dataType, elem in sync.push(newConfigs,isDryRun=True, isHives={"cloud_sensor":True}):
         assert(change == "+")
         assert(dataType == "hives")
         assert(elem == "cloud_sensor/"+unique_key)
