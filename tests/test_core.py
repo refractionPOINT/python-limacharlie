@@ -74,7 +74,7 @@ def test_rules( oid, key ):
     testRuleName = 'test-lc-python-sdk-rule'
 
 
-    assert( {} == lc.add_rule( testRuleName, {
+    assert( {'guid': 'dab16e7a-0ea3-409c-ae65-453fc11ac977', 'hive': {'name': 'dr-general', 'partition': oid }, 'name': testRuleName} == lc.add_rule( testRuleName, {
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
         'event' : 'NEW_PROCESS',
@@ -96,9 +96,6 @@ def test_rules_namespace( oid, key ):
 
     testRuleName = 'test-lc-python-sdk-rule'
     testNamespace = 'managed'
-
-    for ruleName in lc.rules( namespace = testNamespace ):
-        lc.del_rule( ruleName , namespace = testNamespace )
        
     if testRuleName in lc.rules():
         assert( {} == lc.del_rule( testRuleName ) )
@@ -106,16 +103,14 @@ def test_rules_namespace( oid, key ):
     if testRuleName in lc.rules( namespace = testNamespace ):
         assert( {} == lc.del_rule( testRuleName, namespace = testNamespace ) )
 
-    resp = lc.add_rule( testRuleName, {
+    assert( {'guid': '93c2bce9-7e21-45e4-a9b2-d8b8f696e979', 'hive': {'name': 'dr-managed', 'partition': oid }, 'name': testRuleName} ==  lc.add_rule( testRuleName, { 
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
         'event' : 'NEW_PROCESS',
     }, [ {
         'action' : 'report',
         'name' : 'test-sdk-detection',
-    } ], isReplace = True, namespace = testNamespace )
-
-    print(resp)
+    } ], isReplace = True, namespace = testNamespace ))
 
     try:
         rules = lc.rules( namespace = testNamespace )
@@ -133,7 +128,7 @@ def test_fps( oid, key ):
 
     testRuleName = 'test-lc-python-sdk-fp'
 
-    assert( {} == lc.add_fp( testRuleName, {
+    assert( {'guid': '93c2bce9-7e21-45e4-a9b2-d8b8f696e979', 'hive': {'name': 'fp', 'partition': oid }, 'name': testRuleName} == lc.add_fp( testRuleName, {
         'op' : 'is',
         'path' : 'cat',
         'value' : 'test-sdk-detection'
