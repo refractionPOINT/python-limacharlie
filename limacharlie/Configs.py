@@ -132,7 +132,7 @@ class Configs( object ):
             currentConfigs[ confName ] = val
         return currentConfigs
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHive={} ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={} ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -159,7 +159,7 @@ class Configs( object ):
                     'sync_artifacts' : isArtifact,
                     'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
-                    'sync_hives': isHive, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true}
+                    'sync_hives': isHives, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true}
                 }, isImpersonate = True )
 
                 for k, v in yaml.safe_load( data[ 'org' ] ).items():
