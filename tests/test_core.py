@@ -74,14 +74,16 @@ def test_rules( oid, key ):
     testRuleName = 'test-lc-python-sdk-rule'
 
 
-    assert( {'guid': 'dab16e7a-0ea3-409c-ae65-453fc11ac977', 'hive': {'name': 'dr-general', 'partition': oid }, 'name': testRuleName} == lc.add_rule( testRuleName, {
+    resp = lc.add_rule( testRuleName, {
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
         'event' : 'NEW_PROCESS',
     }, [ {
         'action' : 'report',
         'name' : 'test-sdk-detection',
-    } ], isReplace = True ) )
+    } ], isReplace = True )
+
+    assert({'guid': resp['guid'], 'hive': {'name': 'dr-general', 'partition': oid }, 'name': testRuleName} == resp)
 
     try:
         rules = lc.rules()
@@ -103,14 +105,17 @@ def test_rules_namespace( oid, key ):
     if testRuleName in lc.rules( namespace = testNamespace ):
         assert( {} == lc.del_rule( testRuleName, namespace = testNamespace ) )
 
-    assert( {'guid': '93c2bce9-7e21-45e4-a9b2-d8b8f696e979', 'hive': {'name': 'dr-managed', 'partition': oid }, 'name': testRuleName} ==  lc.add_rule( testRuleName, { 
+    resp = lc.add_rule( testRuleName, { 
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
         'event' : 'NEW_PROCESS',
     }, [ {
         'action' : 'report',
         'name' : 'test-sdk-detection',
-    } ], isReplace = True, namespace = testNamespace ))
+    } ], isReplace = True, namespace = testNamespace )
+    assert({'guid': resp['guid'], 'hive': {'name': 'dr-managed', 'partition': oid }, 'name': testRuleName} == resp)
+
+
 
     try:
         rules = lc.rules( namespace = testNamespace )
@@ -128,11 +133,12 @@ def test_fps( oid, key ):
 
     testRuleName = 'test-lc-python-sdk-fp'
 
-    assert( {'guid': '93c2bce9-7e21-45e4-a9b2-d8b8f696e979', 'hive': {'name': 'fp', 'partition': oid }, 'name': testRuleName} == lc.add_fp( testRuleName, {
+    resp = lc.add_fp( testRuleName, {
         'op' : 'is',
         'path' : 'cat',
         'value' : 'test-sdk-detection'
-    }, isReplace = True ) )
+    }, isReplace = True )
+    assert({'guid': resp['guid'], 'hive': {'name': 'fp', 'partition': oid }, 'name': testRuleName} == resp)
 
     try:
         rules = lc.fps()
