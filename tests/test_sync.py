@@ -107,7 +107,7 @@ def test_hive(oid, key):
                             "hostname": "cloudtrail",
                             "identity": {
                             "installation_key": "test-install-key",
-                            "oid": "oid-input"
+                            "oid": "342c7b8f-243a-4acb-8801-d82f3f8dca99"
                             },
                             "platform": "aws",
                             "sensor_seed_key": "cloudtrail"
