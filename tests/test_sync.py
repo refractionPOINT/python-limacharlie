@@ -133,6 +133,6 @@ def test_hive(oid, key):
         print(change," ", dataType," ", elem)
 
     allConfigs = {}
-    sync.fetch( allConfigs, isRules = True, isResources = True )
+    sync.fetch( allConfigs, isHives={"cloud_sensor":True})
     print(allConfigs)
 
