@@ -465,7 +465,7 @@ class Manager( object ):
             req[ k ] = v
         return self._apiCall( 'outputs/%s' % self._oid, POST, req )
 
-    def hosts( self, hostname_expr ):
+    def hosts( self, hostname_expr, as_dict = False ):
         '''Get the Sensor objects for hosts matching a hostname expression.
 
         Args:
@@ -476,7 +476,7 @@ class Manager( object ):
             a list of Sensor IDs matching the hostname expression.
         '''
 
-        return self.getSensorsWithHostname( hostname_expr )
+        return self.getSensorsWithHostname( hostname_expr, as_dict = as_dict )
 
     def rules( self, namespace = None ):
         '''Get the list of all Detection & Response rules for the Organization.
@@ -755,7 +755,7 @@ class Manager( object ):
             'linux' : ( None, None, None ),
         }
 
-    def getSensorsWithHostname( self, hostnamePrefix ):
+    def getSensorsWithHostname( self, hostnamePrefix, as_dict = False ):
         '''Get the list of sensor IDs and hostnames that match the given prefix.
 
         Args:
@@ -766,6 +766,7 @@ class Manager( object ):
         '''
         data = self._apiCall( 'hostnames/%s' % ( self._oid, ), GET, queryParams = {
             'hostname' : hostnamePrefix,
+            'as_dict' : 'true' if as_dict else 'false',
         } )
         return data.get( 'sid', None )
 
@@ -1110,6 +1111,27 @@ class Manager( object ):
             req[ 'template' ] = template
         data = self._apiCall( 'orgs/new', POST, req )
         return data
+
+    def deleteOrg( self, oid, withConfirmation = None ):
+        '''Request the deletion of an organization.
+
+        Deleting an organization means the total and unrecoverable deletion of ALL data associated.
+
+        This API is used in 2 steps:
+        - Call this API without any "withConfirmation" value specified to get a confirmation token.
+        - Using the confirmation token returned, call the same API with the token. Tokens are valid for 1 minute.
+
+        Args:
+            oid (str): the organization id to delete.
+            withConfirmation (str): optional confirmation value returned by the call to the API without it.
+        Returns:
+            dict of info on new organization.
+        '''
+        if withConfirmation is None:
+            return self._apiCall( 'orgs/%s/delete' % ( oid, ), GET, {} )
+        return self._apiCall( 'orgs/%s/delete' % ( oid, ), DELETE, {
+            'confirmation' : withConfirmation,
+        } )
 
     def getGroups( self ):
         '''Get all groups this User has access to as an owner.
