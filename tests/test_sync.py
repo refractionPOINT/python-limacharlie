@@ -30,7 +30,7 @@ def test_sensors( oid, key ):
 
     for change, dataType, elem in sync.push( newConfigs, isRules = True ):
         assert( '+' == change )
-        assert( 'rule' == dataType )
+        assert( 'dr-rule' == dataType )
         assert( 'test-sync-rule' == elem )
 
     allConfigs = {}
