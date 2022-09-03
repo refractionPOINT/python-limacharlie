@@ -21,7 +21,8 @@ validIOCs = (
     'file_hash',
     'file_name',
     'file_path',
-    'ip', 'domain',
+    'ip', 
+    'domain',
     'user',
     'service_name',
 )
@@ -114,8 +115,12 @@ class Search( object ):
 
     def _queryThread( self, results, envName, env, iocType, iocName, info, isCaseInsensitive, isWithWildcards, limit, isPerIoc ):
         try:
-            lc = Manager( env[ 'oid' ], env[ 'api_key' ] )
-
+            # If using a user API key, pass the uid parameter from the env var
+            try:
+                lc = Manager( env[ 'oid' ], env[ 'api_key' ], uid=env['uid'] )
+            except:
+                lc = Manager( env[ 'oid' ], env[ 'api_key' ] )
+                
             try:
                 isInsightEnabled = lc.isInsightEnabled()
             except:
