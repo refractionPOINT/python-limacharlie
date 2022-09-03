@@ -9,7 +9,7 @@ if sys.version_info[ 0 ] < 3:
 if _IS_PYTHON_2:
     from urllib2 import urlopen
     from Queue import Queue
-    from queue import Empty
+    from Queue import Empty
 else:
     from urllib.request import urlopen
     from queue import Queue
