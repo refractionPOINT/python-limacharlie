@@ -1290,6 +1290,25 @@ class Manager( object ):
         resp = self._apiCall( 'orgs/%s/schema' % self._oid, DELETE, queryParams = req )
         return resp
 
+    def setSensorVersion( self, isFallbackVersion = False, isSleepVersion = False, specificVersion = None ):
+        '''Set the sensor version for an Organization.
+
+        Args:
+            isFallbackVersion (bool): use the "stable" version.
+            isSleepVersion (bool): set sensors in dormant mode.
+            specificVersion (str): set a specific sensor version.
+        '''
+
+        req = {
+            'is_fallback' : 'true' if isFallbackVersion else 'false',
+            'is_sleep' : 'true' if isSleepVersion else 'false',
+        }
+        if specificVersion is not None:
+            req[ 'specific_version' ] = specificVersion
+
+        resp = self._apiCall( 'modules/%s' % self._oid, POST, queryParams = req )
+        return resp
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
