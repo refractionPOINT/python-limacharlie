@@ -81,7 +81,6 @@ def test_rules( oid, key ):
         'action' : 'report',
         'name' : 'test-sdk-detection',
     } ], isReplace = True )
-
     assert({'guid': resp['guid'], 'hive': {'name': 'dr-general', 'partition': oid }, 'name': testRuleName} == resp)
 
     try:
@@ -97,7 +96,6 @@ def test_rules_namespace( oid, key ):
 
     testRuleName = 'test-lc-python-sdk-rule'
     testNamespace = 'managed'
-       
     if testRuleName in lc.rules():
         assert( {} == lc.del_rule( testRuleName ) )
 
