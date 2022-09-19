@@ -73,7 +73,6 @@ def test_rules( oid, key ):
 
     testRuleName = 'test-lc-python-sdk-rule'
 
-
     resp = lc.add_rule( testRuleName, {
         'op' : 'is tagged',
         'tag' : 'test-tag-python-sdk',
@@ -114,8 +113,6 @@ def test_rules_namespace( oid, key ):
         'name' : 'test-sdk-detection',
     } ], isReplace = True, namespace = testNamespace )
     assert({'guid': resp['guid'], 'hive': {'name': 'dr-managed', 'partition': oid }, 'name': testRuleName} == resp)
-
-
 
     try:
         rules = lc.rules( namespace = testNamespace )

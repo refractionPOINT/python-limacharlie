@@ -9,9 +9,11 @@ if sys.version_info[ 0 ] < 3:
 if _IS_PYTHON_2:
     from urllib2 import urlopen
     from Queue import Queue
+    from Queue import Empty
 else:
     from urllib.request import urlopen
     from queue import Queue
+    from queue import Empty
 
 import sys
 import ssl
@@ -243,7 +245,7 @@ class Firehose( object ):
         self._manager._printDebug( 'firehose connection closed: %s' % ( address, ) )
         sock.close()
 
-def _signal_handler(signal, frame):
+def _signal_handler( signal, frame ):
     global fh
     _printToStderr( 'You pressed Ctrl+C!' )
     if fh is not None:
@@ -322,8 +324,11 @@ if __name__ == "__main__":
                                sid = args.sid )
 
     _printToStderr( "Starting to listen..." )
-    while True:
-        data = fh.queue.get()
+    while fh.self._keepRunning:
+        try:
+            data = fh.queue.get( timeout = 1 )
+        except Empty:
+            continue
         print( json.dumps( data, indent = 2 ) )
 
     _printToStderr( "Exiting." )

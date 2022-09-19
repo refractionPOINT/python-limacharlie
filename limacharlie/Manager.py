@@ -465,7 +465,7 @@ class Manager( object ):
             req[ k ] = v
         return self._apiCall( 'outputs/%s' % self._oid, POST, req )
 
-    def hosts( self, hostname_expr ):
+    def hosts( self, hostname_expr, as_dict = False ):
         '''Get the Sensor objects for hosts matching a hostname expression.
 
         Args:
@@ -476,7 +476,7 @@ class Manager( object ):
             a list of Sensor IDs matching the hostname expression.
         '''
 
-        return self.getSensorsWithHostname( hostname_expr )
+        return self.getSensorsWithHostname( hostname_expr, as_dict = as_dict )
 
     def rules( self, namespace = None ):
         '''Get the list of all Detection & Response rules for the Organization.
@@ -684,7 +684,7 @@ class Manager( object ):
             a dict with the requested information.
         '''
         infoTypes = ( 'summary', 'locations' )
-        objTypes = ( 'user', 'domain', 'ip', 'hash', 'file_path', 'file_name' )
+        objTypes = ( 'user', 'domain', 'ip', 'file_hash', 'file_path', 'file_name', 'service_name' )
 
         if info not in infoTypes:
             raise Exception( 'invalid information type: %s, choose one of %s' % ( info, infoTypes ) )
@@ -755,7 +755,7 @@ class Manager( object ):
             'linux' : ( None, None, None ),
         }
 
-    def getSensorsWithHostname( self, hostnamePrefix ):
+    def getSensorsWithHostname( self, hostnamePrefix, as_dict = False ):
         '''Get the list of sensor IDs and hostnames that match the given prefix.
 
         Args:
@@ -766,6 +766,7 @@ class Manager( object ):
         '''
         data = self._apiCall( 'hostnames/%s' % ( self._oid, ), GET, queryParams = {
             'hostname' : hostnamePrefix,
+            'as_dict' : 'true' if as_dict else 'false',
         } )
         return data.get( 'sid', None )
 
@@ -1111,6 +1112,27 @@ class Manager( object ):
         data = self._apiCall( 'orgs/new', POST, req )
         return data
 
+    def deleteOrg( self, oid, withConfirmation = None ):
+        '''Request the deletion of an organization.
+
+        Deleting an organization means the total and unrecoverable deletion of ALL data associated.
+
+        This API is used in 2 steps:
+        - Call this API without any "withConfirmation" value specified to get a confirmation token.
+        - Using the confirmation token returned, call the same API with the token. Tokens are valid for 1 minute.
+
+        Args:
+            oid (str): the organization id to delete.
+            withConfirmation (str): optional confirmation value returned by the call to the API without it.
+        Returns:
+            dict of info on new organization.
+        '''
+        if withConfirmation is None:
+            return self._apiCall( 'orgs/%s/delete' % ( oid, ), GET, {} )
+        return self._apiCall( 'orgs/%s/delete' % ( oid, ), DELETE, {
+            'confirmation' : withConfirmation,
+        } )
+
     def getGroups( self ):
         '''Get all groups this User has access to as an owner.
 
@@ -1266,6 +1288,25 @@ class Manager( object ):
         req = {}
 
         resp = self._apiCall( 'orgs/%s/schema' % self._oid, DELETE, queryParams = req )
+        return resp
+
+    def setSensorVersion( self, isFallbackVersion = False, isSleepVersion = False, specificVersion = None ):
+        '''Set the sensor version for an Organization.
+
+        Args:
+            isFallbackVersion (bool): use the "stable" version.
+            isSleepVersion (bool): set sensors in dormant mode.
+            specificVersion (str): set a specific sensor version.
+        '''
+
+        req = {
+            'is_fallback' : 'true' if isFallbackVersion else 'false',
+            'is_sleep' : 'true' if isSleepVersion else 'false',
+        }
+        if specificVersion is not None:
+            req[ 'specific_version' ] = specificVersion
+
+        resp = self._apiCall( 'modules/%s' % self._oid, POST, queryParams = req )
         return resp
 
 def _eprint( msg ):
