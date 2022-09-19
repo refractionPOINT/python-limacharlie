@@ -159,7 +159,7 @@ class Configs( object ):
                     'sync_artifacts' : isArtifact,
                     'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
-                    'sync_hives': isHives, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true}
+                    'sync_hives': isHives, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true, "dr-general": true}
                 }, isImpersonate = True )
 
                 for k, v in yaml.safe_load( data[ 'org' ] ).items():

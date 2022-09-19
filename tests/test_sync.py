@@ -88,7 +88,6 @@ def test_sensors( oid, key ):
     assert( 0 == len( allConfigs.get( 'rules', {} ) ) )
 
 
-
 def test_hive(oid, key):
     sync = limacharlie.Configs( manager = limacharlie.Manager( oid, key ) )
     letters = string.ascii_lowercase
