@@ -91,10 +91,8 @@ def test_sensors( oid, key ):
 
 def test_hive(oid, key):
     sync = limacharlie.Configs( manager = limacharlie.Manager( oid, key ) )
-
     letters = string.ascii_lowercase
     unique_key = 'test-s3-python-sdk-' + ''.join(random.choice(letters) for i in range(6))
-
     newConfigs = {
         "hives":{
             "cloud_sensor": {
@@ -119,20 +117,54 @@ def test_hive(oid, key):
                     "usr_mtd": {
                         "enabled": False,
                         "expiry": 0,
-                        "tags": None
                     }
                 }
             }
         }
     }
 
+    #dry run of adding cloud_sensor
     for change, dataType, elem in sync.push(newConfigs,isDryRun=True, isHives={"cloud_sensor":True}):
         assert(change == "+")
         assert(dataType == "hives")
         assert(elem == "cloud_sensor/"+unique_key)
-        print(change," ", dataType," ", elem)
 
-    allConfigs = {}
-    sync.fetch( allConfigs, isHives={"cloud_sensor":True})
-    print(allConfigs)
+    #actual run of adding cloud_sensor
+    for change, dataType, elem in sync.push(newConfigs,isDryRun=False, isHives={"cloud_sensor":True}):
+        assert(change == "+")
+        assert(dataType == "hives")
+        assert(elem == "cloud_sensor/"+unique_key)
+
+
+    # run sync fetch to ensure cloud_sensor data can be retrieved and is created
+    sensor_configs = {}
+    sync.fetch( sensor_configs, isHives={"cloud_sensor":True })
+    assert(unique_key in sensor_configs.get( 'hives', {} )['cloud_sensor'])
+
+
+    #remove newly created config data from sensor_configs as sync.push will auto delete any removed config data when sync push is ran
+    sensor_configs["hives"]["cloud_sensor"].pop(unique_key, None)
+
+
+    #dry run test to ensure unique key is removed, isForce will remove any hive data not part of sensor_config so be weary of removing values from original sensor config 
+    # isHives={} can set any key to true and push will run config updates based upon passed sensor_config data and not hive keys
+    for change, dataType, elem in sync.push(sensor_configs,isDryRun=True, isForce=True, isHives={"cloud_sensor":True}):
+        assert(change == "-")
+        assert(dataType == "hives")
+        assert(elem == "cloud_sensor/"+unique_key)
+
+
+    # actual run of sync push and removal of newly created cloud_sensor data
+    for change, dataType, elem in sync.push(sensor_configs,isDryRun=False, isForce=True, isHives={"cloud_sensor":True}):
+        assert(change == "-")
+        assert(dataType == "hives")
+        assert(elem == "cloud_sensor/"+unique_key)
+
+
+        
+    # grab actual data after delete to ensure it has been deleted
+    sync.fetch( sensor_configs, isHives={"cloud_sensor":True})
+
+    # assert that cloud_sensor no longer contains created cloud_sensor data
+    assert(unique_key not in sensor_configs.get( 'hives', {} )['cloud_sensor'])
 
