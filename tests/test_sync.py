@@ -28,8 +28,7 @@ def test_sensors( oid, key ):
                     'name' : 'test-sync-detection',
                 } ]
             }
-        },
-        
+        }
     }
 
     for change, dataType, elem in sync.push( newConfigs, isRules = True ):
