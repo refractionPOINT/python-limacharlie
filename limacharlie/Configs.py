@@ -783,7 +783,7 @@ class Configs( object ):
                                 asConf.setdefault( cat, {} ).setdefault( k, {} ).update( v )
                         else:
                             asConf.setdefault( cat, {} ).update( subCat )
-        except:
+        finally:
             # Revert the previous CWD.
             os.chdir( currentPath )
 
