@@ -273,7 +273,7 @@ class Configs( object ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}, isVerbose = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -308,7 +308,10 @@ class Configs( object ):
             os.chdir( contextPath )
 
             # This function also does the bulk of the validation.
-            asConf = self._loadEffectiveConfig( fromConfigFile )
+            asConf, allIncluded = self._loadEffectiveConfig( fromConfigFile )
+            if isVerbose:
+                for include in allIncluded:
+                    yield ( '*', 'include', include )
 
             # Revert the previous CWD.
             os.chdir( currentPath )
@@ -747,7 +750,8 @@ class Configs( object ):
         for include in includes:
             for globbed in glob.iglob( include ):
                 globIncludes.add( globbed )
-        includes = globIncludes
+        includes = list( globIncludes )
+        totalIncludes = list( globIncludes )
         for include in includes:
             if not _isStringCompat( include ):
                 raise LcConfigException( 'Include should be a string, not %s' % ( str( type( include ) ), ) )
@@ -756,7 +760,8 @@ class Configs( object ):
             currentPath = os.getcwd()
             os.chdir( contextPath )
 
-            subConf = self._loadEffectiveConfig( include )
+            subConf, newIncludes = self._loadEffectiveConfig( include )
+            totalIncludes.extend( newIncludes )
 
             # Revert the previous CWD.
             os.chdir( currentPath )
@@ -781,7 +786,7 @@ class Configs( object ):
                     else:
                         asConf.setdefault( cat, {} ).update( subCat )
 
-        return asConf
+        return asConf, totalIncludes
 
 def main( sourceArgs = None ):
     import argparse
@@ -886,6 +891,12 @@ def main( sourceArgs = None ):
                          required = False,
                          dest = 'config',
                          help = 'path to the lc_conf.yaml file to use' )
+    parser.add_argument( '--verbose',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isVerbose',
+                         help = 'if specified, emit verbose information about the push' )
     args = parser.parse_args( sourceArgs )
 
     if args.isDryRun:
@@ -926,7 +937,7 @@ def main( sourceArgs = None ):
     if 'fetch' == args.action:
         s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isVerbose = args.isVerbose ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
