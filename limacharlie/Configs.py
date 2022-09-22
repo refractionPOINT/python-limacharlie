@@ -743,50 +743,49 @@ class Configs( object ):
         if self._confVersion < asConf[ 'version' ]:
             raise LcConfigException( 'Version not supported.' )
 
-        includes = asConf.get( 'include', [] )
-        if _isStringCompat( includes ):
-            includes = [ includes ]
-        # Temporarily disabling glob includes.
-        # globIncludes = set()
-        # for include in includes:
-        #     for globbed in glob.iglob( include ):
-        #         globIncludes.add( globbed )
-        # includes = list( globIncludes )
-        # totalIncludes = list( globIncludes )
-        totalIncludes = list( includes )
-        for include in includes:
-            if not _isStringCompat( include ):
-                raise LcConfigException( 'Include should be a string, not %s' % ( str( type( include ) ), ) )
-            # Config files are always evaluated relative to the current one.
-            contextPath = os.path.dirname( configFile )
-            currentPath = os.getcwd()
-            os.chdir( contextPath )
+        # Config files are always evaluated relative to the current one.
+        contextPath = os.path.dirname( configFile )
+        currentPath = os.getcwd()
+        os.chdir( contextPath )
+        try:
+            includes = asConf.get( 'include', [] )
+            if _isStringCompat( includes ):
+                includes = [ includes ]
+            globIncludes = set()
+            for include in includes:
+                for globbed in glob.iglob( include ):
+                    globIncludes.add( globbed )
+            includes = list( globIncludes )
+            totalIncludes = list( globIncludes )
+            for include in includes:
+                if not _isStringCompat( include ):
+                    raise LcConfigException( 'Include should be a string, not %s' % ( str( type( include ) ), ) )
 
-            subConf, newIncludes = self._loadEffectiveConfig( include )
-            totalIncludes.extend( newIncludes )
+                subConf, newIncludes = self._loadEffectiveConfig( include )
+                totalIncludes.extend( newIncludes )
 
+                for cat in self._configRoots:
+                    subCat = subConf.get( cat, None )
+                    if subCat is None:
+                        continue
+                    # Check if this config is dictionaries
+                    # or lists. They need to be updated differntly.
+                    if len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
+                        for k, v in subCat.items():
+                            for val in v:
+                                if val in asConf.setdefault( cat, {} ).setdefault( k, [] ):
+                                    continue
+                                asConf[ cat ][ k ].append( val )
+                    else:
+                        # One more special case for exfil.
+                        if cat == 'exfil':
+                            for k, v in subCat.items():
+                                asConf.setdefault( cat, {} ).setdefault( k, {} ).update( v )
+                        else:
+                            asConf.setdefault( cat, {} ).update( subCat )
+        finally:
             # Revert the previous CWD.
             os.chdir( currentPath )
-
-            for cat in self._configRoots:
-                subCat = subConf.get( cat, None )
-                if subCat is None:
-                    continue
-                # Check if this config is dictionaries
-                # or lists. They need to be updated differntly.
-                if len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
-                    for k, v in subCat.items():
-                        for val in v:
-                            if val in asConf.setdefault( cat, {} ).setdefault( k, [] ):
-                                continue
-                            asConf[ cat ][ k ].append( val )
-                else:
-                    # One more special case for exfil.
-                    if cat == 'exfil':
-                        for k, v in subCat.items():
-                            asConf.setdefault( cat, {} ).setdefault( k, {} ).update( v )
-                    else:
-                        asConf.setdefault( cat, {} ).update( subCat )
 
         return asConf, totalIncludes
 
