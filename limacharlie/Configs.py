@@ -16,6 +16,7 @@ import os
 import sys
 import yaml
 import json
+import glob
 
 class LcConfigException( Exception ):
     pass
@@ -742,6 +743,11 @@ class Configs( object ):
         includes = asConf.get( 'include', [] )
         if _isStringCompat( includes ):
             includes = [ includes ]
+        globIncludes = set()
+        for include in includes:
+            for globbed in glob.iglob( include ):
+                globIncludes.add( globbed )
+        includes = globIncludes
         for include in includes:
             if not _isStringCompat( include ):
                 raise LcConfigException( 'Include should be a string, not %s' % ( str( type( include ) ), ) )
