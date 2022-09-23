@@ -189,8 +189,7 @@ def parallelExec( f, objects, timeout = None, maxConcurrent = None ):
 
     results = []
     with ThreadPoolExecutor( max_workers=maxConcurrent ) as executor:
-        future = executor.map( lambda o: _retExecOrExc( f, o, timeout ), objects, timeout=timeout )
-        results = future.result()
+        results = executor.map( lambda o: _retExecOrExc( f, o, timeout ), objects, timeout=timeout )
     return list( results )
 
 def _retExecOrExc( f, o, timeout ):

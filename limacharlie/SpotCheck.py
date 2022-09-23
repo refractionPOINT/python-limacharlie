@@ -172,6 +172,8 @@ class SpotCheck( object ):
 
                 # Re-add it to sensors to check, after the timeout.
                 def _doReCheck( s ):
+                    if self._stopEvent.wait( timeout = self._nSecBetweenOnlineChecks ):
+                        return
                     with self._lock:
                         self._sensorsLeftToCheck.put( s )
                         self._pendingReCheck -= 1
