@@ -368,13 +368,14 @@ class Manager( object ):
             s.setInvId( self._inv_id )
         return s
 
-    def sensors( self, inv_id = None ):
+    def sensors( self, inv_id = None, selector = None ):
         '''Gets all Sensors in the Organization.
 
         The sensors may or may not be online.
 
         Args:
             inv_id (str): investigation ID to add to all actions done using these objects.
+            selector (str): sensor selector expression to use as filter.
 
         Returns:
             a generator of Sensor objects.
@@ -387,6 +388,8 @@ class Manager( object ):
 
             if continuationToken is not None:
                 params[ 'continuation_token' ] = continuationToken
+            if selector is not None:
+                params[ 'selector' ] = selector
 
             resp = self._apiCall( 'sensors/%s' % self._oid, GET, queryParams = params )
             if inv_id is None:
