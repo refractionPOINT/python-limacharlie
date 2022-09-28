@@ -166,7 +166,7 @@ class Sensor( object ):
                     return allResponses
         return None
 
-    def tag( self, tag, ttl ):
+    def tag( self, tag, ttl=None ):
         '''Apply a Tag to the Sensor.
 
         Args:
@@ -176,8 +176,10 @@ class Sensor( object ):
         Returns:
             the REST API response (JSON).
         '''
-
-        req = { 'tags' : str( tag ), 'ttl' : int( ttl ) }
+        if ttl is not None:
+            req = { 'tags' : str( tag ), 'ttl' : int( ttl ) }
+        else:
+            req = { 'tags' : str( tag ) }
         return self._manager._apiCall( '%s/tags' % self.sid, POST, req )
 
     def untag( self, tag ):
