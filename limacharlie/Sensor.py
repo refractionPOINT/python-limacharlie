@@ -318,7 +318,7 @@ class Sensor( object ):
             self.getInfo()
         return self._hostname
 
-    def getHistoricEvents( self, start, end, limit = None, eventType = None, isForward = True ):
+    def getHistoricEvents( self, start, end, limit = None, eventType = None, isForward = True, outputName = None ):
         '''Get the events for this sensor between the two times, requires Insight (retention) enabled.
 
         Args:
@@ -327,6 +327,7 @@ class Sensor( object ):
             limit (int): maximum number of events to return.
             eventType (str): return events only of this type.
             isForward (bool): return events in ascending order.
+            outputName (str): send data to a named output instead.
 
         Returns:
             a generator of events.
@@ -349,6 +350,10 @@ class Sensor( object ):
 
         if eventType is not None:
             req[ 'event_type' ] = eventType
+        if outputName is not None:
+            req[ 'output_name' ] = outputName
+            yield self._manager._apiCall( 'insight/%s/%s' % ( self._manager._oid, self.sid ), GET, queryParams = req )
+            return
 
         nReturned = 0
         while cursor:

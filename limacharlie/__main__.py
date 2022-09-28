@@ -191,10 +191,15 @@ def main():
                              default = None,
                              dest = 'eventType',
                              help = 'only get events of this type.' )
+        parser.add_argument( '--output-name',
+                             type = str,
+                             default = None,
+                             dest = 'outputName',
+                             help = 'send data to a named output instead.' )
         args = parser.parse_args( sys.argv[ 2: ] )
         _man = Manager()
         _sensor = _man.sensor( str( args.sid ) )
-        for event in _sensor.getHistoricEvents( args.start, args.end, limit = args.limit, eventType = args.eventType ):
+        for event in _sensor.getHistoricEvents( args.start, args.end, limit = args.limit, eventType = args.eventType, outputName = args.outputName ):
             print( json.dumps( event ) )
     elif args.action.lower() == 'comms':
         from .Comms import main as cmdMain
