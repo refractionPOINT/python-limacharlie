@@ -1016,6 +1016,36 @@ class Manager( object ):
         } )
         return data
 
+    def createResource( self, resType, resName, isEditExisting = False, resData = None, permissions = [], desc = None, longDesc = None, icon = None, isPublic = False, platforms = [], flair = [], website = None ):
+        '''Create a new LimaCharlie Resource.
+
+        Args:
+            email (str): email of the user to add.
+            permission (str): permission to add to the user.
+        '''
+        req = {
+            'is_editing' : isEditExisting,
+            'is_public' : isPublic,
+        }
+        if resData:
+            req[ 'res_data' ] = resData
+        if permissions:
+            req[ 'perms' ] = permissions
+        if desc:
+            req[ 'desc' ] = desc
+        if longDesc:
+            req[ 'long_desc' ] = longDesc
+        if icon:
+            req[ 'icon' ] = icon
+        if platforms:
+            req[ 'platforms' ] = platforms
+        if flair:
+            req[ 'flair' ] = flair
+        if website:
+            req[ 'website' ] = website
+        data = self._apiCall( 'users/resources/%s/%s' % ( resType, resName ), POST, req )
+        return data
+
     def getJobs( self, startTime, endTime, limit = None, sid = None ):
         '''Get all the jobs in an organization in a time window.
 
