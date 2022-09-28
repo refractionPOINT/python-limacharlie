@@ -24,7 +24,7 @@ class Replay( object ):
         self._lc = manager
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
-    def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None ):
+    def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None ):
         resp = None
 
         if ruleName is None and ruleContent is None:
@@ -34,6 +34,7 @@ class Replay( object ):
             'oid' : self._lc._oid,
             'rule_source' : {
                 'rule_name' : '' if ruleName is None else ruleName,
+                'namespace' : '' if namespace is None else namespace,
                 'rule' : ruleContent,
             },
             'event_source' : {
@@ -61,7 +62,7 @@ class Replay( object ):
 
         return resp
 
-    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
+    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
         '''Scan a specific sensor's data with a D&R rule.
 
         Args:
@@ -69,6 +70,7 @@ class Replay( object ):
             startTime (int): seconds epoch to start scanning at.
             endTime (int): seconds epoch to stop scanning at.
             ruleName (str): the name of an existing D&R rule to use.
+            namespace (str): the namespace the ruleName lives in.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
             isRunTrace (bool): if True, generate a trace of the evaluation.
             limitEvent (int): approximately limit the number of events evaluated.
@@ -79,17 +81,18 @@ class Replay( object ):
             a dict containing results of the query.
         '''
 
-        resp = self._scanHistoricalSensor( sid = sid, startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
+        resp = self._scanHistoricalSensor( sid = sid, startTime = startTime, endTime = endTime, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
         
         return resp
 
-    def scanEntireOrg( self, startTime, endTime, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
+    def scanEntireOrg( self, startTime, endTime, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None ):
         '''Scan an entire organization's data with a D&R rule.
 
         Args:
             startTime (int): seconds epoch to start scanning at.
             endTime (int): seconds epoch to stop scanning at.
             ruleName (str): the name of an existing D&R rule to use.
+            namespace (str): the namespace the ruleName lives in.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
             isRunTrace (bool): if True, generate a trace of the evaluation.
             limitEvent (int): approximately limit the number of events evaluated.
@@ -100,16 +103,17 @@ class Replay( object ):
             a dict containing results of the query.
         '''
         
-        resp = self._scanHistoricalSensor( startTime = startTime, endTime = endTime, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
+        resp = self._scanHistoricalSensor( startTime = startTime, endTime = endTime, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful )
 
         return resp
 
-    def scanEvents( self, events, ruleName = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
+    def scanEvents( self, events, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None ):
         '''Scan the specific events with a D&R rule.
 
         Args:
             events (list): list of events to scan.
             ruleName (str): the name of an existing D&R rule to use.
+            namespace (str): the namespace the ruleName lives in.
             ruleContent (dict): D&R rule to use to scan, with a "detect" key and a "respond" key.
             isRunTrace (bool): if True, generate a trace of the evaluation.
             limitEvent (int): approximately limit the number of events evaluated.
@@ -119,7 +123,7 @@ class Replay( object ):
             a dict containing results of the query.
         '''
 
-        resp = self._scanHistoricalSensor( events = events, ruleName = ruleName, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval )
+        resp = self._scanHistoricalSensor( events = events, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval )
 
         return resp
 
@@ -183,6 +187,13 @@ def main( sourceArgs = None ):
                          dest = 'ruleName',
                          default = None,
                          help = 'name of the an already-existing rule to scan with.' )
+
+    parser.add_argument( '--namespace',
+                         type = str,
+                         required = False,
+                         dest = 'namespace',
+                         default = None,
+                         help = 'namespace the rule-name lives in, like "general" or "managed".' )
 
     parser.add_argument( '--rule-content',
                          type = str,
@@ -277,6 +288,7 @@ def main( sourceArgs = None ):
                                                         start,
                                                         end,
                                                         ruleName = args.ruleName,
+                                                        namespace = args.namespace,
                                                         ruleContent = ruleContent,
                                                         isRunTrace = args.isRunTrace,
                                                         limitEvent = args.limitEvent,
@@ -286,6 +298,7 @@ def main( sourceArgs = None ):
                 response = replay.scanEntireOrg( start,
                                                  end,
                                                  ruleName = args.ruleName,
+                                                 namespace = args.namespace,
                                                  ruleContent = ruleContent,
                                                  isRunTrace = args.isRunTrace,
                                                  limitEvent = args.limitEvent,
@@ -317,6 +330,7 @@ def main( sourceArgs = None ):
                 sys.exit( 1 )
             response = replay.scanEvents( events,
                                           ruleName = args.ruleName,
+                                          namespace = args.namespace,
                                           ruleContent = ruleContent,
                                           isRunTrace = args.isRunTrace,
                                           limitEvent = args.limitEvent,
