@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "4.0.3"
+__version__ = "4.1.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -62,5 +62,7 @@ from .Logs import Logs
 from .Logs import Logs as Artifacts
 from .Comms import Comms
 from .Net import Net
+from .Hive import Hive
+from .Hive import HiveRecord
 from .utils import LcApiException
 from . import Replicants as services
