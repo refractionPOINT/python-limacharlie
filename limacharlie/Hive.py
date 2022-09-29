@@ -132,6 +132,10 @@ class HiveRecord( object ):
         record = self
         while True:
             record = cb( record )
+            if record is None:
+                # This is the user indicating update
+                # is not needed.
+                return None
             try:
                 ret = self._api.set( record )
             except Exception as e:
