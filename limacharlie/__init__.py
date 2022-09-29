@@ -62,5 +62,7 @@ from .Logs import Logs
 from .Logs import Logs as Artifacts
 from .Comms import Comms
 from .Net import Net
+from .Hive import Hive
+from .Hive import HiveRecord
 from .utils import LcApiException
 from . import Replicants as services

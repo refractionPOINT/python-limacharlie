@@ -7,6 +7,17 @@ from .utils import GET
 from .utils import POST
 from .utils import DELETE
 
+# Detect if this is Python 2 or 3
+import sys
+_IS_PYTHON_2 = False
+if sys.version_info[ 0 ] < 3:
+    _IS_PYTHON_2 = True
+
+if _IS_PYTHON_2:
+    from urllib import quote as urlescape
+else:
+    from urllib.parse import quote as urlescape
+
 def printData( data ):
     if isinstance( data, str ):
         print( data )
@@ -16,6 +27,90 @@ def printData( data ):
 def reportError( msg ):
     sys.stderr.write( msg + '\n' )
     sys.exit( 1 )
+
+class Hive( object ):
+    def __init__( self, man, hiveName ):
+        self._hiveName = hiveName
+        self._man = man
+
+    def list( self ):
+        return { recordName : HiveRecord( recordName, record, self ) for recordName, record in self._man._apiCall( 'hive/%s/%s' % ( self._hiveName, self._man._oid ), GET ).items() }
+
+    def get( self, recordName ):
+        return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/data' % ( self._hiveName, self._man._oid, urlescape( recordName ) ), GET ), self )
+
+    def getMetadata( self, recordName ):
+        return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/mtd' % ( self._hiveName, self._man._oid, urlescape( recordName ) ), GET ), self )
+
+    def set( self, record ):
+        target = 'mtd'
+
+        data = None
+        if record.data is not None:
+            target = 'data'
+
+        usrMtd = {}
+        if record.expiry is not None:
+            usrMtd[ 'expiry' ] = record.expiry
+        if record.enabled is not None:
+            usrMtd[ 'enabled' ] = record.enabled
+        if record.tags is not None:
+            usrMtd[ 'tags' ] = record.tags
+
+        req = {
+            'data' : json.dumps( record.data ),
+        }
+
+        if record.etag is not None:
+            req[ 'etag' ] = record.etag
+        if len( usrMtd ) != 0:
+            req[ 'usr_mtd' ] = json.dumps( usrMtd )
+
+        return self._man._apiCall( 'hive/%s/%s/%s/%s' % ( self._hiveName, self._man._oid, urlescape( record.name ), target ), POST, req )
+
+    def delete( self, recordName ):
+        return self._man._apiCall( 'hive/%s/%s/%s' % ( self._hiveName, self._man._oid, urlescape( recordName ) ), DELETE )
+
+class HiveRecord( object ):
+    def __init__( self, recordName, data, api = None ):
+        self._api = api
+        self.name = recordName
+        self.data = data.get( 'data', None )
+        if not isinstance( self.data, dict ):
+            self.data = json.loads( self.data )
+        self.expiry = data.get( 'usr_mtd', {} ).get( 'expiry', None )
+        self.enabled = data.get( 'usr_mtd', {} ).get( 'enabled', None )
+        self.tags = data.get( 'usr_mtd', {} ).get( 'tags', None )
+        self.etag = data.get( 'sys_mtd', {} ).get( 'etag', None )
+        self.createdAt = data.get( 'sys_mtd', {} ).get( 'created_at', None )
+        self.createdBy = data.get( 'sys_mtd', {} ).get( 'created_by', None )
+        self.guid = data.get( 'sys_mtd', {} ).get( 'guid', None )
+        self.lastAuthor = data.get( 'sys_mtd', {} ).get( 'last_author', None )
+        self.lastModified = data.get( 'sys_mtd', {} ).get( 'last_mod', None )
+        self.lastError = data.get( 'sys_mtd', {} ).get( 'last_error', None )
+        self.lastErrorTime = data.get( 'sys_mtd', {} ).get( 'last_error_ts', None )
+
+    def delete( self ):
+        return self._api.delete( self.name )
+
+    def fetch( self ):
+        return self._api.get( self.name )
+
+    def update( self, cb = None ):
+        if cb is None:
+            cb = lambda x: x
+        record = self
+        while True:
+            record = cb( record )
+            try:
+                ret = self._api.set( record )
+            except Exception as e:
+                if 'ETAG_MISMATCH' not in str( e ):
+                    raise
+                ret = None
+            if ret:
+                return ret
+            record = self.fetch()
 
 def do_list( args, man, isPrint = True ):
     resp = man._apiCall( 'hive/%s/%s' % ( args.hive_name, args.partitionKey ), GET )
@@ -35,7 +130,7 @@ def do_get( args, man, isPrint = True ):
     if args.key is None:
         reportError( 'Key required' )
 
-    resp = man._apiCall( 'hive/%s/%s/%s/data' % ( args.hive_name, args.partitionKey, args.key ), GET )
+    resp = man._apiCall( 'hive/%s/%s/%s/data' % ( args.hive_name, args.partitionKey, urlescape( args.key ) ), GET )
     if isPrint:
         printData( resp )
     return resp
@@ -44,7 +139,7 @@ def do_get_mtd( args, man, isPrint = True ):
     if args.key is None:
         reportError( 'Key required' )
 
-    resp = man._apiCall( 'hive/%s/%s/%s/mtd' % ( args.hive_name, args.partitionKey, args.key ), GET )
+    resp = man._apiCall( 'hive/%s/%s/%s/mtd' % ( args.hive_name, args.partitionKey, urlescape( args.key ) ), GET )
     if isPrint:
         printData( resp )
     return resp
@@ -78,7 +173,7 @@ def do_add( args, man, isPrint = True ):
     if len( usrMtd ) != 0:
         req[ 'usr_mtd' ] = json.dumps( usrMtd )
 
-    resp = man._apiCall( 'hive/%s/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key, target ), POST, req )
+    resp = man._apiCall( 'hive/%s/%s/%s/%s' % ( args.hive_name, args.partitionKey, urlescape( args.key ), target ), POST, req )
     if isPrint:
         printData( resp )
     return resp
@@ -111,7 +206,7 @@ def do_update( args, man, isPrint = True ):
 
     existing[ 'usr_mtd' ] = json.dumps( existing[ 'usr_mtd' ] )
 
-    resp = man._apiCall( 'hive/%s/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key, target ), POST, existing )
+    resp = man._apiCall( 'hive/%s/%s/%s/%s' % ( args.hive_name, args.partitionKey, urlescape( args.key ), target ), POST, existing )
     if isPrint:
         printData( resp )
     return resp
@@ -120,7 +215,7 @@ def do_remove( args, man, isPrint = True ):
     if args.key is None:
         reportError( 'Key required' )
 
-    resp = man._apiCall( 'hive/%s/%s/%s' % ( args.hive_name, args.partitionKey, args.key ), DELETE )
+    resp = man._apiCall( 'hive/%s/%s/%s' % ( args.hive_name, args.partitionKey, urlescape( args.key ) ), DELETE )
     if isPrint:
         printData( resp )
     return resp
