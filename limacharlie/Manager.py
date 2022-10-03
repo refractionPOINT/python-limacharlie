@@ -1312,6 +1312,57 @@ class Manager( object ):
         resp = self._apiCall( 'modules/%s' % self._oid, POST, queryParams = req )
         return resp
 
+    def get_installation_keys( self, ):
+        '''Get all installation keys for the Organization.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'installationkeys/%s' % self._oid, GET )
+
+    def get_installation_key( self, iid ):
+        '''Get a single installation key by ID.
+
+        Args:
+            name (str): installation key id to get.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'installationkeys/%s/%s' % ( self._oid, iid ), GET )
+
+    def create_installation_key( self, tags, desc ):
+        '''Create an installation key.
+
+        Args:
+            tags (list): list of tags.
+            desc (str): description for the installation key.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'installationkeys/%s' % self._oid, POST, {
+            'tags' : tags,
+            'desc' : desc,
+        } )
+
+    def delete_installation_key( self, iid ):
+        '''Delete an installation key.
+
+        Args:
+            iid (str): installation key id.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'installationkeys/%s' % self._oid, DELETE, {
+            'iid' : iid,
+        } )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
