@@ -182,12 +182,10 @@ class Configs( object ):
                 if not isinstance( toConfigFile, dict ):
                     with open( toConfigFile, 'wb' ) as f:
                         f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
-
-                return
-            except Exception as e:
-                # If there is any issue, backoff to the old way.
-                print( "Failed using the infrastructure-service to push configs, using local capability: %s" % ( e, ) )
-                pass
+            except:
+                print( "An error occurred while pushing changes via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" )
+                raise
+            return
 
         if isOrgConfigs:
             configs = self._getAllOrgConfigValues()
@@ -898,6 +896,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isVerbose',
                          help = 'if specified, emit verbose information about the push' )
+    parser.add_argument( '--use-local-logic',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isDontUseInfraService',
+                         help = 'if specified, use the local SDK syncing logic instead of cloud service' )
     args = parser.parse_args( sourceArgs )
 
     if args.isDryRun:
@@ -933,7 +937,7 @@ def main( sourceArgs = None ):
         print( 'No config types specified, nothing to do!' )
         sys.exit( 1 )
 
-    s = Configs( oid = args.oid, env = args.environment )
+    s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService )
 
     if 'fetch' == args.action:
         s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs )
