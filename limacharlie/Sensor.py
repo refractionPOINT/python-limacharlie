@@ -170,16 +170,16 @@ class Sensor( object ):
         '''Apply a Tag to the Sensor.
 
         Args:
-            tag (str): Tag to apply.
+            tag (str or list of str): Tag(s) to apply.
             ttl (int): number of seconds the Tag should remain applied.
 
         Returns:
             the REST API response (JSON).
         '''
         if ttl is not None:
-            req = { 'tags' : str( tag ), 'ttl' : int( ttl ) }
+            req = { 'tags' : tag, 'ttl' : int( ttl ) }
         else:
-            req = { 'tags' : str( tag ) }
+            req = { 'tags' : tag }
         return self._manager._apiCall( '%s/tags' % self.sid, POST, req )
 
     def untag( self, tag ):
