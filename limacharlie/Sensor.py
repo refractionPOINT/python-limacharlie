@@ -192,7 +192,10 @@ class Sensor( object ):
             the REST API response (JSON).
         '''
 
-        req = { 'tag' : str( tag ) }
+        if isinstance( tag, str ):
+            req = { 'tag' : tag }
+        else:
+            req = { 'tags' : ','.join( tag ) }
         return self._manager._apiCall( '%s/tags' % self.sid, DELETE, req )
 
     def getTags( self ):
