@@ -79,7 +79,7 @@ class HiveRecord( object ):
         self._api = api
         self.name = recordName
         self.data = data.get( 'data', None )
-        if not isinstance( self.data, dict ):
+        if self.data is not None and not isinstance( self.data, dict ):
             self.data = json.loads( self.data )
         self.expiry = data.get( 'usr_mtd', {} ).get( 'expiry', None )
         self.enabled = data.get( 'usr_mtd', {} ).get( 'enabled', None )
