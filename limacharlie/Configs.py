@@ -183,7 +183,7 @@ class Configs( object ):
                     with open( toConfigFile, 'wb' ) as f:
                         f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
             except:
-                print( f"An error occurred while fetching changes from {self._man._oid} via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" )
+                print( "An error occurred while fetching changes from via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" % ( self._man._oid, ) )
                 raise
             return
 
@@ -359,7 +359,7 @@ class Configs( object ):
                         yield ( '=', op[ 'type' ], op[ 'name' ] )
                 return
             except:
-                print( f"An error occurred while pushing changes to {self._man._oid} via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" )
+                print( "An error occurred while pushing changes to via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" % ( self._man._oid, ) )
                 raise
 
         if isResources:
