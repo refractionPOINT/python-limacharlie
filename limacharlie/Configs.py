@@ -183,7 +183,7 @@ class Configs( object ):
                     with open( toConfigFile, 'wb' ) as f:
                         f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
             except:
-                print( "An error occurred while pushing changes via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" )
+                print( f"An error occurred while fetching changes from {self._man._oid} via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" )
                 raise
             return
 
@@ -358,10 +358,9 @@ class Configs( object ):
                     if not op[ 'is_added' ] and not op[ 'is_removed' ]:
                         yield ( '=', op[ 'type' ], op[ 'name' ] )
                 return
-            except Exception as e:
-                # If there is any issue, backoff to the old way.
-                print( "Failed using the infrastructure-service to push configs, using local capability: %s" % ( e, ) )
-                pass
+            except:
+                print( f"An error occurred while pushing changes to {self._man._oid} via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" )
+                raise
 
         if isResources:
             currentResources = self._man.getSubscriptions()
