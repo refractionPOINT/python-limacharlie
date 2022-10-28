@@ -484,6 +484,22 @@ class Sensor( object ):
         '''Remove the sensor from network isolation (persistent).'''
         return self._manager._apiCall( '%s/isolation' % ( self.sid, ), DELETE )
 
+    def getRetainedEventCount( self, startTime, endTime, isDetailed = False ):
+        '''Get the number of events retained for a given sensor between two second epochs.
+
+        Args:
+            startTime (int): time (unix seconds epoch) of the period start.
+            endTime (int): time (unix seconds epoch) of the period end.
+
+        Returns:
+            Event counts.
+        '''
+        return self._manager._apiCall( 'insight/event_count/%s/%s' % ( self._manager._oid, self.sid ), GET, queryParams = {
+            'start' : startTime,
+            'end' : endTime,
+            'is_detailed' : 'true' if isDetailed else 'false',
+        } )
+
     def __str__( self ):
         return self.sid
 
