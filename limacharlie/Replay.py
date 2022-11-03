@@ -145,7 +145,7 @@ class Replay( object ):
 def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io replay detection and response' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie.io replay' )
 
     parser.add_argument( '--sid',
                          type = uuid.UUID,
