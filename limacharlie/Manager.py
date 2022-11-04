@@ -1363,6 +1363,19 @@ class Manager( object ):
             'iid' : iid,
         } )
 
+    def getUsageStats( self ):
+        '''Get general usage stats for the org.
+
+        Args:
+            tags (list): list of tags.
+            desc (str): description for the installation key.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'usage/%s' % self._oid, GET )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )

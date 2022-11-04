@@ -243,6 +243,10 @@ def main():
         else:
             res = _man.getSchema( name = args.name )
         print( json.dumps( res, indent = 2 ) )
+    elif args.action.lower() == 'org_stats':
+        from . import Manager
+        import yaml
+        print( yaml.dump( Manager().getUsageStats() ) )
     else:
         raise Exception( 'invalid action' )
 
