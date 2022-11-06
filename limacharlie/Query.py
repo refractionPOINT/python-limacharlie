@@ -109,7 +109,8 @@ class LCQuery( cmd.Cmd ):
     def do_dryrun( self, inp ):
         response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
                                           limitEvent = self._limitEvent if self._limitEvent else None,
-                                          limitEval = self._limitEval if self._limitEval else None )
+                                          limitEval = self._limitEval if self._limitEval else None,
+                                          isDryRun = True )
         thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
         print( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         print( json.dumps( response, indent = 2 ) )
