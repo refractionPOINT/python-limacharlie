@@ -24,6 +24,29 @@ class Replay( object ):
         self._lc = manager
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
+    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False ):
+        resp = None
+
+        if not query:
+            raise LcApiException( 'no query specified' )
+
+        req = {
+            'oid' : self._lc._oid,
+            'query' : query,
+            'limit_event' : 0 if limitEvent is None else limitEvent,
+            'limit_eval' : 0 if limitEval is None else limitEval,
+            'is_dry_run' : isDryRun,
+        }
+
+        resp = self._lc._apiCall( '',
+                                  'POST',
+                                  {},
+                                  altRoot = 'https://%s/' % ( self._replayURL, ),
+                                  rawBody = json.dumps( req ).encode(),
+                                  contentType = 'application/json' )
+
+        return resp
+
     def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None, isDryRun = False ):
         resp = None
 
@@ -145,7 +168,7 @@ class Replay( object ):
 def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie.io replay' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie replay' )
 
     parser.add_argument( '--sid',
                          type = uuid.UUID,
