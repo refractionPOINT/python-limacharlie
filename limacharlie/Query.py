@@ -62,6 +62,10 @@ def main( sourceArgs = None ):
                                 limitEval = args.limitEval,
                                 isDryRun = args.isDryRun )
 
+    error = response.get( 'error', None )
+    if error:
+        print( f"ERROR: {error}" )
+        return
     for result in response[ 'results' ]:
         if args.isPretty:
             print( json.dumps( result[ 'data' ], indent = 2 ) )
@@ -104,7 +108,7 @@ class LCQuery( cmd.Cmd ):
         self._billed += thisBilled
         print( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
         print( f"{len( response[ 'results' ] )} results" )
-        pydoc.pager( "\n".join( json.dumps( d, indent = 2 ) for d in response[ 'results' ] ) )
+        pydoc.pager( "\n".join( json.dumps( d[ 'data' ], indent = 2 ) for d in response[ 'results' ] ) )
 
     def do_dryrun( self, inp ):
         response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
