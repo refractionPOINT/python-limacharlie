@@ -99,7 +99,7 @@ class LCQuery( cmd.Cmd ):
         self.intro = 'This LimaCharlie feature is in Alpha, LCQL is likely going to evolve!\nThe LimaCharlie Query allows you to query the dataset in a more free-form fashion based on the LC Query Language.'
         self._timeFrame = "-10m"
         self._sensors = "*"
-        self._events = "NEW_PROCESS"
+        self._events = "*"
         self._limitEvent = 0
         self._limitEval = 0
         self._billed = 0
