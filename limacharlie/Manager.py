@@ -157,6 +157,7 @@ class Manager( object ):
 
     def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, timeout = None ):
         try:
+            resp = None
             if not isNoAuth:
                 headers = { "Authorization" : "bearer %s" % self._jwt }
             else:

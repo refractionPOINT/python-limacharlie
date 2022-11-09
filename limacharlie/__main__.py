@@ -122,6 +122,9 @@ def main():
     elif args.action.lower() == 'replay':
         from .Replay import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'query':
+        from .Query import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'sync':
         from .Sync import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
