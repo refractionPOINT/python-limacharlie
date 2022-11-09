@@ -267,7 +267,7 @@ class LCQuery( cmd.Cmd ):
             be a sensor selector (https://doc.limacharlie.io/docs/documentation/36c920f4f7bc9-sensor-selector-expressions)
             like "plat == windows".
         3-  Events: the list of events to include in the query, space separated like
-            "NEW_PROCESS DNS_REQUEST".
+            "NEW_PROCESS DNS_REQUEST", or a "*" to go over all event types.
         4-  Filter: the actual query filter. The filters are a series of statements
             combined with " and " and " or " that can be associated with parenthesis ("()").
             String literals, when used, can be double-quoted to be case insensitive
@@ -301,7 +301,7 @@ class LCQuery( cmd.Cmd ):
         All of this can result in a query like:
         -30m | plat == windows | NEW_PROCESS | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" | event/COMMAND_LINE as cli event/FILE_PATH as path routing/hostname as host
         OR
-        -30m | plat == windows | NEW_PROCESS | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" |
+        -30m | plat == windows | * | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" |
         '''
         pass
 
