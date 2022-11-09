@@ -2,3 +2,4 @@ requests
 passlib
 pyyaml
 futures
+tabulate
