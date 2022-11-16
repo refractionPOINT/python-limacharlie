@@ -750,7 +750,7 @@ class Configs( object ):
                 includes = [ includes ]
             globIncludes = set()
             for include in includes:
-                for globbed in glob.iglob( include ):
+                for globbed in glob.iglob( include, recursive=True ):
                     globIncludes.add( globbed )
             includes = list( globIncludes )
             totalIncludes = list( globIncludes )
