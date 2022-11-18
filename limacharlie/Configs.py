@@ -181,7 +181,7 @@ class Configs( object ):
 
                 if not isinstance( toConfigFile, dict ):
                     with open( toConfigFile, 'wb' ) as f:
-                        f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
+                        f.write( yaml.safe_dump( asConf, default_flow_style = False, version = (1,1) ).encode() )
             except:
                 print( "An error occurred while fetching changes from via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" % ( self._man._oid, ) )
                 raise
@@ -269,7 +269,7 @@ class Configs( object ):
             asConf[ 'net-policies' ] = policies
         if not isinstance( toConfigFile, dict ):
             with open( toConfigFile, 'wb' ) as f:
-                f.write( yaml.safe_dump( asConf, default_flow_style = False ).encode() )
+                f.write( yaml.safe_dump( asConf, default_flow_style = False, version = (1,1) ).encode() )
 
     def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}, isVerbose = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
@@ -331,7 +331,7 @@ class Configs( object ):
                         exfilRules[ 'list' ][ ruleName ] = self._wrapExfilContent( rule )
                     asConf[ 'exfil' ] = exfilRules
 
-                finalConfig = yaml.safe_dump( asConf )
+                finalConfig = yaml.safe_dump( asConf, version = (1,1) )
                 data = self._man.serviceRequest( 'infrastructure-service', {
                     'is_dry_run' : isDryRun,
                     'action' : 'push',
