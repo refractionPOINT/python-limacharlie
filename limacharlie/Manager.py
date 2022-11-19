@@ -43,7 +43,7 @@ from limacharlie import _getEnvironmentCreds
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
 
-API_TO_JWT_URL = 'https://app.limacharlie.io/jwt'
+API_TO_JWT_URL = 'https://jwt.limacharlie.io'
 
 HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
