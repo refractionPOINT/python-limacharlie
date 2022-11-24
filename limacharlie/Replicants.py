@@ -66,6 +66,21 @@ class Yara( _Replicant ):
             'action' : 'list_sources',
         }, False )
 
+    def getSource( self, sourceName ):
+        '''Get the content of a Yara signature source.
+
+        Args:
+            sourceName (str): name of the source to get.
+
+        Returns:
+            Source content.
+        '''
+
+        return self._manager.replicantRequest( 'yara', {
+            'action' : 'get_source',
+            'source' : sourceName,
+        }, False ).get( 'content', None )
+
     def addRule( self, ruleName, sources = [], tags = [], platforms = [] ):
         '''Add a constant Yara scanning rule.
 
@@ -73,7 +88,7 @@ class Yara( _Replicant ):
             ruleName (str): name of the rule to add.
             sources (list of str): list of sources this rule should scan with.
             tags (list of str): list of tags sensors must posses for this rule to apply.
-            platforms (str of str): list of platform names this rule applies to.
+            platforms (list of str): list of platform names this rule applies to.
         '''
 
         return self._manager.replicantRequest( 'yara', {
