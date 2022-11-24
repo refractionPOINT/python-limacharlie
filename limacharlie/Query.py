@@ -302,7 +302,7 @@ class LCQuery( cmd.Cmd ):
             statement, or have an aggregator modifier. An aggregator modifer is, for example, "COUNT( host )" or
             "COUNT_UNIQUE( host )" instead of just "host".
             A full example with grouping is:
-            -1h | * | DNS_REQUEST | event/DOMAIN_NAME contains "apple" | event/DOMAIN_NAME as dns COUNT(routing/hostname) as host GROUP BY(dns host)
+            -1h | * | DNS_REQUEST | event/DOMAIN_NAME contains "apple" | event/DOMAIN_NAME as dns COUNT_UNIQUE(routing/hostname) as hostcount GROUP BY(dns host)
             which would give you the number of hosts having re
 
         All of this can result in a query like:
