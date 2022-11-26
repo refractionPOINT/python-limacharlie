@@ -891,6 +891,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isInstallationKeys',
                          help = 'if specified, apply Installation Keys from operations' )
+    parser.add_argument( '--yara',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isYara',
+                         help = 'if specified, apply Yara Sources and Rules from operations' )
     parser.add_argument( '--hive-dr-general',
                          required = False,
                          default = False,
@@ -964,7 +970,6 @@ def main( sourceArgs = None ):
         'isResources',
         'isNetPolicy',
         'isOrgConfigs',
-        'isHives',
         'isInstallationKeys',
         'isYara',
     ]
@@ -980,10 +985,8 @@ def main( sourceArgs = None ):
     # If All is enabled, enable all types.
     if args.isAll:
         for k in resTypes:
-            if k == 'isHives':
-                setattr( args, k, allHives )
-            else:
-                setattr( args, k, True )
+            setattr( args, k, True )
+        setattr( args, 'isHives', allHives )
 
     # Check at least one type is specified, otherwise
     # it's probably a mistake.
@@ -1009,9 +1012,9 @@ def main( sourceArgs = None ):
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isVerbose = args.isVerbose ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara, isVerbose = args.isVerbose ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
