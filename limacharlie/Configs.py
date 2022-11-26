@@ -1009,9 +1009,9 @@ def main( sourceArgs = None ):
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isVerbose = args.isVerbose ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isVerbose = args.isVerbose ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
