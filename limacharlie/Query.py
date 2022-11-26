@@ -297,6 +297,13 @@ class LCQuery( cmd.Cmd ):
             - "with child" / "with descendant" / "with events" example: event/FILE_PATH contains "evil" with child (event/COMMAND_LINE contains "powershell")
         5-  Projection (optional): a list of fields you would like to extract from the results
             with a possible alias, like: "event/FILE_PATH as path event/USER_NAME AS user_name event/COMMAND_LINE"
+            The Projection can also support a grouping functionality by adding " GROUP BY (field1 field2 ...)" at the
+            end of the projection statement. When grouping, all fields being projected must either be in the GROUP BY
+            statement, or have an aggregator modifier. An aggregator modifer is, for example, "COUNT( host )" or
+            "COUNT_UNIQUE( host )" instead of just "host".
+            A full example with grouping is:
+            -1h | * | DNS_REQUEST | event/DOMAIN_NAME contains "apple" | event/DOMAIN_NAME as dns COUNT_UNIQUE(routing/hostname) as hostcount GROUP BY(dns host)
+            which would give you the number of hosts having re
 
         All of this can result in a query like:
         -30m | plat == windows | NEW_PROCESS | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" | event/COMMAND_LINE as cli event/FILE_PATH as path routing/hostname as host

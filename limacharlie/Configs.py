@@ -53,6 +53,8 @@ class Configs( object ):
             'net-policies',
             'org-value',
             'hives',
+            'installation_keys',
+            'yara',
         }
 
     def _coreRuleContent( self, rule ):
@@ -133,7 +135,7 @@ class Configs( object ):
             currentConfigs[ confName ] = val
         return currentConfigs
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={} ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -160,7 +162,9 @@ class Configs( object ):
                     'sync_artifacts' : isArtifact,
                     'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
-                    'sync_hives': isHives, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true, "dr-general": true}
+                    'sync_hives' : isHives, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true, "dr-general": true}
+                    'sync_installation_keys' : isInstallationKeys,
+                    'sync_yara' : isYara,
                 }, isImpersonate = True )
 
                 for k, v in yaml.safe_load( data[ 'org' ] ).items():
@@ -271,7 +275,7 @@ class Configs( object ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False, version = (1,1) ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}, isVerbose = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False, isVerbose = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -289,6 +293,8 @@ class Configs( object ):
             isNetPolicy (boolean): if True, push Net Policies.
             isOrgConfigs (boolean): if True, push Org Configs.
             isHives (dict{"hive_name": true}): only one hive value is requried for sync push to process passed config data, if empty or null no push will occur
+            isInstallationKeys (boolean): if True, push Installation Keys.
+            isYara (boolean): if True, push Yara rules and sources.
 
         Returns:
             a generator of changes as tuple (changeType, dataType, dataName).
@@ -347,7 +353,9 @@ class Configs( object ):
                     'sync_artifacts' : isArtifact,
                     'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
-                    'sync_hives': isHives,
+                    'sync_hives' : isHives,
+                    'sync_installation_keys' : isInstallationKeys,
+                    'sync_yara' : isYara,
                 }, isImpersonate = True )
 
                 for op in data.get( 'ops', [] ):
@@ -834,7 +842,7 @@ def main( sourceArgs = None ):
                          default = False,
                          action = 'store_true',
                          dest = 'isFPs',
-                         help = 'if specified, apply False Psitive rules from operations' )
+                         help = 'if specified, apply False Positive rules from operations' )
     parser.add_argument( '--outputs',
                          required = False,
                          default = False,
@@ -877,6 +885,48 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isOrgConfigs',
                          help = 'if specified, apply org configs from operations' )
+    parser.add_argument( '--installation-keys',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isInstallationKeys',
+                         help = 'if specified, apply Installation Keys from operations' )
+    parser.add_argument( '--yara',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isYara',
+                         help = 'if specified, apply Yara Sources and Rules from operations' )
+    parser.add_argument( '--hive-dr-general',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveDRGeneral',
+                         help = 'if specified, apply D&R rules in the general hive from operations' )
+    parser.add_argument( '--hive-dr-managed',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveDRManaged',
+                         help = 'if specified, apply D&R rules in the managed hive from operations' )
+    parser.add_argument( '--hive-dr-service',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveDRService',
+                         help = 'if specified, apply D&R rules in the service hive from operations' )
+    parser.add_argument( '--hive-fp',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveFP',
+                         help = 'if specified, apply FP rules in the general hive from operations' )
+    parser.add_argument( '--hive-cloud-sensor',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveCloudSensor',
+                         help = 'if specified, apply cloud sensors in hive from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
@@ -920,12 +970,28 @@ def main( sourceArgs = None ):
         'isResources',
         'isNetPolicy',
         'isOrgConfigs',
+        'isInstallationKeys',
+        'isYara',
+        'isHiveDRGeneral',
+        'isHiveDRManaged',
+        'isHiveDRService',
+        'isHiveFP',
+        'isHiveCloudSensor',
     ]
+
+    allHives = {
+        'dr-general': True,
+        'dr-managed': True,
+        'dr-service': True,
+        'fp': True,
+        'cloud_sensor': True,
+    }
 
     # If All is enabled, enable all types.
     if args.isAll:
         for k in resTypes:
             setattr( args, k, True )
+        setattr( args, 'isHives', allHives )
 
     # Check at least one type is specified, otherwise
     # it's probably a mistake.
@@ -936,12 +1002,24 @@ def main( sourceArgs = None ):
         print( 'No config types specified, nothing to do!' )
         sys.exit( 1 )
 
+    hives = {}
+    if args.isHiveDRGeneral:
+        hives['dr-general'] = True
+    if args.isHiveDRManaged:
+        hives['dr-managed'] = True
+    if args.isHiveDRService:
+        hives['dr-service'] = True
+    if args.isHiveCloudSensor:
+        hives['cloud_sensor'] = True
+    if args.isHiveFP:
+        hives['fp'] = True
+
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isVerbose = args.isVerbose ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara, isVerbose = args.isVerbose ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
