@@ -972,6 +972,11 @@ def main( sourceArgs = None ):
         'isOrgConfigs',
         'isInstallationKeys',
         'isYara',
+        'isHiveDRGeneral',
+        'isHiveDRManaged',
+        'isHiveDRService',
+        'isHiveFP',
+        'isHiveCloudSensor',
     ]
 
     allHives = {
