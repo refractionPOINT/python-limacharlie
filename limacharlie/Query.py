@@ -3,19 +3,20 @@ from . import Manager
 from .Replay import Replay
 import json
 import cmd
+import sys
 try:
     import pydoc
 except:
     pydoc = None
-try:
-    from tabulate import tabulate
-except:
-    tabulate = None
+from tabulate import tabulate
+from termcolor import colored
 import os.path
 try:
     import readline
 except ImportError:
     readline = None
+
+from .utils import Spinner
 
 def main( sourceArgs = None ):
     import argparse
@@ -145,22 +146,24 @@ class LCQuery( cmd.Cmd ):
             self._logOutput( f"{len( self._lastData )} results from cache" )
             toRender = self._lastData
         else:
-            response = self._replay._doQuery( thisQuery,
-                                            limitEvent = self._limitEvent if self._limitEvent else None,
-                                            limitEval = self._limitEval if self._limitEval else None )
-            error = response.get( 'error', None )
-            if error:
-                self._logOutput( f"ERROR: {error}" )
-                return
+            sys.stdout.write( colored("Query running ", 'cyan') )
+            with Spinner():
+                response = self._replay._doQuery( thisQuery,
+                                                limitEvent = self._limitEvent if self._limitEvent else None,
+                                                limitEval = self._limitEval if self._limitEval else None )
+                error = response.get( 'error', None )
+                if error:
+                    self._logOutput( f"ERROR: {error}" )
+                    return
 
-            thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
-            self._billed += thisBilled
-            self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
-            self._logOutput( f"{len( response[ 'results' ] )} results" )
+                thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+                self._billed += thisBilled
+                self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
+                self._logOutput( f"{len( response[ 'results' ] )} results" )
 
-            self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
-            self._lastQuery = cacheKey
-            toRender = self._lastData
+                self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
+                self._lastQuery = cacheKey
+                toRender = self._lastData
 
         if self._format == 'json':
             if pydoc is None:
@@ -170,15 +173,12 @@ class LCQuery( cmd.Cmd ):
                 self._logOutput( dat, isNoPrint = True )
                 pydoc.pager( dat )
         elif self._format == 'table':
-            if tabulate is None:
-                self._logOutput( 'failed to import tabulate' )
+            if pydoc is None:
+                self._logOutput( tabulate( toRender, headers = 'keys', tablefmt = 'github' ) )
             else:
-                if pydoc is None:
-                    self._logOutput( tabulate( toRender, headers = 'keys', tablefmt = 'github' ) )
-                else:
-                    dat = tabulate( toRender, headers = 'keys', tablefmt = 'github' )
-                    self._logOutput( dat, isNoPrint = True )
-                    pydoc.pager( dat )
+                dat = tabulate( toRender, headers = 'keys', tablefmt = 'github' )
+                self._logOutput( dat, isNoPrint = True )
+                pydoc.pager( dat )
         else:
             self._logOutput( 'unknown format' )
 
@@ -207,7 +207,7 @@ class LCQuery( cmd.Cmd ):
             limits += f"limit_event: {self._limitEvent} "
         if self._limitEval:
             limits += f"limit eval: {self._limitEval} "
-        self.prompt = f"{limits}{self._timeFrame} | {self._sensors} | {self._events} | "
+        self.prompt = f"{limits}{colored(self._timeFrame, 'red')} | {colored(self._sensors, 'blue')} | {colored(self._events, 'green')} | "
 
     def do_exit( self, inp ):
         '''Quit the LCQL interface.'''
