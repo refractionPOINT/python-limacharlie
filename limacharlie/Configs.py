@@ -2,7 +2,6 @@ from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
 from .Replicants import Exfil
-from .Net import Net
 from .utils import _isStringCompat
 
 # Detect if this is Python 2 or 3
@@ -50,7 +49,6 @@ class Configs( object ):
             'fps',
             'exfil',
             'artifact',
-            'net-policies',
             'org-value',
             'hives',
             'installation_keys',
@@ -100,11 +98,6 @@ class Configs( object ):
         rule.pop( 'tags', None )
         return rule
 
-    def _coreNetPolicyContent( self, rule ):
-        rule = { k : v for k, v in rule.items() if k in ( 'policy', 'type' ) }
-        rule[ 'policy' ] = { k : v for k, v in rule[ 'policy' ].items() if k not in ( 'ingest_key', 'ingest_dest' ) }
-        return rule
-
     def _isJsonEqual( self, a, b ):
         if json.dumps( a, sort_keys = True ) != json.dumps( b, sort_keys = True ):
             return False
@@ -135,7 +128,7 @@ class Configs( object ):
             currentConfigs[ confName ] = val
         return currentConfigs
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -160,7 +153,6 @@ class Configs( object ):
                     'sync_fp' : isFPs,
                     'sync_exfil' : isExfil,
                     'sync_artifacts' : isArtifact,
-                    'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
                     'sync_hives' : isHives, # must be map of hive names you want to fetch {"cloud_sensor":true, "fp":true, "dr-service":true, "dr-general": true}
                     'sync_installation_keys' : isInstallationKeys,
@@ -187,7 +179,7 @@ class Configs( object ):
                     with open( toConfigFile, 'wb' ) as f:
                         f.write( yaml.safe_dump( asConf, default_flow_style = False, version = (1,1) ).encode() )
             except:
-                print( "An error occurred while fetching changes from via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" % ( self._man._oid, ) )
+                print( "An error occurred while fetching changes from %s via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" % ( self._man._oid, ) )
                 raise
             return
 
@@ -264,18 +256,11 @@ class Configs( object ):
                 asConf[ 'resources' ][ 'service' ] = asConf[ 'resources' ][ 'replicant' ]
                 asConf[ 'resources' ].pop( 'replicant' )
                 break
-        if isNetPolicy:
-            policies = {}
-            pols = Net( self._man ).getPolicies()
-
-            for polName, pol in list( pols.items() ):
-                policies[ polName ] = self._coreNetPolicyContent( pol )
-            asConf[ 'net-policies' ] = policies
         if not isinstance( toConfigFile, dict ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False, version = (1,1) ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isNetPolicy = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False, isVerbose = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False, isVerbose = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -290,7 +275,6 @@ class Configs( object ):
             isArtifact (boolean): if True, push Artifact rules.
             isExfil (boolean): if True, push Exfil rules.
             isResources (boolean): if True, push Resource subscriptions.
-            isNetPolicy (boolean): if True, push Net Policies.
             isOrgConfigs (boolean): if True, push Org Configs.
             isHives (dict{"hive_name": true}): only one hive value is requried for sync push to process passed config data, if empty or null no push will occur
             isInstallationKeys (boolean): if True, push Installation Keys.
@@ -351,7 +335,6 @@ class Configs( object ):
                     'sync_fp' : isFPs,
                     'sync_exfil' : isExfil,
                     'sync_artifacts' : isArtifact,
-                    'sync_net_policies' : isNetPolicy,
                     'sync_org_values' : isOrgConfigs,
                     'sync_hives' : isHives,
                     'sync_installation_keys' : isInstallationKeys,
@@ -367,7 +350,7 @@ class Configs( object ):
                         yield ( '=', op[ 'type' ], op[ 'name' ] )
                 return
             except:
-                print( "An error occurred while pushing changes to via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" % ( self._man._oid, ) )
+                print( "An error occurred while pushing changes to %s via the infrastructure-service, you may use the --use-local-logic flag if you want to proceed without the service" % ( self._man._oid, ) )
                 raise
 
         if isResources:
@@ -699,43 +682,6 @@ class Configs( object ):
                                 if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
                                     raise
                         yield ( '-', 'exfil-list', ruleName )
-        if isNetPolicy:
-            # Get the current policies, we will try not to push for no reason.
-            currentRules = { k : self._coreNetPolicyContent( v ) for k, v in Net( self._man ).getPolicies().items() }
-
-            # Start by adding the rules with isReplace.
-            for polName, policy in asConf.get( 'net-policies', {} ).items():
-                policy = self._coreNetPolicyContent( policy )
-                # Check to see if it is already in the current policies and in the right format.
-                if polName in currentRules:
-                    if self._isJsonEqual( policy, currentRules[ polName ] ):
-                        # Exact same, no point in pushing.
-                        yield ( '=', 'net-pol', polName )
-                        continue
-                if not isDryRun:
-                    try:
-                        Net( self._man ).setPolicy( polName, policy[ 'type' ], policy[ 'policy' ] )
-                    except Exception as e:
-                        if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
-                            raise
-                yield ( '+', 'net-pol', polName )
-
-            # If we are not told to isForce, this is it.
-            if isForce:
-                currentRules = Net( self._man ).getPolicies()
-
-                # Now if isForce was specified, list existing rules and remove the ones
-                # not in our list.
-                for polName, policy in currentRules.items():
-                    # Ignore special service rules.
-                    if polName not in asConf.get( 'net-policies', {} ):
-                        if not isDryRun:
-                            try:
-                                Net( self._man ).delPolicy( polName )
-                            except Exception as e:
-                                if not self._ignoreLockErrors( e, isIgnoreInaccessible ):
-                                    raise
-                        yield ( '-', 'net-pol', polName )
 
     def _loadEffectiveConfig( self, configFile ):
         configFile = os.path.abspath( configFile )
@@ -873,12 +819,6 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isResources',
                          help = 'if specified, apply resource subscriptions from operations' )
-    parser.add_argument( '--net-policy',
-                         required = False,
-                         default = False,
-                         action = 'store_true',
-                         dest = 'isNetPolicy',
-                         help = 'if specified, apply net policies from operations' )
     parser.add_argument( '--org-configs',
                          required = False,
                          default = False,
@@ -968,7 +908,6 @@ def main( sourceArgs = None ):
         'isArtifact',
         'isExfil',
         'isResources',
-        'isNetPolicy',
         'isOrgConfigs',
         'isInstallationKeys',
         'isYara',
@@ -1017,9 +956,9 @@ def main( sourceArgs = None ):
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isNetPolicy = args.isNetPolicy, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara, isVerbose = args.isVerbose ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara, isVerbose = args.isVerbose ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
