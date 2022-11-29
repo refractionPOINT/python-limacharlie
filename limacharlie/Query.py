@@ -112,6 +112,7 @@ class LCQuery( cmd.Cmd ):
         self._format = format
         self._lastData = None
         self._lastQuery = None
+        self._lastStats = None
         super(LCQuery, self).__init__()
         self._setPrompt()
 
@@ -149,14 +150,15 @@ class LCQuery( cmd.Cmd ):
             sys.stdout.write( colored("Query running ", 'cyan') )
             with Spinner():
                 response = self._replay._doQuery( thisQuery,
-                                                limitEvent = self._limitEvent if self._limitEvent else None,
-                                                limitEval = self._limitEval if self._limitEval else None )
+                                                  limitEvent = self._limitEvent if self._limitEvent else None,
+                                                  limitEval = self._limitEval if self._limitEval else None )
                 error = response.get( 'error', None )
                 if error:
                     self._logOutput( f"ERROR: {error}" )
                     return
 
                 thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+                self._lastStats = response.get( 'stats', {} )
                 self._billed += thisBilled
                 self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
                 self._logOutput( f"{len( response[ 'results' ] )} results" )
@@ -195,6 +197,7 @@ class LCQuery( cmd.Cmd ):
     def do_stats( self, inp ):
         '''Get statistics on the total cost incurred during this session.'''
         self._logOutput( f"Session cost: ${(self._billed / self._pricingBlock) / 100}" )
+        self._logOutput( f"Last query stats: {json.dumps( self._lastStats, indent = 2 )}" )
 
     def do_quit( self, inp ):
         '''Quit the LCQL interface.'''
@@ -256,7 +259,7 @@ class LCQuery( cmd.Cmd ):
 
     def do_lcql( self, inp ):
         '''
-        Keep in mind LCQL is currently in Alpha, changes are likely in the future.
+        Keep in mind LCQL is currently in Beta, changes are likely in the future.
         LCQL queries contain 4 components with a 5th optional one, each component is
         separated by a pipe ("|"):
         1-  Timeframe: the time range the query applies to. This can be either a single
@@ -303,7 +306,7 @@ class LCQuery( cmd.Cmd ):
             "COUNT_UNIQUE( host )" instead of just "host".
             A full example with grouping is:
             -1h | * | DNS_REQUEST | event/DOMAIN_NAME contains "apple" | event/DOMAIN_NAME as dns COUNT_UNIQUE(routing/hostname) as hostcount GROUP BY(dns host)
-            which would give you the number of hosts having re
+            which would give you the number of hosts having resolved a domain containing `apple`, grouped by domain.
 
         All of this can result in a query like:
         -30m | plat == windows | NEW_PROCESS | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" | event/COMMAND_LINE as cli event/FILE_PATH as path routing/hostname as host
