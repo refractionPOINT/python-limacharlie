@@ -36,6 +36,11 @@ class Replay( object ):
             'limit_event' : 0 if limitEvent is None else limitEvent,
             'limit_eval' : 0 if limitEval is None else limitEval,
             'is_dry_run' : isDryRun,
+            'event_source' : {
+                'sensor_events' : {
+                    'cursor' : '-',
+                },
+            },
         }
 
         resp = self._lc._apiCall( '',
