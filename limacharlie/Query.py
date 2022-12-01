@@ -115,8 +115,13 @@ class LCQuery( cmd.Cmd ):
         self._lastQuery = None
         self._lastStats = None
         self._lastRule = None
+        self._schema = set()
+        self._allEvents = []
         self._q = None
+        readline.set_completer_delims( ' ' )
         super(LCQuery, self).__init__()
+        self._getAllEvents()
+        self._populateSchema()
         self._setPrompt()
 
     def preloop( self ):
@@ -141,7 +146,7 @@ class LCQuery( cmd.Cmd ):
             f.write( output )
             f.write( "\n" )
 
-    def default( self, inp ):
+    def do_q( self, inp ):
         thisQuery = f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}"
         cacheKey = f"{self._limitEval}{self._limitEvent}{thisQuery}"
 
@@ -186,6 +191,15 @@ class LCQuery( cmd.Cmd ):
             self._q = q
         elif not isFromCache:
             self._q = None
+
+    def complete_q( self, text, line, begidx, endidx ):
+        pathToComplete = line.split()[ -1 ]
+        results = []
+        for evt in self._schema:
+            if not evt.startswith( pathToComplete ):
+                continue
+            results.append( evt )
+        return results
 
     def _outputPage( self, toRender ):
         if self._format == 'json':
@@ -240,11 +254,13 @@ class LCQuery( cmd.Cmd ):
 
     def do_dryrun( self, inp ):
         '''Execute a command as a dry-run and get back aproximate cost of the query.'''
-        response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
-                                          limitEvent = self._limitEvent if self._limitEvent else None,
-                                          limitEval = self._limitEval if self._limitEval else None,
-                                          isDryRun = True,
-                                          isCursorBased = False )
+        sys.stdout.write( colored("Query running ", 'cyan') )
+        with Spinner():
+            response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
+                                            limitEvent = self._limitEvent if self._limitEvent else None,
+                                            limitEval = self._limitEval if self._limitEval else None,
+                                            isDryRun = True,
+                                            isCursorBased = False )
         thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         self._logOutput( json.dumps( response, indent = 2 ) )
@@ -293,7 +309,38 @@ class LCQuery( cmd.Cmd ):
     def do_set_events( self, inp ):
         '''Set the event types to query, like "NEW_PROCESS DNS_REQUEST'''
         self._events = inp
+
+        self._populateSchema()
+
         self._setPrompt()
+
+    def complete_set_events( self, text, line, begidx, endidx ):
+        return [ e for e in self._allEvents if e.startswith( text ) ]
+
+    def _getAllEvents( self ):
+        sys.stdout.write( colored("Fetching event list  ", 'cyan') )
+        with Spinner():
+            self._allEvents = [ e[4:] for e in self._replay._lc.getSchemas()[ 'event_types' ] if e.startswith( 'evt:' ) ]
+        print( "" )
+
+    def _populateSchema( self ):
+        sys.stdout.write( colored("Fetching autocomplete data  ", 'cyan') )
+        with Spinner():
+            toSearch = []
+            if self._events == '*':
+                # Query all evt:
+                toSearch = [ '' ]
+            else:
+                toSearch = [ e.strip() for e in self._events.split() ]
+
+            self._schema = set()
+            for evt in toSearch:
+                if evt == '':
+                    for s, v in self._replay._lc.getSchema( 'evt:' )[ 'schemas' ].items():
+                        self._schema.update( ( e[ 2 : ] for e in v ) )
+                else:
+                    self._schema.update( ( e[ 2 : ] for e in self._replay._lc.getSchema( f"evt:{evt}" )[ 'schema' ][ 'elements' ] ) )
+        print( "" )
 
     def do_set_limit_event( self, inp ):
         '''Set the aproximate maximum number of events processed per request, like "1000"'''
