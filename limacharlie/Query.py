@@ -114,6 +114,7 @@ class LCQuery( cmd.Cmd ):
         self._lastData = None
         self._lastQuery = None
         self._lastStats = None
+        self._lastRule = None
         self._q = None
         super(LCQuery, self).__init__()
         self._setPrompt()
@@ -168,6 +169,7 @@ class LCQuery( cmd.Cmd ):
             print( "" )
             thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
             self._lastStats = response.get( 'stats', {} )
+            self._lastRule = response.get( 'transcoded_rule', None )
             self._billed += thisBilled
             self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
             self._logOutput( f"{len( response[ 'results' ] )} results" )
@@ -251,6 +253,7 @@ class LCQuery( cmd.Cmd ):
         '''Get statistics on the total cost incurred during this session.'''
         self._logOutput( f"Session cost: ${(self._billed / self._pricingBlock) / 100}" )
         self._logOutput( f"Last query stats: {json.dumps( self._lastStats, indent = 2 )}" )
+        self._logOutput( f"Last D&R rule generated: {json.dumps( self._lastRule, indent = 2 )}" )
 
     def do_quit( self, inp ):
         '''Quit the LCQL interface.'''
