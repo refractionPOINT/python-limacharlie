@@ -146,7 +146,8 @@ class LCQuery( cmd.Cmd ):
             f.write( output )
             f.write( "\n" )
 
-    def do_q( self, inp ):
+    def do_q( self, inp, isCursorBased = True ):
+        '''Query (paged).'''
         thisQuery = f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}"
         cacheKey = f"{self._limitEval}{self._limitEvent}{thisQuery}"
 
@@ -160,16 +161,27 @@ class LCQuery( cmd.Cmd ):
             isFromCache = True
         else:
             sys.stdout.write( colored("Query running ", 'cyan') )
-            q = self._replay._doQuery( thisQuery,
-                                       limitEvent = self._limitEvent if self._limitEvent else None,
-                                       limitEval = self._limitEval if self._limitEval else None,
-                                       isCursorBased = True )
-            with Spinner():
-                response = q.next()
-                error = response.get( 'error', None )
-                if error:
-                    self._logOutput( f"ERROR: {error}" )
-                    return
+            if isCursorBased:
+                q = self._replay._doQuery( thisQuery,
+                                        limitEvent = self._limitEvent if self._limitEvent else None,
+                                        limitEval = self._limitEval if self._limitEval else None,
+                                        isCursorBased = isCursorBased )
+                with Spinner():
+                    response = q.next()
+                    error = response.get( 'error', None )
+                    if error:
+                        self._logOutput( f"ERROR: {error}" )
+                        return
+            else:
+                with Spinner():
+                    response = self._replay._doQuery( thisQuery,
+                                                      limitEvent = self._limitEvent if self._limitEvent else None,
+                                                      limitEval = self._limitEval if self._limitEval else None,
+                                                      isCursorBased = isCursorBased )
+                    error = response.get( 'error', None )
+                    if error:
+                        self._logOutput( f"ERROR: {error}" )
+                        return
 
             print( "" )
             thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
@@ -187,10 +199,16 @@ class LCQuery( cmd.Cmd ):
             self._outputPage( toRender )
 
         if q is not None and q.hasMore:
-            print( "...query has more pages, use 'next' to get the next page" )
+            print( "...query has more pages, use 'n' to get the next page" )
             self._q = q
         elif not isFromCache:
             self._q = None
+
+    def do_qa( self, inp ):
+        '''Query All (non-paged).'''
+        return self.do_q( inp, isCursorBased = False )
+    def complete_qa( self, text, line, begidx, endidx ):
+        return self.complete_q( text, line, begidx, endidx )
 
     def complete_q( self, text, line, begidx, endidx ):
         pathToComplete = line.split()[ -1 ]
@@ -220,7 +238,7 @@ class LCQuery( cmd.Cmd ):
             self._logOutput( 'unknown format' )
 
     def do_n( self, inp ):
-        '''Fetch the next page of results.'''
+        '''Fetch the Next page of results.'''
         if self._q is None:
             print( "no more pages in previous query" )
             return
@@ -361,61 +379,7 @@ class LCQuery( cmd.Cmd ):
         self._logOutput( f"Current env: time={self._timeFrame} sensors={self._sensors} events={self._events} format={self._format} output={self._outFile}" )
 
     def do_lcql( self, inp ):
-        '''
-        Keep in mind LCQL is currently in Beta, changes are likely in the future.
-        LCQL queries contain 4 components with a 5th optional one, each component is
-        separated by a pipe ("|"):
-        1-  Timeframe: the time range the query applies to. This can be either a single
-            offset in the past like "-1h" or "-30m". Or it can be a date time range
-            like "2022-01-22 10:00:00 to 2022-01-25 14:00:00".
-        2-  Sensors: the set of sensors to query. This can be either "*" for all sensors,
-            a list of space separated SIDs like "111-... 222-... 333-...", or it can
-            be a sensor selector (https://doc.limacharlie.io/docs/documentation/36c920f4f7bc9-sensor-selector-expressions)
-            like "plat == windows".
-        3-  Events: the list of events to include in the query, space separated like
-            "NEW_PROCESS DNS_REQUEST", or a "*" to go over all event types.
-        4-  Filter: the actual query filter. The filters are a series of statements
-            combined with " and " and " or " that can be associated with parenthesis ("()").
-            String literals, when used, can be double-quoted to be case insensitive
-            or single-quoted to be case sensitive.
-            Selectors behave like D&R rules, for example: "event/FILE_PATH".
-            These are the currently supported operators:
-            - "is" (or "==") example: event/FILE_IS_SIGNED is 1 or event/FILE_PATH is "c:\windows\calc.exe"
-            - "is not" (or "!=") example: event/FILE_IS_SIGNED != 0
-            - "contains" example: event/FILE_PATH contains 'evil'
-            - "not contains"
-            - "matches" example: event/FILE_PATH matches ".*system[0-9a-z].*"
-            - "not matches"
-            - "starts with" example: event/FILE_PATH starts with "c:\windows"
-            - "not starts with"
-            - "ends with" example: event/FILE_PATH ends with '.eXe'
-            - "not ends with"
-            - "cidr" example: event/NETWORK_CONNECTIONS/IP_ADDRESS cidr "10.1.0.0/16"
-            - "is lower than" example: event/NETWORK_CONNECTIONS/PORT is lower than 1024
-            - "is greater than"
-            - "is platform" example: is platform "windows"
-            - "is not platform"
-            - "is tagged" example: is tagged "vip"
-            - "is not tagged"
-            - "is public address" example: event/NETWORK_CONNECTIONS/IP_ADDRESS is public address
-            - "is private address"
-            - "scope" example: event/NETWORK_CONNECTIONS scope (event/IP_ADDRESS is public address and event/PORT is 443)
-            - "with child" / "with descendant" / "with events" example: event/FILE_PATH contains "evil" with child (event/COMMAND_LINE contains "powershell")
-        5-  Projection (optional): a list of fields you would like to extract from the results
-            with a possible alias, like: "event/FILE_PATH as path event/USER_NAME AS user_name event/COMMAND_LINE"
-            The Projection can also support a grouping functionality by adding " GROUP BY (field1 field2 ...)" at the
-            end of the projection statement. When grouping, all fields being projected must either be in the GROUP BY
-            statement, or have an aggregator modifier. An aggregator modifer is, for example, "COUNT( host )" or
-            "COUNT_UNIQUE( host )" instead of just "host".
-            A full example with grouping is:
-            -1h | * | DNS_REQUEST | event/DOMAIN_NAME contains "apple" | event/DOMAIN_NAME as dns COUNT_UNIQUE(routing/hostname) as hostcount GROUP BY(dns host)
-            which would give you the number of hosts having resolved a domain containing `apple`, grouped by domain.
-
-        All of this can result in a query like:
-        -30m | plat == windows | NEW_PROCESS | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" | event/COMMAND_LINE as cli event/FILE_PATH as path routing/hostname as host
-        OR
-        -30m | plat == windows | * | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" |
-        '''
+        '''See the official LCQL documentation here: https://doc.limacharlie.io/docs/documentation/b0915c7a5f598-lima-charlie-query-language'''
         pass
 
 if '__main__' == __name__:
