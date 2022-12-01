@@ -12,11 +12,6 @@ class queryContext( object ):
     def __init__( self, replay, req ):
         self._req = req
         self._replay = replay
-        self._req[ 'event_source' ] = {
-            'sensor_events' : {
-                'cursor' : '-',
-            },
-        }
         self.hasMore = True
 
     def next( self ):

@@ -146,7 +146,8 @@ class LCQuery( cmd.Cmd ):
             f.write( output )
             f.write( "\n" )
 
-    def do_q( self, inp ):
+    def do_q( self, inp, isCursorBased = True ):
+        '''Query (paged).'''
         thisQuery = f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}"
         cacheKey = f"{self._limitEval}{self._limitEvent}{thisQuery}"
 
@@ -160,16 +161,27 @@ class LCQuery( cmd.Cmd ):
             isFromCache = True
         else:
             sys.stdout.write( colored("Query running ", 'cyan') )
-            q = self._replay._doQuery( thisQuery,
-                                       limitEvent = self._limitEvent if self._limitEvent else None,
-                                       limitEval = self._limitEval if self._limitEval else None,
-                                       isCursorBased = True )
-            with Spinner():
-                response = q.next()
-                error = response.get( 'error', None )
-                if error:
-                    self._logOutput( f"ERROR: {error}" )
-                    return
+            if isCursorBased:
+                q = self._replay._doQuery( thisQuery,
+                                        limitEvent = self._limitEvent if self._limitEvent else None,
+                                        limitEval = self._limitEval if self._limitEval else None,
+                                        isCursorBased = isCursorBased )
+                with Spinner():
+                    response = q.next()
+                    error = response.get( 'error', None )
+                    if error:
+                        self._logOutput( f"ERROR: {error}" )
+                        return
+            else:
+                with Spinner():
+                    response = self._replay._doQuery( thisQuery,
+                                                      limitEvent = self._limitEvent if self._limitEvent else None,
+                                                      limitEval = self._limitEval if self._limitEval else None,
+                                                      isCursorBased = isCursorBased )
+                    error = response.get( 'error', None )
+                    if error:
+                        self._logOutput( f"ERROR: {error}" )
+                        return
 
             print( "" )
             thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
@@ -191,6 +203,12 @@ class LCQuery( cmd.Cmd ):
             self._q = q
         elif not isFromCache:
             self._q = None
+
+    def do_qa( self, inp ):
+        '''Query All (non-paged).'''
+        return self.do_q( inp, isCursorBased = False )
+    def complete_qa( self, text, line, begidx, endidx ):
+        return self.complete_q( text, line, begidx, endidx )
 
     def complete_q( self, text, line, begidx, endidx ):
         pathToComplete = line.split()[ -1 ]
@@ -220,7 +238,7 @@ class LCQuery( cmd.Cmd ):
             self._logOutput( 'unknown format' )
 
     def do_n( self, inp ):
-        '''Fetch the next page of results.'''
+        '''Fetch the Next page of results.'''
         if self._q is None:
             print( "no more pages in previous query" )
             return
