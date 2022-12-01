@@ -1282,7 +1282,7 @@ class Manager( object ):
 
         req = {}
 
-        resp = self._apiCall( 'orgs/%s/schema/%s' % ( self._oid, name ), GET, queryParams = req )
+        resp = self._apiCall( 'orgs/%s/schema/%s' % ( self._oid, urlescape( name ) ), GET, queryParams = req )
         return resp
 
     def resetSchemas( self ):

@@ -1,6 +1,6 @@
 from setuptools import setup
 
-__version__ = "4.2.3"
+__version__ = "4.3.0"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
@@ -15,7 +15,7 @@ setup( name = 'limacharlie',
        license = __license__,
        packages = [ 'limacharlie' ],
        zip_safe = True,
-       install_requires = [ 'requests', 'passlib', 'pyyaml' ],
+       install_requires = [ 'requests', 'passlib', 'pyyaml', 'tabulate', 'termcolor' ],
        long_description = 'Python API for limacharlie.io, an endpoint detection and response service.',
        entry_points = {
            'console_scripts': [

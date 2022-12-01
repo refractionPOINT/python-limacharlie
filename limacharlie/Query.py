@@ -3,19 +3,20 @@ from . import Manager
 from .Replay import Replay
 import json
 import cmd
+import sys
 try:
     import pydoc
 except:
     pydoc = None
-try:
-    from tabulate import tabulate
-except:
-    tabulate = None
+from tabulate import tabulate
+from termcolor import colored
 import os.path
 try:
     import readline
 except ImportError:
     readline = None
+
+from .utils import Spinner
 
 def main( sourceArgs = None ):
     import argparse
@@ -82,7 +83,8 @@ def main( sourceArgs = None ):
     response = replay._doQuery( args.query,
                                 limitEvent = args.limitEvent,
                                 limitEval = args.limitEval,
-                                isDryRun = args.isDryRun )
+                                isDryRun = args.isDryRun,
+                                isCursorBased = False )
 
     error = response.get( 'error', None )
     if error:
@@ -96,7 +98,7 @@ def main( sourceArgs = None ):
 
 class LCQuery( cmd.Cmd ):
     def __init__( self, replay, format, outFile ):
-        self.intro = 'This LimaCharlie feature is in Alpha, LCQL is likely going to evolve!\nThe LimaCharlie Query allows you to query the dataset in a more free-form fashion based on the LC Query Language.'
+        self.intro = 'This LimaCharlie feature is in Beta, LCQL is likely going to evolve!\nThe LimaCharlie Query allows you to query the dataset in a more free-form fashion based on the LC Query Language.'
         self._timeFrame = "-10m"
         self._sensors = "*"
         self._events = "*"
@@ -111,7 +113,15 @@ class LCQuery( cmd.Cmd ):
         self._format = format
         self._lastData = None
         self._lastQuery = None
+        self._lastStats = None
+        self._lastRule = None
+        self._schema = set()
+        self._allEvents = []
+        self._q = None
+        readline.set_completer_delims( ' ' )
         super(LCQuery, self).__init__()
+        self._getAllEvents()
+        self._populateSchema()
         self._setPrompt()
 
     def preloop( self ):
@@ -136,24 +146,35 @@ class LCQuery( cmd.Cmd ):
             f.write( output )
             f.write( "\n" )
 
-    def default( self, inp ):
+    def do_q( self, inp ):
         thisQuery = f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}"
         cacheKey = f"{self._limitEval}{self._limitEvent}{thisQuery}"
+
+        q = None
+        isFromCache = False
 
         # Check if the is the same last query we did, if so, re-use the result.
         if cacheKey == self._lastQuery:
             self._logOutput( f"{len( self._lastData )} results from cache" )
             toRender = self._lastData
+            isFromCache = True
         else:
-            response = self._replay._doQuery( thisQuery,
-                                            limitEvent = self._limitEvent if self._limitEvent else None,
-                                            limitEval = self._limitEval if self._limitEval else None )
-            error = response.get( 'error', None )
-            if error:
-                self._logOutput( f"ERROR: {error}" )
-                return
+            sys.stdout.write( colored("Query running ", 'cyan') )
+            q = self._replay._doQuery( thisQuery,
+                                       limitEvent = self._limitEvent if self._limitEvent else None,
+                                       limitEval = self._limitEval if self._limitEval else None,
+                                       isCursorBased = True )
+            with Spinner():
+                response = q.next()
+                error = response.get( 'error', None )
+                if error:
+                    self._logOutput( f"ERROR: {error}" )
+                    return
 
+            print( "" )
             thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+            self._lastStats = response.get( 'stats', {} )
+            self._lastRule = response.get( 'transcoded_rule', None )
             self._billed += thisBilled
             self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
             self._logOutput( f"{len( response[ 'results' ] )} results" )
@@ -162,6 +183,25 @@ class LCQuery( cmd.Cmd ):
             self._lastQuery = cacheKey
             toRender = self._lastData
 
+        if len( toRender ) != 0:
+            self._outputPage( toRender )
+
+        if q is not None and q.hasMore:
+            print( "...query has more pages, use 'next' to get the next page" )
+            self._q = q
+        elif not isFromCache:
+            self._q = None
+
+    def complete_q( self, text, line, begidx, endidx ):
+        pathToComplete = line.split()[ -1 ]
+        results = []
+        for evt in self._schema:
+            if not evt.startswith( pathToComplete ):
+                continue
+            results.append( evt )
+        return results
+
+    def _outputPage( self, toRender ):
         if self._format == 'json':
             if pydoc is None:
                 self._logOutput( "\n".join( json.dumps( d, indent = 2 ) for d in toRender ) )
@@ -170,24 +210,57 @@ class LCQuery( cmd.Cmd ):
                 self._logOutput( dat, isNoPrint = True )
                 pydoc.pager( dat )
         elif self._format == 'table':
-            if tabulate is None:
-                self._logOutput( 'failed to import tabulate' )
+            if pydoc is None:
+                self._logOutput( tabulate( toRender, headers = 'keys', tablefmt = 'github' ) )
             else:
-                if pydoc is None:
-                    self._logOutput( tabulate( toRender, headers = 'keys', tablefmt = 'github' ) )
-                else:
-                    dat = tabulate( toRender, headers = 'keys', tablefmt = 'github' )
-                    self._logOutput( dat, isNoPrint = True )
-                    pydoc.pager( dat )
+                dat = tabulate( toRender, headers = 'keys', tablefmt = 'github' )
+                self._logOutput( dat, isNoPrint = True )
+                pydoc.pager( dat )
         else:
             self._logOutput( 'unknown format' )
 
+    def do_n( self, inp ):
+        '''Fetch the next page of results.'''
+        if self._q is None:
+            print( "no more pages in previous query" )
+            return
+        sys.stdout.write( colored("Query running ", 'cyan') )
+        q = self._q
+        with Spinner():
+            response = q.next()
+            error = response.get( 'error', None )
+            if error:
+                self._logOutput( f"ERROR: {error}" )
+                return
+
+        print( "" )
+        thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+        self._lastStats = response.get( 'stats', {} )
+        self._billed += thisBilled
+        self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
+        self._logOutput( f"{len( response[ 'results' ] )} results" )
+
+        self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
+        toRender = self._lastData
+
+        if len( toRender ) != 0:
+            self._outputPage( toRender )
+
+        if q is not None and q.hasMore:
+            print( "...query has more pages, use 'next' to get the next page" )
+            self._q = q
+        else:
+            self._q = None
+
     def do_dryrun( self, inp ):
         '''Execute a command as a dry-run and get back aproximate cost of the query.'''
-        response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
-                                          limitEvent = self._limitEvent if self._limitEvent else None,
-                                          limitEval = self._limitEval if self._limitEval else None,
-                                          isDryRun = True )
+        sys.stdout.write( colored("Query running ", 'cyan') )
+        with Spinner():
+            response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
+                                            limitEvent = self._limitEvent if self._limitEvent else None,
+                                            limitEval = self._limitEval if self._limitEval else None,
+                                            isDryRun = True,
+                                            isCursorBased = False )
         thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         self._logOutput( json.dumps( response, indent = 2 ) )
@@ -195,6 +268,8 @@ class LCQuery( cmd.Cmd ):
     def do_stats( self, inp ):
         '''Get statistics on the total cost incurred during this session.'''
         self._logOutput( f"Session cost: ${(self._billed / self._pricingBlock) / 100}" )
+        self._logOutput( f"Last query stats: {json.dumps( self._lastStats, indent = 2 )}" )
+        self._logOutput( f"Last D&R rule generated: {json.dumps( self._lastRule, indent = 2 )}" )
 
     def do_quit( self, inp ):
         '''Quit the LCQL interface.'''
@@ -202,12 +277,12 @@ class LCQuery( cmd.Cmd ):
         return True
 
     def _setPrompt( self ):
-        limits = ""
+        limits = "Context: "
         if self._limitEvent:
             limits += f"limit_event: {self._limitEvent} "
         if self._limitEval:
             limits += f"limit eval: {self._limitEval} "
-        self.prompt = f"{limits}{self._timeFrame} | {self._sensors} | {self._events} | "
+        self.prompt = f"{limits}{colored(self._timeFrame, 'red')} | {colored(self._sensors, 'blue')} | {colored(self._events, 'green')} | \n> "
 
     def do_exit( self, inp ):
         '''Quit the LCQL interface.'''
@@ -234,7 +309,38 @@ class LCQuery( cmd.Cmd ):
     def do_set_events( self, inp ):
         '''Set the event types to query, like "NEW_PROCESS DNS_REQUEST'''
         self._events = inp
+
+        self._populateSchema()
+
         self._setPrompt()
+
+    def complete_set_events( self, text, line, begidx, endidx ):
+        return [ e for e in self._allEvents if e.startswith( text ) ]
+
+    def _getAllEvents( self ):
+        sys.stdout.write( colored("Fetching event list  ", 'cyan') )
+        with Spinner():
+            self._allEvents = [ e[4:] for e in self._replay._lc.getSchemas()[ 'event_types' ] if e.startswith( 'evt:' ) ]
+        print( "" )
+
+    def _populateSchema( self ):
+        sys.stdout.write( colored("Fetching autocomplete data  ", 'cyan') )
+        with Spinner():
+            toSearch = []
+            if self._events == '*':
+                # Query all evt:
+                toSearch = [ '' ]
+            else:
+                toSearch = [ e.strip() for e in self._events.split() ]
+
+            self._schema = set()
+            for evt in toSearch:
+                if evt == '':
+                    for s, v in self._replay._lc.getSchema( 'evt:' )[ 'schemas' ].items():
+                        self._schema.update( ( e[ 2 : ] for e in v ) )
+                else:
+                    self._schema.update( ( e[ 2 : ] for e in self._replay._lc.getSchema( f"evt:{evt}" )[ 'schema' ][ 'elements' ] ) )
+        print( "" )
 
     def do_set_limit_event( self, inp ):
         '''Set the aproximate maximum number of events processed per request, like "1000"'''
@@ -256,7 +362,7 @@ class LCQuery( cmd.Cmd ):
 
     def do_lcql( self, inp ):
         '''
-        Keep in mind LCQL is currently in Alpha, changes are likely in the future.
+        Keep in mind LCQL is currently in Beta, changes are likely in the future.
         LCQL queries contain 4 components with a 5th optional one, each component is
         separated by a pipe ("|"):
         1-  Timeframe: the time range the query applies to. This can be either a single
@@ -303,7 +409,7 @@ class LCQuery( cmd.Cmd ):
             "COUNT_UNIQUE( host )" instead of just "host".
             A full example with grouping is:
             -1h | * | DNS_REQUEST | event/DOMAIN_NAME contains "apple" | event/DOMAIN_NAME as dns COUNT_UNIQUE(routing/hostname) as hostcount GROUP BY(dns host)
-            which would give you the number of hosts having re
+            which would give you the number of hosts having resolved a domain containing `apple`, grouped by domain.
 
         All of this can result in a query like:
         -30m | plat == windows | NEW_PROCESS | event/COMMAND_LINE contains "powershell" and event/FILE_PATH not contains "powershell" | event/COMMAND_LINE as cli event/FILE_PATH as path routing/hostname as host

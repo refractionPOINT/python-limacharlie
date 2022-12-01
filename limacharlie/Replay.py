@@ -8,6 +8,34 @@ import yaml
 import time
 import sys
 
+class queryContext( object ):
+    def __init__( self, replay, req ):
+        self._req = req
+        self._replay = replay
+        self._req[ 'event_source' ] = {
+            'sensor_events' : {
+                'cursor' : '-',
+            },
+        }
+        self.hasMore = True
+
+    def next( self ):
+        if self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] is None:
+            return None
+        resp = self._replay._lc._apiCall( '',
+                                          'POST',
+                                          {},
+                                          altRoot = 'https://%s/' % ( self._replay._replayURL, ),
+                                          rawBody = json.dumps( self._req ).encode(),
+                                          contentType = 'application/json' )
+        cursor = resp.get( 'cursor', None )
+        if not cursor:
+            cursor = None
+        self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] = cursor
+        if cursor is None:
+            self.hasMore = False
+        return resp
+
 class Replay( object ):
     '''Interface to query historical sensor data in Insight with specific D&R rules.'''
 
@@ -24,9 +52,7 @@ class Replay( object ):
         self._lc = manager
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
-    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False ):
-        resp = None
-
+    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False ):
         if not query:
             raise LcApiException( 'no query specified' )
 
@@ -36,16 +62,17 @@ class Replay( object ):
             'limit_event' : 0 if limitEvent is None else limitEvent,
             'limit_eval' : 0 if limitEval is None else limitEval,
             'is_dry_run' : isDryRun,
+            'event_source' : {
+                'sensor_events' : {
+                    'cursor' : '-' if isCursorBased else '',
+                },
+            },
         }
 
-        resp = self._lc._apiCall( '',
-                                  'POST',
-                                  {},
-                                  altRoot = 'https://%s/' % ( self._replayURL, ),
-                                  rawBody = json.dumps( req ).encode(),
-                                  contentType = 'application/json' )
+        if not isCursorBased:
+            return queryContext( self, req ).next()
 
-        return resp
+        return queryContext( self, req )
 
     def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None, isDryRun = False ):
         resp = None
