@@ -163,15 +163,16 @@ class LCQuery( cmd.Cmd ):
                     self._logOutput( f"ERROR: {error}" )
                     return
 
-                thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
-                self._lastStats = response.get( 'stats', {} )
-                self._billed += thisBilled
-                self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
-                self._logOutput( f"{len( response[ 'results' ] )} results" )
+            print( "" )
+            thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+            self._lastStats = response.get( 'stats', {} )
+            self._billed += thisBilled
+            self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
+            self._logOutput( f"{len( response[ 'results' ] )} results" )
 
-                self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
-                self._lastQuery = cacheKey
-                toRender = self._lastData
+            self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
+            self._lastQuery = cacheKey
+            toRender = self._lastData
 
         if len( toRender ) != 0:
             self._outputPage( toRender )
@@ -214,14 +215,15 @@ class LCQuery( cmd.Cmd ):
                 self._logOutput( f"ERROR: {error}" )
                 return
 
-            thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
-            self._lastStats = response.get( 'stats', {} )
-            self._billed += thisBilled
-            self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
-            self._logOutput( f"{len( response[ 'results' ] )} results" )
+        print( "" )
+        thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+        self._lastStats = response.get( 'stats', {} )
+        self._billed += thisBilled
+        self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
+        self._logOutput( f"{len( response[ 'results' ] )} results" )
 
-            self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
-            toRender = self._lastData
+        self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
+        toRender = self._lastData
 
         if len( toRender ) != 0:
             self._outputPage( toRender )
