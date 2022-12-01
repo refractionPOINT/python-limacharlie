@@ -97,7 +97,7 @@ def main( sourceArgs = None ):
 
 class LCQuery( cmd.Cmd ):
     def __init__( self, replay, format, outFile ):
-        self.intro = 'This LimaCharlie feature is in Alpha, LCQL is likely going to evolve!\nThe LimaCharlie Query allows you to query the dataset in a more free-form fashion based on the LC Query Language.'
+        self.intro = 'This LimaCharlie feature is in Beta, LCQL is likely going to evolve!\nThe LimaCharlie Query allows you to query the dataset in a more free-form fashion based on the LC Query Language.'
         self._timeFrame = "-10m"
         self._sensors = "*"
         self._events = "*"
@@ -113,6 +113,7 @@ class LCQuery( cmd.Cmd ):
         self._lastData = None
         self._lastQuery = None
         self._lastStats = None
+        self._q = None
         super(LCQuery, self).__init__()
         self._setPrompt()
 
@@ -142,16 +143,21 @@ class LCQuery( cmd.Cmd ):
         thisQuery = f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}"
         cacheKey = f"{self._limitEval}{self._limitEvent}{thisQuery}"
 
+        q = None
+        isFromCache = False
+
         # Check if the is the same last query we did, if so, re-use the result.
         if cacheKey == self._lastQuery:
             self._logOutput( f"{len( self._lastData )} results from cache" )
             toRender = self._lastData
+            isFromCache = True
         else:
             sys.stdout.write( colored("Query running ", 'cyan') )
+            q = self._replay._doQuery( thisQuery,
+                                       limitEvent = self._limitEvent if self._limitEvent else None,
+                                       limitEval = self._limitEval if self._limitEval else None )
             with Spinner():
-                response = self._replay._doQuery( thisQuery,
-                                                  limitEvent = self._limitEvent if self._limitEvent else None,
-                                                  limitEval = self._limitEval if self._limitEval else None )
+                response = q.next()
                 error = response.get( 'error', None )
                 if error:
                     self._logOutput( f"ERROR: {error}" )
@@ -167,6 +173,16 @@ class LCQuery( cmd.Cmd ):
                 self._lastQuery = cacheKey
                 toRender = self._lastData
 
+        if len( toRender ) != 0:
+            self._outputPage( toRender )
+
+        if q is not None and q.hasMore:
+            print( "...query has more pages" )
+            self._q = q
+        elif not isFromCache:
+            self._q = None
+
+    def _outputPage( self, toRender ):
         if self._format == 'json':
             if pydoc is None:
                 self._logOutput( "\n".join( json.dumps( d, indent = 2 ) for d in toRender ) )
@@ -183,6 +199,37 @@ class LCQuery( cmd.Cmd ):
                 pydoc.pager( dat )
         else:
             self._logOutput( 'unknown format' )
+
+    def do_next( self, inp ):
+        if self._q is None:
+            print( "no more pages in previous query" )
+            return
+        sys.stdout.write( colored("Query running ", 'cyan') )
+        q = self._q
+        with Spinner():
+            response = q.next()
+            error = response.get( 'error', None )
+            if error:
+                self._logOutput( f"ERROR: {error}" )
+                return
+
+            thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+            self._lastStats = response.get( 'stats', {} )
+            self._billed += thisBilled
+            self._logOutput( f"Query cost: ${(thisBilled / self._pricingBlock) / 100}" )
+            self._logOutput( f"{len( response[ 'results' ] )} results" )
+
+            self._lastData = tuple( d[ 'data' ] for d in response[ 'results' ] )
+            toRender = self._lastData
+
+        if len( toRender ) != 0:
+            self._outputPage( toRender )
+
+        if q is not None and q.hasMore:
+            print( "...query has more pages" )
+            self._q = q
+        else:
+            self._q = None
 
     def do_dryrun( self, inp ):
         '''Execute a command as a dry-run and get back aproximate cost of the query.'''
