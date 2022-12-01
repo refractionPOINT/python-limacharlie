@@ -219,7 +219,7 @@ class LCQuery( cmd.Cmd ):
         else:
             self._logOutput( 'unknown format' )
 
-    def do_next( self, inp ):
+    def do_n( self, inp ):
         '''Fetch the next page of results.'''
         if self._q is None:
             print( "no more pages in previous query" )
