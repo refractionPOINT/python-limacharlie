@@ -277,12 +277,12 @@ class LCQuery( cmd.Cmd ):
         return True
 
     def _setPrompt( self ):
-        limits = ""
+        limits = "Context: "
         if self._limitEvent:
             limits += f"limit_event: {self._limitEvent} "
         if self._limitEval:
             limits += f"limit eval: {self._limitEval} "
-        self.prompt = f"{limits}{colored(self._timeFrame, 'red')} | {colored(self._sensors, 'blue')} | {colored(self._events, 'green')} | "
+        self.prompt = f"{limits}{colored(self._timeFrame, 'red')} | {colored(self._sensors, 'blue')} | {colored(self._events, 'green')} | \n> "
 
     def do_exit( self, inp ):
         '''Quit the LCQL interface.'''
