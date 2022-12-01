@@ -187,7 +187,7 @@ class LCQuery( cmd.Cmd ):
             self._outputPage( toRender )
 
         if q is not None and q.hasMore:
-            print( "...query has more pages, use 'next' to get the next page" )
+            print( "...query has more pages, use 'n' to get the next page" )
             self._q = q
         elif not isFromCache:
             self._q = None
