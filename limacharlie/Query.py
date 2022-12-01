@@ -83,7 +83,8 @@ def main( sourceArgs = None ):
     response = replay._doQuery( args.query,
                                 limitEvent = args.limitEvent,
                                 limitEval = args.limitEval,
-                                isDryRun = args.isDryRun )
+                                isDryRun = args.isDryRun,
+                                isCursorBased = False )
 
     error = response.get( 'error', None )
     if error:
@@ -155,7 +156,8 @@ class LCQuery( cmd.Cmd ):
             sys.stdout.write( colored("Query running ", 'cyan') )
             q = self._replay._doQuery( thisQuery,
                                        limitEvent = self._limitEvent if self._limitEvent else None,
-                                       limitEval = self._limitEval if self._limitEval else None )
+                                       limitEval = self._limitEval if self._limitEval else None,
+                                       isCursorBased = True )
             with Spinner():
                 response = q.next()
                 error = response.get( 'error', None )
@@ -239,7 +241,8 @@ class LCQuery( cmd.Cmd ):
         response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
                                           limitEvent = self._limitEvent if self._limitEvent else None,
                                           limitEval = self._limitEval if self._limitEval else None,
-                                          isDryRun = True )
+                                          isDryRun = True,
+                                          isCursorBased = False )
         thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         self._logOutput( json.dumps( response, indent = 2 ) )

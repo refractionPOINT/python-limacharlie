@@ -52,7 +52,7 @@ class Replay( object ):
         self._lc = manager
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
-    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False ):
+    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False ):
         if not query:
             raise LcApiException( 'no query specified' )
 
@@ -64,10 +64,13 @@ class Replay( object ):
             'is_dry_run' : isDryRun,
             'event_source' : {
                 'sensor_events' : {
-                    'cursor' : '-',
+                    'cursor' : '-' if isCursorBased else '',
                 },
             },
         }
+
+        if not isCursorBased:
+            return queryContext( self, req ).next()
 
         return queryContext( self, req )
 
