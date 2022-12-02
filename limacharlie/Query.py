@@ -283,6 +283,9 @@ class LCQuery( cmd.Cmd ):
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         self._logOutput( json.dumps( response, indent = 2 ) )
 
+    def complete_dryrun( self, text, line, begidx, endidx ):
+        return self.complete_q( text, line, begidx, endidx )
+
     def do_stats( self, inp ):
         '''Get statistics on the total cost incurred during this session.'''
         self._logOutput( f"Session cost: ${(self._billed / self._pricingBlock) / 100}" )
