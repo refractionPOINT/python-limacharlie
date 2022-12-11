@@ -229,13 +229,18 @@ class LCQuery( cmd.Cmd ):
                 pydoc.pager( dat )
         elif self._format == 'table':
             if pydoc is None:
-                self._logOutput( tabulate( toRender, headers = 'keys', tablefmt = 'github' ) )
+                self._logOutput( tabulate( ( { k: self._formatCol( v ) for k, v in e.items() } for e in toRender ), headers = 'keys', tablefmt = 'grid' ) )
             else:
-                dat = tabulate( toRender, headers = 'keys', tablefmt = 'github' )
+                dat = tabulate( ( { k: self._formatCol( v ) for k, v in e.items() } for e in toRender ), headers = 'keys', tablefmt = 'grid' )
                 self._logOutput( dat, isNoPrint = True )
                 pydoc.pager( dat )
         else:
             self._logOutput( 'unknown format' )
+
+    def _formatCol( self, col ):
+        if isinstance( col, dict ):
+            return json.dumps( col, indent = 2 )
+        return col
 
     def do_n( self, inp ):
         '''Fetch the Next page of results.'''
