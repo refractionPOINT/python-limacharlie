@@ -229,13 +229,21 @@ class LCQuery( cmd.Cmd ):
                 pydoc.pager( dat )
         elif self._format == 'table':
             if pydoc is None:
-                self._logOutput( tabulate( toRender, headers = 'keys', tablefmt = 'github' ) )
+                self._logOutput( self._renderTable( toRender ) )
             else:
-                dat = tabulate( toRender, headers = 'keys', tablefmt = 'github' )
+                dat = self._renderTable( toRender )
                 self._logOutput( dat, isNoPrint = True )
                 pydoc.pager( dat )
         else:
             self._logOutput( 'unknown format' )
+
+    def _renderTable( self, elem ):
+        return tabulate( ( { k: self._formatCol( v ) for k, v in e.items() } for e in elem ), headers = 'keys', tablefmt = 'grid' )
+
+    def _formatCol( self, col ):
+        if isinstance( col, dict ):
+            return json.dumps( col, indent = 2 )
+        return col
 
     def do_n( self, inp ):
         '''Fetch the Next page of results.'''
@@ -280,6 +288,7 @@ class LCQuery( cmd.Cmd ):
                                             isDryRun = True,
                                             isCursorBased = False )
         thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+        print( "Note that aproximate costs for queries with a time frame within the last 6h may be under-reported.")
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         self._logOutput( json.dumps( response, indent = 2 ) )
 
