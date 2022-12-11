@@ -1,4 +1,5 @@
 import limacharlie
+import time
 
 def test_credentials( oid, key ):
     lc = limacharlie.Manager( oid, key )
@@ -82,6 +83,8 @@ def test_rules( oid, key ):
         'name' : 'test-sdk-detection',
     } ], isReplace = True )
     assert({'guid': resp['guid'], 'hive': {'name': 'dr-general', 'partition': oid }, 'name': testRuleName} == resp)
+
+    time.sleep(1)
 
     try:
         rules = lc.rules()
