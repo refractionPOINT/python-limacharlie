@@ -288,6 +288,7 @@ class LCQuery( cmd.Cmd ):
                                             isDryRun = True,
                                             isCursorBased = False )
         thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
+        print( "Note that aproximate costs for queries with a time frame within the last 6h may be under-reported.")
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         self._logOutput( json.dumps( response, indent = 2 ) )
 
