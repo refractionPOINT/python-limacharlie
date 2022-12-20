@@ -1334,21 +1334,29 @@ class Manager( object ):
 
         return self._apiCall( 'installationkeys/%s/%s' % ( self._oid, iid ), GET )
 
-    def create_installation_key( self, tags, desc ):
+    def create_installation_key( self, tags, desc, iid = None, quota = None ):
         '''Create an installation key.
 
         Args:
             tags (list): list of tags.
             desc (str): description for the installation key.
+            iid (str): optional IID to overwrite (update).
+            quota (int): optional number of enrollments a key can perform.
 
         Returns:
             the REST API response (JSON).
         '''
 
-        return self._apiCall( 'installationkeys/%s' % self._oid, POST, {
+        req = {
             'tags' : tags,
             'desc' : desc,
-        } )
+        }
+        if iid is not None:
+            req[ 'iid' ] = str( iid )
+        if quota is not None:
+            req[ 'quota' ] = str( quota )
+
+        return self._apiCall( 'installationkeys/%s' % self._oid, POST, req )
 
     def delete_installation_key( self, iid ):
         '''Delete an installation key.
