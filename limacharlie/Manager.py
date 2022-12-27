@@ -425,6 +425,15 @@ class Manager( object ):
 
         return self._apiCall( 'tags/%s' % ( self._oid, ), GET, queryParams = {} )[ 'tags' ]
 
+    def getAllOnlineSensors( self ):
+        '''Get a list of all online sensors.
+
+        Returns:
+            a list of SIDs.
+        '''
+
+        return list( self._apiCall( 'online/%s' % ( self._oid, ), POST, queryParams = {} ).keys() )
+
     def outputs( self ):
         '''Get the list of all Outputs configured for the Organization.
 
