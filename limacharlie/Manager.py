@@ -425,14 +425,21 @@ class Manager( object ):
 
         return self._apiCall( 'tags/%s' % ( self._oid, ), GET, queryParams = {} )[ 'tags' ]
 
-    def getAllOnlineSensors( self ):
+    def getAllOnlineSensors( self, onlySIDs = [] ):
         '''Get a list of all online sensors.
+
+        Args:
+            onlySIDs (list of str): optional list of SIDs to check.
 
         Returns:
             a list of SIDs.
         '''
 
-        return list( self._apiCall( 'online/%s' % ( self._oid, ), POST, queryParams = {} ).keys() )
+        req = {}
+        if onlySIDs:
+            req[ 'sids' ] = onlySIDs
+
+        return list( k for k, v in self._apiCall( 'online/%s' % ( self._oid, ), POST, req, queryParams = {} ).items() if v )
 
     def outputs( self ):
         '''Get the list of all Outputs configured for the Organization.
