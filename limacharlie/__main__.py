@@ -216,6 +216,7 @@ def main():
                              help = 'second-based epoch time to end at.' )
         parser.add_argument( '--sid',
                              type = uuid.UUID,
+                             dest = 'sid',
                              help = 'sensor id to get the audit events about.' )
         parser.add_argument( '--limit',
                              type = int,
@@ -234,7 +235,7 @@ def main():
                              help = 'send data to a named output instead.' )
         args = parser.parse_args( sys.argv[ 2: ] )
         _man = Manager()
-        for event in _man.getAuditLogs( args.start, args.end, limit = args.limit, event_type = args.eventType ):
+        for event in _man.getAuditLogs( args.start, args.end, limit = args.limit, event_type = args.eventType, sid = args.sid ):
             print( json.dumps( event ) )
     elif args.action.lower() == 'comms':
         from .Comms import main as cmdMain
