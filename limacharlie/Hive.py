@@ -244,7 +244,7 @@ def main( sourceArgs = None ):
                          default = None,
                          required = False,
                          dest = 'data',
-                         help = 'the JSON data for the record.' )
+                         help = 'file containing the JSON data for the record, or "-" for stdin.' )
 
     parser.add_argument( '-pk', '--partition-key',
                          default = None,
