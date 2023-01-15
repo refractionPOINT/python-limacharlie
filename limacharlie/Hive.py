@@ -176,7 +176,10 @@ def _do_add( args, man ):
     }
 
     if args.data is not None:
-        data = open( args.data, 'rb' ).read().decode()
+        if args.data == '-':
+            data = "\n".join( sys.stdin.readlines() )
+        else:
+            data = open( args.data, 'rb' ).read().decode()
         data = json.loads( data )
         record[ 'data' ] = data
 
@@ -241,7 +244,7 @@ def main( sourceArgs = None ):
                          default = None,
                          required = False,
                          dest = 'data',
-                         help = 'the JSON data for the record.' )
+                         help = 'file containing the JSON data for the record, or "-" for stdin.' )
 
     parser.add_argument( '-pk', '--partition-key',
                          default = None,
