@@ -176,7 +176,10 @@ def _do_add( args, man ):
     }
 
     if args.data is not None:
-        data = open( args.data, 'rb' ).read().decode()
+        if args.data == '-':
+            data = "\n".join( sys.stdin.readlines() )
+        else:
+            data = open( args.data, 'rb' ).read().decode()
         data = json.loads( data )
         record[ 'data' ] = data
 
