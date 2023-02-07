@@ -688,6 +688,17 @@ class Manager( object ):
             if limit is not None and limit <= nReturned:
                 break
 
+    def getHistoricDetectionByID( self, detect_id ):
+        '''Get the detection with a specific detect_id.
+
+        Args:
+            detect_id (str): the ID (detect_id) of the detection to fetch.
+
+        Returns:
+            a detection.
+        '''
+        return self._apiCall( 'insight/%s/detections/%s' % ( self._oid, detect_id, ), GET )
+
     def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False, limit = None, isPerObject = None ):
         '''Get information about an object (indicator) using Insight (retention) data.
 
