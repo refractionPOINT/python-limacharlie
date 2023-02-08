@@ -250,6 +250,43 @@ def main():
         from . import Manager
         import yaml
         print( yaml.dump( Manager().getUsageStats() ) )
+    elif args.action.lower() == 'mass-tag':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie mass-tag' )
+        parser.add_argument( 'sensor_selector',
+                             type = str,
+                             help = 'sensor selector expression to apply the tags to.' )
+        parser.add_argument( '--remove-tags',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'isRemoveTags',
+                         help = 'remove the tags instead of adding them.' )
+        parser.add_argument( '-t', '--tag',
+                         action = 'append',
+                         required = False,
+                         default = [],
+                         dest = 'tag',
+                         help = 'tag to add or remove.' )
+        parser.add_argument( '--ttl',
+                             type = int,
+                             default = None,
+                             dest = 'ttl',
+                             help = 'ttl for tagging.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        for sensor in _man.sensors( selector = args.sensor_selector ):
+            for tag in args.tag:
+                if not args.isRemoveTags:
+                    print( "tagging sensor %s with %s (ttl = %s)..." % ( sensor.sid, tag, args.ttl ) )
+                    sensor.tag( tag, ttl = args.ttl )
+                    print( "done" )
+                else:
+                    print( "removing tag %s from sensor %s..." % ( tag, sensor.sid ) )
+                    sensor.untag( tag )
+                    print( "done" )
+        print( "all done" )
     else:
         raise Exception( 'invalid action' )
 
