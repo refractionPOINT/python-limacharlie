@@ -14,3 +14,10 @@ class Extension( object ):
         return self._manager._apiCall( 'extension/migrate/%s' % ( extName, ), POST, {
             'oid' : self._manager._oid,
         } )
+
+    def request( self, extName, action, data = {} ):
+        return self._manager._apiCall( 'extension/request/%s' % ( extName, ), POST, {
+            'oid' : self._manager._oid,
+            'action' : action,
+            'data' : json.dumps( data ),
+        } )
