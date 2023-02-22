@@ -101,7 +101,6 @@ class Sensor( object ):
         if ( not self._manager._is_interactive ) or ( self._manager._spout is None ):
             raise LcApiException( 'Manager provided was not created with is_interactive set to True, cannot track responses.' )
         thisTrackingId = '%s/%s' % ( self._manager._inv_id, str( uuid.uuid4() ) )
-        print( "tracking id %s" % thisTrackingId )
         future = FutureResults()
 
         self._manager._spout.registerFutureResults( thisTrackingId, future )
