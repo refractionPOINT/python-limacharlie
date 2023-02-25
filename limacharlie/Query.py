@@ -280,7 +280,7 @@ class LCQuery( cmd.Cmd ):
 
     def do_dryrun( self, inp ):
         '''Execute a command as a dry-run and get back aproximate cost of the query.'''
-        sys.stdout.write( colored("Query running ", 'cyan') )
+        sys.stdout.write( colored( "Query running ", 'cyan' ) )
         with Spinner():
             response = self._replay._doQuery( f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}",
                                             limitEvent = self._limitEvent if self._limitEvent else None,
@@ -291,6 +291,12 @@ class LCQuery( cmd.Cmd ):
         print( "Note that aproximate costs for queries with a time frame within the last 6h may be under-reported.")
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
         self._logOutput( json.dumps( response, indent = 2 ) )
+
+    def do_validate( self, inp ):
+        sys.stdout.write( colored( "Validation running ", 'cyan' ) )
+        with Spinner():
+            response = self._replay._lc._apiCall( 'ai/validate/lcql', 'POST', { 'query' : inp } )
+        self._logOutput( response[ 'response' ] )
 
     def complete_dryrun( self, text, line, begidx, endidx ):
         return self.complete_q( text, line, begidx, endidx )
