@@ -1361,7 +1361,7 @@ class Manager( object ):
 
         return self._apiCall( 'installationkeys/%s/%s' % ( self._oid, iid ), GET )
 
-    def create_installation_key( self, tags, desc, iid = None, quota = None ):
+    def create_installation_key( self, tags, desc, iid = None, quota = None, use_public_root_ca = False ):
         '''Create an installation key.
 
         Args:
@@ -1369,6 +1369,7 @@ class Manager( object ):
             desc (str): description for the installation key.
             iid (str): optional IID to overwrite (update).
             quota (int): optional number of enrollments a key can perform.
+            use_public_root_ca (bool): optionally make sensors enrolling with this key use non-pinned SSL certificate going to public Root CAs.
 
         Returns:
             the REST API response (JSON).
@@ -1377,6 +1378,7 @@ class Manager( object ):
         req = {
             'tags' : tags,
             'desc' : desc,
+            'use_public_root_ca' : 'true' if use_public_root_ca else 'false',
         }
         if iid is not None:
             req[ 'iid' ] = str( iid )
