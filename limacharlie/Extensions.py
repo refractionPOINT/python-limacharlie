@@ -5,6 +5,7 @@ import json
 import yaml
 
 from .utils import POST
+from .utils import GET
 
 class Extension( object ):
     def __init__( self, manager ):
@@ -21,3 +22,6 @@ class Extension( object ):
             'action' : action,
             'data' : json.dumps( data ),
         } )
+
+    def getSchema( self, extName ):
+        return self._manager._apiCall( 'extension/schema/%s' % ( extName, ), GET, {} )
