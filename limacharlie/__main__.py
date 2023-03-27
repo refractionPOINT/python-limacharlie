@@ -129,6 +129,9 @@ def main():
         from .Sync import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'configs':
+        # Set global socket timeout to avoid timing out on large sync.
+        import socket 
+        socket.setdefaulttimeout( 600 )
         from .Configs import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'spotcheck':
