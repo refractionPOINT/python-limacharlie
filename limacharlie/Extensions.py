@@ -26,7 +26,7 @@ class Extension( object ):
         } )
     
     def list( self, extName ):
-        return self._manager._apiCall( 'orgs/%s/subscription' % ( self._manager._oid, ), GET )
+        return self._manager._apiCall( 'orgs/%s/subscriptions' % ( self._manager._oid, ), GET )
 
     def subscribe( self, extName ):
         return self._manager._apiCall( 'orgs/%s/subscription/extension/%s' % ( self._manager._oid, extName, ), POST, {} )
