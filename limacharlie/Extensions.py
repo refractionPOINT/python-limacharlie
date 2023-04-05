@@ -18,12 +18,15 @@ class Extension( object ):
             'oid' : self._manager._oid,
         } )
 
-    def request( self, extName, action, data = {} ):
-        return self._manager._apiCall( 'extension/request/%s' % ( extName, ), POST, {
+    def request( self, extName, action, data = {}, isImpersonated = False ):
+        req = {
             'oid' : self._manager._oid,
             'action' : action,
             'data' : json.dumps( data ),
-        } )
+        }
+        if isImpersonated:
+            req[ 'impersonator_jwt' ] = self._manager._jwt
+        return self._manager._apiCall( 'extension/request/%s' % ( extName, ), POST, req )
     
     def list( self, extName ):
         return self._manager._apiCall( 'orgs/%s/subscriptions' % ( self._manager._oid, ), GET )
