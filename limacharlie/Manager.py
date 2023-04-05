@@ -40,6 +40,8 @@ from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
 from limacharlie import _getEnvironmentCreds
 
+from .Extensions import Extension
+
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
 
@@ -845,6 +847,18 @@ class Manager( object ):
     def replicantRequest( self, *args, **kwargs ):
         # Maintained for backwards compatibility post rename replicant => service.
         return self.serviceRequest( *args, **kwargs )
+
+    def extensionRequest( self, extensionName, action, data, isImpersonate = False ):
+        '''Issue a request to an Extension.
+
+        Args:
+            extensionName (str): the name of the Extension to task.
+            data (dict): JSON data to send to the Extension as a request.
+            isImpersonate (bool): if set to True, request the Service impersonate the caller.
+        Returns:
+            Dict with general success.
+        '''
+        return Extension( self ).request( extensionName, action, json.dumps( data ).encode(), isImpersonated = isImpersonate )
 
     def getAvailableServices( self ):
         '''Get the list of Services currently available.
