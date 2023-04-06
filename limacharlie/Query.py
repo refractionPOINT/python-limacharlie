@@ -105,7 +105,7 @@ class LCQuery( cmd.Cmd ):
         self._limitEvent = 0
         self._limitEval = 0
         self._billed = 0
-        self._pricingBlock = 25000
+        self._pricingBlock = 200000
         self._histfile = os.path.expanduser( '~/.limacharlie_history' )
         self._histfile_size = 1000
         self._outFile = outFile

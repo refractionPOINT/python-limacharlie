@@ -28,7 +28,7 @@ class Extension( object ):
             req[ 'impersonator_jwt' ] = self._manager._jwt
         return self._manager._apiCall( 'extension/request/%s' % ( extName, ), POST, req )
     
-    def list( self, extName ):
+    def list( self ):
         return self._manager._apiCall( 'orgs/%s/subscriptions' % ( self._manager._oid, ), GET )
 
     def subscribe( self, extName ):
@@ -37,14 +37,14 @@ class Extension( object ):
     def unsubscribe( self, extName ):
         return self._manager._apiCall( 'orgs/%s/subscription/extension/%s' % ( self._manager._oid, extName, ), DELETE, {} )
     
-    def getAll( self, extName ):
+    def getAll( self ):
         return self._manager._apiCall( 'extension/definition', GET, {} )
 
     def create( self, extObj ):
-        return self._manager._apiCall( 'extension/definition', POST, extObj )
+        return self._manager._apiCall( 'extension/definition', POST, rawBody = json.dumps( extObj ) )
     
-    def update( self, extName, extObj ):
-        return self._manager._apiCall( 'extension/definition', PUT, extObj )
+    def update( self, extObj ):
+        return self._manager._apiCall( 'extension/definition', PUT, rawBody = json.dumps( extObj ) )
     
     def get( self, extName ):
         return self._manager._apiCall( 'extension/definition/%s' % ( extName, ), GET )
