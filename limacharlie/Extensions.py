@@ -25,6 +25,8 @@ class Extension( object ):
             'data' : json.dumps( data ),
         }
         if isImpersonated:
+            if self._manager._jwt is None:
+                self._manager._refreshJWT()
             req[ 'impersonator_jwt' ] = self._manager._jwt
         return self._manager._apiCall( 'extension/request/%s' % ( extName, ), POST, req )
     

@@ -858,7 +858,7 @@ class Manager( object ):
         Returns:
             Dict with general success.
         '''
-        return Extension( self ).request( extensionName, action, json.dumps( data ).encode(), isImpersonated = isImpersonate )
+        return Extension( self ).request( extensionName, action, data, isImpersonated = isImpersonate )
 
     def getAvailableServices( self ):
         '''Get the list of Services currently available.

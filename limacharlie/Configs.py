@@ -147,7 +147,7 @@ class Configs( object ):
         if not self._isDontUseInfraService:
             try:
                 if self._isUseExtension:
-                    data = self._man.extensionRequest( 'infrastructure', 'fetch', {
+                    data = self._man.extensionRequest( 'ext-infrastructure', 'fetch', {
                         'options' : {
                             'sync_dr' : isRules,
                             'sync_outputs' : isOutputs,
@@ -161,7 +161,8 @@ class Configs( object ):
                             'sync_installation_keys' : isInstallationKeys,
                             'sync_yara' : isYara,
                         },
-                    } )
+                    }, isImpersonate = True )
+                    asConf = data[ 'data' ]
                 else:
                     data = self._man.serviceRequest( 'infrastructure-service', {
                         'action' : 'fetch',
@@ -177,9 +178,8 @@ class Configs( object ):
                         'sync_installation_keys' : isInstallationKeys,
                         'sync_yara' : isYara,
                     }, isImpersonate = True )
-
-                for k, v in yaml.safe_load( data[ 'org' ] ).items():
-                    asConf[ k ] = v
+                    for k, v in yaml.safe_load( data[ 'org' ] ).items():
+                        asConf[ k ] = v
 
                 # Apply a few of the translation layers.
                 exfilRules = asConf.get( 'exfil', None )
