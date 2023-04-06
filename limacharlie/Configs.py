@@ -162,7 +162,7 @@ class Configs( object ):
                             'sync_yara' : isYara,
                         },
                     }, isImpersonate = True )
-                    asConf = data[ 'data' ]
+                    asConf = data[ 'data' ][ 'org' ]
                 else:
                     data = self._man.serviceRequest( 'infrastructure-service', {
                         'action' : 'fetch',
@@ -178,6 +178,7 @@ class Configs( object ):
                         'sync_installation_keys' : isInstallationKeys,
                         'sync_yara' : isYara,
                     }, isImpersonate = True )
+
                     for k, v in yaml.safe_load( data[ 'org' ] ).items():
                         asConf[ k ] = v
 
@@ -341,24 +342,47 @@ class Configs( object ):
                     asConf[ 'exfil' ] = exfilRules
 
                 finalConfig = yaml.safe_dump( asConf, version = (1,1) )
-                data = self._man.serviceRequest( 'infrastructure-service', {
-                    'is_dry_run' : isDryRun,
-                    'action' : 'push',
-                    'is_force' : isForce,
-                    'ignore_inaccessible' : isIgnoreInaccessible,
-                    'config' : finalConfig,
-                    'sync_dr' : isRules,
-                    'sync_outputs' : isOutputs,
-                    'sync_resources' : isResources,
-                    'sync_integrity' : isIntegrity,
-                    'sync_fp' : isFPs,
-                    'sync_exfil' : isExfil,
-                    'sync_artifacts' : isArtifact,
-                    'sync_org_values' : isOrgConfigs,
-                    'sync_hives' : isHives,
-                    'sync_installation_keys' : isInstallationKeys,
-                    'sync_yara' : isYara,
-                }, isImpersonate = True )
+
+                if self._isUseExtension:
+                    data = self._man.extensionRequest( 'ext-infrastructure', 'push', {
+                        'config' : finalConfig,
+                        'options' : {
+                            'is_dry_run' : isDryRun,
+                            'is_force' : isForce,
+                            'ignore_inaccessible' : isIgnoreInaccessible,
+                            'sync_dr' : isRules,
+                            'sync_outputs' : isOutputs,
+                            'sync_resources' : isResources,
+                            'sync_integrity' : isIntegrity,
+                            'sync_fp' : isFPs,
+                            'sync_exfil' : isExfil,
+                            'sync_artifacts' : isArtifact,
+                            'sync_org_values' : isOrgConfigs,
+                            'sync_hives' : isHives,
+                            'sync_installation_keys' : isInstallationKeys,
+                            'sync_yara' : isYara,
+                        },
+                    }, isImpersonate = True )
+                    data = data[ 'data' ]
+                else:
+                    data = self._man.serviceRequest( 'infrastructure-service', {
+                        'is_dry_run' : isDryRun,
+                        'action' : 'push',
+                        'is_force' : isForce,
+                        'ignore_inaccessible' : isIgnoreInaccessible,
+                        'config' : finalConfig,
+                        'sync_dr' : isRules,
+                        'sync_outputs' : isOutputs,
+                        'sync_resources' : isResources,
+                        'sync_integrity' : isIntegrity,
+                        'sync_fp' : isFPs,
+                        'sync_exfil' : isExfil,
+                        'sync_artifacts' : isArtifact,
+                        'sync_org_values' : isOrgConfigs,
+                        'sync_hives' : isHives,
+                        'sync_installation_keys' : isInstallationKeys,
+                        'sync_yara' : isYara,
+                    }, isImpersonate = True )
 
                 for op in data.get( 'ops', [] ):
                     if op[ 'is_added' ]:
