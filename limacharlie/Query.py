@@ -88,7 +88,7 @@ def main( sourceArgs = None ):
 
     error = response.get( 'error', None )
     if error:
-        print( f"ERROR: {error}" )
+        print( "ERROR: %s" % ( error, ) )
         return
     for result in response[ 'results' ]:
         if args.isPretty:
