@@ -148,8 +148,8 @@ class LCQuery( cmd.Cmd ):
 
     def do_q( self, inp, isCursorBased = True ):
         '''Query (paged).'''
-        thisQuery = f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}"
-        cacheKey = f"{self._limitEval}{self._limitEvent}{thisQuery}"
+        thisQuery = "%s | %s | %s | %s" % ( self._timeFrame, self._sensors, self._events, inp )
+        cacheKey = "%s%s%s" % ( self._limitEval, self._limitEvent, thisQuery )
 
         q = None
         isFromCache = False
