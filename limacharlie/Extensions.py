@@ -1,8 +1,5 @@
-from .Sensor import Sensor
-from .utils import LcApiException
-from .utils import _isStringCompat
+from limacharlie import Manager
 import json
-import yaml
 
 from .utils import POST
 from .utils import DELETE
@@ -56,3 +53,85 @@ class Extension( object ):
     
     def getSchema( self, extName ):
         return self._manager._apiCall( 'extension/schema/%s' % ( extName, ), GET )
+
+def printData( data ):
+    if isinstance( data, str ):
+        print( data )
+    else:
+        print( json.dumps( data, indent = 2 ) )
+
+def _do_list( args, ext ):
+    printData( ext.list() )
+
+def _do_sub( args, ext ):
+    printData( ext.subscribe( args.name ) )
+
+def _do_unsub( args, ext ):
+    printData( ext.unsubscribe( args.name ) )
+
+def _do_get_all( args, ext ):
+    printData( ext.getAll() )
+
+def _do_get( args, ext ):
+    printData( ext.get( args.name ) )
+
+def _do_get_schema( args, ext ):
+    printData( ext.getSchema( args.name ) )
+
+def _do_request( args, ext ):
+    if args.data is None:
+        data = {}
+    else:
+        data = json.loads( args.data )
+    printData( ext.request( args.name, args.ext_action, data, isImpersonated = args.impersonated ) )
+
+def main( sourceArgs = None ):
+    import argparse
+
+    actions = {
+        'list' : _do_list,
+        'sub' : _do_sub,
+        'unsub' : _do_unsub,
+        'get_all' : _do_get_all,
+        'get' : _do_get,
+        'get_schema' : _do_get_schema,
+        'request' : _do_request,
+    }
+
+    parser = argparse.ArgumentParser( prog = 'limacharlie extension' )
+    parser.add_argument( 'action',
+                         type = str,
+                         help = 'the action to take, one of: %s' % ( ', '.join( actions.keys(), ) ) )
+
+    parser.add_argument( '--name',
+                         default = None,
+                         required = False,
+                         dest = 'name',
+                         help = 'the optional extension name when needed.' )
+
+    parser.add_argument( '--action',
+                         default = None,
+                         required = False,
+                         dest = 'ext_action',
+                         help = 'the action for requests.' )
+
+    parser.add_argument( '--data',
+                         default = None,
+                         required = False,
+                         dest = 'data',
+                         help = 'the data (JSON) for requests.' )
+
+    parser.add_argument( '--is-impersonated',
+                         default = False,
+                         required = False,
+                         action = 'store_true',
+                         dest = 'impersonated',
+                         help = 'whether to ask the extension to impersonate you.' )
+
+    args = parser.parse_args( sourceArgs )
+
+    ext = Extension( Manager.Manager( None, None ) )
+    actions[ args.action.lower() ]( args, ext )
+
+if '__main__' == __name__:
+    main()
