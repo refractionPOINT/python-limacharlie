@@ -102,6 +102,7 @@ class LCQuery( cmd.Cmd ):
         self._timeFrame = "-10m"
         self._sensors = "*"
         self._events = "*"
+        self._stream = 'event'
         self._limitEvent = 0
         self._limitEval = 0
         self._billed = 0
@@ -163,9 +164,10 @@ class LCQuery( cmd.Cmd ):
             sys.stdout.write( colored("Query running ", 'cyan') )
             if isCursorBased:
                 q = self._replay._doQuery( thisQuery,
-                                        limitEvent = self._limitEvent if self._limitEvent else None,
-                                        limitEval = self._limitEval if self._limitEval else None,
-                                        isCursorBased = isCursorBased )
+                                           limitEvent = self._limitEvent if self._limitEvent else None,
+                                           limitEval = self._limitEval if self._limitEval else None,
+                                           isCursorBased = isCursorBased,
+                                           stream = self._stream )
                 with Spinner():
                     response = q.next()
                     error = response.get( 'error', None )
@@ -177,7 +179,8 @@ class LCQuery( cmd.Cmd ):
                     response = self._replay._doQuery( thisQuery,
                                                       limitEvent = self._limitEvent if self._limitEvent else None,
                                                       limitEval = self._limitEval if self._limitEval else None,
-                                                      isCursorBased = isCursorBased )
+                                                      isCursorBased = isCursorBased,
+                                                      stream = self._stream )
                     error = response.get( 'error', None )
                     if error:
                         self._logOutput( f"ERROR: {error}" )
@@ -286,7 +289,8 @@ class LCQuery( cmd.Cmd ):
                                             limitEvent = self._limitEvent if self._limitEvent else None,
                                             limitEval = self._limitEval if self._limitEval else None,
                                             isDryRun = True,
-                                            isCursorBased = False )
+                                            isCursorBased = False,
+                                            stream = self._stream )
         thisBilled = response.get( 'stats', {} ).get( 'n_billed', 0 )
         print( "Note that aproximate costs for queries with a time frame within the last 6h may be under-reported.")
         self._logOutput( f"Aproximate cost: ${(thisBilled / self._pricingBlock) / 100}" )
@@ -343,6 +347,10 @@ class LCQuery( cmd.Cmd ):
         self._populateSchema()
 
         self._setPrompt()
+
+    def do_set_stream( self, inp ):
+        '''Set the data stream to query, one of "event", "audit", "detect", defaults to "event"'''
+        self._stream = inp
 
     def complete_set_events( self, text, line, begidx, endidx ):
         return [ e for e in self._allEvents if e.startswith( text ) ]
