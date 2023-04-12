@@ -204,14 +204,11 @@ def main():
         _sensor = _man.sensor( str( args.sid ) )
         for event in _sensor.getHistoricEvents( args.start, args.end, limit = args.limit, eventType = args.eventType, outputName = args.outputName ):
             print( json.dumps( event ) )
-    elif args.action.lower() == 'comms':
-        from .Comms import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
-    elif args.action.lower() == 'net':
-        from .Net import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'hive':
         from .Hive import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'extension':
+        from .Extensions import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'create_org':
         from . import Manager

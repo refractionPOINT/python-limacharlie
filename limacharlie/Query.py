@@ -88,7 +88,7 @@ def main( sourceArgs = None ):
 
     error = response.get( 'error', None )
     if error:
-        print( f"ERROR: {error}" )
+        print( "ERROR: %s" % ( error, ) )
         return
     for result in response[ 'results' ]:
         if args.isPretty:
@@ -105,7 +105,7 @@ class LCQuery( cmd.Cmd ):
         self._limitEvent = 0
         self._limitEval = 0
         self._billed = 0
-        self._pricingBlock = 25000
+        self._pricingBlock = 200000
         self._histfile = os.path.expanduser( '~/.limacharlie_history' )
         self._histfile_size = 1000
         self._outFile = outFile
@@ -148,8 +148,8 @@ class LCQuery( cmd.Cmd ):
 
     def do_q( self, inp, isCursorBased = True ):
         '''Query (paged).'''
-        thisQuery = f"{self._timeFrame} | {self._sensors} | {self._events} | {inp}"
-        cacheKey = f"{self._limitEval}{self._limitEvent}{thisQuery}"
+        thisQuery = "%s | %s | %s | %s" % ( self._timeFrame, self._sensors, self._events, inp )
+        cacheKey = "%s%s%s" % ( self._limitEval, self._limitEvent, thisQuery )
 
         q = None
         isFromCache = False

@@ -846,6 +846,19 @@ class Manager( object ):
         # Maintained for backwards compatibility post rename replicant => service.
         return self.serviceRequest( *args, **kwargs )
 
+    def extensionRequest( self, extensionName, action, data, isImpersonate = False ):
+        '''Issue a request to an Extension.
+
+        Args:
+            extensionName (str): the name of the Extension to task.
+            data (dict): JSON data to send to the Extension as a request.
+            isImpersonate (bool): if set to True, request the Service impersonate the caller.
+        Returns:
+            Dict with general success.
+        '''
+        from limacharlie.Extensions import Extension
+        return Extension( self ).request( extensionName, action, data, isImpersonated = isImpersonate )
+
     def getAvailableServices( self ):
         '''Get the list of Services currently available.
 
