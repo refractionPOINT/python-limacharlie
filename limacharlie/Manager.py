@@ -40,7 +40,7 @@ from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
 from limacharlie import _getEnvironmentCreds
 
-from .Extensions import Extension
+from limacharlie.Extensions import Extension
 
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
