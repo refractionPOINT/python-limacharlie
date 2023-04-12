@@ -40,8 +40,6 @@ from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
 from limacharlie import _getEnvironmentCreds
 
-from limacharlie.Extensions import Extension
-
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
 
@@ -858,6 +856,7 @@ class Manager( object ):
         Returns:
             Dict with general success.
         '''
+        from limacharlie.Extensions import Extension
         return Extension( self ).request( extensionName, action, data, isImpersonated = isImpersonate )
 
     def getAvailableServices( self ):
