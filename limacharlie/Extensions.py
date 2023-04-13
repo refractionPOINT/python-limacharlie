@@ -130,7 +130,7 @@ def main( sourceArgs = None ):
 
     args = parser.parse_args( sourceArgs )
 
-    ext = Extension( Manager.Manager( None, None ) )
+    ext = Extension( Manager( None, None ) )
     actions[ args.action.lower() ]( args, ext )
 
 if '__main__' == __name__:
