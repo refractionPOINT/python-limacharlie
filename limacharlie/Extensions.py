@@ -128,9 +128,16 @@ def main( sourceArgs = None ):
                          dest = 'impersonated',
                          help = 'whether to ask the extension to impersonate you.' )
 
+    parser.add_argument( '-e', '--environment',
+                         type = str,
+                         required = False,
+                         dest = 'environment',
+                         default = None,
+                         help = 'the name of the LimaCharlie environment (as defined in ~/.limacharlie) to use, otherwise global creds will be used.' )
+
     args = parser.parse_args( sourceArgs )
 
-    ext = Extension( Manager( None, None ) )
+    ext = Extension( Manager( None, None, environment = args.environment ) )
     actions[ args.action.lower() ]( args, ext )
 
 if '__main__' == __name__:
