@@ -40,10 +40,10 @@ class Extension( object ):
         return self._manager._apiCall( 'extension/definition', GET, {} )
 
     def create( self, extObj ):
-        return self._manager._apiCall( 'extension/definition', POST, rawBody = json.dumps( extObj ) )
+        return self._manager._apiCall( 'extension/definition', POST, {}, rawBody = json.dumps( extObj ).encode(), contentType = 'application/json' )
     
     def update( self, extObj ):
-        return self._manager._apiCall( 'extension/definition', PUT, rawBody = json.dumps( extObj ) )
+        return self._manager._apiCall( 'extension/definition', PUT, {}, rawBody = json.dumps( extObj ).encode(), contentType = 'application/json' )
     
     def get( self, extName ):
         return self._manager._apiCall( 'extension/definition/%s' % ( extName, ), GET )
