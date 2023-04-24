@@ -14,9 +14,9 @@ if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
 if _IS_PYTHON_2:
-    from urllib import quote_plus as urlescape
+    from urllib import quote as urlescape
 else:
-    from urllib.parse import quote_plus as urlescape
+    from urllib.parse import quote as urlescape
 
 def printData( data ):
     if isinstance( data, str ):
