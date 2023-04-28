@@ -369,7 +369,7 @@ class Manager( object ):
             s.setInvId( self._inv_id )
         return s
 
-    def sensors( self, inv_id = None, selector = None ):
+    def sensors( self, inv_id = None, selector = None, limit = None ):
         '''Gets all Sensors in the Organization.
 
         The sensors may or may not be online.
@@ -391,6 +391,8 @@ class Manager( object ):
                 params[ 'continuation_token' ] = continuationToken
             if selector is not None:
                 params[ 'selector' ] = selector
+            if limit is not None:
+                params[ 'limit' ] = limit
 
             resp = self._apiCall( 'sensors/%s' % self._oid, GET, queryParams = params )
             if inv_id is None:
