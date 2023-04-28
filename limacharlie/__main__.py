@@ -284,6 +284,22 @@ def main():
                     sensor.untag( tag )
                     print( "done" )
         print( "all done" )
+    elif args.action.lower() == 'sensors':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie sensors' )
+        parser.add_argument( 'sensor_selector',
+                             type = str,
+                             help = 'sensor selector expression.' )
+        parser.add_argument( '--limit',
+                             type = int,
+                             default = None,
+                             dest = 'limit',
+                             help = 'limit number of result per underlying query.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        for sensor in _man.sensors( selector = args.sensor_selector, limit = args.limit ):
+            print( json.dumps( sensor.getInfo(), indent = 2 ) )
     else:
         raise Exception( 'invalid action' )
 
