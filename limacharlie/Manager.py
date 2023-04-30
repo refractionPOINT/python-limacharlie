@@ -369,7 +369,7 @@ class Manager( object ):
             s.setInvId( self._inv_id )
         return s
 
-    def sensors( self, inv_id = None, selector = None, limit = None ):
+    def sensors( self, inv_id = None, selector = None, limit = None, with_ip = None, with_hostname_prefix = None ):
         '''Gets all Sensors in the Organization.
 
         The sensors may or may not be online.
@@ -377,6 +377,9 @@ class Manager( object ):
         Args:
             inv_id (str): investigation ID to add to all actions done using these objects.
             selector (str): sensor selector expression to use as filter.
+            limit (int): max number of sensors per page of result.
+            with_ip (str): list sensors with the specific internal or external ip.
+            with_hostname_prefix (str): list sensors with the specific hostname prefix.
 
         Returns:
             a generator of Sensor objects.
@@ -393,6 +396,10 @@ class Manager( object ):
                 params[ 'selector' ] = selector
             if limit is not None:
                 params[ 'limit' ] = limit
+            if with_ip is not None:
+                params[ 'with_ip' ] = with_ip
+            if with_hostname_prefix is not None:
+                params[ 'with_hostname_prefix' ] = with_hostname_prefix
 
             resp = self._apiCall( 'sensors/%s' % self._oid, GET, queryParams = params )
             if inv_id is None:
