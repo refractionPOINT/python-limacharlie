@@ -12,6 +12,7 @@ def main():
     import stat
     import os
     import yaml
+    import time
 
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
@@ -300,6 +301,42 @@ def main():
         _man = Manager()
         for sensor in _man.sensors( selector = args.sensor_selector, limit = args.limit ):
             print( json.dumps( sensor.getInfo(), indent = 2 ) )
+    elif args.action.lower() == 'sensors_with_ip':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie sensors_with_ip' )
+        parser.add_argument( 'ip',
+                             type = str,
+                             help = 'IP address to look for.' )
+        parser.add_argument( '--start',
+                             type = int,
+                             default = None,
+                             dest = 'start',
+                             help = 'optional start second epoch.' )
+        parser.add_argument( '--end',
+                             type = int,
+                             default = None,
+                             dest = 'end',
+                             help = 'optional end second epoch.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        if args.start is not None and args.end is not None:
+            start = args.start
+            end = args.end
+        else:
+            start = int(time.time() - (4*60*60))
+            end = int(time.time())
+        print( json.dumps( _man.getSensorsWithIp( args.ip, start, end ), indent = 2 ) )
+    elif args.action.lower() == 'sensors_with_hostname':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie sensors_with_hostname' )
+        parser.add_argument( 'hostname_prefix',
+                             type = str,
+                             help = 'hostname prefix to look for.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        print( json.dumps( _man.getSensorsWithHostname( args.hostname_prefix ), indent = 2 ) )
     else:
         raise Exception( 'invalid action' )
 
