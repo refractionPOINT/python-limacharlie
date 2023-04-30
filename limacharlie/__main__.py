@@ -12,6 +12,7 @@ def main():
     import stat
     import os
     import yaml
+    import time
 
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
@@ -288,18 +289,56 @@ def main():
         from . import Manager
         import json
         parser = argparse.ArgumentParser( prog = 'limacharlie sensors' )
-        parser.add_argument( 'sensor_selector',
+        parser.add_argument( '--selector',
+                             default = None,
                              type = str,
+                             dest = 'sensor_selector',
                              help = 'sensor selector expression.' )
         parser.add_argument( '--limit',
                              type = int,
                              default = None,
                              dest = 'limit',
                              help = 'limit number of result per underlying query.' )
+        parser.add_argument( '--with-ip',
+                             type = str,
+                             default = None,
+                             dest = 'with_ip',
+                             help = 'list sensors with the given internal or external ip.' )
+        parser.add_argument( '--with-hostname-prefix',
+                             type = str,
+                             default = None,
+                             dest = 'with_hostname_prefix',
+                             help = 'list sensors with the given hostname prefix.' )
         args = parser.parse_args( sys.argv[ 2: ] )
         _man = Manager()
-        for sensor in _man.sensors( selector = args.sensor_selector, limit = args.limit ):
+        for sensor in _man.sensors( selector = args.sensor_selector, limit = args.limit, with_ip = args.with_ip, with_hostname_prefix = args.with_hostname_prefix ):
             print( json.dumps( sensor.getInfo(), indent = 2 ) )
+    elif args.action.lower() == 'sensors_with_ip':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie sensors_with_ip' )
+        parser.add_argument( 'ip',
+                             type = str,
+                             help = 'IP address to look for.' )
+        parser.add_argument( '--start',
+                             type = int,
+                             default = None,
+                             dest = 'start',
+                             help = 'optional start second epoch.' )
+        parser.add_argument( '--end',
+                             type = int,
+                             default = None,
+                             dest = 'end',
+                             help = 'optional end second epoch.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        if args.start is not None and args.end is not None:
+            start = args.start
+            end = args.end
+        else:
+            start = int(time.time() - (4*60*60))
+            end = int(time.time())
+        print( json.dumps( _man.getSensorsWithIp( args.ip, start, end ), indent = 2 ) )
     else:
         raise Exception( 'invalid action' )
 
