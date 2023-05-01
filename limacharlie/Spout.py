@@ -91,11 +91,11 @@ class Spout( object ):
         self._hConn = self._getStream( spoutParams )
         if self._hConn.status_code != 200:
             raise LcApiException( 'failed to open Spout (%s): %s' % ( self._hConn.status_code, self._hConn.text ) )
-        handleConnectionThread = threading.Thread( target = self._handleConnection, args = ( spoutParams, ) )
+        handleConnectionThread = threading.Thread( target = self._handleConnection, args = ( spoutParams, ), daemon = True )
         self._threads.append( handleConnectionThread )
         handleConnectionThread.start()
         self._futureCleanupInterval = 30
-        cleanupFuturesThread = threading.Thread( target = self._cleanupFutures )
+        cleanupFuturesThread = threading.Thread( target = self._cleanupFutures, daemon = True )
         cleanupFuturesThread.daemon = True
         cleanupFuturesThread.start()
 
@@ -247,7 +247,7 @@ def main( sourceArgs = None ):
     def _signal_handler( signum, frame ):
         _printToStderr( 'You pressed Ctrl+C!' )
         sp._isStopStop = True
-        threading.Thread( target = sp.shutdown() ).start()
+        threading.Thread( target = sp.shutdown(), daemon = True ).start()
 
     signal.signal( signal.SIGINT, _signal_handler )
 
