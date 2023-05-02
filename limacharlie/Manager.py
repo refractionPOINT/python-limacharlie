@@ -349,7 +349,7 @@ class Manager( object ):
         }, altRoot = 'https://app.limacharlie.io/', isNoAuth = True )
         return resp
 
-    def sensor( self, sid, inv_id = None ):
+    def sensor( self, sid, inv_id = None, detailedInfo = None ):
         '''Get a Sensor object for the specific Sensor ID.
 
         The sensor may or may not be online.
@@ -362,7 +362,7 @@ class Manager( object ):
             a Sensor object.
         '''
 
-        s = Sensor( self, sid )
+        s = Sensor( self, sid, detailedInfo = detailedInfo )
         if inv_id is not None:
             s.setInvId( inv_id )
         elif self._inv_id is not None:
@@ -406,7 +406,7 @@ class Manager( object ):
                 inv_id = self._inv_id
 
             for s in resp[ 'sensors' ]:
-                yield self.sensor( s[ 'sid' ], inv_id )
+                yield self.sensor( s[ 'sid' ], inv_id, detailedInfo = s )
 
             continuationToken = resp.get( 'continuation_token', None )
             if continuationToken is None:
