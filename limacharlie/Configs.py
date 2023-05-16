@@ -3,6 +3,7 @@ from .Replicants import Integrity
 from .Replicants import Logging
 from .Replicants import Exfil
 from .utils import _isStringCompat
+from .Extensions import Extension
 
 # Detect if this is Python 2 or 3
 import sys
@@ -130,7 +131,7 @@ class Configs( object ):
             currentConfigs[ confName ] = val
         return currentConfigs
 
-    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False ):
+    def fetch( self, toConfigFile, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isExtensions = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False ):
         '''Retrieves the effective configuration in the cloud to a local config file.
 
         Args:
@@ -152,6 +153,7 @@ class Configs( object ):
                             'sync_dr' : isRules,
                             'sync_outputs' : isOutputs,
                             'sync_resources' : isResources,
+                            'sync_extensions' : isExtensions,
                             'sync_integrity' : isIntegrity,
                             'sync_fp' : isFPs,
                             'sync_exfil' : isExfil,
@@ -169,6 +171,7 @@ class Configs( object ):
                         'sync_dr' : isRules,
                         'sync_outputs' : isOutputs,
                         'sync_resources' : isResources,
+                        'sync_extensions' : isExtensions,
                         'sync_integrity' : isIntegrity,
                         'sync_fp' : isFPs,
                         'sync_exfil' : isExfil,
@@ -276,11 +279,13 @@ class Configs( object ):
                 asConf[ 'resources' ][ 'service' ] = asConf[ 'resources' ][ 'replicant' ]
                 asConf[ 'resources' ].pop( 'replicant' )
                 break
+        if isExtensions:
+            asConf[ 'extensions' ] = list( Extension( self._man ).list().keys() )
         if not isinstance( toConfigFile, dict ):
             with open( toConfigFile, 'wb' ) as f:
                 f.write( yaml.safe_dump( asConf, default_flow_style = False, version = (1,1) ).encode() )
 
-    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False, isVerbose = False ):
+    def push( self, fromConfigFile, isForce = False, isDryRun = False, isIgnoreInaccessible = False, isRules = False, isFPs = False, isOutputs = False, isIntegrity = False, isArtifact = False, isExfil = False, isResources = False, isExtensions = False, isOrgConfigs = False, isHives={}, isInstallationKeys = False, isYara = False, isVerbose = False ):
         '''Apply the configuratiion in a local config file to the effective configuration in the cloud.
 
         Args:
@@ -295,6 +300,7 @@ class Configs( object ):
             isArtifact (boolean): if True, push Artifact rules.
             isExfil (boolean): if True, push Exfil rules.
             isResources (boolean): if True, push Resource subscriptions.
+            isExtensions (boolean): if True, push Extension subscriptions.
             isOrgConfigs (boolean): if True, push Org Configs.
             isHives (dict{"hive_name": true}): only one hive value is requried for sync push to process passed config data, if empty or null no push will occur
             isInstallationKeys (boolean): if True, push Installation Keys.
@@ -353,6 +359,7 @@ class Configs( object ):
                             'sync_dr' : isRules,
                             'sync_outputs' : isOutputs,
                             'sync_resources' : isResources,
+                            'sync_extensions' : isExtensions,
                             'sync_integrity' : isIntegrity,
                             'sync_fp' : isFPs,
                             'sync_exfil' : isExfil,
@@ -374,6 +381,7 @@ class Configs( object ):
                         'sync_dr' : isRules,
                         'sync_outputs' : isOutputs,
                         'sync_resources' : isResources,
+                        'sync_extensions' : isExtensions,
                         'sync_integrity' : isIntegrity,
                         'sync_fp' : isFPs,
                         'sync_exfil' : isExfil,
@@ -424,6 +432,25 @@ class Configs( object ):
                             if not isDryRun:
                                 self._man.unsubscribeFromResource( fullResName )
                             yield ( '-', 'resource', fullResName )
+        
+        if isExtensions:
+            currentExtensions = list( Extension( self._man ).list() )
+            confExtensions = asConf.get( 'extensions', [] )
+            for ext in confExtensions:
+                if ext in currentExtensions:
+                    yield ( '=', 'extension', ext )
+                else:
+                    if not isDryRun:
+                        Extension( self._man ).subscribe( ext )
+                    yield ( '+', 'resource', fullResName )
+            # Only force "extensions" if it is present in the config.
+            # This avoids unexpected disabling of all configs.
+            if isForce and 'extensions' in asConf:
+                for ext in currentExtensions:
+                    if ext not in asConf.get( 'extensions', [] ):
+                        if not isDryRun:
+                            Extension( self._man ).unsubscribe( ext )
+                        yield ( '-', 'extension', ext )
 
         if isOrgConfigs:
             # Get the current configs, we will try not to push for no reason.
@@ -862,6 +889,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isResources',
                          help = 'if specified, apply resource subscriptions from operations' )
+    parser.add_argument( '--extensions',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isExtensions',
+                         help = 'if specified, apply extension subscriptions from operations' )
     parser.add_argument( '--org-configs',
                          required = False,
                          default = False,
@@ -963,6 +996,7 @@ def main( sourceArgs = None ):
         'isArtifact',
         'isExfil',
         'isResources',
+        'isExtensions',
         'isOrgConfigs',
         'isInstallationKeys',
         'isYara',
@@ -1015,7 +1049,7 @@ def main( sourceArgs = None ):
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService, isUseExtension = args.isUseExtension )
 
     if 'fetch' == args.action:
-        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara )
+        s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isExtensions = args.isExtensions, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara )
     elif 'push' == args.action:
         for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara, isVerbose = args.isVerbose ):
             print( '%s %s %s' % ( modification, category, element ) )
