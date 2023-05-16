@@ -910,6 +910,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isHiveCloudSensor',
                          help = 'if specified, apply cloud sensors in hive from operations' )
+    parser.add_argument( '--hive-extension-config',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveExtensionConfig',
+                         help = 'if specified, apply extension configs in hive from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
@@ -965,6 +971,7 @@ def main( sourceArgs = None ):
         'isHiveDRService',
         'isHiveFP',
         'isHiveCloudSensor',
+        'isHiveExtensionConfig',
     ]
 
     allHives = {
@@ -973,6 +980,7 @@ def main( sourceArgs = None ):
         'dr-service': True,
         'fp': True,
         'cloud_sensor': True,
+        'extension_config': True,
     }
 
     # If All is enabled, enable all types.
@@ -1001,6 +1009,8 @@ def main( sourceArgs = None ):
         hives['cloud_sensor'] = True
     if args.isHiveFP:
         hives['fp'] = True
+    if args.isHiveExtensionConfig:
+        hives['extension_config'] = True
 
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService, isUseExtension = args.isUseExtension )
 
