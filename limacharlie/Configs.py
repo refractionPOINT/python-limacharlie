@@ -949,6 +949,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isHiveExtensionConfig',
                          help = 'if specified, apply extension configs in hive from operations' )
+    parser.add_argument( '--hive-yara',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveYara',
+                         help = 'if specified, apply yara rules in hive from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
@@ -1006,6 +1012,7 @@ def main( sourceArgs = None ):
         'isHiveFP',
         'isHiveCloudSensor',
         'isHiveExtensionConfig',
+        'isHiveYara',
     ]
 
     allHives = {
@@ -1015,6 +1022,7 @@ def main( sourceArgs = None ):
         'fp': True,
         'cloud_sensor': True,
         'extension_config': True,
+        'yara': True,
     }
 
     # If All is enabled, enable all types.
@@ -1045,13 +1053,15 @@ def main( sourceArgs = None ):
         hives['fp'] = True
     if args.isHiveExtensionConfig:
         hives['extension_config'] = True
+    if args.isHiveYara:
+        hives['yara'] = True
 
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService, isUseExtension = args.isUseExtension )
 
     if 'fetch' == args.action:
         s.fetch( args.config, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isExtensions = args.isExtensions, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara )
     elif 'push' == args.action:
-        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara, isVerbose = args.isVerbose ):
+        for modification, category, element in s.push( args.config, isForce = args.isForce, isIgnoreInaccessible = args.isIgnoreInaccessible, isDryRun = args.isDryRun, isRules = args.isRules, isFPs = args.isFPs, isOutputs = args.isOutputs, isIntegrity = args.isIntegrity, isArtifact = args.isArtifact, isExfil = args.isExfil, isResources = args.isResources, isExtensions = args.isExtensions, isOrgConfigs = args.isOrgConfigs, isInstallationKeys = args.isInstallationKeys, isHives = hives, isYara = args.isYara, isVerbose = args.isVerbose ):
             print( '%s %s %s' % ( modification, category, element ) )
 
 if __name__ == '__main__':
