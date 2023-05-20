@@ -180,6 +180,8 @@ def _do_add( args, man ):
             data = "\n".join( sys.stdin.readlines() )
         else:
             data = open( args.data, 'rb' ).read().decode()
+        if args.dataKey is not None:
+            data = json.dumps( { args.dataKey : data } )
         data = json.loads( data )
         record[ 'data' ] = data
 
@@ -245,6 +247,12 @@ def main( sourceArgs = None ):
                          required = False,
                          dest = 'data',
                          help = 'file containing the JSON data for the record, or "-" for stdin.' )
+
+    parser.add_argument( '-dk', '--data-key',
+                         default = None,
+                         required = False,
+                         dest = 'dataKey',
+                         help = 'some hives expect data to be located within a specific key of the json data, wrap the --data content in this key.' )
 
     parser.add_argument( '-pk', '--partition-key',
                          default = None,
