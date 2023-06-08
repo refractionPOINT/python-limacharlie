@@ -1436,6 +1436,15 @@ class Manager( object ):
 
         return self._apiCall( 'usage/%s' % self._oid, GET )
 
+    def getOntology( self ):
+        '''Get the LimaCharlie ontology.
+
+        Returns:
+            dict with various ontology components.
+        '''
+
+        return self._apiCall( 'ontology', GET )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
