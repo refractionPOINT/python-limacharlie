@@ -1,4 +1,4 @@
-FROM python:3
+FROM python:slim
 ADD . /python-limacharlie
 WORKDIR /python-limacharlie
 RUN python ./setup.py install
