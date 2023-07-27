@@ -2,7 +2,7 @@ from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
 from .Replicants import Exfil
-from .utils import _isStringCompat
+from .utils import _isStringCompat, _enable_env_parsing
 from .Extensions import Extension
 
 # Detect if this is Python 2 or 3
@@ -18,13 +18,7 @@ import yaml
 import json
 import glob
 
-# Custom node constructor to handle !ENV
-# tags and replace them with an ENV value
-def env_constructor(loader, node):
-  value = loader.construct_scalar(node)
-  return os.getenv(value)
-
-yaml.SafeLoader.add_constructor('!ENV', env_constructor)
+_enable_env_parsing()
 
 class LcConfigException( Exception ):
     pass
