@@ -18,6 +18,14 @@ import yaml
 import json
 import glob
 
+# Custom node constructor to handle !ENV
+# tags and replace them with an ENV value
+def env_constructor(loader, node):
+  value = loader.construct_scalar(node)
+  return os.getenv(value)
+
+yaml.SafeLoader.add_constructor('!ENV', env_constructor)
+
 class LcConfigException( Exception ):
     pass
 
