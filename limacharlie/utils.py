@@ -239,7 +239,12 @@ class Spinner:
 # tags and replace them with an ENV value
 def _env_constructor(loader, node):
   value = loader.construct_scalar(node)
-  return os.getenv(value)
+  env_value = os.getenv(value)
+  # Raise an error if the variable is not set
+  if env_value is None:
+    raise ValueError(f"Environment variable {value} is not set.")
+  else:
+    return env_value
 
 def _enable_env_parsing():
     yaml.SafeLoader.add_constructor('!ENV', _env_constructor)
