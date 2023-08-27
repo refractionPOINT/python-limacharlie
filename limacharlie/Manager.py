@@ -1445,6 +1445,33 @@ class Manager( object ):
 
         return self._apiCall( 'ontology', GET )
 
+    def testTransform( self, transform, data ):
+        '''Test a transform against a piece of data.
+
+        Returns:
+            The transformed data.
+        '''
+
+        resp = self._apiCall( 'test_transform', POST, {}, queryParams = {
+            'transform' : json.dumps( transform ),
+            'test_data' : json.dumps( data ),
+        } )
+        return resp
+
+    def getRuntimeMetadata( self, entity_type = None, entity_name = None ):
+        '''Get the runtime metadata for entities in an org.
+
+        Returns:
+            runtime metdata.
+        '''
+        data = {}
+        if entity_type is not None:
+            data[ 'entity_type' ] = entity_type
+        if entity_name is not None:
+            data[ 'entity_name' ] = entity_name
+
+        return self._apiCall( 'runtime_mtd/%s' % ( self._oid, ), GET, queryParams = data )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
