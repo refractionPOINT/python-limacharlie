@@ -774,8 +774,13 @@ class Configs( object ):
                 includes = [ includes ]
             globIncludes = set()
             for include in includes:
+                hasNewFiles = False
                 for globbed in glob.iglob( include, recursive=True ):
                     globIncludes.add( globbed )
+                    hasNewFiles = True
+                if ('?' not in include and '*' not in include) and not hasNewFiles:
+                    # This pattern has no wildcard and did not match a file, this is likely a mistake.
+                    raise LcConfigException( 'No files matched the include glob %s' % ( include, ) )
             includes = list( globIncludes )
             totalIncludes = list( globIncludes )
             for include in includes:
