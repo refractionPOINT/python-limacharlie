@@ -63,5 +63,6 @@ from .Logs import Logs as Artifacts
 from .Hive import Hive
 from .Hive import HiveRecord
 from .Extensions import Extension
+from .Billing import Billing
 from .utils import LcApiException
 from . import Replicants as services
