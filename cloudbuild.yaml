@@ -1,8 +1,6 @@
 steps:
 - name: 'gcr.io/${PROJECT_ID}/pytest_3'
   args: [ '-v', 'tests', '--oid', '${_OID}', '--key', '${_KEY}' ]
-- name: 'gcr.io/${PROJECT_ID}/pytest_2'
-  args: [ '-v', 'tests', '--oid', '${_OID}', '--key', '${_KEY}' ]
 - name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
   args: ['-c', 'docker login --username=$$USERNAME --password=$$PASSWORD']
