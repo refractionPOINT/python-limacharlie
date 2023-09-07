@@ -5,6 +5,7 @@ from .utils import POST
 from .utils import DELETE
 from .utils import GET
 from .utils import PUT
+from .utils import PATCH
 
 class Extension( object ):
     def __init__( self, manager ):
@@ -36,6 +37,9 @@ class Extension( object ):
     def unsubscribe( self, extName ):
         return self._manager._apiCall( 'orgs/%s/subscription/extension/%s' % ( self._manager._oid, extName, ), DELETE, {} )
     
+    def rekey( self, extName ):
+        return self._manager._apiCall( 'orgs/%s/subscription/extension/%s' % ( self._manager._oid, extName, ), PATCH, {} )
+
     def getAll( self ):
         return self._manager._apiCall( 'extension/definition', GET, {} )
 
