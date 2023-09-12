@@ -1028,6 +1028,8 @@ def main( sourceArgs = None ):
         'cloud_sensor': True,
         'extension_config': True,
         'yara': True,
+        'lookup': True,
+        'secret': True,
     }
 
     # If All is enabled, enable all types.
