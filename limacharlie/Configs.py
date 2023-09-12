@@ -960,6 +960,18 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isHiveYara',
                          help = 'if specified, apply yara rules in hive from operations' )
+    parser.add_argument( '--hive-lookup',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveLookup',
+                         help = 'if specified, apply lookups in hive from operations' )
+    parser.add_argument( '--hive-secret',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveSecret',
+                         help = 'if specified, apply secrets in hive from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
@@ -1018,6 +1030,8 @@ def main( sourceArgs = None ):
         'isHiveCloudSensor',
         'isHiveExtensionConfig',
         'isHiveYara',
+        'isHiveLookup',
+        'isHiveSecret',
     ]
 
     allHives = {
@@ -1062,6 +1076,10 @@ def main( sourceArgs = None ):
         hives['extension_config'] = True
     if args.isHiveYara:
         hives['yara'] = True
+    if args.isHiveLookup:
+        hives['lookup'] = True
+    if args.isHiveSecret:
+        hives['secret'] = True
 
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService, isUseExtension = args.isUseExtension )
 
