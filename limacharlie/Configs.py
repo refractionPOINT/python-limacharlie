@@ -47,6 +47,7 @@ class Configs( object ):
         self._configRoots = {
             'rules',
             'outputs',
+            'extensions',
             'resources',
             'integrity',
             'fps',
@@ -796,7 +797,9 @@ class Configs( object ):
                         continue
                     # Check if this config is dictionaries
                     # or lists. They need to be updated differntly.
-                    if len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
+                    if isinstance( subCat, list ):
+                        asConf.setdefault( cat, [] ).extend( subCat )
+                    elif len( subCat ) != 0 and isinstance( list( subCat.values() )[ 0 ], ( list, tuple ) ):
                         for k, v in subCat.items():
                             for val in v:
                                 if val in asConf.setdefault( cat, {} ).setdefault( k, [] ):
