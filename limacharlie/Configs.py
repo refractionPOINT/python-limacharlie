@@ -807,7 +807,7 @@ class Configs( object ):
                                 asConf[ cat ][ k ].append( val )
                     else:
                         # One more special case for exfil.
-                        if cat == 'exfil':
+                        if cat in ('exfil', 'hives'):
                             for k, v in subCat.items():
                                 asConf.setdefault( cat, {} ).setdefault( k, {} ).update( v )
                         else:
