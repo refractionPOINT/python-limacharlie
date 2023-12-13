@@ -102,6 +102,7 @@ class HiveRecord( object ):
                 'tags' : self.tags,
             },
             'sys_mtd' : {
+                'etag' : self.etag,
                 'created_at' : self.createdAt,
                 'created_by' : self.createdBy,
                 'guid' : self.guid,

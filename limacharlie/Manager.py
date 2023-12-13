@@ -697,6 +697,53 @@ class Manager( object ):
             if limit is not None and limit <= nReturned:
                 break
 
+    def getAuditLogs( self, start, end, limit = None, event_type = None, sid = None ):
+        '''Get the audit logs for the organization.
+
+        Args:
+            start (int): start unix (seconds) timestamp to fetch detects from.
+            end (int): end unix (seconds) timestamp to feth detects to.
+            limit (int): maximum number of detects to return.
+            event_type (str): only return this audit event.
+            sid (str): only return audit logs relating to this sensor id.
+
+        Returns:
+            a generator of detects.
+        '''
+        cursor = '-'
+        start = int( start )
+        end = int( end )
+        if limit is not None:
+            limit = int( limit )
+
+        req = {
+            'start' : start,
+            'end' : end,
+            'is_compressed' : 'true',
+        }
+
+        if limit is not None:
+            req[ 'limit' ] = limit
+
+        if event_type is not None:
+            req[ 'event_type' ] = event_type
+
+        if sid is not None:
+            req[ 'sid' ] = sid
+
+        nReturned = 0
+        while cursor:
+            req[ 'cursor' ] = cursor
+            data = self._apiCall( 'insight/%s/audit' % ( self._oid, ), GET, queryParams = req )
+            cursor = data.get( 'next_cursor', None )
+            for detect in self._unwrap( data[ 'events' ] ):
+                yield detect
+                nReturned += 1
+                if limit is not None and limit <= nReturned:
+                    break
+            if limit is not None and limit <= nReturned:
+                break
+
     def getHistoricDetectionByID( self, detect_id ):
         '''Get the detection with a specific detect_id.
 
