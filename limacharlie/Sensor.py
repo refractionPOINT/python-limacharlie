@@ -26,7 +26,7 @@ class Sensor( object ):
     _ARCHITECTURE_ALPINE64 = 0x00000005
     _ARCHITECTURE_CHROME = 0x00000006
 
-    def __init__( self, manager, sid ):
+    def __init__( self, manager, sid, detailedInfo = None ):
         try:
             uuid.UUID( sid )
         except:
@@ -38,6 +38,7 @@ class Sensor( object ):
         self._platform = None
         self._architecture = None
         self._hostname = None
+        self._detailedInfo = detailedInfo
 
     def setInvId( self, inv_id ):
         '''Set an investigation ID to be applied to all actions done using the object.
@@ -101,7 +102,6 @@ class Sensor( object ):
         if ( not self._manager._is_interactive ) or ( self._manager._spout is None ):
             raise LcApiException( 'Manager provided was not created with is_interactive set to True, cannot track responses.' )
         thisTrackingId = '%s/%s' % ( self._manager._inv_id, str( uuid.uuid4() ) )
-        print( "tracking id %s" % thisTrackingId )
         future = FutureResults()
 
         self._manager._spout.registerFutureResults( thisTrackingId, future )
@@ -214,7 +214,9 @@ class Sensor( object ):
         Returns:
             high level information on the Sensor.
         '''
-        data = self._manager._apiCall( '%s' % self.sid, GET )
+        data = self._detailedInfo
+        if not data:
+            data = self._manager._apiCall( '%s' % self.sid, GET )[ 'info' ]
 
         # We massage the info a bit to make it easier to understand.
         platToString = {
@@ -233,7 +235,6 @@ class Sensor( object ):
             self._ARCHITECTURE_ALPINE64 : 'alpine64',
             self._ARCHITECTURE_CHROME : 'chrome',
         }
-        data = data[ 'info' ]
 
         self._platform = data[ 'plat' ]
         self._architecture = data[ 'arch' ]

@@ -349,7 +349,7 @@ class Manager( object ):
         }, altRoot = 'https://app.limacharlie.io/', isNoAuth = True )
         return resp
 
-    def sensor( self, sid, inv_id = None ):
+    def sensor( self, sid, inv_id = None, detailedInfo = None ):
         '''Get a Sensor object for the specific Sensor ID.
 
         The sensor may or may not be online.
@@ -362,14 +362,14 @@ class Manager( object ):
             a Sensor object.
         '''
 
-        s = Sensor( self, sid )
+        s = Sensor( self, sid, detailedInfo = detailedInfo )
         if inv_id is not None:
             s.setInvId( inv_id )
         elif self._inv_id is not None:
             s.setInvId( self._inv_id )
         return s
 
-    def sensors( self, inv_id = None, selector = None ):
+    def sensors( self, inv_id = None, selector = None, limit = None, with_ip = None, with_hostname_prefix = None ):
         '''Gets all Sensors in the Organization.
 
         The sensors may or may not be online.
@@ -377,6 +377,9 @@ class Manager( object ):
         Args:
             inv_id (str): investigation ID to add to all actions done using these objects.
             selector (str): sensor selector expression to use as filter.
+            limit (int): max number of sensors per page of result.
+            with_ip (str): list sensors with the specific internal or external ip.
+            with_hostname_prefix (str): list sensors with the specific hostname prefix.
 
         Returns:
             a generator of Sensor objects.
@@ -391,13 +394,19 @@ class Manager( object ):
                 params[ 'continuation_token' ] = continuationToken
             if selector is not None:
                 params[ 'selector' ] = selector
+            if limit is not None:
+                params[ 'limit' ] = limit
+            if with_ip is not None:
+                params[ 'with_ip' ] = with_ip
+            if with_hostname_prefix is not None:
+                params[ 'with_hostname_prefix' ] = with_hostname_prefix
 
             resp = self._apiCall( 'sensors/%s' % self._oid, GET, queryParams = params )
             if inv_id is None:
                 inv_id = self._inv_id
 
             for s in resp[ 'sensors' ]:
-                yield self.sensor( s[ 'sid' ], inv_id )
+                yield self.sensor( s[ 'sid' ], inv_id, detailedInfo = s )
 
             continuationToken = resp.get( 'continuation_token', None )
             if continuationToken is None:
@@ -735,6 +744,17 @@ class Manager( object ):
             if limit is not None and limit <= nReturned:
                 break
 
+    def getHistoricDetectionByID( self, detect_id ):
+        '''Get the detection with a specific detect_id.
+
+        Args:
+            detect_id (str): the ID (detect_id) of the detection to fetch.
+
+        Returns:
+            a detection.
+        '''
+        return self._apiCall( 'insight/%s/detections/%s' % ( self._oid, detect_id, ), GET )
+
     def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False, limit = None, isPerObject = None ):
         '''Get information about an object (indicator) using Insight (retention) data.
 
@@ -751,7 +771,7 @@ class Manager( object ):
             a dict with the requested information.
         '''
         infoTypes = ( 'summary', 'locations' )
-        objTypes = ( 'user', 'domain', 'ip', 'file_hash', 'file_path', 'file_name', 'service_name' )
+        objTypes = ( 'user', 'domain', 'ip', 'file_hash', 'file_path', 'file_name', 'service_name', 'package_name' )
 
         if info not in infoTypes:
             raise Exception( 'invalid information type: %s, choose one of %s' % ( info, infoTypes ) )
@@ -881,6 +901,19 @@ class Manager( object ):
     def replicantRequest( self, *args, **kwargs ):
         # Maintained for backwards compatibility post rename replicant => service.
         return self.serviceRequest( *args, **kwargs )
+
+    def extensionRequest( self, extensionName, action, data, isImpersonate = False ):
+        '''Issue a request to an Extension.
+
+        Args:
+            extensionName (str): the name of the Extension to task.
+            data (dict): JSON data to send to the Extension as a request.
+            isImpersonate (bool): if set to True, request the Service impersonate the caller.
+        Returns:
+            Dict with general success.
+        '''
+        from limacharlie.Extensions import Extension
+        return Extension( self ).request( extensionName, action, data, isImpersonated = isImpersonate )
 
     def getAvailableServices( self ):
         '''Get the list of Services currently available.
@@ -1397,7 +1430,7 @@ class Manager( object ):
 
         return self._apiCall( 'installationkeys/%s/%s' % ( self._oid, iid ), GET )
 
-    def create_installation_key( self, tags, desc, iid = None, quota = None ):
+    def create_installation_key( self, tags, desc, iid = None, quota = None, use_public_root_ca = False ):
         '''Create an installation key.
 
         Args:
@@ -1405,6 +1438,7 @@ class Manager( object ):
             desc (str): description for the installation key.
             iid (str): optional IID to overwrite (update).
             quota (int): optional number of enrollments a key can perform.
+            use_public_root_ca (bool): optionally make sensors enrolling with this key use non-pinned SSL certificate going to public Root CAs.
 
         Returns:
             the REST API response (JSON).
@@ -1413,6 +1447,7 @@ class Manager( object ):
         req = {
             'tags' : tags,
             'desc' : desc,
+            'use_public_root_ca' : 'true' if use_public_root_ca else 'false',
         }
         if iid is not None:
             req[ 'iid' ] = str( iid )
@@ -1447,6 +1482,42 @@ class Manager( object ):
         '''
 
         return self._apiCall( 'usage/%s' % self._oid, GET )
+
+    def getOntology( self ):
+        '''Get the LimaCharlie ontology.
+
+        Returns:
+            dict with various ontology components.
+        '''
+
+        return self._apiCall( 'ontology', GET )
+
+    def testTransform( self, transform, data ):
+        '''Test a transform against a piece of data.
+
+        Returns:
+            The transformed data.
+        '''
+
+        resp = self._apiCall( 'test_transform', POST, {}, queryParams = {
+            'transform' : json.dumps( transform ),
+            'test_data' : json.dumps( data ),
+        } )
+        return resp
+
+    def getRuntimeMetadata( self, entity_type = None, entity_name = None ):
+        '''Get the runtime metadata for entities in an org.
+
+        Returns:
+            runtime metdata.
+        '''
+        data = {}
+        if entity_type is not None:
+            data[ 'entity_type' ] = entity_type
+        if entity_name is not None:
+            data[ 'entity_name' ] = entity_name
+
+        return self._apiCall( 'runtime_mtd/%s' % ( self._oid, ), GET, queryParams = data )
 
 def _eprint( msg ):
     sys.stderr.write( msg )

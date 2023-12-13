@@ -247,3 +247,7 @@ Shortcut utility to manage Detection and Response rules over the CLI.
 #### Events & Detections
 `limacharlie events --help` and `limacharlie detections --help`
 Print out to STDOUT events or detections matching the parameter.
+
+#### List Sensors
+`limacharlie sensors 'plat == windows'`
+Print out all basic sensor information for all sensors matching the selector.

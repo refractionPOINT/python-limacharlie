@@ -47,7 +47,7 @@ class Replay( object ):
         self._lc = manager
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
-    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False ):
+    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False, stream = 'event' ):
         if not query:
             raise LcApiException( 'no query specified' )
 
@@ -58,6 +58,7 @@ class Replay( object ):
             'limit_eval' : 0 if limitEval is None else limitEval,
             'is_dry_run' : isDryRun,
             'event_source' : {
+                'stream' : stream,
                 'sensor_events' : {
                     'cursor' : '-' if isCursorBased else '',
                 },
@@ -69,7 +70,7 @@ class Replay( object ):
 
         return queryContext( self, req )
 
-    def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None, isDryRun = False ):
+    def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None, isDryRun = False, stream = 'event' ):
         resp = None
 
         if ruleName is None and ruleContent is None:
@@ -83,6 +84,7 @@ class Replay( object ):
                 'rule' : ruleContent,
             },
             'event_source' : {
+                'stream' : stream,
                 'sensor_events' : {
                     'sid' : '' if sid is None else sid,
                     'start_time' : 0 if startTime is None else startTime,
@@ -108,7 +110,7 @@ class Replay( object ):
 
         return resp
 
-    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None, isDryRun = False ):
+    def scanHistoricalSensor( self, sid, startTime, endTime, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None, isDryRun = False, stream = 'event' ):
         '''Scan a specific sensor's data with a D&R rule.
 
         Args:
@@ -122,16 +124,17 @@ class Replay( object ):
             limitEvent (int): approximately limit the number of events evaluated.
             limitEval (int): approximately limit the number of rule evaluations.
             isIgnoreState (bool): if True, parallelize processing of single sensors to increase performance but limit effectiveness of stateful detection.
+            stream (str): data stream to replay.
 
         Returns:
             a dict containing results of the query.
         '''
 
-        resp = self._scanHistoricalSensor( sid = sid, startTime = startTime, endTime = endTime, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful, isDryRun = isDryRun )
+        resp = self._scanHistoricalSensor( sid = sid, startTime = startTime, endTime = endTime, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful, isDryRun = isDryRun, stream = stream )
         
         return resp
 
-    def scanEntireOrg( self, startTime, endTime, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None, isDryRun = False ):
+    def scanEntireOrg( self, startTime, endTime, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isStateful = None, isDryRun = False, stream = 'event' ):
         '''Scan an entire organization's data with a D&R rule.
 
         Args:
@@ -144,16 +147,17 @@ class Replay( object ):
             limitEvent (int): approximately limit the number of events evaluated.
             limitEval (int): approximately limit the number of rule evaluations.
             isIgnoreState (bool): if True, parallelize processing of single sensors to increase performance but limit effectiveness of stateful detection.
+            stream (str): data stream to replay.
 
         Returns:
             a dict containing results of the query.
         '''
         
-        resp = self._scanHistoricalSensor( startTime = startTime, endTime = endTime, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful, isDryRun = isDryRun )
+        resp = self._scanHistoricalSensor( startTime = startTime, endTime = endTime, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isStateful = isStateful, isDryRun = isDryRun, stream = stream )
 
         return resp
 
-    def scanEvents( self, events, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isDryRun = False ):
+    def scanEvents( self, events, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, limitEvent = None, limitEval = None, isDryRun = False, stream = 'event' ):
         '''Scan the specific events with a D&R rule.
 
         Args:
@@ -164,12 +168,13 @@ class Replay( object ):
             isRunTrace (bool): if True, generate a trace of the evaluation.
             limitEvent (int): approximately limit the number of events evaluated.
             limitEval (int): approximately limit the number of rule evaluations.
+            stream (str): data stream to replay.
 
         Returns:
             a dict containing results of the query.
         '''
 
-        resp = self._scanHistoricalSensor( events = events, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isDryRun = isDryRun )
+        resp = self._scanHistoricalSensor( events = events, ruleName = ruleName, namespace = namespace, ruleContent = ruleContent, isRunTrace = isRunTrace, limitEvent = limitEvent, limitEval = limitEval, isDryRun = isDryRun, stream = stream )
 
         return resp
 
@@ -302,6 +307,13 @@ def main( sourceArgs = None ):
                          dest = 'isDryRun',
                          help = 'if set, the request will be simulated and the maximum number of evaluations expected will be returned.' )
 
+    parser.add_argument( '--stream',
+                         type = str,
+                         required = False,
+                         dest = 'stream',
+                         default = 'event',
+                         help = 'data stream to replay, like "event", "audit", "detect", defaults to "event".' )
+
     args = parser.parse_args( sourceArgs )
 
     replay = Replay( Manager() )
@@ -346,7 +358,8 @@ def main( sourceArgs = None ):
                                                         limitEvent = args.limitEvent,
                                                         limitEval = args.limitEval,
                                                         isStateful = args.isStateful,
-                                                        isDryRun = args.isDryRun )
+                                                        isDryRun = args.isDryRun,
+                                                        stream = args.stream )
             elif args.isEntireOrg:
                 response = replay.scanEntireOrg( start,
                                                  end,
@@ -357,7 +370,8 @@ def main( sourceArgs = None ):
                                                  limitEvent = args.limitEvent,
                                                  limitEval = args.limitEval,
                                                  isStateful = args.isStateful,
-                                                 isDryRun = args.isDryRun )
+                                                 isDryRun = args.isDryRun,
+                                                 stream = args.stream )
             else:
                 raise LcApiException( '--sid or --entire-org must be specified' )
         else:
@@ -389,7 +403,8 @@ def main( sourceArgs = None ):
                                           isRunTrace = args.isRunTrace,
                                           limitEvent = args.limitEvent,
                                           limitEval = args.limitEval,
-                                          isDryRun = args.isDryRun )
+                                          isDryRun = args.isDryRun,
+                                          stream = args.stream )
 
     print( json.dumps( response, indent = 2 ) )
 

@@ -14,9 +14,9 @@ if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
 if _IS_PYTHON_2:
-    from urllib import quote_plus as urlescape
+    from urllib import quote as urlescape
 else:
-    from urllib.parse import quote_plus as urlescape
+    from urllib.parse import quote as urlescape
 
 def printData( data ):
     if isinstance( data, str ):
@@ -40,10 +40,10 @@ class Hive( object ):
         return { recordName : HiveRecord( recordName, record, self ) for recordName, record in self._man._apiCall( 'hive/%s/%s' % ( self._hiveName, self._partitionKey ), GET ).items() }
 
     def get( self, recordName ):
-        return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/data' % ( self._hiveName, self._partitionKey, urlescape( recordName ) ), GET ), self )
+        return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/data' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), GET ), self )
 
     def getMetadata( self, recordName ):
-        return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/mtd' % ( self._hiveName, self._partitionKey, urlescape( recordName ) ), GET ), self )
+        return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/mtd' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), GET ), self )
 
     def set( self, record ):
         target = 'mtd'
@@ -69,10 +69,10 @@ class Hive( object ):
         if len( usrMtd ) != 0:
             req[ 'usr_mtd' ] = json.dumps( usrMtd )
 
-        return self._man._apiCall( 'hive/%s/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( record.name ), target ), POST, req )
+        return self._man._apiCall( 'hive/%s/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( record.name, safe = '' ), target ), POST, req )
 
     def delete( self, recordName ):
-        return self._man._apiCall( 'hive/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( recordName ) ), DELETE )
+        return self._man._apiCall( 'hive/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), DELETE )
 
 class HiveRecord( object ):
     def __init__( self, recordName, data, api = None ):
@@ -177,7 +177,12 @@ def _do_add( args, man ):
     }
 
     if args.data is not None:
-        data = open( args.data, 'rb' ).read().decode()
+        if args.data == '-':
+            data = "\n".join( sys.stdin.readlines() )
+        else:
+            data = open( args.data, 'rb' ).read().decode()
+        if args.dataKey is not None:
+            data = json.dumps( { args.dataKey : data } )
         data = json.loads( data )
         record[ 'data' ] = data
 
@@ -242,7 +247,13 @@ def main( sourceArgs = None ):
                          default = None,
                          required = False,
                          dest = 'data',
-                         help = 'the JSON data for the record.' )
+                         help = 'file containing the JSON data for the record, or "-" for stdin.' )
+
+    parser.add_argument( '-dk', '--data-key',
+                         default = None,
+                         required = False,
+                         dest = 'dataKey',
+                         help = 'some hives expect data to be located within a specific key of the json data, wrap the --data content in this key.' )
 
     parser.add_argument( '-pk', '--partition-key',
                          default = None,

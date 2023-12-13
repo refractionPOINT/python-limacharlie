@@ -25,6 +25,7 @@ validIOCs = (
     'domain',
     'user',
     'service_name',
+    'package_name'
 )
 
 class Search( object ):
