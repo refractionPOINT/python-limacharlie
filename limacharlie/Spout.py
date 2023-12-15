@@ -101,7 +101,8 @@ class Spout( object ):
         cleanupFuturesThread.start()
 
     def _getStream( self, spoutParams ):
-        return requests.post( 'https://stream.limacharlie.io/%s' % ( self._oid, ),
+        print("get new stream")
+        return requests.post( 'https://stream-tmp.limacharlie.io/%s' % ( self._oid, ),
                               data = spoutParams,
                               stream = True,
                               allow_redirects = False,
@@ -247,9 +248,9 @@ def main( sourceArgs = None ):
 
     def _signal_handler( signum, frame ):
         _printToStderr( 'You pressed Ctrl+C!' )
-        sp._isStopStop = True
-        hTh = threading.Thread( target = sp.shutdown() ).start()
+        hTh = threading.Thread( target = sp.shutdown() )
         hTh.daemon = True
+        hTh.start()
 
     signal.signal( signal.SIGINT, _signal_handler )
 
