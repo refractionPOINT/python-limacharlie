@@ -205,6 +205,45 @@ def main():
         _sensor = _man.sensor( str( args.sid ) )
         for event in _sensor.getHistoricEvents( args.start, args.end, limit = args.limit, eventType = args.eventType, outputName = args.outputName ):
             print( json.dumps( event ) )
+    elif args.action.lower() == 'audit':
+        from . import Manager
+        import json
+        parser = argparse.ArgumentParser( prog = 'limacharlie audit' )
+        parser.add_argument( 'start',
+                             type = int,
+                             help = 'second-based epoch time to start at.' )
+        parser.add_argument( 'end',
+                             type = int,
+                             help = 'second-based epoch time to end at.' )
+        parser.add_argument( '--sid',
+                             type = uuid.UUID,
+                             dest = 'sid',
+                             help = 'sensor id to get the audit events about.' )
+        parser.add_argument( '--limit',
+                             type = int,
+                             default = None,
+                             dest = 'limit',
+                             help = 'maximum number of audit events to return.' )
+        parser.add_argument( '--event-type',
+                             type = str,
+                             default = None,
+                             dest = 'eventType',
+                             help = 'only get events of this type.' )
+        parser.add_argument( '--output-name',
+                             type = str,
+                             default = None,
+                             dest = 'outputName',
+                             help = 'send data to a named output instead.' )
+        args = parser.parse_args( sys.argv[ 2: ] )
+        _man = Manager()
+        for event in _man.getAuditLogs( args.start, args.end, limit = args.limit, event_type = args.eventType, sid = args.sid ):
+            print( json.dumps( event ) )
+    elif args.action.lower() == 'comms':
+        from .Comms import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'net':
+        from .Net import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'hive':
         from .Hive import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
