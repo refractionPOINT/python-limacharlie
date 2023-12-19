@@ -21,3 +21,6 @@ class Billing( object ):
         year = str( int( year ) )
         month = str( int( month ) ).zfill( 2 )
         return self._manager._apiCall( 'orgs/%s/invoice_url/%s/%s' % ( self._manager._oid, year, month ), GET, altRoot = 'https://billing.limacharlie.io/' )
+
+    def getAvailablePlans( self ):
+        return self._manager._apiCall( 'user/self/plans', GET, altRoot = 'https://billing.limacharlie.io/' )
