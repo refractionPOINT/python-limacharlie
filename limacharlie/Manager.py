@@ -1519,6 +1519,20 @@ class Manager( object ):
 
         return self._apiCall( 'runtime_mtd/%s' % ( self._oid, ), GET, queryParams = data )
 
+    def renameOrg( self, newName ):
+        '''Rename the existing org.
+
+        Args:
+            tags (str): the new org name.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'orgs/%s/name' % self._oid, POST, queryParams = {
+            'name' : newName,
+        } )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
