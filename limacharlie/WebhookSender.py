@@ -6,12 +6,12 @@ from urllib.parse import quote
 class WebhookSender(object):
     def __init__(self, manager, hook_name, secret_value):
         self._manager = manager
-        urls = self.manager.getOrgURLs()
+        urls = self._manager.getOrgURLs()
         if 'hooks' not in urls:
             raise ValueError("Hook URL not found in org URLs")
 
         hook_url = urls['hooks']
-        self.url = f"https://{hook_url}/{manager._oid}/{quote(hook_name)}/{quote(secret_value)}"
+        self.url = f"https://{hook_url}/{self._manager._oid}/{quote(hook_name)}/{quote(secret_value)}"
         self.client = requests.Session()
         self.client.timeout = 30  # 30 seconds timeout
 
