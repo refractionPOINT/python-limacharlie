@@ -70,6 +70,8 @@ class Manager( object ):
             isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
         '''
         # If an environment is specified, try to get its creds.
+        environment = "default"
+        print("this is environment ", environment)
         if environment is not None:
             oid, uid, secret_api_key = _getEnvironmentCreds( environment )
             if secret_api_key is None or ( oid is None and uid is None ):
