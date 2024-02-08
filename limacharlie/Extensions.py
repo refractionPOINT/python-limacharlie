@@ -1,5 +1,6 @@
 from limacharlie import Manager
 import json
+import Hive
 
 from .utils import POST
 from .utils import DELETE
@@ -11,6 +12,18 @@ class Extension( object ):
     def __init__( self, manager ):
         self._manager = manager
 
+    def convert_rules(self, extName):
+        # hive get all rules
+        # filter respond block, check "action: service request"
+        if extName == 'ext-zeek':
+            # check if org actually has ext installed // send out error if no [Max said to leave this till later]
+            # switch lines to extension lines
+            #  if isDryRun, don't send request, print changes
+            #  if not isDryRun:
+                # hive change rule
+            return
+
+        return 
     def migrate( self, extName ):
         return self._manager._apiCall( 'extension/migrate/%s' % ( extName, ), POST, {
             'oid' : self._manager._oid,
@@ -89,6 +102,9 @@ def _do_request( args, ext ):
         data = json.loads( args.data )
     printData( ext.request( args.name, args.ext_action, data, isImpersonated = args.impersonated ) )
 
+def _do_convert_rules(args, ext):
+    printData( ext.convert_rules( args.name, isDryRun = args.impersonated ) )
+
 def main( sourceArgs = None ):
     import argparse
 
@@ -100,6 +116,7 @@ def main( sourceArgs = None ):
         'get' : _do_get,
         'get_schema' : _do_get_schema,
         'request' : _do_request,
+        'convert_rules': _do_convert_rules,
     }
 
     parser = argparse.ArgumentParser( prog = 'limacharlie extension' )
@@ -138,6 +155,13 @@ def main( sourceArgs = None ):
                          dest = 'environment',
                          default = None,
                          help = 'the name of the LimaCharlie environment (as defined in ~/.limacharlie) to use, otherwise global creds will be used.' )
+
+    parser.add_argument( '--dry-run',
+                            action = 'store_true',
+                            default = None,
+                            required = False,
+                            dest = 'isDryRun',
+                            help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )
 
     args = parser.parse_args( sourceArgs )
 
