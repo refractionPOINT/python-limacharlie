@@ -1,29 +1,61 @@
 from limacharlie import Manager
+from limacharlie import Hive
 import json
-import Hive
 
 from .utils import POST
 from .utils import DELETE
 from .utils import GET
 from .utils import PUT
 from .utils import PATCH
+from .utils import LcApiException
 
 class Extension( object ):
     def __init__( self, manager ):
         self._manager = manager
 
-    def convert_rules(self, extName):
+    def convert_rules(self, extName, isDryRun = True): 
+        updated_rules = []
         # hive get all rules
-        # filter respond block, check "action: service request"
-        if extName == 'ext-zeek':
-            # check if org actually has ext installed // send out error if no [Max said to leave this till later]
-            # switch lines to extension lines
-            #  if isDryRun, don't send request, print changes
-            #  if not isDryRun:
+        hive = Hive.Hive(self._manager, "dr-general")
+        gen_dr_rules = hive.list()
+        for rule_name in gen_dr_rules:
+            hive_record = hive.get(rule_name)
+            dnr = getattr(hive_record, 'data', None)
+            if dnr is not None:
+                stringDnr = str(dnr)
+                if "'action': 'service request', 'name': 'zeek'" in stringDnr:
+                    new_dnr_string = stringDnr.replace(
+                        "'action': 'service request', 'name': 'zeek', 'request': {'action': 'run_on', ", 
+                        "'action': 'extension request', 'extension action': 'run_on', 'extension name': 'ext-zeek', 'extension request': {"
+                        )
+                    zeek_changed_rule = {
+                        'r_name': rule_name,
+                        'old_dnr': stringDnr,
+                        'new_dnr': new_dnr_string,
+                    }
+                    updated_rules.append(zeek_changed_rule)
+        #  if isDryRun, don't send request, print changes
+        if isDryRun and len(updated_rules) > 0:
+            for updated_rule in updated_rules:
+                print(f"Dry run of change on rule '{updated_rule['r_name']}':")
+                print("\033[91m{{-}}{}\033[0m".format(updated_rule['old_dnr']))
+                print("\033[92m{{+}}{}\033[0m".format(updated_rule['new_dnr']))
+        if not isDryRun and len(updated_rules) > 0:
+            for updated_rule in updated_rules:
+                formatted_dnr_string = updated_rule['new_dnr'].replace("'", '"')
+                data = {
+                    "data": json.loads(formatted_dnr_string)
+                }
                 # hive change rule
-            return
-
-        return 
+                try:
+                    hr = Hive.HiveRecord(updated_rule['r_name'], data)
+                    hive.set(hr)
+                except Exception as e:
+                    raise LcApiException(f"failed to create detect response for run : {e}")
+            
+        print("end of func")
+        return  
+    
     def migrate( self, extName ):
         return self._manager._apiCall( 'extension/migrate/%s' % ( extName, ), POST, {
             'oid' : self._manager._oid,
