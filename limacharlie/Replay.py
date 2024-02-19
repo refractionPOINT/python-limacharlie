@@ -239,6 +239,13 @@ def main( sourceArgs = None ):
                          default = None,
                          help = 'name of the an already-existing rule to scan with.' )
 
+    parser.add_argument( '--all-fps',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'isAllFPs',
+                         help = 'if set test detection event against all FP rules in the entire organization.' )
+
     parser.add_argument( '--namespace',
                          type = str,
                          required = False,
@@ -316,7 +323,8 @@ def main( sourceArgs = None ):
 
     args = parser.parse_args( sourceArgs )
 
-    replay = Replay( Manager() )
+    man = Manager()
+    replay = Replay( man )
 
     ruleContent = None
     if args.ruleContent is not None:
@@ -396,15 +404,34 @@ def main( sourceArgs = None ):
             except:
                 print( "!!! Invalid events provided. Content should be a JSON event, a JSON LIST of events or newline-separated JSON." )
                 sys.exit( 1 )
-            response = replay.scanEvents( events,
-                                          ruleName = args.ruleName,
-                                          namespace = args.namespace,
-                                          ruleContent = ruleContent,
-                                          isRunTrace = args.isRunTrace,
-                                          limitEvent = args.limitEvent,
-                                          limitEval = args.limitEval,
-                                          isDryRun = args.isDryRun,
-                                          stream = args.stream )
+            if not args.isAllFPs:
+                response = replay.scanEvents( events,
+                                              ruleName = args.ruleName,
+                                              namespace = args.namespace,
+                                              ruleContent = ruleContent,
+                                              isRunTrace = args.isRunTrace,
+                                              limitEvent = args.limitEvent,
+                                              limitEval = args.limitEval,
+                                              isDryRun = args.isDryRun,
+                                              stream = args.stream )
+            else:
+                # We will get all the FPs in the org using a Hive client.
+                from .Hive import Hive
+                fps = Hive( man, 'fp' ).list()
+                # We will scan each event against each FP.
+                response = []
+                for fpName, fpRecord in fps.items():
+                    resp = replay.scanEvents( events,
+                                              ruleName = fpName,
+                                              ruleContent = fpRecord.data,
+                                              isRunTrace = args.isRunTrace,
+                                              limitEvent = args.limitEvent,
+                                              limitEval = args.limitEval,
+                                              isDryRun = args.isDryRun,
+                                              stream = args.stream )
+                    response.append( resp )
+
+
 
     print( json.dumps( response, indent = 2 ) )
 
