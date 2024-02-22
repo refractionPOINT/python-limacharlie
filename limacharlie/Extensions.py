@@ -23,28 +23,85 @@ class Extension( object ):
             dnr = getattr(hive_record, 'data', None)
             if dnr is not None:
                 stringDnr = str(dnr)
-                if "'action': 'service request', 'name': 'zeek'" in stringDnr:
-                    new_dnr_string = stringDnr.replace(
-                        "'action': 'service request', 'name': 'zeek', 'request': {'action': 'run_on', ", 
-                        "'action': 'extension request', 'extension action': 'run_on', 'extension name': 'ext-zeek', 'extension request': {"
-                        )
+                if extName == 'ext-zeek' and "'action': 'service request', 'name': 'zeek'" in stringDnr:
+                    detect = dnr.get('detect', None)
+                    resp_items = dnr.get('respond', None)
+                    updated_respond = []
+                    if resp_items is not None and detect is not None:                    
+                        # filter respond block, check "action: service request"                
+                        for resp_item in resp_items:
+                                if resp_item['action'] == 'service request':                                     
+                                    # check if org actually has ext installed // send out error if no [Max said to leave this till later]
+                                    request = resp_item['request']
+                                    art_id = '{{ .routing.sid }}' if request['artifact_id'] == '<<routing/log_id>>' else make_transform_exp(request['artifact_id'])
+                                    ext_resp = {
+                                            "action": "extension request",
+                                            "extension action": "run_on",
+                                            "extension name": "ext-zeek",
+                                            "extension request": {
+                                                "artifact_id": art_id,
+                                                "retention": request['retention']
+                                            },
+                                        }
+                                    updated_respond.append(ext_resp)
+                                else :
+                                    updated_respond.append(resp_item)
+                    new_dnr = {
+                                "detect": detect,
+                                "respond": updated_respond,
+                        }
                     zeek_changed_rule = {
                         'r_name': rule_name,
-                        'old_dnr': stringDnr,
-                        'new_dnr': new_dnr_string,
+                        'old_dnr': json.dumps(dnr, indent=2),
+                        'new_dnr': json.dumps(new_dnr, indent=2),
                     }
-                    updated_rules.append(zeek_changed_rule)
+                    updated_rules.append(zeek_changed_rule)  
+                        
+                # stringDnr = str(dnr)
+                # if "'action': 'service request'," in stringDnr:
+                #     print(stringDnr)
+                if "'action': 'service request', 'name': 'atomic-red-team'" in stringDnr:
+                    print(f"Atomic Red Team rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'dumper'" in stringDnr:
+                    print(f"Dumper rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'exfil'" in stringDnr:
+                    print(f"Exfil rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'integrity'" in stringDnr:
+                    print(f"Integrity rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'pager-duty'" in stringDnr:
+                    print(f"Pager-Duty rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'reliable-tasking'" in stringDnr:
+                    print(f"Reliable-tasking rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'sensor-cull'" in stringDnr:
+                    print(f"Sensor-cull rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'snapattack'" in stringDnr:
+                    print(f"Snapattack rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'velociraptor'" in stringDnr:
+                    print(f"Velociraptor rule: {stringDnr}")
+                if "'action': 'service request', 'name': 'yara'" in stringDnr:
+                    print(f"Yara rule: {stringDnr}")
+                # if "'action': 'service request', 'name': 'zeek'" in stringDnr:
+                    # new_dnr_string = stringDnr.replace(
+                    #     "'action': 'service request', 'name': 'zeek', 'request': {'action': 'run_on', ", 
+                    #     "'action': 'extension request', 'extension action': 'run_on', 'extension name': 'ext-zeek', 'extension request': {"
+                    #     )
+                    # zeek_changed_rule = {
+                    #     'r_name': rule_name,
+                    #     'old_dnr': stringDnr,
+                    #     'new_dnr': new_dnr_string,
+                    # }
+                    # updated_rules.append(zeek_changed_rule)
+
         #  if isDryRun, don't send request, print changes
         if isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 print(f"Dry run of change on rule '{updated_rule['r_name']}':")
-                print("\033[91m{{-}}{}\033[0m".format(updated_rule['old_dnr']))
-                print("\033[92m{{+}}{}\033[0m".format(updated_rule['new_dnr']))
+                print("\033[91m- {}\033[0m".format(updated_rule['old_dnr']))
+                print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr']))
         if not isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
-                formatted_dnr_string = updated_rule['new_dnr'].replace("'", '"')
                 data = {
-                    "data": json.loads(formatted_dnr_string)
+                    "data": updated_rule['new_dnr']
                 }
                 # hive change rule
                 try:
@@ -52,7 +109,7 @@ class Extension( object ):
                     hive.set(hr)
                 except Exception as e:
                     raise LcApiException(f"failed to create detect response for run : {e}")
-            
+      
         print("end of func")
         return  
     
@@ -202,3 +259,8 @@ def main( sourceArgs = None ):
 
 if '__main__' == __name__:
     main()
+
+
+
+def make_transform_exp(str_var):
+    return  '{{' + ' "' + str(str_var) + '" ' + '}}' 
