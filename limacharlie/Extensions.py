@@ -80,7 +80,16 @@ class Extension( object ):
                         updated_rules.append(pagerduty_rule_data)
                     if extName == 'ext-dumper' and contains_action_name(resp_items, 'dumper'):
                         dumper_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                        updated_rules.append(dumper_rule_data)       
+                        updated_rules.append(dumper_rule_data)
+                    if extName == 'ext-velociraptor' and contains_action_name(resp_items, 'velociraptor'):
+                        velociraptor_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
+                        updated_rules.append(velociraptor_rule_data)
+                    if extName == 'ext-yara' and contains_action_name(resp_items, 'yara'):
+                        yara_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
+                        updated_rules.append(yara_rule_data)
+                    # if extName == 'ext-reliable-tasking' and contains_action_name(resp_items, 'reliable-tasking'):
+                    #     reliable_tasking_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
+                    #     updated_rules.append(reliable_tasking_rule_data)           
         #  if isDryRun, don't send request, print changes
         if isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
@@ -259,7 +268,6 @@ def convert_response(req, extName):
         }
         return ext_pagerduty_resp
     elif extName == 'ext-dumper':
-        
         ext_dumper_resp = {
             "action": "extension request",
             "extension name": "ext-dumper",
@@ -272,6 +280,47 @@ def convert_response(req, extName):
             }
         }
         return ext_dumper_resp
+    elif extName == 'ext-velociraptor':
+        ext_velociraptor_resp = {
+            "action": "extension request",
+            "extension action": "collect",
+            "extension name": "ext-velociraptor",
+            "extension request": {
+                "artifact_list": req['artifact_list'],
+                "sid": sid,
+                "sensor_selector": make_transform_exp(req['sensor_selector']),
+                "args": make_transform_exp(req['args']),
+                "collection_ttl": req['collection_ttl'],
+                "retention_ttl": req['retention_ttl'],
+                "ignore_cert": req['ignore_cert'],
+            }
+        }
+        return ext_velociraptor_resp
+    elif extName == 'ext-yara' and req['action'] == 'scan':
+        ext_yara_scan_resp = {
+            "action": "extension request",
+            "extension action": "scan",
+            "extension name": "ext-yara",
+            "extension request": {
+                "sources": make_transform_exp(req['sources']),
+                "selector": make_transform_exp(req['selector']),
+                "sid": sid,
+                "yara_scan_ttl": req['yara_scan_ttl'],
+            }
+        }
+        return ext_yara_scan_resp
+    elif extName == 'ext-yara' and req['action'] == 'scan_event':
+        ext_yara_scan_event_resp = {
+            "action": "extension request",
+            "extension action": "scan_event",
+            "extension name": "ext-yara",
+            "extension request": {
+                "sid": sid,
+                "inv_id": req['inv_id'],
+                "event": '{{ .event }}', ### What????
+            }
+        }
+        return ext_yara_scan_event_resp
     else:
         return {}
     
