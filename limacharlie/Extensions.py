@@ -240,6 +240,16 @@ def convert_response(req, extName):
         sid = '{{ .routing.sid }}' if req['sid'] == '<<routing/sid>>' else make_transform_exp(req['sid'])
     if 'arifact_id' in req:
         art_id = '{{ .routing.log_id }}' if req['artifact_id'] == '<<routing/log_id>>' else make_transform_exp(req['artifact_id'])
+    if 'oid' in req: 
+        oid = '{{ .routing.oid }}' if req['oid'] == '<<routing/oid>>' else make_transform_exp(req['oid'])
+    if 'arch' in req: 
+        arch = '{{ .routing.arch }}' if req['arch'] == '<<routing/arch>>' else req['arch']
+    if 'plat' in req: 
+        plat = '{{ .routing.plat }}' if req['plat'] == '<<routing/plat>>' else req['plat']
+    if 'tags' in req: 
+        tags = '{{ .routing.tags }}' if req['tags'] == '<<routing/tags>>' else req['tags']
+    if 'iid' in req: 
+        iid = '{{ .routing.iid }}' if req['iid'] == '<<routing/iid>>' else make_transform_exp(req['iid'])
     if extName == "ext-zeek":
         ext_zeek_resp = {
             "action": "extension request",
@@ -309,15 +319,20 @@ def convert_response(req, extName):
             }
         }
         return ext_yara_scan_resp
-    elif extName == 'ext-yara' and req['action'] == 'scan_event':
+    elif extName == 'ext-yara' and req['action'] == 'sync':
         ext_yara_scan_event_resp = {
             "action": "extension request",
             "extension action": "scan_event",
             "extension name": "ext-yara",
             "extension request": {
+                "last_updated": req['last_updated'],
                 "sid": sid,
-                "inv_id": req['inv_id'],
-                "event": '{{ .event }}', ### What????
+                "oid": oid, 
+                "plat": plat,
+                "iid": iid, 
+                "arch": arch,
+                "tags": tags,
+                
             }
         }
         return ext_yara_scan_event_resp
