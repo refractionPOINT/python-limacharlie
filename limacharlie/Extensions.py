@@ -73,21 +73,14 @@ class Extension( object ):
                 resp_items = dnr.get('respond', None)  
                 if resp_items is not None and detect is not None:
                     if extName == 'ext-zeek' and contains_action_name(resp_items, 'zeek'):  
-                        new_zeek_dnr = update_rule(detect, resp_items, extName)
-                        zeek_rule_data = {
-                            'r_name': rule_name,
-                            'old_dnr': json.dumps(dnr, indent=2),
-                            'new_dnr': json.dumps(new_zeek_dnr, indent=2),
-                        }
+                        zeek_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
                         updated_rules.append(zeek_rule_data)  
                     if extName == 'ext-pagerduty' and contains_action_name(resp_items, 'pagerduty'):
-                        new_pagerduty_dnr = update_rule(detect, resp_items, extName)
-                        pagerduty_changed_rule = {
-                            'r_name': rule_name,
-                            'old_dnr': json.dumps(dnr, indent=2),
-                            'new_dnr': json.dumps(new_pagerduty_dnr, indent=2),
-                        }
-                        updated_rules.append(pagerduty_changed_rule)     
+                        pagerduty_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
+                        updated_rules.append(pagerduty_rule_data)
+                    if extName == 'ext-dumper' and contains_action_name(resp_items, 'dumper'):
+                        dumper_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
+                        updated_rules.append(dumper_rule_data)       
         #  if isDryRun, don't send request, print changes
         if isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
@@ -212,8 +205,7 @@ if '__main__' == __name__:
 
 
 ### Convert Rules Helper Functions
-def update_rule(detect, respond_items, extName):
-    print('EXT name in update_rule', extName)
+def update_rule(ruleName, dnr, detect, respond_items, extName):
     # check if org actually has ext installed // send out error if no [Max said to leave this till later]
     updated_respond = []
     for resp_item in respond_items:
@@ -227,11 +219,19 @@ def update_rule(detect, respond_items, extName):
         "detect": detect,
         "respond": updated_respond,
     }
-    return new_dnr
+    updated_rule_data = {
+        'r_name': ruleName,
+        'old_dnr': json.dumps(dnr, indent=2),
+        'new_dnr': json.dumps(new_dnr, indent=2),
+    }
+    return updated_rule_data
 
 def convert_response(req, extName):
+    if 'sid' in req: 
+        sid = '{{ .routing.sid }}' if req['sid'] == '<<routing/sid>>' else make_transform_exp(req['sid'])
+    if 'arifact_id' in req:
+        art_id = '{{ .routing.log_id }}' if req['artifact_id'] == '<<routing/log_id>>' else make_transform_exp(req['artifact_id'])
     if extName == "ext-zeek":
-        art_id = '{{ .routing.sid }}' if req['artifact_id'] == '<<routing/log_id>>' else make_transform_exp(req['artifact_id'])
         ext_zeek_resp = {
             "action": "extension request",
             "extension action": "run_on",
@@ -258,8 +258,20 @@ def convert_response(req, extName):
             }
         }
         return ext_pagerduty_resp
-    elif extName == 'atomic-red-team':
-        return {}
+    elif extName == 'ext-dumper':
+        
+        ext_dumper_resp = {
+            "action": "extension request",
+            "extension name": "ext-dumper",
+            "extension action": "request_dump",
+            "extension request": {
+                "target": make_transform_exp(req['target']),
+                "sid": sid,
+                "retention": req['retention'],
+                "ignore_cert": req['ignore_cert'],
+            }
+        }
+        return ext_dumper_resp
     else:
         return {}
     
