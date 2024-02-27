@@ -63,7 +63,7 @@ class Extension( object ):
     def convert_rules(self, extName, isDryRun = True): 
         updated_rules = []
         # hive get all rules
-        hive = Hive.Hive(self._manager, "dr-general")
+        hive = Hive.Hive(self._manager, "dr-general") # and dr-managed
         gen_dr_rules = hive.list()
         for rule_name in gen_dr_rules:
             hive_record = hive.get(rule_name)
@@ -213,7 +213,7 @@ if '__main__' == __name__:
 
 
 
-### Convert Rules Helper Functions
+### Convert Rules Helper Functions ###
 def update_rule(ruleName, dnr, detect, respond_items, extName):
     # check if org actually has ext installed // send out error if no [Max said to leave this till later]
     updated_respond = []
@@ -236,27 +236,13 @@ def update_rule(ruleName, dnr, detect, respond_items, extName):
     return updated_rule_data
 
 def convert_response(req, extName):
-    if 'sid' in req: 
-        sid = '{{ .routing.sid }}' if req['sid'] == '<<routing/sid>>' else make_transform_exp(req['sid'])
-    if 'arifact_id' in req:
-        art_id = '{{ .routing.log_id }}' if req['artifact_id'] == '<<routing/log_id>>' else make_transform_exp(req['artifact_id'])
-    if 'oid' in req: 
-        oid = '{{ .routing.oid }}' if req['oid'] == '<<routing/oid>>' else make_transform_exp(req['oid'])
-    if 'arch' in req: 
-        arch = '{{ .routing.arch }}' if req['arch'] == '<<routing/arch>>' else req['arch']
-    if 'plat' in req: 
-        plat = '{{ .routing.plat }}' if req['plat'] == '<<routing/plat>>' else req['plat']
-    if 'tags' in req: 
-        tags = '{{ .routing.tags }}' if req['tags'] == '<<routing/tags>>' else req['tags']
-    if 'iid' in req: 
-        iid = '{{ .routing.iid }}' if req['iid'] == '<<routing/iid>>' else make_transform_exp(req['iid'])
     if extName == "ext-zeek":
         ext_zeek_resp = {
             "action": "extension request",
             "extension action": "run_on",
             "extension name": "ext-zeek",
             "extension request": {
-                "artifact_id": art_id,
+                "artifact_id": make_transform_exp(req['artifact_id']),
                 "retention": req['retention']
             },
         }
@@ -284,7 +270,7 @@ def convert_response(req, extName):
             "extension action": "request_dump",
             "extension request": {
                 "target": make_transform_exp(req['target']),
-                "sid": sid,
+                "sid": make_transform_exp(req['sid']),
                 "retention": req['retention'],
                 "ignore_cert": req['ignore_cert'],
             }
@@ -297,7 +283,7 @@ def convert_response(req, extName):
             "extension name": "ext-velociraptor",
             "extension request": {
                 "artifact_list": req['artifact_list'],
-                "sid": sid,
+                "sid": make_transform_exp(req['sid']),
                 "sensor_selector": make_transform_exp(req['sensor_selector']),
                 "args": make_transform_exp(req['args']),
                 "collection_ttl": req['collection_ttl'],
@@ -314,28 +300,11 @@ def convert_response(req, extName):
             "extension request": {
                 "sources": make_transform_exp(req['sources']),
                 "selector": make_transform_exp(req['selector']),
-                "sid": sid,
+                "sid": make_transform_exp(req['sid']),
                 "yara_scan_ttl": req['yara_scan_ttl'],
             }
         }
         return ext_yara_scan_resp
-    elif extName == 'ext-yara' and req['action'] == 'sync':
-        ext_yara_scan_event_resp = {
-            "action": "extension request",
-            "extension action": "scan_event",
-            "extension name": "ext-yara",
-            "extension request": {
-                "last_updated": req['last_updated'],
-                "sid": sid,
-                "oid": oid, 
-                "plat": plat,
-                "iid": iid, 
-                "arch": arch,
-                "tags": tags,
-                
-            }
-        }
-        return ext_yara_scan_event_resp
     else:
         return {}
     
@@ -346,4 +315,9 @@ def contains_action_name(respond_items, svc_name):
     return False
  
 def make_transform_exp(str_var):
+    if str_var.find('<<') and str_var.find('>>') and str_var.find('/'):
+        str_var.replace('<<', '{{')
+        str_var.replace('>>', '}}')
+        str_var.replace('/', '.')
+        return str_var
     return  '{{' + ' "' + str(str_var) + '" ' + '}}' 
