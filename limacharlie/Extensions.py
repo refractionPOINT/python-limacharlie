@@ -62,7 +62,6 @@ class Extension( object ):
     
     def convert_rules(self, extName, isDryRun = True): 
         updated_rules = []
-        # hive get all rules
         hive = Hive.Hive(self._manager, "dr-general") # and dr-managed
         gen_dr_rules = hive.list()
         for rule_name in gen_dr_rules:
@@ -87,15 +86,15 @@ class Extension( object ):
                     if extName == 'ext-yara' and contains_action_name(resp_items, 'yara'):
                         yara_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
                         updated_rules.append(yara_rule_data)
-                    # if extName == 'ext-reliable-tasking' and contains_action_name(resp_items, 'reliable-tasking'):
-                    #     reliable_tasking_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                    #     updated_rules.append(reliable_tasking_rule_data)           
+                    if extName == 'ext-reliable-tasking' and contains_action_name(resp_items, 'reliable-tasking'):
+                        reliable_tasking_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
+                        updated_rules.append(reliable_tasking_rule_data)           
         #  if isDryRun, don't send request, print changes
         if isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 print(f"Dry run of change on rule '{updated_rule['r_name']}':")
-                print("\033[91m- {}\033[0m".format(updated_rule['old_dnr']))
-                print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr']))
+                print("\033[91m- {}\033[0m".format(updated_rule['old_dnr'])) # red text
+                print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr'])) # green text
         if not isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 data = {
@@ -220,7 +219,7 @@ def update_rule(ruleName, dnr, detect, respond_items, extName):
     for resp_item in respond_items:
         if resp_item['action'] == 'service request':
             request = resp_item['request']
-            ext_resp = convert_response(request, extName)                                     
+            ext_resp = convert_response(request, extName, ruleName)                                     
             updated_respond.append(ext_resp)
         else :
             updated_respond.append(resp_item)
@@ -235,7 +234,7 @@ def update_rule(ruleName, dnr, detect, respond_items, extName):
     }
     return updated_rule_data
 
-def convert_response(req, extName):
+def convert_response(req, extName, ruleName):
     if extName == "ext-zeek":
         ext_zeek_resp = {
             "action": "extension request",
@@ -305,8 +304,72 @@ def convert_response(req, extName):
             }
         }
         return ext_yara_scan_resp
+    elif extName == 'ext-reliable-tasking' and req['action'] == 'task':
+        ext_reliable_tasking_task_resp = {
+            "action": "extension request",
+            "extension action": "task",
+            "extension name": "ext-reliable-tasking",
+            "extension request": {
+                "sid": make_transform_exp(req['sid']),
+                "tag": make_transform_exp('tag'),
+                "selector": make_transform_exp('selector'),
+                "context": make_transform_exp('context'),
+                "task_id": make_transform_exp('task_id'),
+                "ttl": req['ttl'],
+            }  
+        }
+        return ext_reliable_tasking_task_resp
+    elif extName == 'ext-reliable-tasking' and req['action'] == 'untask':
+        ext_reliable_tasking_untask_resp = {
+            "action": "extension request",
+            "extension action": "untask",
+            "extension name": "ext-reliable-tasking",
+            "extension request": {
+                "sid": make_transform_exp(req['sid']),
+                "tag": make_transform_exp('tag'),
+                "selector": make_transform_exp('selector'),
+                "task_id": make_transform_exp('task_id'),
+            }  
+        }
+        return ext_reliable_tasking_untask_resp
+    elif extName == 'ext-reliable-tasking' and req['action'] == 'list':
+        ext_reliable_tasking_list_resp = {
+            "action": "extension request",
+            "extension action": "list",
+            "extension name": "ext-reliable-tasking",
+            "extension request": {
+                "sid": make_transform_exp(req['sid']),
+                "tag": make_transform_exp(req['tag']),
+                "selector": make_transform_exp(req['selector']),
+            }  
+
+        }
+        return ext_reliable_tasking_list_resp
+    elif extName == 'ext-reliable-tasking' and req['action'] == 'signal_attempt':
+        ext_reliable_tasking_signal_attempt_resp = {
+            "action": "extension request",
+            "extension action": "signal_attempt",
+            "extension name": "ext-reliable-tasking",
+            "extension request": {
+                "sid": make_transform_exp(req['sid']),
+            }            
+        }
+        return ext_reliable_tasking_signal_attempt_resp
+    elif extName == 'ext-reliable-tasking' and req['action'] == 'signal_received':
+        ext_reliable_tasking_signal_received_resp = {
+            "action": "extension request",
+            "extension action": "signal_received",
+            "extension name": "ext-reliable-tasking",
+            "extension request": {
+                "sid": make_transform_exp(req['sid']),
+                "inv_id": make_transform_exp(req['inv_id']),
+            }   
+        }
+        return ext_reliable_tasking_signal_received_resp
     else:
-        return {}
+        return {
+            "ERROR" : f"Failed to convert {ruleName} to {extName}"
+        }
     
 def contains_action_name(respond_items, svc_name):
     for resp_item in respond_items:
