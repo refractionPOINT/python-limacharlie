@@ -64,37 +64,34 @@ class Extension( object ):
         extList = self.list()
         if extName not in extList:
             return f'ERROR: unable to convert rules. {self._manager._oid} is not subscribed to {extName}'
+        gen_hive = Hive.Hive(self._manager, "dr-general")
+        man_hive = Hive.Hive(self._manager, "dr-managed")
+        gen_dr_rules = gen_hive.list()
+        man_dr_rules = man_hive.list()
+        merged_dr_rules = {**gen_dr_rules, **man_dr_rules}
         updated_rules = []
-        hive = Hive.Hive(self._manager, "dr-general") # and dr-managed
-        gen_dr_rules = hive.list()
-        for rule_name in gen_dr_rules:
-            hive_record = hive.get(rule_name)
-            dnr = getattr(hive_record, 'data', None)
+        for rule_name in merged_dr_rules:
+            is_general = rule_name in gen_dr_rules 
+            is_managed = rule_name in man_dr_rules
+            gen_hive_records = None
+            man_hive_records = None   
+            if is_general:
+                gen_hive_records = gen_hive.get(rule_name)
+            if is_managed:
+                man_hive_records = man_hive.get(rule_name)                   
+            dnr = getattr(gen_hive_records, 'data', None) if is_general else getattr(man_hive_records, 'data', None)
             if dnr is not None:
+                hive_type = 'dr-general' if is_general else 'dr-managed'
                 detect = dnr.get('detect', None)
                 resp_items = dnr.get('respond', None)  
                 if resp_items is not None and detect is not None:
-                    if extName == 'ext-zeek' and contains_action_name(resp_items, 'zeek'):  
-                        zeek_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                        updated_rules.append(zeek_rule_data)  
-                    if extName == 'ext-pagerduty' and contains_action_name(resp_items, 'pagerduty'):
-                        pagerduty_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                        updated_rules.append(pagerduty_rule_data)
-                    if extName == 'ext-dumper' and contains_action_name(resp_items, 'dumper'):
-                        dumper_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                        updated_rules.append(dumper_rule_data)
-                    if extName == 'ext-velociraptor' and contains_action_name(resp_items, 'velociraptor'):
-                        velociraptor_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                        updated_rules.append(velociraptor_rule_data)
-                    if extName == 'ext-yara' and contains_action_name(resp_items, 'yara'):
-                        yara_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                        updated_rules.append(yara_rule_data)
-                    if extName == 'ext-reliable-tasking' and contains_action_name(resp_items, 'reliable-tasking'):
-                        reliable_tasking_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
-                        updated_rules.append(reliable_tasking_rule_data)           
+                    if contains_action_name(resp_items, extName):  
+                        rule_data = update_rule(rule_name, dnr, detect, resp_items, hive_type, extName)
+                        updated_rules.append(rule_data)          
         if isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 print(f"Dry run of change on rule '{updated_rule['r_name']}':")
+                print(updated_rule['h_name'])
                 print("\033[91m- {}\033[0m".format(updated_rule['old_dnr'])) # print red text
                 print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr'])) # print green text
         if not isDryRun and len(updated_rules) > 0:
@@ -104,11 +101,12 @@ class Extension( object ):
                 }
                 try:
                     hr = Hive.HiveRecord(updated_rule['r_name'], data)
-                    hive.set(hr)
+                    if updated_rule['h_name'] == 'dr-general':
+                        gen_hive.set(hr)
+                    elif updated_rule['h_name'] == 'dr-managed':
+                        man_hive.set(hr)
                 except Exception as e:
                     raise LcApiException(f"failed to create detect response for run : {e}")
-      
-        print("end of func")
         return  
     
 def printData( data ):
@@ -214,7 +212,7 @@ if '__main__' == __name__:
 
 
 ### Convert Rules Helper Functions ###
-def update_rule(ruleName, dnr, detect, respond_items, extName):  
+def update_rule(ruleName, dnr, detect, respond_items, hiveType, extName):  
     updated_respond = []
     for resp_item in respond_items:
         if resp_item['action'] == 'service request':
@@ -229,6 +227,7 @@ def update_rule(ruleName, dnr, detect, respond_items, extName):
     }
     updated_rule_data = {
         'r_name': ruleName,
+        'h_name': hiveType, 
         'old_dnr': json.dumps(dnr, indent=2),
         'new_dnr': json.dumps(new_dnr, indent=2),
     }
@@ -371,7 +370,8 @@ def convert_response(req, extName, ruleName):
             "ERROR" : f"Failed to convert {ruleName} to {extName}"
         }
     
-def contains_action_name(respond_items, svc_name):
+def contains_action_name(respond_items, ext_name):
+    svc_name = ext_name.replace('ext-', '')
     for resp_item in respond_items:
         if resp_item['action'] == 'service request' and resp_item['name'] == svc_name:
             return True
