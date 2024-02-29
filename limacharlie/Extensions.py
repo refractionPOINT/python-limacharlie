@@ -91,7 +91,6 @@ class Extension( object ):
         if isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 print(f"Dry run of change on rule '{updated_rule['r_name']}':")
-                print(updated_rule['h_name'])
                 print("\033[91m- {}\033[0m".format(updated_rule['old_dnr'])) # print red text
                 print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr'])) # print green text
         if not isDryRun and len(updated_rules) > 0:
