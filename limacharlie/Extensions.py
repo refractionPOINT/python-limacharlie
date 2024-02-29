@@ -61,6 +61,9 @@ class Extension( object ):
         return self._manager._apiCall( 'extension/request/%s' % ( extName, ), POST, req )
     
     def convert_rules(self, extName, isDryRun = True): 
+        extList = self.list()
+        if extName not in extList:
+            return f'ERROR: unable to convert rules. {self._manager._oid} is not subscribed to {extName}'
         updated_rules = []
         hive = Hive.Hive(self._manager, "dr-general") # and dr-managed
         gen_dr_rules = hive.list()
@@ -89,18 +92,16 @@ class Extension( object ):
                     if extName == 'ext-reliable-tasking' and contains_action_name(resp_items, 'reliable-tasking'):
                         reliable_tasking_rule_data = update_rule(rule_name, dnr, detect, resp_items, extName)
                         updated_rules.append(reliable_tasking_rule_data)           
-        #  if isDryRun, don't send request, print changes
         if isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 print(f"Dry run of change on rule '{updated_rule['r_name']}':")
-                print("\033[91m- {}\033[0m".format(updated_rule['old_dnr'])) # red text
-                print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr'])) # green text
+                print("\033[91m- {}\033[0m".format(updated_rule['old_dnr'])) # print red text
+                print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr'])) # print green text
         if not isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 data = {
                     "data": updated_rule['new_dnr']
                 }
-                # hive change rule
                 try:
                     hr = Hive.HiveRecord(updated_rule['r_name'], data)
                     hive.set(hr)
@@ -213,8 +214,7 @@ if '__main__' == __name__:
 
 
 ### Convert Rules Helper Functions ###
-def update_rule(ruleName, dnr, detect, respond_items, extName):
-    # check if org actually has ext installed // send out error if no [Max said to leave this till later]
+def update_rule(ruleName, dnr, detect, respond_items, extName):  
     updated_respond = []
     for resp_item in respond_items:
         if resp_item['action'] == 'service request':
