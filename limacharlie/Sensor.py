@@ -241,6 +241,8 @@ class Sensor( object ):
         self._hostname = data.get( 'hostname', None )
         self._is_isolated = data.get( 'is_isolated', None )
         self._should_isolate = data.get( 'should_isolate', None )
+        self._is_sealed = data.get( 'is_sealed', None )
+        self._should_seal = data.get( 'should_seal', None )
 
         data[ 'plat' ] = platToString.get( data[ 'plat' ], data[ 'plat' ] )
         data[ 'arch' ] = archToString.get( data[ 'arch' ], data[ 'arch' ] )
@@ -484,6 +486,24 @@ class Sensor( object ):
     def rejoinNetwork( self ):
         '''Remove the sensor from network isolation (persistent).'''
         return self._manager._apiCall( '%s/isolation' % ( self.sid, ), DELETE )
+
+    def isSealed( self ):
+        '''Determine if the given sensor is marked to be sealed.
+
+        Returns:
+            True if sealed.
+        '''
+        # Seal is ephemeral, so always refresh.
+        self.getInfo()
+        return self._should_seal
+
+    def seal( self ):
+        '''Mark the sensor for sealing (persistent).'''
+        return self._manager._apiCall( '%s/seal' % ( self.sid, ), POST )
+
+    def unseal( self ):
+        '''Remove the sensor from sealing (persistent).'''
+        return self._manager._apiCall( '%s/seal' % ( self.sid, ), DELETE )
 
     def getRetainedEventCount( self, startTime, endTime, isDetailed = False ):
         '''Get the number of events retained for a given sensor between two second epochs.
