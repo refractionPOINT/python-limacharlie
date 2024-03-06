@@ -140,7 +140,7 @@ def _do_request( args, ext ):
     printData( ext.request( args.name, args.ext_action, data, isImpersonated = args.impersonated ) )
 
 def _do_convert_rules(args, ext):
-    printData( ext.convert_rules( args.name, isDryRun = args.impersonated ) )
+    printData( ext.convert_rules( args.name, isDryRun = args.isDryRun ) )
 
 def main( sourceArgs = None ):
     import argparse
