@@ -195,7 +195,6 @@ def main( sourceArgs = None ):
 
     parser.add_argument( '--dry-run',
                             action = 'store_true',
-                            default = None,
                             required = False,
                             dest = 'isDryRun',
                             help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )
