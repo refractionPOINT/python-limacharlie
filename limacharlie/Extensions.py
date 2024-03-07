@@ -88,7 +88,7 @@ class Extension( object ):
                     if contains_action_name(resp_items, extName):  
                         rule_data = update_rule(rule_name, dnr, detect, resp_items, hive_type, extName)
                         updated_rules.append(rule_data)          
-        if isDryRun and len(updated_rules) > 0:
+        if isDryRun and len(updated_rules) > 0: 
             for updated_rule in updated_rules:
                 print(f"Dry run of change on rule '{updated_rule['r_name']}':")
                 print("\033[91m- {}\033[0m".format(updated_rule['old_dnr'])) # print red text
@@ -101,12 +101,15 @@ class Extension( object ):
                 try:
                     hr = Hive.HiveRecord(updated_rule['r_name'], data)
                     if updated_rule['h_name'] == 'dr-general':
-                        gen_hive.set(hr)
+                        return gen_hive.set(hr)
                     elif updated_rule['h_name'] == 'dr-managed':
-                        man_hive.set(hr)
+                        return man_hive.set(hr)
                 except Exception as e:
                     raise LcApiException(f"failed to create detect response for run : {e}")
-        return None
+        if extName in extList:
+            return f'no {extName} rules require updating'
+        else:
+            return 'no rule conversions applied'
     
 def printData( data ):
     if isinstance( data, str ):
@@ -194,12 +197,11 @@ def main( sourceArgs = None ):
                          help = 'the name of the LimaCharlie environment (as defined in ~/.limacharlie) to use, otherwise global creds will be used.' )
 
     parser.add_argument( '--dry-run',
-                        action = 'store_true',
-                        type = bool,
+                        default = True, 
+                        action = argparse.BooleanOptionalAction,
                         required = False,
                         dest = 'isDryRun',
                         help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )
-
     args = parser.parse_args( sourceArgs )
 
     ext = Extension( Manager( None, None, environment = args.environment ) )
