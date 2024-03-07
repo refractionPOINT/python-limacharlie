@@ -106,7 +106,7 @@ class Extension( object ):
                         man_hive.set(hr)
                 except Exception as e:
                     raise LcApiException(f"failed to create detect response for run : {e}")
-        return  
+        return None
     
 def printData( data ):
     if isinstance( data, str ):
