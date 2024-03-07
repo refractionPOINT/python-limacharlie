@@ -101,9 +101,11 @@ class Extension( object ):
                 try:
                     hr = Hive.HiveRecord(updated_rule['r_name'], data)
                     if updated_rule['h_name'] == 'dr-general':
-                        return gen_hive.set(hr)
+                        gen_resp_obj = gen_hive.set(hr)
+                        return f'rule {gen_resp_obj["name"]} converted'
                     elif updated_rule['h_name'] == 'dr-managed':
-                        return man_hive.set(hr)
+                        man_resp_obj = man_hive.set(hr)
+                        return f'rule {man_resp_obj["name"]} converted'
                 except Exception as e:
                     raise LcApiException(f"failed to create detect response for run : {e}")
         if extName in extList:
