@@ -106,7 +106,7 @@ class Extension( object ):
                         man_hive.set(hr)
                 except Exception as e:
                     raise LcApiException(f"failed to create detect response for run : {e}")
-        return  
+        return None
     
 def printData( data ):
     if isinstance( data, str ):
@@ -195,7 +195,6 @@ def main( sourceArgs = None ):
 
     parser.add_argument( '--dry-run',
                             action = 'store_true',
-                            default = None,
                             required = False,
                             dest = 'isDryRun',
                             help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )

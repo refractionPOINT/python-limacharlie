@@ -251,3 +251,7 @@ Print out to STDOUT events or detections matching the parameter.
 #### List Sensors
 `limacharlie sensors 'plat == windows'`
 Print out all basic sensor information for all sensors matching the selector.
+
+#### Extension
+`limacharlie extension --help`
+Shortcut utility to perform actions pertaining [Extensions](https://docs.limacharlie.io/docs/extensions) using just the CLI.
