@@ -376,9 +376,9 @@ def contains_action_name(respond_items, ext_name):
     return False
  
 def make_transform_exp(str_var):
-    if str_var.find('<<') and str_var.find('>>') and str_var.find('/'):
-        str_var.replace('<<', '{{')
-        str_var.replace('>>', '}}')
-        str_var.replace('/', '.')
+    if '<<' in str_var and '>>' in str_var and '/' in str_var:
+        str_var = str_var.replace('<<', '{{')
+        str_var = str_var.replace('>>', '}}')
+        str_var = str_var.replace('/', '.')
         return str_var
     return  '{{' + ' "' + str(str_var) + '" ' + '}}' 
