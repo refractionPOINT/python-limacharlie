@@ -194,10 +194,10 @@ def main( sourceArgs = None ):
                          help = 'the name of the LimaCharlie environment (as defined in ~/.limacharlie) to use, otherwise global creds will be used.' )
 
     parser.add_argument( '--dry-run',
-                            action = 'store_true',
-                            required = False,
-                            dest = 'isDryRun',
-                            help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )
+                        action = 'store_true',
+                        required = False,
+                        dest = 'isDryRun',
+                        help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )
 
     args = parser.parse_args( sourceArgs )
 
@@ -294,7 +294,7 @@ def convert_response(req, extName, ruleName):
             "extension action": "scan",
             "extension name": "ext-yara",
             "extension request": {
-                "sources": make_transform_exp(req['sources']),
+                "sources": req['sources'],
                 "selector": make_transform_exp(req['selector']),
                 "sid": make_transform_exp(req['sid']),
                 "yara_scan_ttl": req['yara_scan_ttl'],
