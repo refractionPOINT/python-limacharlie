@@ -88,11 +88,12 @@ class Extension( object ):
                     if contains_action_name(resp_items, extName):  
                         rule_data = update_rule(rule_name, dnr, detect, resp_items, hive_type, extName)
                         updated_rules.append(rule_data)          
-        if isDryRun and len(updated_rules) > 0:
+        if isDryRun and len(updated_rules) > 0: 
             for updated_rule in updated_rules:
                 print(f"Dry run of change on rule '{updated_rule['r_name']}':")
                 print("\033[91m- {}\033[0m".format(updated_rule['old_dnr'])) # print red text
                 print("\033[92m+ {}\033[0m".format(updated_rule['new_dnr'])) # print green text
+                return 'flag --no-dry-run to apply these changes'
         if not isDryRun and len(updated_rules) > 0:
             for updated_rule in updated_rules:
                 data = {
@@ -101,12 +102,17 @@ class Extension( object ):
                 try:
                     hr = Hive.HiveRecord(updated_rule['r_name'], data)
                     if updated_rule['h_name'] == 'dr-general':
-                        gen_hive.set(hr)
+                        gen_resp_obj = gen_hive.set(hr)
+                        return f'rule {gen_resp_obj["name"]} converted'
                     elif updated_rule['h_name'] == 'dr-managed':
-                        man_hive.set(hr)
+                        man_resp_obj = man_hive.set(hr)
+                        return f'rule {man_resp_obj["name"]} converted'
                 except Exception as e:
                     raise LcApiException(f"failed to create detect response for run : {e}")
-        return None
+        if extName in extList:
+            return f'no {extName} rules require updating'
+        else:
+            return 'no rule conversions applied'
     
 def printData( data ):
     if isinstance( data, str ):
@@ -194,11 +200,11 @@ def main( sourceArgs = None ):
                          help = 'the name of the LimaCharlie environment (as defined in ~/.limacharlie) to use, otherwise global creds will be used.' )
 
     parser.add_argument( '--dry-run',
-                            action = 'store_true',
-                            required = False,
-                            dest = 'isDryRun',
-                            help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )
-
+                        default = True, 
+                        action = argparse.BooleanOptionalAction,
+                        required = False,
+                        dest = 'isDryRun',
+                        help = 'the convert-rules request will be simulated and all rule conversions will be displayed (default is True)' )
     args = parser.parse_args( sourceArgs )
 
     ext = Extension( Manager( None, None, environment = args.environment ) )
@@ -294,7 +300,7 @@ def convert_response(req, extName, ruleName):
             "extension action": "scan",
             "extension name": "ext-yara",
             "extension request": {
-                "sources": make_transform_exp(req['sources']),
+                "sources": req['sources'],
                 "selector": make_transform_exp(req['selector']),
                 "sid": make_transform_exp(req['sid']),
                 "yara_scan_ttl": req['yara_scan_ttl'],
@@ -376,9 +382,9 @@ def contains_action_name(respond_items, ext_name):
     return False
  
 def make_transform_exp(str_var):
-    if str_var.find('<<') and str_var.find('>>') and str_var.find('/'):
-        str_var.replace('<<', '{{')
-        str_var.replace('>>', '}}')
-        str_var.replace('/', '.')
+    if '<<' in str_var and '>>' in str_var and '/' in str_var:
+        str_var = str_var.replace('<<', '{{')
+        str_var = str_var.replace('>>', '}}')
+        str_var = str_var.replace('/', '.')
         return str_var
     return  '{{' + ' "' + str(str_var) + '" ' + '}}' 
