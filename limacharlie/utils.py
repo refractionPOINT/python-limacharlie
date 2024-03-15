@@ -8,6 +8,8 @@ if sys.version_info[ 0 ] < 3:
 
 import threading
 import time
+import yaml
+import os
 
 class LcApiException ( Exception ):
     '''Exception type used for various errors in the LimaCharlie SDK.'''
@@ -232,3 +234,17 @@ class Spinner:
         time.sleep(self.delay)
         if exception is not None:
             return False
+
+# Custom YAML node constructor to handle !ENV
+# tags and replace them with an ENV value
+def _env_constructor(loader, node):
+  value = loader.construct_scalar(node)
+  env_value = os.getenv(value)
+  # Raise an error if the variable is not set
+  if env_value is None:
+    raise ValueError(f"Environment variable {value} is not set.")
+  else:
+    return env_value
+
+def _enable_env_parsing():
+    yaml.SafeLoader.add_constructor('!ENV', _env_constructor)
