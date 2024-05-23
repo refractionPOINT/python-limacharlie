@@ -59,6 +59,8 @@ class Hive( object ):
             usrMtd[ 'enabled' ] = record.enabled
         if record.tags is not None:
             usrMtd[ 'tags' ] = record.tags
+        if record.comment is not None:
+            usrMtd[ 'comment' ] = record.comment
 
         req = {
             'data' : json.dumps( record.data ),
@@ -84,6 +86,7 @@ class HiveRecord( object ):
         self.expiry = data.get( 'usr_mtd', {} ).get( 'expiry', None )
         self.enabled = data.get( 'usr_mtd', {} ).get( 'enabled', None )
         self.tags = data.get( 'usr_mtd', {} ).get( 'tags', None )
+        self.comment = data.get( 'usr_mtd', {} ).get( 'comment', None )
         self.etag = data.get( 'sys_mtd', {} ).get( 'etag', None )
         self.createdAt = data.get( 'sys_mtd', {} ).get( 'created_at', None )
         self.createdBy = data.get( 'sys_mtd', {} ).get( 'created_by', None )
@@ -100,6 +103,7 @@ class HiveRecord( object ):
                 'expiry' : self.expiry,
                 'enabled' : self.enabled,
                 'tags' : self.tags,
+                'comment' : self.comment,
             },
             'sys_mtd' : {
                 'etag' : self.etag,
@@ -193,6 +197,8 @@ def _do_add( args, man ):
         usrMtd[ 'enabled' ] = args.enabled.lower() not in ( '0', 'false', 'no', 'off' )
     if args.tags is not None:
         usrMtd[ 'tags' ] = [ t.strip() for t in args.tags.split( ',' ) ]
+    if args.comment is not None:
+        usrMtd[ 'comment' ] = args.comment
     record[ 'usr_mtd' ] = usrMtd
 
     sysMtd = {}
@@ -285,6 +291,12 @@ def main( sourceArgs = None ):
                          required = False,
                          dest = 'tags',
                          help = 'comma separated list of tags.' )
+
+    parser.add_argument( '--comment',
+                         default = None,
+                         required = False,
+                         dest = 'comment',
+                         help = 'a comment for the record.' )
 
     args = parser.parse_args( sourceArgs )
 
