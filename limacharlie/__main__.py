@@ -4,7 +4,7 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
-def main():
+def cli():
     import argparse
     import getpass
     import uuid
@@ -380,6 +380,13 @@ def main():
         print( json.dumps( _man.getSensorsWithIp( args.ip, start, end ), indent = 2 ) )
     else:
         raise Exception( 'invalid action' )
+    
+def main():
+    try:
+        cli()
+    except Exception as e:
+        print("Error:", e)
 
 if __name__ == "__main__":
     main()
+ 
