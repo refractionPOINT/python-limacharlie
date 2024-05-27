@@ -238,12 +238,6 @@ def cli():
         _man = Manager()
         for event in _man.getAuditLogs( args.start, args.end, limit = args.limit, event_type = args.eventType, sid = args.sid ):
             print( json.dumps( event ) )
-    elif args.action.lower() == 'comms':
-        from .Comms import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
-    elif args.action.lower() == 'net':
-        from .Net import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'hive':
         from .Hive import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
