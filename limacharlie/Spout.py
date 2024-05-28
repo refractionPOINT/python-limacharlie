@@ -60,7 +60,7 @@ class Spout( object ):
         # based on the full value of an investigation ID (including the custom tracking after "/").
         self._futures = {}
 
-        if self._data_type not in ( 'event', 'detect', 'audit' ):
+        if self._data_type not in ( 'event', 'detect', 'audit', 'deployment', 'billing' ):
             raise LcApiException( 'Invalid data type: %s' % self._data_type )
 
         # Setup internal structures.
@@ -101,7 +101,6 @@ class Spout( object ):
         cleanupFuturesThread.start()
 
     def _getStream( self, spoutParams ):
-        print("get new stream")
         return requests.post( 'https://stream-tmp.limacharlie.io/%s' % ( self._oid, ),
                               data = spoutParams,
                               stream = True,
