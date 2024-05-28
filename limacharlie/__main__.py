@@ -4,7 +4,7 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
-def main():
+def cli():
     import argparse
     import getpass
     import uuid
@@ -238,12 +238,6 @@ def main():
         _man = Manager()
         for event in _man.getAuditLogs( args.start, args.end, limit = args.limit, event_type = args.eventType, sid = args.sid ):
             print( json.dumps( event ) )
-    elif args.action.lower() == 'comms':
-        from .Comms import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
-    elif args.action.lower() == 'net':
-        from .Net import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'hive':
         from .Hive import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
@@ -380,6 +374,13 @@ def main():
         print( json.dumps( _man.getSensorsWithIp( args.ip, start, end ), indent = 2 ) )
     else:
         raise Exception( 'invalid action' )
+    
+def main():
+    try:
+        cli()
+    except Exception as e:
+        print("Error:", e)
 
 if __name__ == "__main__":
     main()
+ 
