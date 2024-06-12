@@ -1,4 +1,4 @@
-from arl import AuthenticatedResourceLocator as arl
+import arl 
 
 class ARL( object ):
     def __init__( self, resource ):

@@ -2,4 +2,4 @@ requests
 passlib
 pyyaml
 tabulate
-git+https://github.com/refractionPOINT/authenticated_resource_locator.git
+arl
