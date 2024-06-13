@@ -17,7 +17,7 @@ def cli():
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -137,6 +137,9 @@ def cli():
         cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'spout':
         from .Spout import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'get-arl':
+        from .ARL import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'who':
         from . import Manager
