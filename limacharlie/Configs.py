@@ -2,7 +2,7 @@ from .Manager import Manager
 from .Replicants import Integrity
 from .Replicants import Logging
 from .Replicants import Exfil
-from .utils import _isStringCompat
+from .utils import _isStringCompat, _enable_env_parsing
 from .Extensions import Extension
 
 # Detect if this is Python 2 or 3
@@ -17,6 +17,8 @@ import sys
 import yaml
 import json
 import glob
+
+_enable_env_parsing()
 
 class LcConfigException( Exception ):
     pass
