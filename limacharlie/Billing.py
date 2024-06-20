@@ -24,3 +24,6 @@ class Billing( object ):
 
     def getAvailablePlans( self ):
         return self._manager._apiCall( 'user/self/plans', GET, altRoot = 'https://billing.limacharlie.io/' )
+
+    def getUserAuthRequirements( self ):
+        return self._manager._apiCall( 'user/self/auth', GET, altRoot = 'https://billing.limacharlie.io/' )
