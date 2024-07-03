@@ -33,22 +33,32 @@ class Model( object ):
         self._modelName = modelName
         self._man = man
 
-    def get( self, index_key_name, index_key_value ):
-        return self._man._apiCall( 'models/%s' % ( self._man._oid, ), GET, queryParams = {
+    def mget( self, index_key_name, index_key_value ):
+        return self._man._apiCall( 'models/%s/model/%s/records' % ( self._man._oid, self._modelName ), GET, queryParams = {
             'model_name': self._modelName,
             'index_key_name' : index_key_name,
             'index_key_value' : index_key_value,
         } )
 
+    def get( self, primary_key ):
+        return self._man._apiCall( 'models/%s/model/%s/record' % ( self._man._oid, self._modelName, ), GET, queryParams = {
+            'primary_key' : primary_key,
+        } )
+
+    def delete( self, primary_key ):
+        return self._man._apiCall( 'models/%s/model/%s/record' % ( self._man._oid, self._modelName, ), GET, queryParams = {
+            'primary_key' : primary_key,
+        } )
+
     def query( self, start_index_key_name, start_index_key_value, plan = [] ):
-        return self._man._apiCall( 'models/%s/trversal' % ( self._man._oid, self._modelName ), GET, params = {
+        return self._man._apiCall( 'models/%s/query' % ( self._man._oid, self._modelName ), GET, params = {
             'starting_model_name': self._modelName,
             'starting_key_name' : start_index_key_name,
             'starting_key_value' : start_index_key_value,
         } )
     
     def add( self, primary_key, fields = {} ):
-        return self._man._apiCall( 'models/%s' % ( self._man._oid, ), POST, params = {
+        return self._man._apiCall( 'models/%s/model/%s/record' % ( self._man._oid, self._modelName ), POST, params = {
             'model_name': self._modelName,
             'primary_key': primary_key,
             'fields': json.dumps( fields ),
@@ -58,7 +68,11 @@ def _do_get( args, man ):
     if args.model_name is None:
         reportError( 'Model name required' )
 
-    printData( Model( man, args.model_name ).get( args.index_key_name, args.index_key_value ) )
+    if args.primary_key is not None:
+        printData( Model( man, args.model_name ).get( args.primary_key ) )
+        return
+
+    printData( Model( man, args.model_name ).mget( args.index_key_name, args.index_key_value ) )
 
 def _do_add( args, man ):
     if args.model_name is None:
