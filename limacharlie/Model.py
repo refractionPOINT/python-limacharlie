@@ -41,6 +41,9 @@ class Model( object ):
         } )
 
     def get( self, primary_key ):
+        print("this is model name ", self._modelName)
+        print("this is oid ", self._man._oid)
+        print("this is primary key ", primary_key)
         return self._man._apiCall( 'models/%s/model/%s/record' % ( self._man._oid, self._modelName, ), GET, queryParams = {
             'primary_key' : primary_key,
         } )
@@ -73,6 +76,16 @@ def _do_get( args, man ):
         return
 
     printData( Model( man, args.model_name ).mget( args.index_key_name, args.index_key_value ) )
+
+def _do_mget(args, man):
+    if args.model_name is None:
+        reportError('Model name required')
+
+    if args.index_key_name is None or args.index_key_value is None:
+        reportError('Index key name and value required')
+
+    printData(Model(man, args.model_name).mget(args.index_key_name, args.index_key_value))
+
 
 def _do_add( args, man ):
     if args.model_name is None:
@@ -115,6 +128,7 @@ def main( sourceArgs = None ):
 
     actions = {
         'get' : _do_get,
+        'mget': _do_mget,
         'add': _do_add,
         'del': _do_del,
         'query': _do_query,
