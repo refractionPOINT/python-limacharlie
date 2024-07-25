@@ -1,3 +1,5 @@
+import urllib
+
 from limacharlie import Manager
 import yaml
 import sys
@@ -45,25 +47,33 @@ class Model(object):
         })
 
     def get(self, primary_key):
-        print("this is model name ", self._modelName)
-        print("this is oid ", self._man._oid)
-        print("this is primary key ", primary_key)
         return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), GET, queryParams={
             'primary_key': primary_key,
         })
 
     def delete(self, primary_key):
-        print("primary key in delete ", primary_key)
         return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), DELETE, queryParams={
             'primary_key': primary_key,
         })
 
-    def query(self, start_index_key_name, start_index_key_value, plan=[]):
-        return self._man._apiCall('models/%s/query' % (self._man._oid, self._modelName), GET, params={
-            'starting_model_name': self._modelName,
+    def query(self, start_model_name, start_index_key_name, start_index_key_value, plan=[]):
+        print("in query")
+        print("this is plan ", plan)
+
+        # Create the plan parameter list without URL encoding
+        plan_params = [('plan', json.dumps(item)) for item in plan]
+
+        # Create the base query parameters
+        query_params = {
+            'starting_model_name': start_model_name,
             'starting_key_name': start_index_key_name,
             'starting_key_value': start_index_key_value,
-        })
+        }
+
+        # Combine base query parameters and plan parameters
+        combined_query_params = list(query_params.items()) + plan_params
+
+        return self._man._apiCall('models/%s/query' % self._man._oid, GET, queryParams=combined_query_params)
 
     def add(self, primary_key, fields={}):
         return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName), POST, params={
@@ -103,7 +113,7 @@ def _do_add(args, man):
 
     printData(Model(man, args.model_name).add(args.primary_key, fields=data))
 
-
+# _do_del EX command line call: limacharlie model del model-name -pk test-1234
 def _do_del(args, man):
     if args.model_name is None:
         reportError('Model name required')
@@ -196,3 +206,5 @@ def main(sourceArgs=None):
 
 if '__main__' == __name__:
     main()
+
+#mod.query("user_event","user_init", "user123", [{"target_model_name": "yara_scan"}, {"target_model_name": "sensors"}])
