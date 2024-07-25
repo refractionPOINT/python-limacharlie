@@ -147,7 +147,8 @@ def planStringToDict(plan):
     components = plan.split(':')
     if len(components) < 1:
         raise Exception(
-            'Invalid plan format ("model_name:hop_limit:relationship1,relationship2,..." or "model_name:relationship1,relationship2,...)')
+            'Invalid plan format ("target_model_name:hop_limit:relationship1,relationship2,..." or "target_model_name:relationship1,relationship2,..." or "target_model_name")'
+        )
 
     # Required value
     ret['target_model_name'] = components[0]
