@@ -52,9 +52,10 @@ class Model(object):
         })
 
     def delete(self, primary_key):
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), DELETE, queryParams={
-            'primary_key': primary_key,
-        })
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), DELETE,
+                                  queryParams={
+                                      'primary_key': primary_key,
+                                  })
 
     def query(self, start_model_name, start_index_key_name, start_index_key_value, plan=[]):
         print("in query")
@@ -81,6 +82,7 @@ class Model(object):
             'primary_key': primary_key,
             'fields': json.dumps(fields),
         })
+
 
 # _do_get Ex command line call: limacharlie model get model-name -pk xyz1234
 def _do_get(args, man):
@@ -113,6 +115,7 @@ def _do_add(args, man):
 
     printData(Model(man, args.model_name).add(args.primary_key, fields=data))
 
+
 # _do_del EX command line call: limacharlie model del model-name -pk test-1234
 def _do_del(args, man):
     if args.model_name is None:
@@ -121,12 +124,19 @@ def _do_del(args, man):
     printData(Model(man, args.model_name).delete(args.primary_key))
 
 
+#limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan:3:rel1,rel2" "sensors" "another_model:2"
+#limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan" "sensors"
 def _do_query(args, man):
     if args.model_name is None:
         reportError('Model name required')
 
-    printData(Model(man, args.model_name).query(args.index_key_name, args.index_key_value,
-                                                [planStringToDict(p) for p in args.plan]))
+    if args.index_key_name is None or args.index_key_value is None:
+        reportError('Index key name and value required')
+
+    plan = [planStringToDict(p) for p in args.plan] if args.plan else []
+    print("plan in do query ", plan)
+
+    printData(Model(man, args.model_name).query(args.model_name, args.index_key_name, args.index_key_value, plan))
 
 
 def planStringToDict(plan):
@@ -136,13 +146,29 @@ def planStringToDict(plan):
     ret = {}
     components = plan.split(':')
     if len(components) < 1:
-        raise Exception('Invalid plan format ("model_name:hop_limit:relationship1,relationship2,...)')
-    modelName = components[0]
-    ret['model_name'] = modelName
-    if len(components) > 1:
-        ret['hop_limit'] = int(components[1])
-    if len(components) > 2:
-        ret['relationships'] = components[2].split(',')
+        raise Exception(
+            'Invalid plan format ("model_name:hop_limit:relationship1,relationship2,..." or "model_name:relationship1,relationship2,...)')
+
+    # Required value
+    ret['target_model_name'] = components[0]
+
+    if len(components) == 2:
+        if ',' in components[1]:
+            ret['only_relationships'] = components[1].split(',')
+        else:
+            try:
+                ret['hop_limit'] = int(components[1])
+            except ValueError:
+                raise Exception('Invalid hop limit value, it should be an integer')
+
+    if len(components) == 3:
+        try:
+            ret['hop_limit'] = int(components[1])
+        except ValueError:
+            raise Exception('Invalid hop limit value, it should be an integer')
+        ret['only_relationships'] = components[2].split(',')
+
+    print("this is ret ", ret)
     return ret
 
 
@@ -206,5 +232,3 @@ def main(sourceArgs=None):
 
 if '__main__' == __name__:
     main()
-
-#mod.query("user_event","user_init", "user123", [{"target_model_name": "yara_scan"}, {"target_model_name": "sensors"}])
