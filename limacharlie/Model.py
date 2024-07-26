@@ -58,9 +58,6 @@ class Model(object):
                                   })
 
     def query(self, start_model_name, start_index_key_name, start_index_key_value, plan=[]):
-        print("in query")
-        print("this is plan ", plan)
-
         # Create the plan parameter list without URL encoding
         plan_params = [('plan', json.dumps(item)) for item in plan]
 
