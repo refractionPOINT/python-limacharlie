@@ -135,7 +135,6 @@ def _do_query(args, man):
         reportError('Index key name and value required')
 
     plan = [planStringToDict(p) for p in args.plan] if args.plan else []
-    print("plan in do query ", plan)
 
     printData(Model(man, args.model_name).query(args.model_name, args.index_key_name, args.index_key_value, plan))
 
