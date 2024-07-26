@@ -76,12 +76,16 @@ class Model(object):
 
         return self._man._apiCall('models/%s/query' % self._man._oid, GET, queryParams=combined_query_params)
 
-    def add(self, primary_key, fields={}):
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName), POST, params={
+    def add(self, primary_key, fields={}, expiry=None):
+        params = {
             'model_name': self._modelName,
             'primary_key': primary_key,
             'fields': json.dumps(fields),
-        })
+        }
+        if expiry is not None:
+            params['expiry'] = expiry
+
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName), POST, queryParams=params)
 
 
 # _do_get Ex command line call: limacharlie model get model-name -pk xyz1234
@@ -96,7 +100,7 @@ def _do_get(args, man):
     printData(Model(man, args.model_name).mget(args.index_key_name, args.index_key_value))
 
 
-# _do_mget Ex command line call: limacharlie model mget model-name -ikn host_name -ikv windows-server-2022-xyz
+# _do_mget Ex: limacharlie model mget model-name -ikn host_name -ikv windows-server-2022-xyz
 def _do_mget(args, man):
     if args.model_name is None:
         reportError('Model name required')
@@ -106,17 +110,17 @@ def _do_mget(args, man):
 
     printData(Model(man, args.model_name).mget(args.index_key_name, args.index_key_value))
 
-
+# _do_add EX: limacharlie model add model-name -pk pk-value -d '{"type": "vm-linux-ubuntu", "location": "office-6"}' -e 1722020509
 def _do_add(args, man):
     if args.model_name is None:
         reportError('Model name required')
 
     data = json.loads(args.data)
 
-    printData(Model(man, args.model_name).add(args.primary_key, fields=data))
+    printData(Model(man, args.model_name).add(args.primary_key, fields=data, expiry=args.expiry))
 
 
-# _do_del EX command line call: limacharlie model del model-name -pk test-1234
+# _do_del EX: limacharlie model del model-name -pk test-1234
 def _do_del(args, man):
     if args.model_name is None:
         reportError('Model name required')
@@ -124,8 +128,8 @@ def _do_del(args, man):
     printData(Model(man, args.model_name).delete(args.primary_key))
 
 
-#limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan:3:rel1,rel2" "sensors" "another_model:2"
-#limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan" "sensors"
+#_do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan:3:rel1,rel2" "sensors" "another_model:2"
+#_do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan" "sensors"
 def _do_query(args, man):
     if args.model_name is None:
         reportError('Model name required')
@@ -154,13 +158,10 @@ def planStringToDict(plan):
     ret['target_model_name'] = components[0]
 
     if len(components) == 2:
-        if ',' in components[1]:
+        try:
+            ret['hop_limit'] = int(components[1])
+        except ValueError:
             ret['only_relationships'] = components[1].split(',')
-        else:
-            try:
-                ret['hop_limit'] = int(components[1])
-            except ValueError:
-                raise Exception('Invalid hop limit value, it should be an integer')
 
     if len(components) == 3:
         try:
@@ -224,6 +225,12 @@ def main(sourceArgs=None):
                         dest='data',
                         default=None,
                         help='a JSON object to use as record data')
+    parser.add_argument('-e', '--expiry',
+                        type=int,
+                        required=False,
+                        dest='expiry',
+                        default=None,
+                        help='the expiry time as epoch (Unix timestamp)')
 
     args = parser.parse_args(sourceArgs)
 
