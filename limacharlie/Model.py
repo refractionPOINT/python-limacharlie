@@ -167,7 +167,6 @@ def planStringToDict(plan):
             raise Exception('Invalid hop limit value, it should be an integer')
         ret['only_relationships'] = components[2].split(',')
 
-    print("this is ret ", ret)
     return ret
 
 
