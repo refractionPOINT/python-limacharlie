@@ -2,4 +2,3 @@ requests
 passlib
 pyyaml
 tabulate
-arl
