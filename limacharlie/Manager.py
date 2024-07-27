@@ -146,7 +146,8 @@ class Manager( object ):
             if expiry is not None:
                 authData[ 'expiry' ] = int( expiry )
             request = URLRequest( API_TO_JWT_URL,
-                                  urlencode( authData ).encode() )
+                                  urlencode( authData ).encode(),
+                                  headers = { "Content-Type": "application/x-www-form-urlencoded" } )
             request.get_method = lambda: "POST"
             u = urlopen( request )
             self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
