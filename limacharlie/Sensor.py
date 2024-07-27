@@ -351,6 +351,8 @@ class Sensor( object ):
             'end' : end,
             'is_compressed' : 'true',
             'is_forward' : 'true' if isForward else 'false',
+            'epcon': 'true',
+            'stream': 'event',
         }
 
         if limit is not None:
