@@ -247,6 +247,9 @@ def cli():
     elif args.action.lower() == 'extension':
         from .Extensions import main as cmdMain
         cmdMain( sys.argv[ 2 : ] )
+    elif args.action.lower() == 'model':
+        from .Model import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     elif args.action.lower() == 'create_org':
         from . import Manager
         import json
