@@ -76,6 +76,15 @@ class Hive( object ):
     def delete( self, recordName ):
         return self._man._apiCall( 'hive/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), DELETE )
 
+    def rename(self, record_name, new_name):
+        target = "re-name"
+        params = {
+            'new_name': urlescape(new_name, safe='')
+        }
+
+        return self._man._apiCall(
+            'hive/%s/%s/%s/%s' % (self._hiveName, self._partitionKey, urlescape(record_name, safe=''), target), POST, queryParams=params)
+
 class HiveRecord( object ):
     def __init__( self, recordName, data, api = None ):
         self._api = api
@@ -220,6 +229,15 @@ def _do_remove( args, man ):
 
     printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).delete( args.key ) )
 
+def _do_rename( args, man ):
+    if args.key is None:
+        reportError( 'Key required' )
+
+    if args.renameKey is None:
+        reportError('Rename key required')
+
+    printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).rename( args.key, args.renameKey ) )
+
 def main( sourceArgs = None ):
     import argparse
 
@@ -248,6 +266,12 @@ def main( sourceArgs = None ):
                          dest = 'key',
                          default = None,
                          help = 'the name of the key.' )
+    parser.add_argument('-rk', '--rename-key',
+                        type=str,
+                        required=False,
+                        dest='rename-key',
+                        default=None,
+                        help='the new name of key to be renamed')
 
     parser.add_argument( '-d', '--data',
                          default = None,
