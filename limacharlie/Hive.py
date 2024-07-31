@@ -77,7 +77,7 @@ class Hive( object ):
         return self._man._apiCall( 'hive/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), DELETE )
 
     def rename(self, record_name, new_name):
-        target = "re-name"
+        target = "rename"
         params = {
             'new_name': urlescape(new_name, safe='')
         }
