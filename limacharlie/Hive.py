@@ -249,6 +249,7 @@ def main( sourceArgs = None ):
         'set' : _do_add,
         'update' : _do_update,
         'remove' : _do_remove,
+        'rename': _do_rename,
     }
 
     parser = argparse.ArgumentParser( prog = 'limacharlie hive' )
@@ -269,7 +270,7 @@ def main( sourceArgs = None ):
     parser.add_argument('-rk', '--rename-key',
                         type=str,
                         required=False,
-                        dest='rename-key',
+                        dest='renameKey',
                         default=None,
                         help='the new name of key to be renamed')
 
