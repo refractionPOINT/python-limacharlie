@@ -57,6 +57,7 @@ class Configs( object ):
             'hives',
             'installation_keys',
             'yara',
+            'query',
         }
 
     def _coreRuleContent( self, rule ):

@@ -1493,6 +1493,15 @@ class Manager( object ):
 
         return self._apiCall( 'ontology', GET )
 
+    def getEDREventList( self ):
+        '''Get a list of all possible LimaCharlie EDR events.
+
+        Returns:
+            dict with the various events and IDs.
+        '''
+
+        return self._apiCall( 'events', GET )
+
     def testTransform( self, transform, data ):
         '''Test a transform against a piece of data.
 
