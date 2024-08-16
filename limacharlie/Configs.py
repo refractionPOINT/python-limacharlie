@@ -57,7 +57,6 @@ class Configs( object ):
             'hives',
             'installation_keys',
             'yara',
-            'query',
         }
 
     def _coreRuleContent( self, rule ):
@@ -976,6 +975,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isHiveSecret',
                          help = 'if specified, apply secrets in hive from operations' )
+    parser.add_argument( '--hive-query',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveQuery',
+                         help = 'if specified, apply queries in hive from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
@@ -1036,6 +1041,7 @@ def main( sourceArgs = None ):
         'isHiveYara',
         'isHiveLookup',
         'isHiveSecret',
+        'isHiveQuery',
     ]
 
     allHives = {
@@ -1048,6 +1054,7 @@ def main( sourceArgs = None ):
         'yara': True,
         'lookup': True,
         'secret': True,
+        'query': True,
     }
 
     # If All is enabled, enable all types.
@@ -1084,6 +1091,8 @@ def main( sourceArgs = None ):
         hives['lookup'] = True
     if args.isHiveSecret:
         hives['secret'] = True
+    if args.isHiveQuery:
+        hives['query'] = True
 
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService, isUseExtension = args.isUseExtension )
 
