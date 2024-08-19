@@ -49,7 +49,7 @@ class Hive( object ):
         target = 'mtd'
 
         data = None
-        if record.data is not None:
+        if record.data is not None or record.arl is not None:
             target = 'data'
 
         usrMtd = {}
@@ -70,6 +70,8 @@ class Hive( object ):
             req[ 'etag' ] = record.etag
         if len( usrMtd ) != 0:
             req[ 'usr_mtd' ] = json.dumps( usrMtd )
+        if record.arl is not None:
+            req [ 'arl' ] = record.arl
 
         return self._man._apiCall( 'hive/%s/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( record.name, safe = '' ), target ), POST, req )
 
