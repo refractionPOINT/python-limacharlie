@@ -71,7 +71,7 @@ class Hive( object ):
         if len( usrMtd ) != 0:
             req[ 'usr_mtd' ] = json.dumps( usrMtd )
         if record.arl is not None:
-            req [ 'arl' ] = json.dumps(record.arl)
+            req [ 'arl' ] = record.arl
 
         return self._man._apiCall( 'hive/%s/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( record.name, safe = '' ), target ), POST, req )
 
