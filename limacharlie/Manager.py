@@ -1543,6 +1543,20 @@ class Manager( object ):
             'name' : newName,
         } )
 
+    def checkOrgNameAvailability( self, newName ):
+        '''Check if an org name can be used for a new org.
+
+        Args:
+            tags (str): the org name.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+
+        return self._apiCall( 'orgs/new', GET, queryParams = {
+            'name' : newName,
+        } )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
