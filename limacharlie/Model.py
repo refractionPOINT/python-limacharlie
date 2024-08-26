@@ -113,6 +113,8 @@ def _do_mget(args, man):
 
     if args.table_view:
         printTableView(data)
+    else:
+        printData(data)
 
 
 # _do_add EX: limacharlie model add model-name -pk pk-value -d '{"type": "vm-linux-ubuntu", "location": "office-6"}' -e 1722020509
