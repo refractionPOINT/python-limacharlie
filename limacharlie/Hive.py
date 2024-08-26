@@ -238,6 +238,9 @@ def _do_rename( args, man ):
     if args.renameKey is None:
         reportError('Rename key required')
 
+    if args.hive_name is None:
+        reportError('Hive name required')
+
     printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).rename( args.key, args.renameKey ) )
 
 def main( sourceArgs = None ):
