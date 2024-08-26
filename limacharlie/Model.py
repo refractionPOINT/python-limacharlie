@@ -9,6 +9,8 @@ from .utils import GET
 from .utils import POST
 from .utils import DELETE
 
+from tabulate import tabulate
+
 # Detect if this is Python 2 or 3
 import sys
 
@@ -82,7 +84,8 @@ class Model(object):
         if expiry is not None:
             params['expiry'] = expiry
 
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName), POST, queryParams=params)
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName), POST,
+                                  queryParams=params)
 
 
 # _do_get Ex command line call: limacharlie model get model-name -pk xyz1234
@@ -98,6 +101,7 @@ def _do_get(args, man):
 
 
 # _do_mget Ex: limacharlie model mget model-name -ikn host_name -ikv windows-server-2022-xyz
+# _do_mget with table view: limacharlie model mget ping_request -ikn sid -ikv 52b-cd86-46d4-a1a2 -t
 def _do_mget(args, man):
     if args.model_name is None:
         reportError('Model name required')
@@ -105,7 +109,13 @@ def _do_mget(args, man):
     if args.index_key_name is None or args.index_key_value is None:
         reportError('Index key name and value required')
 
-    printData(Model(man, args.model_name).mget(args.index_key_name, args.index_key_value))
+    data = Model(man, args.model_name).mget(args.index_key_name, args.index_key_value)
+
+    if args.table_view:
+        printTableView(data)
+    else:
+        printData(data)
+
 
 # _do_add EX: limacharlie model add model-name -pk pk-value -d '{"type": "vm-linux-ubuntu", "location": "office-6"}' -e 1722020509
 def _do_add(args, man):
@@ -125,8 +135,9 @@ def _do_del(args, man):
     printData(Model(man, args.model_name).delete(args.primary_key))
 
 
-#_do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan:3:rel1,rel2" "sensors" "another_model:2"
-#_do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan" "sensors"
+# _do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan:3:rel1,rel2" "sensors"
+# "another_model:2" _do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan"
+# "sensors" _do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan" "sensors" -t
 def _do_query(args, man):
     if args.model_name is None:
         reportError('Model name required')
@@ -136,7 +147,28 @@ def _do_query(args, man):
 
     plan = [planStringToDict(p) for p in args.plan] if args.plan else []
 
-    printData(Model(man, args.model_name).query(args.model_name, args.index_key_name, args.index_key_value, plan))
+    data = Model(man, args.model_name).query(args.model_name, args.index_key_name, args.index_key_value, plan)
+
+    if args.table_view:
+        printTableView(data)
+    else:
+        printData(data)
+
+
+def printTableView(data):
+    if isinstance(data, dict):  # Check if data is a dictionary of objects
+        if data:
+            first_key = next(iter(data))
+            headers = ["PK"] + list(data[first_key].keys())
+
+            # Prepare rows dynamically
+            rows = [[key] + list(value.values()) for key, value in data.items()]
+
+            print(tabulate(rows, headers=headers, tablefmt="grid"))
+        else:
+            print("No data found.")
+    else:
+        print("Data format is not a dictionary of objects.")
 
 
 def planStringToDict(plan):
@@ -226,6 +258,11 @@ def main(sourceArgs=None):
                         dest='expiry',
                         default=None,
                         help='the expiry time as epoch (Unix timestamp)')
+    parser.add_argument('-t', '--table-view',
+                        action='store_true',
+                        required=False,
+                        dest='table_view',
+                        help='display the data in a table view')
 
     args = parser.parse_args(sourceArgs)
 
