@@ -42,19 +42,19 @@ class Model(object):
         self._man = man
 
     def mget(self, index_key_name, index_key_value):
-        return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, self._modelName), GET, queryParams={
+        return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, urlescape(self._modelName)), GET, queryParams={
             'model_name': self._modelName,
             'index_key_name': index_key_name,
             'index_key_value': index_key_value,
         })
 
     def get(self, primary_key):
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), GET, queryParams={
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, urlescape(self._modelName),), GET, queryParams={
             'primary_key': primary_key,
         })
 
     def delete(self, primary_key):
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), DELETE,
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, urlescape(self._modelName),), DELETE,
                                   queryParams={
                                       'primary_key': primary_key,
                                   })
@@ -84,11 +84,11 @@ class Model(object):
         if expiry is not None:
             params['expiry'] = expiry
 
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName), POST,
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, urlescape(self._modelName)), POST,
                                   queryParams=params)
 
     def list(self, limit=100, cursor=""):
-        return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, self._modelName), POST, queryParams={
+        return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, urlescape(self._modelName)), POST, queryParams={
             'model_name': self._modelName,
             'limit': limit,
             'cursor': cursor,
