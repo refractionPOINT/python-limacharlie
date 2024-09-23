@@ -149,7 +149,7 @@ class Logs( object ):
         '''
 
         if optParams is None or 0 == len( optParams ):
-            response = self._lc._apiCall( 'insight/%s/artifacts/originals/%s' % ( self._lc._oid, payloadId ), GET )
+            response = self._lc._apiCall( 'insight/%s/artifacts/originals/%s' % ( self._lc._oid, payloadId ), POST )
         else:
             response = self._lc._apiCall( 'insight/%s/artifacts/originals/%s' % ( self._lc._oid, payloadId ), POST, params = optParams )
 
