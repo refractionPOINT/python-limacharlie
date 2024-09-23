@@ -42,19 +42,19 @@ class Model(object):
         self._man = man
 
     def mget(self, index_key_name, index_key_value):
-        return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, self._modelName), GET, queryParams={
+        return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, urlescape(self._modelName)), GET, queryParams={
             'model_name': self._modelName,
             'index_key_name': index_key_name,
             'index_key_value': index_key_value,
         })
 
     def get(self, primary_key):
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), GET, queryParams={
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, urlescape(self._modelName),), GET, queryParams={
             'primary_key': primary_key,
         })
 
     def delete(self, primary_key):
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName,), DELETE,
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, urlescape(self._modelName),), DELETE,
                                   queryParams={
                                       'primary_key': primary_key,
                                   })
@@ -84,9 +84,15 @@ class Model(object):
         if expiry is not None:
             params['expiry'] = expiry
 
-        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, self._modelName), POST,
+        return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, urlescape(self._modelName)), POST,
                                   queryParams=params)
 
+    def list(self, limit=100, cursor=""):
+        return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, urlescape(self._modelName)), POST, queryParams={
+            'model_name': self._modelName,
+            'limit': limit,
+            'cursor': cursor,
+        })
 
 # _do_get Ex command line call: limacharlie model get model-name -pk xyz1234
 def _do_get(args, man):
@@ -116,6 +122,31 @@ def _do_mget(args, man):
     else:
         printData(data)
 
+# _do_list Ex: limacharlie model list model-name
+# _do_list with table view: limacharlie model list ping_request -t
+def _do_list(args, man):
+    if args.model_name is None:
+        reportError('Model name required')
+
+    # The CLI limit is not the same as the API limit.
+    # If the CLI limit is set, we will just get that one page.
+    isAll = args.limit is None
+    limit = args.limit if args.limit is not None else 100
+
+    cursor = ""
+    records = {}
+    while True:
+        data = Model(man, args.model_name).list(limit, cursor)
+        for k, v in data.get('records', {}).items():
+            records[k] = v
+        cursor = data.get('cursor', "")
+        if not cursor or not isAll:
+            break
+
+    if args.table_view:
+        printTableView(records)
+    else:
+        printData(records)
 
 # _do_add EX: limacharlie model add model-name -pk pk-value -d '{"type": "vm-linux-ubuntu", "location": "office-6"}' -e 1722020509
 def _do_add(args, man):
@@ -207,6 +238,7 @@ def main(sourceArgs=None):
     actions = {
         'get': _do_get,
         'mget': _do_mget,
+        'list': _do_list,
         'add': _do_add,
         'del': _do_del,
         'query': _do_query,
@@ -258,6 +290,12 @@ def main(sourceArgs=None):
                         dest='expiry',
                         default=None,
                         help='the expiry time as epoch (Unix timestamp)')
+    parser.add_argument('-l', '--limit',
+                        type=int,
+                        required=False,
+                        dest='limit',
+                        default=None,
+                        help='the limit')
     parser.add_argument('-t', '--table-view',
                         action='store_true',
                         required=False,
