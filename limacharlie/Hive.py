@@ -91,6 +91,7 @@ class HiveRecord( object ):
     def __init__( self, recordName, data, api = None ):
         self._api = api
         self.name = recordName
+        self.arl = None
         self.data = data.get( 'data', None )
         if self.data is not None and not isinstance( self.data, dict ):
             self.data = json.loads( self.data )
