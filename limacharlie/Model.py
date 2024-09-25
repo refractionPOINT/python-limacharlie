@@ -166,9 +166,9 @@ def _do_del(args, man):
     printData(Model(man, args.model_name).delete(args.primary_key))
 
 
-# _do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan:3:rel1,rel2" "sensors"
-# "another_model:2" _do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan"
-# "sensors" _do_query EX: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan" "sensors" -t
+# EX-single hop: limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan"
+# EX-set valid rels : limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan:rel1,rel2" "sensors"
+# EX- table print out : limacharlie model query user_event -ikn user_init -ikv user123 -p "yara_scan" "sensors" -t
 def _do_query(args, man):
     if args.model_name is None:
         reportError('Model name required')
@@ -208,26 +208,16 @@ def planStringToDict(plan):
 
     ret = {}
     components = plan.split(':')
-    if len(components) < 1:
+    if len(components) < 1 or len(components) > 2:
         raise Exception(
-            'Invalid plan format ("target_model_name:hop_limit:relationship1,relationship2,..." or "target_model_name:relationship1,relationship2,..." or "target_model_name")'
+            'Invalid plan format ("target_model_name:relationship1,relationship2,..." or "target_model_name")'
         )
 
     # Required value
     ret['target_model_name'] = components[0]
 
-    if len(components) == 2:
-        try:
-            ret['hop_limit'] = int(components[1])
-        except ValueError:
-            ret['only_relationships'] = components[1].split(',')
-
-    if len(components) == 3:
-        try:
-            ret['hop_limit'] = int(components[1])
-        except ValueError:
-            raise Exception('Invalid hop limit value, it should be an integer')
-        ret['only_relationships'] = components[2].split(',')
+    if len(components) == 2: # we have relatioship values
+        ret['only_relationships'] = components[1].split(',')
 
     return ret
 
