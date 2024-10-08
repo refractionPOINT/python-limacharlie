@@ -54,7 +54,7 @@ class Extension( object ):
         req = {
             'oid' : self._manager._oid,
             'action' : action,
-            'gzdata' : base64.b64decode( zlib.decompress( json.dumps( data ) ) ),
+            'gzdata' : base64.b64encode( zlib.compress( json.dumps( data ) ) ),
         }
         if isImpersonated:
             if self._manager._jwt is None:
