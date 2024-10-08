@@ -1,7 +1,7 @@
 from limacharlie import Manager
 from limacharlie import Hive
 import json
-import zlib
+import gzip
 import base64
 
 from .utils import POST
@@ -54,7 +54,7 @@ class Extension( object ):
         req = {
             'oid' : self._manager._oid,
             'action' : action,
-            'gzdata' : base64.b64encode( zlib.compress( json.dumps( data ).encode() ) ),
+            'gzdata' : base64.b64encode( gzip.compress( json.dumps( data ).encode() ) ),
         }
         if isImpersonated:
             if self._manager._jwt is None:
