@@ -1,6 +1,6 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "4.9.7"
+__version__ = "4.9.8"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
