@@ -1557,6 +1557,13 @@ class Manager( object ):
             'name' : newName,
         } )
 
+    def getMITREReport( self ):
+        '''Get the MITRE report
+
+        '''
+        data = self._apiCall( 'mitre/%s' % ( self._oid, ), GET, {} )
+        return data
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )

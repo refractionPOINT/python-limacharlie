@@ -378,6 +378,9 @@ def cli():
             start = int(time.time() - (4*60*60))
             end = int(time.time())
         print( json.dumps( _man.getSensorsWithIp( args.ip, start, end ), indent = 2 ) )
+    elif args.action.lower() == 'mitre-report':
+        from . import Manager
+        print(Manager().getMITREReport())
     else:
         raise Exception( 'invalid action' )
     
