@@ -13,6 +13,7 @@ def cli():
     import os
     import yaml
     import time
+    import json
 
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
@@ -380,7 +381,7 @@ def cli():
         print( json.dumps( _man.getSensorsWithIp( args.ip, start, end ), indent = 2 ) )
     elif args.action.lower() == 'mitre-report':
         from . import Manager
-        print(Manager().getMITREReport())
+        print(json.dumps(Manager().getMITREReport(), indent = 2))
     else:
         raise Exception( 'invalid action' )
     
