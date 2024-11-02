@@ -509,7 +509,7 @@ class Manager( object ):
         return self.getSensorsWithHostname( hostname_expr, as_dict = as_dict )
 
     def rules( self, namespace = None ):
-        '''Get the list of all Detection & Response rules for the Organization.
+        '''DEPRECATED, use Hive accessors instead. Get the list of all Detection & Response rules for the Organization.
 
         Args:
             namespace (str): optional namespace to operator on, defaults to "general".
@@ -526,7 +526,7 @@ class Manager( object ):
         return resp
 
     def del_rule( self, name, namespace = None ):
-        '''Remove a Rule from the Organization.
+        '''DEPRECATED, use Hive accessors instead. Remove a Rule from the Organization.
 
         Args:
             name (str): the name of the Rule to remove.
@@ -545,7 +545,7 @@ class Manager( object ):
         return self._apiCall( 'rules/%s' % self._oid, DELETE, req )
 
     def add_rule( self, name, detection, response, isReplace = False, namespace = None, isEnabled = True, ttl = None ):
-        '''Add a Rule to the Organization.
+        '''DEPRECATED, use Hive accessors instead. Add a Rule to the Organization.
 
         For detailed explanation and possible Rules parameters
         see the official documentation, naming is the same as for the
@@ -585,7 +585,7 @@ class Manager( object ):
         return self._apiCall( 'rules/%s' % self._oid, POST, req )
 
     def fps( self ):
-        '''Get the list of all False Positive rules for the Organization.
+        '''DEPRECATED, use Hive accessors instead. Get the list of all False Positive rules for the Organization.
 
         Returns:
             a list of False Positive rules (JSON).
@@ -597,7 +597,7 @@ class Manager( object ):
         return resp
 
     def del_fp( self, name ):
-        '''Remove a False Positive rule from the Organization.
+        '''DEPRECATED, use Hive accessors instead. Remove a False Positive rule from the Organization.
 
         Args:
             name (str): the name of the rule to remove.
@@ -613,7 +613,7 @@ class Manager( object ):
         return self._apiCall( 'fp/%s' % self._oid, DELETE, req )
 
     def add_fp( self, name, rule, isReplace = False, ttl = None ):
-        '''Add a False Positive rule to the Organization.
+        '''DEPRECATED, use Hive accessors instead. Add a False Positive rule to the Organization.
 
         For detailed explanation and possible rules parameters
         see the official documentation, naming is the same as for the
