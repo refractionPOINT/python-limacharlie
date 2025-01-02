@@ -23,10 +23,10 @@ def massUpgrade():
                             type=str,
                             required=True,
                             dest='version',
-                            help='the version to apply, "latest" or "stable".')
-    args=parser.parse_args(sys.argv[ 2: ])
-    if args.version.lower() not in ['latest', 'stable', '-']:
-        print('Version must be either "latest" or "stable" (or "-" if a sensor selector is specified).')
+                            help='the version to apply, "latest" or "stable" or "-" or a specific version (like 4.30.0).')
+    args=parser.parse_args(sys.argv[2:])
+    if args.version.lower() not in ['latest', 'stable', '-'] and args.sensor_selector:
+        print('Version must be either "latest" or "stable" (or "-" if a sensor selector is specified, or specific version like 4.30.0 if a sensor selector is not specified).')
         return
     if args.version == '-' and not args.sensor_selector:
         print('Version "-" can only be used with a sensor selector.')
@@ -55,7 +55,7 @@ def massUpgrade():
     if isFallback:
         print('Applying stable version.')
     else:
-        print('Applying latest version.')
+        print(f'Applying {args.version.lower()} version.')
 
     for oid in orgs:
         print(f'Processing org {oid}')
@@ -73,7 +73,10 @@ def massUpgrade():
                         print(f"Task {sensor.sid} generated an exception: {e}")
         else:
             print(f'Applying to entire org {oid}')
-            _man.setSensorVersion(isFallbackVersion=isFallback)
+            if args.version.lower() in ['latest', 'stable']:
+                _man.setSensorVersion(isFallbackVersion=isFallback)
+            else:
+                _man.setSensorVersion(specificVersion=args.version)
 
 def _doSensorTag(sensor, isFallback, isRemove=False):
     print(f'Applying to sensor {sensor.sid}')
