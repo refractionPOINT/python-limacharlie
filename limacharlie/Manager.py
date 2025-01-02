@@ -90,7 +90,7 @@ class Manager( object ):
                 secret_api_key = GLOBAL_API_KEY
 
         try:
-            if oid is not None:
+            if oid is not None and oid != '-':
                 uuid.UUID( oid )
         except:
             raise LcApiException( 'Invalid oid, should be in UUID format.' )

@@ -325,6 +325,9 @@ def cli():
                     sensor.untag( tag )
                     print( "done" )
         print( "all done" )
+    elif args.action.lower() == 'mass-upgrade':
+        from .versions import massUpgrade
+        massUpgrade()
     elif args.action.lower() == 'sensors':
         from . import Manager
         import json
