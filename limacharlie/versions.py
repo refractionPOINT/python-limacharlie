@@ -50,6 +50,12 @@ def massUpgrade():
     if not orgs:
         print('No orgs specified.')
         return
+    for oid in orgs:
+        try:
+            uuid.UUID(oid)
+        except Exception as e:
+            print(f'Invalid org ID: {oid}')
+            return
 
     isFallback=args.version.lower() == 'stable'
     if isFallback:
