@@ -387,13 +387,14 @@ def cli():
         print(json.dumps(Manager().getMITREReport(), indent = 2))
     else:
         raise Exception( 'invalid action' )
-    
+
 def main():
     try:
         cli()
     except Exception as e:
-        print("Error:", e)
+        print("Error:", e,file=sys.stderr)
+        return 1
 
 if __name__ == "__main__":
-    main()
- 
+    sys.exit(main())
+
