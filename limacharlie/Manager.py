@@ -1564,6 +1564,16 @@ class Manager( object ):
         data = self._apiCall( 'mitre/%s' % ( self._oid, ), GET, {} )
         return data
 
+    def inviteUser( self, email ):
+        '''Invite a user to limacharlie.io.
+
+        Args:
+            email (str): the email of the user to invite.
+        '''
+        return self._apiCall( 'invite/user', POST, {
+            'user_email' : email,
+        } )
+
 def _eprint( msg ):
     sys.stderr.write( msg )
     sys.stderr.write( "\n" )
