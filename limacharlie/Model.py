@@ -87,11 +87,12 @@ class Model(object):
         return self._man._apiCall('models/%s/model/%s/record' % (self._man._oid, urlescape(self._modelName)), POST,
                                   queryParams=params)
 
-    def list(self, limit=100, cursor=""):
+    def list(self, limit=100, show_expiry=False, cursor=""):
         return self._man._apiCall('models/%s/model/%s/records' % (self._man._oid, urlescape(self._modelName)), POST, queryParams={
             'model_name': self._modelName,
             'limit': limit,
             'cursor': cursor,
+            'show_expiry': 'true' if show_expiry else 'false',
         })
 
 # _do_get Ex command line call: limacharlie model get model-name -pk xyz1234
@@ -131,12 +132,12 @@ def _do_list(args, man):
     # The CLI limit is not the same as the API limit.
     # If the CLI limit is set, we will just get that one page.
     isAll = args.limit is None
-    limit = args.limit if args.limit is not None else 100
+    limit = args.limit if args.limit is not None else 1000
 
     cursor = ""
     records = {}
     while True:
-        data = Model(man, args.model_name).list(limit, cursor)
+        data = Model(man, args.model_name).list(limit, True, cursor)
         for k, v in data.get('records', {}).items():
             records[k] = v
         cursor = data.get('cursor', "")
