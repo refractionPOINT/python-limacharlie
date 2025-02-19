@@ -18,7 +18,7 @@ def cli():
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -385,6 +385,9 @@ def cli():
     elif args.action.lower() == 'mitre-report':
         from . import Manager
         print(json.dumps(Manager().getMITREReport(), indent = 2))
+    elif args.action.lower() == 'users':
+        from .User import main as cmdMain
+        cmdMain( sys.argv[ 2 : ] )
     else:
         raise Exception( 'invalid action' )
 

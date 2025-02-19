@@ -68,3 +68,4 @@ from .utils import LcApiException
 from . import Replicants as services
 from .WebhookSender import WebhookSender
 from .UserPreferences import UserPreferences
+from .User import User
