@@ -10,10 +10,13 @@ __copyright__ = "Copyright (c) 2020 Refraction Point, Inc"
 import os
 import yaml
 
+from .constants import CONFIG_FILE_PATH
+
+
 def _getEnvironmentCreds( name ):
     credsFile = os.environ.get( 'LC_CREDS_FILE', None )
     if credsFile is None:
-        credsFile = os.path.expanduser( '~/.limacharlie' )
+        credsFile = CONFIG_FILE_PATH
     if not os.path.isfile( credsFile ):
         return ( None, None, None )
     with open( credsFile, 'rb' ) as f:

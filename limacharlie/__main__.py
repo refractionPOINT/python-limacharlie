@@ -4,6 +4,8 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
+from .constants import CONFIG_FILE_PATH
+
 def cli(args):
     """
     Command line interface for the LimaCharlie SDK.
@@ -83,7 +85,7 @@ def cli(args):
         args = parser.parse_args( sys.argv[ 2: ] )
         if args.environment_name is None:
             # General listing of existing environments.
-            with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
+            with open( CONFIG_FILE_PATH, 'rb' ) as f:
                 conf = yaml.safe_load( f.read() )
             print( "Current environment: %s\n" % ( os.environ.get( 'LC_CURRENT_ENV', 'default' ) ) )
             print( "Available environments:" )
@@ -95,7 +97,7 @@ def cli(args):
             print( "\nlimacharlie use <environment_name> to change environment" )
         else:
             # Selecting a specific environment.
-            with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
+            with open( CONFIG_FILE_PATH, 'rb' ) as f:
                 conf = yaml.safe_load( f.read() )
             if args.environment_name == '':
                 args.environment_name = 'default'

@@ -21,8 +21,8 @@ except NameError:
 import threading
 import time
 
-# Path to the configuration file. Can be overriden for tests.
-CONFIG_FILE_PATH = os.path.expanduser( '~/.limacharlie' )
+from .constants import CONFIG_FILE_PATH
+
 
 class LcApiException ( Exception ):
     '''Exception type used for various errors in the LimaCharlie SDK.'''
