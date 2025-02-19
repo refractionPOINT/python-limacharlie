@@ -4,7 +4,13 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
-def cli():
+def cli(args):
+    """
+    Command line interface for the LimaCharlie SDK.
+
+    Args:
+        args (list): list of CLI arguments to parse.
+    """
     import argparse
     import getpass
     import uuid
@@ -27,7 +33,7 @@ def cli():
 
     # Hack around a bit so that we can pass the help
     # to the proper sub-command line.
-    rootArgs = sys.argv[ 1 : 2 ]
+    rootArgs = args[ 1: 2 ]
     args = parser.parse_args( rootArgs )
 
     if args.action.lower() == 'version':
@@ -41,6 +47,7 @@ def cli():
             oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
         else:
             oid = input( 'Enter your Organization ID (UUID): ' )
+        print(oid)
         try:
             uuid.UUID( oid )
         except:
@@ -98,31 +105,31 @@ def cli():
             print( 'export LC_CURRENT_ENV="%s"' % args.environment_name )
     elif args.action.lower() == 'dr':
         from .DRCli import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'search':
         from .Search import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'replay':
         from .Replay import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'query':
         from .Query import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'sync':
         from .Sync import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'configs':
         from .Configs import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'spotcheck':
         from .SpotCheck import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'spout':
         from .Spout import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'get-arl':
         from .ARL import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'who':
         from . import Manager
         tmpManager = Manager()
@@ -132,7 +139,7 @@ def cli():
         print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
     elif args.action.lower() == 'logs' or args.action.lower() == 'artifacts':
         from .Logs import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'detections':
         from . import Manager
         import json
@@ -225,13 +232,13 @@ def cli():
             print( json.dumps( event ) )
     elif args.action.lower() == 'hive':
         from .Hive import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'extension':
         from .Extensions import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'model':
         from .Model import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'create_org':
         from . import Manager
         import json
@@ -370,12 +377,13 @@ def cli():
         raise Exception( 'invalid action' )
 
 def main():
+    args = sys.argv
+
     try:
-        cli()
+        cli(args)
     except Exception as e:
         print("Error:", e,file=sys.stderr)
         return 1
 
 if __name__ == "__main__":
     sys.exit(main())
-

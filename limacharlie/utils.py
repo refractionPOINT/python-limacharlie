@@ -21,6 +21,9 @@ except NameError:
 import threading
 import time
 
+# Path to the configuration file. Can be overriden for tests.
+CONFIG_FILE_PATH = os.path.expanduser( '~/.limacharlie' )
+
 class LcApiException ( Exception ):
     '''Exception type used for various errors in the LimaCharlie SDK.'''
 
@@ -255,15 +258,18 @@ def writeCredentialsToConfig(alias, oid, secretApiKey, uid=""):
         secretApiKey (str): The secret API key.
         uid (str): The user ID (optional, only for user scoped API keys).
     """
-    config_path = os.path.expanduser( '~/.limacharlie' )
-
     conf = {}
 
+    print(CONFIG_FILE_PATH)
+
     try:
-        with open( config_path, 'rb' ) as f:
+        with open( CONFIG_FILE_PATH, 'rb' ) as f:
             conf = yaml.safe_load( f.read() )
     except FileNotFoundError:
         pass
+
+    # Handle scenario where a file is empty
+    conf = conf or {}
 
     if alias == "default":
         conf[ 'oid' ] = oid
@@ -298,16 +304,16 @@ def writeCredentialsToConfig(alias, oid, secretApiKey, uid=""):
 
         # Move is an atomic operation on unix.
         # TODO: Also check if destination is symlink and abort / prompt for confirmation before moving?
-        shutil.move(tmp_path, config_path)
+        shutil.move(tmp_path, CONFIG_FILE_PATH)
     finally:
         if os.path.isfile(tmp_path):
             os.unlink(tmp_path)
 
-    file_stat = os.stat(config_path)
+    file_stat = os.stat(CONFIG_FILE_PATH)
     actual_mode = stat.S_IMODE(file_stat.st_mode)
     assert actual_mode == 0o600
 
     assert file_stat.st_uid == os.getuid()
     assert file_stat.st_gid == os.getgid()
 
-    print( "Credentials have been stored to: %s" % (config_path) )
+    print( "Credentials have been stored to: %s" % (CONFIG_FILE_PATH) )
