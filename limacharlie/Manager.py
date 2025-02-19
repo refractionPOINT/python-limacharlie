@@ -1570,7 +1570,7 @@ class Manager( object ):
     
     def inviteUser( self, email ):
         '''
-        Invite a user to the organization.
+        Invite a user to LimaCharlie.
 
         Args:
             email (str): Email of the user to invite.
