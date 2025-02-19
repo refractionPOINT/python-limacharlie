@@ -69,7 +69,8 @@ def cli(args):
         try:
             if uid != '':
                 if 20 > len( uid ):
-                    raise Exception()
+                    print("UID must be maximum 20 characters long.")
+                    sys.exit(1)
         except:
             print( "Invalid UID" )
             sys.exit( 1 )
