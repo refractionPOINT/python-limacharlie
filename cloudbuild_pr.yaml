@@ -6,3 +6,4 @@ steps:
 - id: "Run Integration Tests"
   name: 'gcr.io/${PROJECT_ID}/pytest_3'
   args: [ '-v', 'tests/integration/', '--oid', '${_OID}', '--key', '${_KEY}' ]
+  waitFor: []  # Run in parallel with step 1. 
