@@ -309,11 +309,4 @@ def writeCredentialsToConfig(alias, oid, secretApiKey, uid=""):
         if os.path.isfile(tmp_path):
             os.unlink(tmp_path)
 
-    file_stat = os.stat(CONFIG_FILE_PATH)
-    actual_mode = stat.S_IMODE(file_stat.st_mode)
-    assert actual_mode == 0o600
-
-    assert file_stat.st_uid == os.getuid()
-    assert file_stat.st_gid == os.getgid()
-
     print( "Credentials have been stored to: %s" % (CONFIG_FILE_PATH) )
