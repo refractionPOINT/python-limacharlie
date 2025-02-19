@@ -42,6 +42,40 @@ You can use the `LC_OID` and `LC_API_KEY` and `LC_UID` environment variables to 
 the values used logging in. The environment variables will be used if no other credentials
 are specified.
 
+#### Credentials File
+When using `limacharle login` functionality, credentials are stored in a plain text format
+on a `~/.limacharlie` file on disk.
+
+Credentials are stored in the following format:
+
+```yaml
+# top level / default credentials
+api_key: xxx
+oid: xxx
+# optional, only needs to be set for user scopd api keys
+uid: xxx
+
+# Environment specific credentials which can be selected using "limacharlie use <environment>"
+# command. For example: "limacharlie use org-2".
+env:
+  org-1:
+    api_key: xxx
+    oid: xxx
+    # optional, only needs to be set for user scopd api keys
+    # uid: xxx
+  org-2:
+    api_key: xxx
+    oid: xxx
+    # optional, only needs to be set for user scopd api keys
+    # uid: xxx
+```
+
+If you manually manipulate this file, make sure you preserve the permissions and ownership
+as orginally set by the CLI (600) so other users can't read it.
+
+If you prefer not to store credentials in a plain text format in a file on disk, use an
+alternative method for authentication (e.g. environment variables, as described above).
+
 ## SDK
 
 The root of the functionality in the SDK is from the `Manager` object. It holds the crendentials

@@ -1,10 +1,22 @@
 # Detect if this is Python 2 or 3
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import os
+import yaml
+import tempfile
 import sys
+import stat
+import shutil
 from time import time
+
 _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
+
+try:
+    FileNotFoundError
+except NameError:
+    # Python 2 compatibility
+    FileNotFoundError = IOError
 
 import threading
 import time
@@ -232,3 +244,70 @@ class Spinner:
         time.sleep(self.delay)
         if exception is not None:
             return False
+        
+def writeCredentialsToConfig(alias, oid, secretApiKey, uid=""):
+    """
+    Securely write credentials to a file on disk.
+
+    Args:
+        alias (str): Alias to store the credentials under.
+        oid (str): The organization ID.
+        secretApiKey (str): The secret API key.
+        uid (str): The user ID (optional, only for user scoped API keys).
+    """
+    config_path = os.path.expanduser( '~/.limacharlie' )
+
+    conf = {}
+
+    try:
+        with open( config_path, 'rb' ) as f:
+            conf = yaml.safe_load( f.read() )
+    except FileNotFoundError:
+        pass
+
+    if alias == "default":
+        conf[ 'oid' ] = oid
+        conf[ 'api_key' ] = secretApiKey
+        if uid != '':
+            conf[ 'uid' ] = uid
+        else:
+            conf.pop( 'uid', None )
+    else:
+        conf.setdefault( 'env', {} )
+        conf[ 'env' ].setdefault( alias, {} )[ 'oid' ] = oid
+        conf[ 'env' ].setdefault( alias, {} )[ 'api_key' ] = secretApiKey
+        if uid != '':
+            conf[ 'env' ].setdefault( alias, {} )[ 'uid' ] = uid
+
+    content = yaml.safe_dump( conf, default_flow_style = False ).encode()
+
+    # For security reasons we first write it to a temporary file, chown + chmod it and
+    # then move it to a final location. Without doing that, there is a potential race condition
+    # with the file being written to and read from by another user (before we chmod it).
+    fd, tmp_path = tempfile.mkstemp()
+
+    # Set secure ownership and permissions on the temporary file.
+    os.chown( tmp_path, os.getuid(), os.getgid() )
+    os.chmod( tmp_path, stat.S_IWUSR | stat.S_IRUSR )  # 0o600
+
+    try:
+        try:
+            os.write(fd, content)
+        finally:
+            os.close(fd)
+
+        # Move is an atomic operation on unix.
+        # TODO: Also check if destination is symlink and abort / prompt for confirmation before moving?
+        shutil.move(tmp_path, config_path)
+    finally:
+        if os.path.isfile(tmp_path):
+            os.unlink(tmp_path)
+
+    file_stat = os.stat(config_path)
+    actual_mode = stat.S_IMODE(file_stat.st_mode)
+    assert actual_mode == 0o600
+
+    assert file_stat.st_uid == os.getuid()
+    assert file_stat.st_gid == os.getgid()
+
+    print( "Credentials have been stored to: %s" % (config_path) )

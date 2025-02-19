@@ -34,6 +34,9 @@ def cli():
         from . import __version__
         print( "LimaCharlie Python SDK Version %s" % ( __version__, ) )
     elif args.action.lower() == 'login':
+        # TODO: Support non interactive mode aka using --oid, --alias, --key, --uid option.
+        from .utils import writeCredentialsToConfig
+
         if _IS_PYTHON_2:
             oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
         else:
@@ -61,30 +64,8 @@ def cli():
         except:
             print( "Invalid UID" )
             sys.exit( 1 )
-        conf = {}
-        try:
-            with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-                conf = yaml.safe_load( f.read() )
-        except:
-            pass
-        if 'default' == alias:
-            conf[ 'oid' ] = oid
-            conf[ 'api_key' ] = secretApiKey
-            if uid != '':
-                conf[ 'uid' ] = uid
-            else:
-                conf.pop( 'uid', None )
-        else:
-            conf.setdefault( 'env', {} )
-            conf[ 'env' ].setdefault( alias, {} )[ 'oid' ] = oid
-            conf[ 'env' ].setdefault( alias, {} )[ 'api_key' ] = secretApiKey
-            if uid != '':
-                conf[ 'env' ].setdefault( alias, {} )[ 'uid' ] = uid
-        with open( os.path.expanduser( '~/.limacharlie' ), 'wb' ) as f:
-            f.write( yaml.safe_dump( conf, default_flow_style = False ).encode() )
-        os.chown( os.path.expanduser( '~/.limacharlie' ), os.getuid(), os.getgid() )
-        os.chmod( os.path.expanduser( '~/.limacharlie' ), stat.S_IWUSR | stat.S_IRUSR )
-        print( "Credentials have been stored to: %s" % os.path.expanduser( '~/.limacharlie' ) )
+
+        writeCredentialsToConfig( alias, oid, secretApiKey, uid )
     elif args.action.lower() == 'use':
         parser = argparse.ArgumentParser( prog = 'limacharlie use' )
         parser.add_argument( 'environment_name',
