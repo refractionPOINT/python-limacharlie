@@ -139,7 +139,7 @@ def cli(args):
     elif args.action.lower() == 'get-arl':
         from .ARL import main as cmdMain
         cmdMain( nonRootArgs )
-    elif args.action.lower() == 'who':
+    elif args.action.lower() in ['who', 'whoami']:
         from . import Manager
         tmpManager = Manager()
         print( "OID: %s" % ( tmpManager._oid, ) )
