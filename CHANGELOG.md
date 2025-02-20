@@ -36,3 +36,7 @@
 
   $ limacharlie users invite --file=users_to_invite.txt
   ```
+
+  The corresponing API operations operates in the context of the user which means you need to specify a user scoped API key + UID when using `limacharlie login`.
+
+  For more information, see https://docs.limacharlie.io/apidocs/introduction#getting-a-jwt.
