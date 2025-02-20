@@ -17,6 +17,8 @@ import yaml
 import traceback
 import functools
 
+from .constants import CONFIG_FILE_PATH
+
 validIOCs = (
     'file_hash',
     'file_name',
@@ -40,7 +42,7 @@ class Search( object ):
         '''
 
         self._environmentsToQuery = {}
-        with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
+        with open( CONFIG_FILE_PATH, 'rb' ) as f:
             conf = yaml.safe_load( f.read().decode() )
             if 'oid' in conf and 'api_key' in conf and conf.get( 'env', {} ).get( 'default', None ) is None:
                 conf.setdefault( 'env', {} )[ 'default' ] = {

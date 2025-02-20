@@ -4,7 +4,15 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
-def cli():
+from .constants import CONFIG_FILE_PATH
+
+def cli(args):
+    """
+    Command line interface for the LimaCharlie SDK.
+
+    Args:
+        args (list): list of CLI arguments to parse.
+    """
     import argparse
     import getpass
     import uuid
@@ -27,17 +35,21 @@ def cli():
 
     # Hack around a bit so that we can pass the help
     # to the proper sub-command line.
-    rootArgs = sys.argv[ 1 : 2 ]
+    rootArgs = args[ 1: 2 ]
     args = parser.parse_args( rootArgs )
 
     if args.action.lower() == 'version':
         from . import __version__
         print( "LimaCharlie Python SDK Version %s" % ( __version__, ) )
     elif args.action.lower() == 'login':
+        # TODO: Support non interactive mode aka using --oid, --alias, --key, --uid option.
+        from .utils import writeCredentialsToConfig
+
         if _IS_PYTHON_2:
             oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
         else:
             oid = input( 'Enter your Organization ID (UUID): ' )
+        print(oid)
         try:
             uuid.UUID( oid )
         except:
@@ -57,34 +69,13 @@ def cli():
         try:
             if uid != '':
                 if 20 > len( uid ):
-                    raise Exception()
+                    print("UID must be maximum 20 characters long.")
+                    sys.exit(1)
         except:
             print( "Invalid UID" )
             sys.exit( 1 )
-        conf = {}
-        try:
-            with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
-                conf = yaml.safe_load( f.read() )
-        except:
-            pass
-        if 'default' == alias:
-            conf[ 'oid' ] = oid
-            conf[ 'api_key' ] = secretApiKey
-            if uid != '':
-                conf[ 'uid' ] = uid
-            else:
-                conf.pop( 'uid', None )
-        else:
-            conf.setdefault( 'env', {} )
-            conf[ 'env' ].setdefault( alias, {} )[ 'oid' ] = oid
-            conf[ 'env' ].setdefault( alias, {} )[ 'api_key' ] = secretApiKey
-            if uid != '':
-                conf[ 'env' ].setdefault( alias, {} )[ 'uid' ] = uid
-        with open( os.path.expanduser( '~/.limacharlie' ), 'wb' ) as f:
-            f.write( yaml.safe_dump( conf, default_flow_style = False ).encode() )
-        os.chown( os.path.expanduser( '~/.limacharlie' ), os.getuid(), os.getgid() )
-        os.chmod( os.path.expanduser( '~/.limacharlie' ), stat.S_IWUSR | stat.S_IRUSR )
-        print( "Credentials have been stored to: %s" % os.path.expanduser( '~/.limacharlie' ) )
+
+        writeCredentialsToConfig( alias, oid, secretApiKey, uid )
     elif args.action.lower() == 'use':
         parser = argparse.ArgumentParser( prog = 'limacharlie use' )
         parser.add_argument( 'environment_name',
@@ -95,7 +86,7 @@ def cli():
         args = parser.parse_args( sys.argv[ 2: ] )
         if args.environment_name is None:
             # General listing of existing environments.
-            with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
+            with open( CONFIG_FILE_PATH, 'rb' ) as f:
                 conf = yaml.safe_load( f.read() )
             print( "Current environment: %s\n" % ( os.environ.get( 'LC_CURRENT_ENV', 'default' ) ) )
             print( "Available environments:" )
@@ -107,7 +98,7 @@ def cli():
             print( "\nlimacharlie use <environment_name> to change environment" )
         else:
             # Selecting a specific environment.
-            with open( os.path.expanduser( '~/.limacharlie' ), 'rb' ) as f:
+            with open( CONFIG_FILE_PATH, 'rb' ) as f:
                 conf = yaml.safe_load( f.read() )
             if args.environment_name == '':
                 args.environment_name = 'default'
@@ -117,31 +108,31 @@ def cli():
             print( 'export LC_CURRENT_ENV="%s"' % args.environment_name )
     elif args.action.lower() == 'dr':
         from .DRCli import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'search':
         from .Search import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'replay':
         from .Replay import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'query':
         from .Query import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'sync':
         from .Sync import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'configs':
         from .Configs import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'spotcheck':
         from .SpotCheck import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'spout':
         from .Spout import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'get-arl':
         from .ARL import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'who':
         from . import Manager
         tmpManager = Manager()
@@ -151,7 +142,7 @@ def cli():
         print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
     elif args.action.lower() == 'logs' or args.action.lower() == 'artifacts':
         from .Logs import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'detections':
         from . import Manager
         import json
@@ -244,13 +235,13 @@ def cli():
             print( json.dumps( event ) )
     elif args.action.lower() == 'hive':
         from .Hive import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'extension':
         from .Extensions import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'model':
         from .Model import main as cmdMain
-        cmdMain( sys.argv[ 2 : ] )
+        cmdMain( args[ 2: ] )
     elif args.action.lower() == 'create_org':
         from . import Manager
         import json
@@ -392,12 +383,13 @@ def cli():
         raise Exception( 'invalid action' )
 
 def main():
+    args = sys.argv
+
     try:
-        cli()
+        cli(args)
     except Exception as e:
         print("Error:", e,file=sys.stderr)
         return 1
 
 if __name__ == "__main__":
     sys.exit(main())
-
