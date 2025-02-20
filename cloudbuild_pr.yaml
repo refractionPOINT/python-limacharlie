@@ -2,8 +2,33 @@ steps:
 - id: "Run Unit Tests"
   name: 'gcr.io/${PROJECT_ID}/pytest_3'
   args: [ '-v', 'tests/unit/' ]
+  waitFor: ["-"]  # Run in parallel with other steps.
 
 - id: "Run Integration Tests"
   name: 'gcr.io/${PROJECT_ID}/pytest_3'
   args: [ '-v', 'tests/integration/', '--oid', '${_OID}', '--key', '${_KEY}' ]
-  waitFor: []  # Run in parallel with step 1. 
+  waitFor: ["-"]  # Run in parallel with other steps.
+
+- id: "Run dist sanity checks"
+  name: 'python:3.9-slim'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+
+      cd /workspace/
+
+      # Install deps
+      pip install --upgrade pip setuptools wheel build
+
+      # Build package
+      python -m build
+
+      # Install it
+      pip install dist/limacharlie-*-py3-none-any.whl
+
+      # Verify it works (basic sanity check)
+      pip show limacharlie
+      limacharlie version
+  waitFor: ["-"]  # Run in parallel with other steps.
