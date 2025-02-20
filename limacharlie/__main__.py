@@ -4,7 +4,9 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
+import traceback
 from .constants import CONFIG_FILE_PATH
+
 
 def cli(args):
     """
@@ -385,10 +387,21 @@ def cli(args):
 def main():
     args = sys.argv
 
+    # Hack since we don't have access to parsed args here and parsing
+    # itself may fail
+    debug_mode = False
+    if "--debug" in args:
+        debug_mode = True
+        args.remove("--debug")
+
     try:
         cli(args)
     except Exception as e:
         print("Error:", e,file=sys.stderr)
+
+        if debug_mode:
+            print(traceback.format_exc(),file=sys.stderr)
+
         return 1
 
 if __name__ == "__main__":
