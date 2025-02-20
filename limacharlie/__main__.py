@@ -55,7 +55,6 @@ def cli(args):
             oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
         else:
             oid = input( 'Enter your Organization ID (UUID): ' )
-        print(oid)
         try:
             uuid.UUID( oid )
         except:
