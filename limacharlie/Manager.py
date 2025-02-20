@@ -1,5 +1,6 @@
 # Detect if this is Python 2 or 3
 import sys
+import os
 _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
@@ -153,8 +154,10 @@ class Manager( object ):
             self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
             u.close()
         except Exception as e:
+            # TODO: Catch more specific exception
+            code = e.__dict__.get("code", None)
             self._jwt = None
-            raise LcApiException( 'Failed to get JWT from API key oid=%s uid=%s: %s' % ( self._oid, self._uid, e, ) )
+            raise LcApiException( 'Failed to get JWT from API key oid=%s uid=%s: %s' % ( self._oid, self._uid, e, ), code=code)
 
     def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, timeout = None ):
         try:
@@ -201,6 +204,7 @@ class Manager( object ):
 
         return ret
 
+    # TODO: Fix mutable default (dict) in params
     def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, nMaxTotalRetries = 3, timeout = 60 * 10 ):
         hasAuthRefreshed = False
         nRetries = 0
@@ -1563,6 +1567,17 @@ class Manager( object ):
         '''
         data = self._apiCall( 'mitre/%s' % ( self._oid, ), GET, {} )
         return data
+    
+    def inviteUser( self, email ):
+        '''
+        Invite a user to LimaCharlie.
+
+        Args:
+            email (str): Email of the user to invite.
+        '''
+        data = self._apiCall( 'invite/user', POST, { "user_email": email } )
+        return data
+
 
     def inviteUser( self, email ):
         '''Invite a user to limacharlie.io.
