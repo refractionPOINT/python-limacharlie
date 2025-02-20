@@ -8,9 +8,16 @@ import limacharlie.User
 from limacharlie.__main__ import cli
 
 
+def test_missing_action_cli_arg(capsys):
+    with pytest.raises(SystemExit, match="2"):
+        cli(["limacharlie", "users"])
+
+    captured = capsys.readouterr()
+    assert "usage: limacharlie users [-h] {invite}" in captured.err
+
+
 @patch("limacharlie.User.Manager")
 def test_invite_single_user_missing_args(mock_manager, capsys):
-
     with pytest.raises(ValueError, match="Please provide either --email or --file option."):
         cli(["limacharlie", "users", "invite"])
 
@@ -28,6 +35,7 @@ def test_invite_single_user_new_user_success(_a, _b, capsys):
 
     captured = capsys.readouterr()
     assert "User with email test@example.com has been invited" in captured.out
+
 
 @patch("limacharlie.User.Manager.__init__", return_value=None)
 @patch("limacharlie.User.Manager.inviteUser", return_value={"exists": True})

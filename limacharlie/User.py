@@ -79,7 +79,7 @@ def parseEmailsFromFile(file_path):
 def main( sourceArgs = None ):
     import argparse
 
-    parser = argparse.ArgumentParser( prog = 'limacharlie user' )
+    parser = argparse.ArgumentParser( prog = 'limacharlie users' )
     # TODO: We should correctly use argparse subparsers everywhere or use something like click library...
     subparsers = parser.add_subparsers(title='action', dest='action', required=True)
     parserInviteAction = subparsers.add_parser('invite', help='Invite a user to the organization')
