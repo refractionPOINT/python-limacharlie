@@ -93,9 +93,6 @@ def main( sourceArgs = None ):
                          help = 'text file which contains new line delimited list of emails of the users to invite.' )
     args = parser.parse_args( sourceArgs )
 
-    manager = Manager()
-    user = User( manager=manager )
-
     if args.action == 'invite':
         if not args.email and not args.file:
             raise ValueError("Please provide either --email or --file option.")
@@ -107,6 +104,9 @@ def main( sourceArgs = None ):
             emails = parseEmailsFromCsvString(emails=args.email)
         elif args.file:
             emails = parseEmailsFromFile(file_path=os.path.abspath(args.file))
+
+        manager = Manager()
+        user = User( manager=manager )
 
         if len(emails) == 1:
             user.invite( email=emails[0] )
