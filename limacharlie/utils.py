@@ -27,7 +27,17 @@ from .constants import CONFIG_FILE_PATH
 class LcApiException ( Exception ):
     '''Exception type used for various errors in the LimaCharlie SDK.'''
 
-    pass
+    def __init__(self, message, code=None):
+        """
+        Initialize the exception with a message and an optional status code.
+
+        Args:
+            message (str): The error message.
+            code (int, optional): An optional status code returnd by the API. Defaults to None.
+        """
+        super().__init__(message)
+        self.code = code
+
 
 GET = 'GET'
 POST = 'POST'

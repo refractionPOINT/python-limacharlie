@@ -4,7 +4,9 @@ _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
 
+import traceback
 from .constants import CONFIG_FILE_PATH
+
 
 def cli(args):
     """
@@ -26,7 +28,7 @@ def cli(args):
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -36,6 +38,11 @@ def cli(args):
     # Hack around a bit so that we can pass the help
     # to the proper sub-command line.
     rootArgs = args[ 1: 2 ]
+
+    # Everything after the command name and the action name that is passed
+    # to the action argument parser.
+    # For example: limacharlie users invite --email -> ["invite", "--email"]
+    actionArgs = args[ 2: ]
     args = parser.parse_args( rootArgs )
 
     if args.action.lower() == 'version':
@@ -49,7 +56,6 @@ def cli(args):
             oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
         else:
             oid = input( 'Enter your Organization ID (UUID): ' )
-        print(oid)
         try:
             uuid.UUID( oid )
         except:
@@ -83,7 +89,7 @@ def cli(args):
                              nargs = "?",
                              default = None,
                              help = 'name of the environment to use.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         if args.environment_name is None:
             # General listing of existing environments.
             with open( CONFIG_FILE_PATH, 'rb' ) as f:
@@ -108,32 +114,32 @@ def cli(args):
             print( 'export LC_CURRENT_ENV="%s"' % args.environment_name )
     elif args.action.lower() == 'dr':
         from .DRCli import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'search':
         from .Search import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'replay':
         from .Replay import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'query':
         from .Query import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'sync':
         from .Sync import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'configs':
         from .Configs import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'spotcheck':
         from .SpotCheck import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'spout':
         from .Spout import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'get-arl':
         from .ARL import main as cmdMain
-        cmdMain( args[ 2: ] )
-    elif args.action.lower() == 'who':
+        cmdMain( actionArgs )
+    elif args.action.lower() in ['who', 'whoami']:
         from . import Manager
         tmpManager = Manager()
         print( "OID: %s" % ( tmpManager._oid, ) )
@@ -142,7 +148,7 @@ def cli(args):
         print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
     elif args.action.lower() == 'logs' or args.action.lower() == 'artifacts':
         from .Logs import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'detections':
         from . import Manager
         import json
@@ -163,7 +169,7 @@ def cli(args):
                              default = None,
                              dest = 'cat',
                              help = 'only get detections of this type.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         for detection in _man.getHistoricDetections( args.start, args.end, limit = args.limit, cat = args.cat ):
             print( json.dumps( detection ) )
@@ -195,7 +201,7 @@ def cli(args):
                              default = None,
                              dest = 'outputName',
                              help = 'send data to a named output instead.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         _sensor = _man.sensor( str( args.sid ) )
         for event in _sensor.getHistoricEvents( args.start, args.end, limit = args.limit, eventType = args.eventType, outputName = args.outputName ):
@@ -229,19 +235,19 @@ def cli(args):
                              default = None,
                              dest = 'outputName',
                              help = 'send data to a named output instead.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         for event in _man.getAuditLogs( args.start, args.end, limit = args.limit, event_type = args.eventType, sid = args.sid ):
             print( json.dumps( event ) )
     elif args.action.lower() == 'hive':
         from .Hive import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'extension':
         from .Extensions import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'model':
         from .Model import main as cmdMain
-        cmdMain( args[ 2: ] )
+        cmdMain( actionArgs )
     elif args.action.lower() == 'create_org':
         from . import Manager
         import json
@@ -254,7 +260,7 @@ def cli(args):
                              default = None,
                              dest = 'loc',
                              help = 'location where to create the organization, omit to get location list.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         res = _man.createNewOrg( args.name, args.loc )
         print( json.dumps( res, indent = 2 ) )
@@ -268,7 +274,7 @@ def cli(args):
                              default = None,
                              required = False,
                              help = 'schema name to retrieve, schema list is returned if not specified.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         if args.name is None:
             res = _man.getSchemas()
@@ -303,7 +309,7 @@ def cli(args):
                              default = None,
                              dest = 'ttl',
                              help = 'ttl for tagging.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         for sensor in _man.sensors( selector = args.sensor_selector ):
             for tag in args.tag:
@@ -343,7 +349,7 @@ def cli(args):
                              default = None,
                              dest = 'with_hostname_prefix',
                              help = 'list sensors with the given hostname prefix.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         for sensor in _man.sensors( selector = args.sensor_selector, limit = args.limit, with_ip = args.with_ip, with_hostname_prefix = args.with_hostname_prefix ):
             print( json.dumps( sensor.getInfo(), indent = 2 ) )
@@ -364,7 +370,7 @@ def cli(args):
                              default = None,
                              dest = 'end',
                              help = 'optional end second epoch.' )
-        args = parser.parse_args( sys.argv[ 2: ] )
+        args = parser.parse_args( actionArgs )
         _man = Manager()
         if args.start is not None and args.end is not None:
             start = args.start
@@ -376,16 +382,30 @@ def cli(args):
     elif args.action.lower() == 'mitre-report':
         from . import Manager
         print(json.dumps(Manager().getMITREReport(), indent = 2))
+    elif args.action.lower() == 'users':
+        from .User import main as cmdMain
+        cmdMain( actionArgs )
     else:
-        raise Exception( 'invalid action' )
+        raise Exception( 'invalid action: %s' % (args.action.lower()) )
 
 def main():
     args = sys.argv
+
+    # Hack since we don't have access to parsed args here and parsing
+    # itself may fail
+    debug_mode = False
+    if "--debug" in args:
+        debug_mode = True
+        args.remove("--debug")
 
     try:
         cli(args)
     except Exception as e:
         print("Error:", e,file=sys.stderr)
+
+        if debug_mode:
+            print(traceback.format_exc(),file=sys.stderr)
+
         return 1
 
 if __name__ == "__main__":
