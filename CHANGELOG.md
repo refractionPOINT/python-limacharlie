@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.9.12 - In Development
+## 4.9.12 - February 21st, 2025
 
 - Add `whoami` alias for `who` command.
 
