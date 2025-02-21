@@ -283,7 +283,7 @@ Shortcut utility to manage Detection and Response rules over the CLI.
 Print out to STDOUT events or detections matching the parameter.
 
 #### List Sensors
-`limacharlie sensors 'plat == windows'`
+`limacharlie sensors --selector '*'`
 Print out all basic sensor information for all sensors matching the selector.
 
 #### Extension
