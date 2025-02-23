@@ -176,7 +176,11 @@ def _do_get( args, man ):
     if args.key is None:
         reportError( 'Key required' )
 
-    printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).get( args.key ).toJSON() )
+    record = Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).get( args.key )
+    if args.dataOnly:
+        printData( record.data )
+    else:
+        printData( record.toJSON() )
 
 def _do_get_mtd( args, man ):
     if args.key is None:
@@ -291,6 +295,13 @@ def main( sourceArgs = None ):
                          required = False,
                          dest = 'dataKey',
                          help = 'some hives expect data to be located within a specific key of the json data, wrap the --data content in this key.' )
+
+    parser.add_argument( '--data-only',
+                         action = 'store_true',
+                         default = False,
+                         required = False,
+                         dest = 'dataOnly',
+                         help = 'only print the data of the record, not the metadata.' )
 
     parser.add_argument( '-pk', '--partition-key',
                          default = None,
