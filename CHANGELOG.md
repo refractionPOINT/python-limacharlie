@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.9.13 - In Development
+
+- Fix Docker image build.
+
+- Docker image has been updated to be based on top of `python:3.12-slim`.
+
 ## 4.9.12 - February 21st, 2025
 
 - Add `whoami` alias for `who` command.
