@@ -1,6 +1,25 @@
+import os
+import re
 from setuptools import setup
 
-__version__ = "4.9.12"
+# Read __version__ from __init__.py
+PACKAGE_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "limacharlie")
+VERSION_RE = re.compile(
+    r'^__version__\s*=\s*[\'"]([^\'"]+)[\'"]',
+    flags=re.MULTILINE
+)
+
+with open(os.path.join(PACKAGE_DIR, "__init__.py"), "r", encoding="utf-8") as f:
+    file_content = f.read()
+
+version_match = VERSION_RE.search(file_content)
+
+if version_match:
+    version = version_match.group(1)
+else:
+    raise RuntimeError("Unable to find version string in __init__.py.")
+
+__version__ = version
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
