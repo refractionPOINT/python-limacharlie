@@ -1,0 +1,11 @@
+# setuptools_schema includes all commited files by default so we exclude stuff
+# we don't want in distributed
+include LICENSE
+include README.md
+include CHANGELOG.md
+exclude Dockerfile
+exclude cloudbuild*.yaml
+exclude build_doc.sh
+prune docs
+prune limacharlie/sample_configs/
+exclude .gitignore
