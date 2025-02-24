@@ -1,12 +1,28 @@
 steps:
 - id: "Run Unit Tests"
-  name: 'gcr.io/${PROJECT_ID}/pytest_3'
-  args: [ '-v', 'tests/unit/' ]
+  name: "python:3.11-slim"
+  entrypoint: "bash"
+  args:
+    - "-c"
+    - |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      pip install -r requirements-tests.txt
 
-# TODO: Rebuild this image + use pytest extension to retry on failure to mitigate flaky tests
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+
 - id: "Run Integration Tests"
-  name: 'gcr.io/${PROJECT_ID}/pytest_3'
-  args: [ '-v', 'tests/integration/', '--oid', '${_OID}', '--key', '${_KEY}' ]
+  name: "python:3.11-slim"
+  entrypoint: "bash"
+  args:
+    - "-c"
+    - |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      pip install -r requirements-tests.txt
+
+      # We use rerun since tests are flaky
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 10 tests/integration/ --oid=${_OID} --key=${_KEY}
 
 - id: "Login to DockerHub"
   name: 'gcr.io/cloud-builders/docker'
