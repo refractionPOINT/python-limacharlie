@@ -24,6 +24,17 @@ steps:
       # We use rerun since tests are flaky
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 10 tests/integration/ --oid=${_OID} --key=${_KEY}
 
+- id: "Get Version"
+  name: "python:3.11-slim"
+  entrypoint: "bash"
+  args:
+    - "-c"
+    - |
+      _VERSION=$(python setup.py --version 2> /dev/null)
+      [ -n "$$_VERSION" ] || { echo "ERROR: _VERSION is empty or not set"; exit 1; };
+      echo $$_VERSION > version.txt
+      echo "Using Docker tag version: $$_VERSION"
+
 - id: "Login to DockerHub"
   name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
@@ -33,12 +44,26 @@ steps:
 - id: "Build Docker Image"
   name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
-  args: ['-c', 'docker build -f ./Dockerfile -t refractionpoint/limacharlie:latest .']
+  args:
+    - "-c"
+    - |
+      _VERSION=$(cat version.txt)
+      [ -n "$$_VERSION" ] || { echo "ERROR: _VERSION is empty or not set"; exit 1; };
+      docker build -f ./Dockerfile \
+        -t refractionpoint/limacharlie:latest \
+        -t refractionpoint/limacharlie:$$_VERSION \
+        .
 
 - id: "Push Image to Docker Hub"
   name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
-  args: ['-c', 'docker push refractionpoint/limacharlie:latest']
+  args:
+    - "-c"
+    - |
+      _VERSION=$(cat version.txt)
+      [ -n "$$_VERSION" ] || { echo "ERROR: _VERSION is empty or not set"; exit 1; };
+      docker push refractionpoint/limacharlie:latest
+      docker push refractionpoint/limacharlie:$$_VERSION || true
 
 availableSecrets:
   secretManager:
