@@ -26,7 +26,7 @@ steps:
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 10 tests/integration/ --oid=${_OID} --key=${_KEY}
   waitFor: ["-"]  # Run in parallel with other steps.
 
-- id: "Run dist sanity checks"
+- id: "Run wheel Sanity Checks"
   name: 'python:3.9-slim'
   entrypoint: "bash"
   args:
@@ -40,6 +40,7 @@ steps:
       pip install --upgrade pip setuptools wheel build
 
       # Build package
+      rm -rf dist/*
       python -m build
 
       # Install it
@@ -49,3 +50,28 @@ steps:
       pip show limacharlie
       limacharlie version
   waitFor: ["-"]  # Run in parallel with other steps.
+
+- id: "Run sdist Sanity Checks"
+  name: 'python:3.9-slim'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+
+      cd /workspace/
+
+      # Install deps
+      pip install --upgrade pip setuptools wheel build
+
+      # Build package
+      rm -rf dist/*
+      python -m build
+
+      # Install it
+      pip install dist/limacharlie-*.tar.gz
+
+      # Verify it works (basic sanity check)
+      pip show limacharlie
+      limacharlie version
+  waitFor: ["Run wheel Sanity Checks"]  # This can't run in parallel with previous step since it shares workspace
