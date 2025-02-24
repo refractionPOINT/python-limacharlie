@@ -1,0 +1,50 @@
+[build-system]
+requires = [
+  "setuptools>=61.0",
+  "wheel",
+  "setuptools-scm>=8.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "limacharlie"
+dynamic = ["version"] # Version number read by setuptools-scm
+description = "Python API for LimaCharlie.io"
+readme = "README.md"
+requires-python = ">=3.2"
+license = { text = "Apache v2" }
+authors = [
+  { name = "Maxime Lamothe-Brassard ( Refraction Point, Inc )", email = "maxime@refractionpoint.com" }
+]
+urls = { Homepage = "https://limacharlie.io" }
+dependencies = [
+  # Required for Python < 3.8 so we can dynamically read version from metadata
+  "importlib-metadata",
+  "requests",
+  "passlib",
+  "pyyaml",
+  "tabulate",
+  "termcolor"
+]
+
+[project.optional-dependencies]
+build = [
+    "build>=1.2.1"
+]
+publish = [
+    "twine>=6.0.0"
+]
+test = [
+    "pytest",
+]
+
+[project.scripts]
+limacharlie = "limacharlie.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["limacharlie"]
+exclude = ["docs"]
+
+[tool.setuptools_scm]
+version_file = "limacharlie/_version.py"

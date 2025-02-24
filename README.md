@@ -299,3 +299,17 @@ Example:
 ```
 limacharlie get-arl -a [github,Yara-Rules/rules/email]
 ```
+
+## Development
+
+1. Install library into the current virtual environment (equivalent of `python setup.py develop`):
+
+```bash
+pip install -e .
+```
+
+2. Install test dependencies:
+
+```bash
+pip install -e ".[test]"
+```

@@ -1,10 +1,20 @@
 """limacharlie API for limacharlie.io"""
 
-__version__ = "4.9.12"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
 __copyright__ = "Copyright (c) 2020 Refraction Point, Inc"
+
+try:
+    from importlib.metadata import version, PackageNotFoundError
+except ImportError:
+    # Handles Python < 3.8
+    from importlib_metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version(__name__)
+except PackageNotFoundError:
+    __version__ = "unknown"
 
 # Global API Credentials
 import os
