@@ -16,7 +16,6 @@ license = { text = "Apache v2" }
 authors = [
   { name = "Maxime Lamothe-Brassard ( Refraction Point, Inc )", email = "maxime@refractionpoint.com" }
 ]
-urls = { Homepage = "https://limacharlie.io" }
 dependencies = [
   # Required for Python < 3.8 so we can dynamically read version from metadata
   "importlib-metadata",
@@ -26,6 +25,14 @@ dependencies = [
   "tabulate",
   "termcolor"
 ]
+
+[project.urls]
+Homepage = "https://limacharlie.io"
+Documentation = "https://docs.limacharlie.io/"
+Repository = "https://github.com/refractionPOINT/python-limacharlie"
+Issues = "https://github.com/refractionPOINT/python-limacharlie/issues"
+Distribution = "https://pypi.org/project/limacharlie/"
+Changelog = "https://github.com/refractionPOINT/python-limacharlie/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 build = [
