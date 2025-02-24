@@ -3,6 +3,7 @@ steps:
   name: 'gcr.io/${PROJECT_ID}/pytest_3'
   args: [ '-v', 'tests/unit/' ]
 
+# TODO: Rebuild this image + use pytest extension to retry on failure to mitigate flaky tests
 - id: "Run Integration Tests"
   name: 'gcr.io/${PROJECT_ID}/pytest_3'
   args: [ '-v', 'tests/integration/', '--oid', '${_OID}', '--key', '${_KEY}' ]
