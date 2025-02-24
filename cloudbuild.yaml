@@ -1,12 +1,29 @@
 steps:
+- id: "Prepare"
+  name: "python:3.11-slim"
+  entrypoint: "bash"
+  args:
+    - "-c"
+    - |
+      # Cloud Build does shallow clone (no way to change it) so we need to unshallow it
+      # to get access to tags and commits so setuptools-scm can correctly read the
+      # version from git.
+      apt-get update && apt-get install -y git
+
+      git fetch --unshallow || git fetch --all
+
+      python -m pip install setuptools-scm
+      _VERSION=$(python -m setuptools_scm 2> /dev/null)
+      [ -n "$$_VERSION" ] || { echo "ERROR: _VERSION is empty or not set"; exit 1; };
+      echo $$_VERSION > version.txt
+      echo "Using Docker version tag: $$_VERSION"
+
 - id: "Run Unit Tests"
   name: "python:3.11-slim"
   entrypoint: "bash"
   args:
     - "-c"
     - |
-      export SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0.dev
-
       pip install --upgrade pip
       pip install -e ".[test]"
 
@@ -18,24 +35,11 @@ steps:
   args:
     - "-c"
     - |
-      export SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0.dev
-
       pip install --upgrade pip
       pip install -e ".[test]"
 
       # We use rerun since tests are flaky
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 10 tests/integration/ --oid=${_OID} --key=${_KEY}
-
-- id: "Get Version"
-  name: "python:3.11-slim"
-  entrypoint: "bash"
-  args:
-    - "-c"
-    - |
-      _VERSION=$(python -m setuptools_scm 2> /dev/null)
-      [ -n "$$_VERSION" ] || { echo "ERROR: _VERSION is empty or not set"; exit 1; };
-      echo $$_VERSION > version.txt
-      echo "Using Docker tag version: $$_VERSION"
 
 - id: "Login to DockerHub"
   name: 'gcr.io/cloud-builders/docker'
