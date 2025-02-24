@@ -35,7 +35,8 @@ publish = [
     "twine>=6.0.0"
 ]
 test = [
-    "pytest",
+    "pytest==8.3.4",
+    "pytest-rerunfailures==15.0"
 ]
 
 [project.scripts]
