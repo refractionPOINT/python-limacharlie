@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.9.13 - In Development
+## 4.9.13 - February 24th, 2025
 
 - Fix Docker image build.
 
