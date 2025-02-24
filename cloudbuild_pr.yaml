@@ -1,17 +1,37 @@
 steps:
+- id: "Prepare"
+  name: "python:3.11-slim"
+  entrypoint: "bash"
+  args:
+    - "-c"
+    - |
+      # Cloud Build does shallow clone (no way to change it) so we need to unshallow it
+      # to get access to tags and commits so setuptools-scm can correctly read the
+      # version from git.
+      apt-get update && apt-get install -y git
+
+      git fetch --unshallow || git fetch --all
+
+      python -m pip install setuptools-scm
+      _VERSION=$(python -m setuptools_scm 2> /dev/null)
+      [ -n "$$_VERSION" ] || { echo "ERROR: _VERSION is empty or not set"; exit 1; };
+      echo $$_VERSION > version.txt
+      echo "Using version: $$_VERSION"
+
 - id: "Run Unit Tests"
   name: "python:3.11-slim"
   entrypoint: "bash"
   args:
     - "-c"
     - |
-      export SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0.dev
+      # Git is needed for setuptools-scm
+      apt-get update && apt-get install -y git
 
       pip install --upgrade pip
       pip install -e ".[test]"
 
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
-  waitFor: ["-"]  # Run in parallel with other steps.
+  waitFor: ["Prepare"]  # Run in parallel with other steps.
 
 - id: "Run Integration Tests"
   name: "python:3.11-slim"
@@ -19,13 +39,15 @@ steps:
   args:
     - "-c"
     - |
-      export SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0.dev
+      # Git is needed for setuptools-scm
+      apt-get update && apt-get install -y git
+
       pip install --upgrade pip
       pip install -e ".[test]"
 
       # We use rerun since tests are flaky
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 10 tests/integration/ --oid=${_OID} --key=${_KEY}
-  waitFor: ["-"]  # Run in parallel with other steps.
+  waitFor: ["Prepare"]  # Run in parallel with other steps.
 
 - id: "Run wheel Sanity Checks"
   name: 'python:3.9-slim'
@@ -34,9 +56,9 @@ steps:
     - '-c'
     - |
       set -e
-      export SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0.dev
 
-      cd /workspace/
+      # Git is needed for setuptools-scm
+      apt-get update && apt-get install -y git
 
       # Install deps
       pip install --upgrade pip setuptools wheel build
@@ -51,7 +73,7 @@ steps:
       # Verify it works (basic sanity check)
       pip show limacharlie
       limacharlie version
-  waitFor: ["-"]  # Run in parallel with other steps.
+  waitFor: ["Prepare"]  # Run in parallel with other steps.
 
 - id: "Run sdist Sanity Checks"
   name: 'python:3.9-slim'
@@ -61,7 +83,8 @@ steps:
     - |
       set -e
 
-      cd /workspace/
+      # Git is needed for setuptools-scm
+      apt-get update && apt-get install -y git
 
       # Install deps
       pip install --upgrade pip setuptools wheel build
@@ -77,3 +100,23 @@ steps:
       pip show limacharlie
       limacharlie version
   waitFor: ["Run wheel Sanity Checks"]  # This can't run in parallel with previous step since it shares workspace
+
+- id: "Build Docker Image"
+  name: 'gcr.io/cloud-builders/docker'
+  env:
+    - "DOCKER_BUILDKIT=1"
+  entrypoint: 'bash'
+  args:
+    - "-c"
+    - |
+      docker build -f ./Dockerfile \
+        -t refractionpoint/limacharlie:local-test \
+        .
+
+- id: "Docker Image Sanity Test"
+  name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args:
+    - "-c"
+    - |
+      docker run refractionpoint/limacharlie:local-test version
