@@ -1,16 +1,28 @@
 steps:
-- name: 'gcr.io/${PROJECT_ID}/pytest_3'
-  args: [ '-v', 'tests', '--oid', '${_OID}', '--key', '${_KEY}' ]
-- name: 'gcr.io/cloud-builders/docker'
+- id: "Run Unit Tests"
+  name: 'gcr.io/${PROJECT_ID}/pytest_3'
+  args: [ '-v', 'tests/unit/' ]
+
+- id: "Run Integration Tests"
+  name: 'gcr.io/${PROJECT_ID}/pytest_3'
+  args: [ '-v', 'tests/integration/', '--oid', '${_OID}', '--key', '${_KEY}' ]
+
+- id: "Login to DockerHub"
+  name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
   args: ['-c', 'docker login --username=$$USERNAME --password=$$PASSWORD']
   secretEnv: ['USERNAME', 'PASSWORD']
-- name: 'gcr.io/cloud-builders/docker'
+
+- id: "Build Docker Image"
+  name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
   args: ['-c', 'docker build -f ./Dockerfile -t refractionpoint/limacharlie:latest .']
-- name: 'gcr.io/cloud-builders/docker'
+
+- id: "Push Image to Docker Hub"
+  name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
   args: ['-c', 'docker push refractionpoint/limacharlie:latest']
+
 availableSecrets:
   secretManager:
   - versionName: projects/${PROJECT_ID}/secrets/DOCKERHUB/versions/latest
