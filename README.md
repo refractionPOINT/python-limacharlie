@@ -76,6 +76,18 @@ as orginally set by the CLI (600) so other users can't read it.
 If you prefer not to store credentials in a plain text format in a file on disk, use an
 alternative method for authentication (e.g. environment variables, as described above).
 
+## Docker
+
+Docker image with latest version of the tool is available at https://hub.docker.com/r/refractionpoint/limacharlie.
+
+Example usage:
+
+```bash
+docker run refractionpoint/limacharlie:latest whoami
+
+# If you already have a credential file locally, you can mount it inside the Docker container
+docker run -v ${HOME}/.limacharlie:/root/.limacharlie:ro refractionpoint/limacharlie:latest whoami
+```
 ## SDK
 
 The root of the functionality in the SDK is from the `Manager` object. It holds the crendentials

@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.9.13 - February 24th, 2025
+
+- Fix Docker image build.
+
+- Docker image has been updated to be based on top of `python:3.12-slim`.
+
+- Docker images are now versioned. In addition to the `latest` tag, new version
+  specific tags will be available going forward, starting with this release.
+
+  For example:
+
+  * `refractionpoint/limacharlie:latest` -> Always points to the latest release.
+  * `refractionpoint/limacharlie:4.9.13` -> Release version 4.9.13.
+
 ## 4.9.12 - February 21st, 2025
 
 - Add `whoami` alias for `who` command.
