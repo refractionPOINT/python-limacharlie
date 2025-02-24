@@ -19,6 +19,10 @@ if version_match:
 else:
     raise RuntimeError("Unable to find version string in __init__.py.")
 
+# Read the README.md file for the long description
+with open("README.md", "r", encoding="utf-8") as f:
+    LONG_DESCRIPTION = f.read()
+
 __version__ = version
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
@@ -28,6 +32,8 @@ __copyright__ = "Copyright (c) 2020 Refraction Point, Inc"
 setup( name = 'limacharlie',
        version = __version__,
        description = 'Python API for LimaCharlie.io',
+       long_description = LONG_DESCRIPTION,
+       long_description_content_type='text/markdown',
        url = 'https://limacharlie.io',
        author = __author__,
        author_email = __author_email__,
@@ -35,7 +41,6 @@ setup( name = 'limacharlie',
        packages = [ 'limacharlie' ],
        zip_safe = True,
        install_requires = [ 'requests', 'passlib', 'pyyaml', 'tabulate', 'termcolor' ],
-       long_description = 'Python API for limacharlie.io, an endpoint detection and response service.',
        entry_points = {
            'console_scripts': [
                'limacharlie=limacharlie.__main__:main',
