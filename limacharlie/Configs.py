@@ -1042,6 +1042,7 @@ def main( sourceArgs = None ):
         'isHiveLookup',
         'isHiveSecret',
         'isHiveQuery',
+        'isHivePlaybook',
     ]
 
     allHives = {
@@ -1055,6 +1056,7 @@ def main( sourceArgs = None ):
         'lookup': True,
         'secret': True,
         'query': True,
+        'playbook': True,
     }
 
     # If All is enabled, enable all types.
@@ -1093,6 +1095,8 @@ def main( sourceArgs = None ):
         hives['secret'] = True
     if args.isHiveQuery:
         hives['query'] = True
+    if args.isHivePlaybook:
+        hives['playbook'] = True
 
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService, isUseExtension = args.isUseExtension )
 
