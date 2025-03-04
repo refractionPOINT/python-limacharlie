@@ -981,6 +981,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isHiveQuery',
                          help = 'if specified, apply queries in hive from operations' )
+    parser.add_argument( '--hive-playbook',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHivePlaybook',
+                         help = 'if specified, apply playbooks in hive from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
