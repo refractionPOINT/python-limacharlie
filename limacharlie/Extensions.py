@@ -43,7 +43,9 @@ class Extension( object ):
         return self._manager._apiCall( 'extension/definition/%s' % ( extName, ), DELETE )
     
     def getSchema( self, extName ):
-        return self._manager._apiCall( 'extension/schema/%s' % ( extName, ), GET )
+        return self._manager._apiCall( 'extension/schema/%s' % ( extName, ), GET, queryParams = {
+            'oid' : self._manager._oid,
+        } )
     
     def migrate( self, extName ):
         return self._manager._apiCall( 'extension/migrate/%s' % ( extName, ), POST, {
