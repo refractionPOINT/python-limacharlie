@@ -463,6 +463,17 @@ class Sensor( object ):
 
         return data
 
+    def getEventByAtom( self, atom ):
+        '''Get an event by atom.
+
+        Args:
+            atom (string): atom to get the event of.
+
+        Returns:
+            Event.
+        '''
+        return self._manager._apiCall( 'insight/%s/%s/%s' % ( self._manager._oid, self.sid, atom ), GET )
+
     def delete( self ):
         '''Delete the sensor. It will not be able to connect to the cloud anymore, but will not be uninstalled.abs
         '''
