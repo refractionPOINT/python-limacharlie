@@ -6,6 +6,7 @@ import cmd
 import atexit
 import sys
 import shutil
+from collections import OrderedDict
 try:
     import pydoc
 except:
@@ -289,9 +290,17 @@ class LCQuery( cmd.Cmd ):
         data = []
 
         for event in elem:
-            item = {}
-            for key, value in event.items():
-                item[key] = self._formatCol(value)
+            # Ensure ts, routing, event ctable column ordering for events
+            is_event = "ts" in event and "routing" in event and "event" in event
+
+            if is_event:
+                item = OrderedDict()
+                item['ts'] = self._formatVal( event['ts'] )
+                item['routing'] = self._formatVal( event['routing'] )
+                item['event'] = self._formatVal( event['event'] )
+            else:
+                for key, value in event.items():
+                    item[key] = self._formatCol(value)
             data.append(item)
 
         return tabulate( data, headers = 'keys', tablefmt = 'grid' )
