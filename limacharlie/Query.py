@@ -3,6 +3,7 @@ from functools import wraps
 from . import Manager
 from .Replay import Replay
 import cmd
+import atexit
 import sys
 import shutil
 try:
@@ -157,14 +158,20 @@ class LCQuery( cmd.Cmd ):
         self._populateSchema()
         self._setPrompt()
 
+        # Ensure it's called even if user exist with CTRL+C and similar - as such, we use atexit
+        # handler instead of postloop which is only called on quit command.
+        atexit.register(self.saveHistory)
+
     def preloop( self ):
         if readline and os.path.exists( self._histfile ):
             readline.read_history_file( self._histfile )
 
-    def postloop( self ):
+    def saveHistory( self ):
+        """
+        Save interactive prompt history to a history file on disk.
+        """
         if readline:
             readline.set_history_length( self._histfile_size )
-            # TODO: Support mering multiple histories together
             readline.write_history_file( self._histfile )
             # Ensure secure permissions, there is a small race, but we can fix this later
             os.chmod(self._histfile, 0o600)
