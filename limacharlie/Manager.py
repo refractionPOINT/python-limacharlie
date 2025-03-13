@@ -200,7 +200,12 @@ class Manager( object ):
             except:
                 ret = ( e.getcode(), errorBody )
 
-        self._printDebug( "%s: %s ( %s ) ==> %s ( %s )" % ( verb, url, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
+        if rawBody:
+            body = rawBody.decode("utf-8")
+        else:
+            body = rawBody
+
+        self._printDebug( "%s: %s ( params=%s,body=%s ) ==> %s ( %s )" % ( verb, url, body, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
 
         return ret
 
