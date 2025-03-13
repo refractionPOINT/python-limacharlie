@@ -19,7 +19,6 @@ else:
     from urllib.parse import quote as urlescape
 
 import uuid
-import json
 import traceback
 import cmd
 import zlib
@@ -33,6 +32,7 @@ from .utils import LcApiException
 from .utils import GET
 from .utils import POST
 from .utils import DELETE
+from . import json_utils as json
 
 from .Jobs import Job
 
