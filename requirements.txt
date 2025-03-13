@@ -3,3 +3,4 @@ passlib
 pyyaml
 tabulate
 orjson
+pygments

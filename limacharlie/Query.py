@@ -1,9 +1,9 @@
 from functools import cache
 from . import Manager
 from .Replay import Replay
-import json
 import cmd
 import sys
+import shutil
 try:
     import pydoc
 except:
@@ -17,6 +17,9 @@ except ImportError:
     readline = None
 
 from .utils import Spinner
+from . import json_utils as json
+from .term_utils import useColors, prettyFormatDict
+
 
 def main( sourceArgs = None ):
     import argparse
@@ -97,7 +100,7 @@ def main( sourceArgs = None ):
 
     for result in response[ 'results' ]:
         if args.isPretty:
-            print( json.dumps( result[ 'data' ], indent = 2 ) )
+            print(prettyFormatDict(result[ 'data' ]))
         else:
             print( json.dumps( result[ 'data' ] ) )
 
@@ -137,6 +140,7 @@ class LCQuery( cmd.Cmd ):
     def postloop( self ):
         if readline:
             readline.set_history_length( self._histfile_size )
+            # TODO: Support mering multiple histories together
             readline.write_history_file( self._histfile )
             # Ensure secure permissions, there is a small race, but we can fix this later
             os.chmod(self._histfile, 0o600)
@@ -241,6 +245,9 @@ class LCQuery( cmd.Cmd ):
             if pydoc is None:
                 self._logOutput( self._renderTable( toRender ) )
             else:
+                # Ensure ANSI escape codes are preserved by setting the pager appropriately.
+                if shutil.which('less') and not os.environ.get('PAGER'):
+                    os.environ['PAGER'] = 'less -R'
                 dat = self._renderTable( toRender )
                 self._logOutput( dat, isNoPrint = True )
                 pydoc.pager( dat )
@@ -248,12 +255,25 @@ class LCQuery( cmd.Cmd ):
             self._logOutput( 'unknown format' )
 
     def _renderTable( self, elem ):
-        return tabulate( ( { k: self._formatCol( v ) for k, v in e.items() } for e in elem ), headers = 'keys', tablefmt = 'grid' )
+        data = []
+
+        for event in elem:
+            item = {}
+            for key, value in event.items():
+                item[key] = self._formatCol(value)
+            data.append(item)
+
+        return tabulate( data, headers = 'keys', tablefmt = 'grid' )
 
     def _formatCol( self, col ):
         if isinstance( col, dict ):
-            return json.dumps( col, indent = 2 )
+            return prettyFormatDict(col, indent = 2)
         return col
+    
+    def _formatVal ( self, val ):
+        if isinstance( val , dict ):
+            return prettyFormatDict( val )
+        return val
 
     def do_n( self, inp ):
         '''Fetch the Next page of results.'''
