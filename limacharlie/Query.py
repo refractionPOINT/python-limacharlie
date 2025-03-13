@@ -138,6 +138,8 @@ class LCQuery( cmd.Cmd ):
         if readline:
             readline.set_history_length( self._histfile_size )
             readline.write_history_file( self._histfile )
+            # Ensure secure permissions, there is a small race, but we can fix this later
+            os.chmod(self._histfile, 0o600)
 
     def precmd( self, inp ):
         self._logOutput( inp, isNoPrint = True )
