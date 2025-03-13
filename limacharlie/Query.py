@@ -90,6 +90,11 @@ def main( sourceArgs = None ):
     if error:
         print( "ERROR: %s" % ( error, ) )
         return
+    
+    if not response[ 'results' ]:
+        print( f"No results found matching query: {args.query}" )
+        return
+
     for result in response[ 'results' ]:
         if args.isPretty:
             print( json.dumps( result[ 'data' ], indent = 2 ) )
