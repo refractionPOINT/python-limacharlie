@@ -391,12 +391,18 @@ def cli(args):
 def main():
     args = sys.argv
 
-    # Hack since we don't have access to parsed args here and parsing
-    # itself may fail
+    # Hack since we don't have access to parsed args here and parsing itself may fail
     debug_mode = False
     if "--debug" in args:
         debug_mode = True
         args.remove("--debug")
+
+    # TODO: Should --debug also just imply debug-request so we don't need two flags?
+    if "--debug-request" in args:
+        args.remove("--debug-request")
+        from .Manager import set_default_print_debug_fn
+        set_default_print_debug_fn(lambda x: print(x, file=sys.stderr))
+
 
     try:
         cli(args)
@@ -404,7 +410,7 @@ def main():
         print("Error:", e,file=sys.stderr)
 
         if debug_mode:
-            print(traceback.format_exc(),file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
 
         return 1
 

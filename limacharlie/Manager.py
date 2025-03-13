@@ -1,6 +1,7 @@
 # Detect if this is Python 2 or 3
 import sys
 import os
+import shlex
 _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
@@ -24,6 +25,7 @@ import cmd
 import zlib
 import base64
 import time
+from datetime import datetime, timezone
 from functools import wraps
 
 from .Sensor import Sensor
@@ -51,6 +53,20 @@ HTTP_TOO_MANY_REQUESTS = 429
 HTTP_GATEWAY_TIMEOUT = 504
 HTTP_OK = 200
 
+# Default function to call with debug messages.
+DEFAULT_PRINT_DEBUG_FN = None
+
+def set_default_print_debug_fn( fn ):
+    """
+    Set a default function to call with debug messages.
+
+    Args:
+        fn (function): the function to call with debug messages.
+    """
+    global DEFAULT_PRINT_DEBUG_FN
+    DEFAULT_PRINT_DEBUG_FN = fn
+
+
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
@@ -70,6 +86,8 @@ class Manager( object ):
             onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
             isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
         '''
+        print_debug_fn = print_debug_fn or DEFAULT_PRINT_DEBUG_FN
+
         # If an environment is specified, try to get its creds.
         if environment is not None:
             oid, uid, secret_api_key = _getEnvironmentCreds( environment )
@@ -133,7 +151,8 @@ class Manager( object ):
 
     def _printDebug( self, msg ):
         if self._debug is not None:
-            self._debug( msg )
+            time_string = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+            self._debug( f"{time_string}: {msg}" )
 
     def _refreshJWT( self, expiry = None ):
         try:
@@ -205,9 +224,46 @@ class Manager( object ):
         else:
             body = rawBody
 
+        self._printDebug("Request information:")
         self._printDebug( "%s: %s ( params=%s,body=%s ) ==> %s ( %s )" % ( verb, url, body, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
+        self._printDebug("cURL command:")
+        self._printDebug(self._getCurlCommandString(request=request))
 
         return ret
+    
+    def _getCurlCommandString(self, request: URLRequest):
+        """
+        Budl cURL command string for a specific request to aid with debugging.
+
+        Args:
+            request: The request object to build the cURL command from.
+        """
+        parts = ["curl"]
+
+        # Determine HTTP method (default to GET if not available)
+        method = request.get_method() if hasattr(request, "get_method") else "GET"
+        parts.extend(["-X", shlex.quote(method)])
+
+        # Extract and add headers from the request.
+        # request.header_items() returns a list of (header, value) pairs.
+        if hasattr(request, "header_items"):
+            for header, value in request.header_items():
+                parts.extend(["-H", shlex.quote(f"{header}: {value}")])
+
+        # If there's a data payload, add it.
+        if request.data:
+            try:
+                data_str = request.data.decode("utf-8")
+            except Exception:
+                data_str = str(request.data)
+            parts.extend(["-d", shlex.quote(data_str)])
+
+        # Append the URL. Use get_full_url() if available.
+        url = request.get_full_url() if hasattr(request, "get_full_url") else request.full_url
+        parts.append(shlex.quote(url))
+
+        # Join the parts into a single string command.
+        return " ".join(parts)
 
     # TODO: Fix mutable default (dict) in params
     def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, nMaxTotalRetries = 3, timeout = 60 * 10 ):
