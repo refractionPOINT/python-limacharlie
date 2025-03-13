@@ -1,4 +1,5 @@
 from functools import cache
+from functools import wraps
 from . import Manager
 from .Replay import Replay
 import cmd
@@ -103,6 +104,29 @@ def main( sourceArgs = None ):
             print(prettyFormatDict(result[ 'data' ]))
         else:
             print( json.dumps( result[ 'data' ] ) )
+
+
+def requireIntValue(command_name: str):
+    """
+    Decorator which can be wrapped around do_set_xxx functions which require interger values.
+
+    It ensures the provided input is an integer, otherwise it logs an error.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(self, inp, *args, **kwargs):
+            if inp is None:
+                print(f"Error: {command_name} requires an integer value.", file=sys.stderr)
+                return None
+            try:
+                inp = int(inp)
+            except ValueError:
+                print(f"Error: {command_name} requires an integer value.", file=sys.stderr)
+                return None
+            return func(self, inp, *args, **kwargs)
+        return wrapper
+    return decorator
+
 
 class LCQuery( cmd.Cmd ):
     def __init__( self, replay, format, outFile ):
@@ -407,11 +431,13 @@ class LCQuery( cmd.Cmd ):
                     self._schema.update( ( e[ 2 : ] for e in self._replay._lc.getSchema( f"evt:{evt}" )[ 'schema' ][ 'elements' ] ) )
         print( "" )
 
+    @requireIntValue("set_limit_event")
     def do_set_limit_event( self, inp ):
         '''Set the aproximate maximum number of events processed per request, like "1000"'''
         self._limitEvent = int(inp)
         self._setPrompt()
 
+    @requireIntValue("set_limit_eval")
     def do_set_limit_eval( self, inp ):
         '''Set the aproximate maximum number of evaluations per request, like "20000"'''
         self._limitEval = int(inp)
