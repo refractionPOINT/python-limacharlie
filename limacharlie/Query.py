@@ -303,7 +303,7 @@ class LCQuery( cmd.Cmd ):
                     item[key] = self._formatCol(value)
             data.append(item)
 
-        return tabulate( data, headers = 'keys', tablefmt = 'grid' )
+        return tabulate( data, headers = 'keys', tablefmt = 'grid', maxcolwidths=[None, None, None] )
 
     def _formatCol( self, col ):
         if isinstance( col, dict ):
