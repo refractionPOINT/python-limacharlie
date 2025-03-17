@@ -9,10 +9,17 @@ import time
 import sys
 
 class queryContext( object ):
-    def __init__( self, replay, req ):
+    def __init__( self, replay, req, forceUrl = None ):
         self._req = req
         self._replay = replay
+        self._forceUrl = forceUrl
         self.hasMore = True
+
+        if self._forceUrl:
+            self._altRoot = self._forceUrl
+        else:
+            self._altRoot = 'https://%s/' % ( self._replay._replayURL, )
+
 
     def next( self ):
         if self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] is None:
@@ -20,7 +27,7 @@ class queryContext( object ):
         resp = self._replay._lc._apiCall( '',
                                           'POST',
                                           {},
-                                          altRoot = 'https://%s/' % ( self._replay._replayURL, ),
+                                          altRoot = self._altRoot,
                                           rawBody = json.dumps( self._req ).encode(),
                                           contentType = 'application/json' )
         cursor = resp.get( 'cursor', None )
@@ -47,7 +54,8 @@ class Replay( object ):
         self._lc = manager
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
-    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False, stream = 'event' ):
+    def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False, stream = 'event',
+                  includeStats = False, forceUrl = None ):
         if not query:
             raise LcApiException( 'no query specified' )
 
@@ -65,10 +73,14 @@ class Replay( object ):
             },
         }
 
-        if not isCursorBased:
-            return queryContext( self, req ).next()
+        if includeStats:
+            req[ 'include_histogram' ] = True
+            req[ 'include_facets' ] = True
 
-        return queryContext( self, req )
+        if not isCursorBased:
+            return queryContext( self, req, forceUrl = forceUrl ).next()
+
+        return queryContext( self, req, forceUrl = forceUrl )
 
     def _scanHistoricalSensor( self, sid = None, startTime = None, endTime = None, events = None, ruleName = None, namespace = None, ruleContent = None, isRunTrace = False, isStateful = None, limitEvent = None, limitEval = None, isDryRun = False, stream = 'event' ):
         resp = None

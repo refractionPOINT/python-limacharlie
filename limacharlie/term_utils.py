@@ -2,6 +2,11 @@ import os
 import sys
 
 from pygments import highlight, lexers, formatters
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.bar import Bar
+from rich.align import Align
 
 from . import json_utils as json
 
@@ -44,3 +49,75 @@ def prettyFormatDict(data: dict, use_colors: bool = None, indent: int = 2) -> st
         result = formatted_json
 
     return result
+
+def printFacets(facets: dict) -> None:
+    """
+    Prints facets in a formatted manner, for example:
+
+    * routing.event_type:
+      - NEW_PROCESS: 3
+    * event.COMMAND_LINE:
+      - taskhostw.exe: 2
+      - taskhostw.exe is evil: 1
+
+    TODO:
+        - Limit total number of facets printed.
+        - Limit total number of values printed for each facet.
+    """
+    console = Console()
+
+    console.print("[bold cyan]Facets[/bold cyan]\n")
+
+    if not facets:
+        console.print("[bold red]No facets available.[/bold red]")
+        return
+
+    for facet, values in facets.items():
+        console.print(f"* {facet}:")
+        for key, count in values.items():
+            console.print(f"  - {key}: {count}")
+
+    console.print("")
+
+
+def printHistogram(hist_data, col_width=25):
+    """
+    Prints a histogram where timestamps are displayed on the left and bars are represented by # symbols.
+    """
+    console = Console()
+    console.print("[bold cyan]Histogram[/bold cyan]\n")
+
+    if not hist_data:
+        print("No histogram data available.")
+        return
+    
+    max_count = max(hist_data.values())
+
+        # Sort the keys for consistent ordering.
+    keys = sorted(hist_data.keys())
+    max_count = max(hist_data.values())
+
+    # Build and print each row from max_count down to 1.
+    for level in range(max_count, 0, -1):
+        row_str = ""
+        for key in keys:
+            if hist_data[key] >= level:
+                row_str += " " + "█".center(col_width) + " "
+            else:
+                row_str += " " + " ".center(col_width) + " "
+        console.print(row_str)
+
+    # Print a separator line.
+    separator = ""
+    for _ in keys:
+        separator += " " + ("-" * col_width).center(col_width) + " "
+    console.print(separator)
+
+    # Print the labels centered under each column.
+    label_str = ""
+    for key in keys:
+        # If the key is longer than col_width, truncate it.
+        label = key if len(key) <= col_width else key[:col_width]
+        label = f"{label} ({hist_data[key]})"
+        label_str += " " + label.center(col_width) + " "
+    console.print(label_str)

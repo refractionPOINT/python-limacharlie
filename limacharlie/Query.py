@@ -22,6 +22,7 @@ except ImportError:
 from .utils import Spinner
 from . import json_utils as json
 from .term_utils import useColors, prettyFormatDict
+from .term_utils import printFacets, printHistogram
 
 
 def main( sourceArgs = None ):
@@ -78,6 +79,20 @@ def main( sourceArgs = None ):
                          dest = 'outFile',
                          help = 'in interactive mode, output log to this file.' )
 
+    parser.add_argument( '--force-replay-url',
+                         default = None,
+                         required = False,
+                         dest = 'forceReplayUrl',
+                         help = 'force use a specific replay instance url' )
+
+    parser.add_argument( '--labs',
+                         action = 'store_true',
+                         default = None,
+                         required = False,
+                         dest = 'enableLabs',
+                         help = 'enable labs / experimental features.' )
+
+
     args = parser.parse_args( sourceArgs )
 
     replay = Replay( Manager() )
@@ -85,12 +100,18 @@ def main( sourceArgs = None ):
     if not args.query:
         LCQuery( replay, args.format, args.outFile ).cmdloop()
         return
+    
+    if args.forceReplayUrl:
+        print("Using Replay URL: %s" % ( args.forceReplayUrl, ) )
 
     response = replay._doQuery( args.query,
                                 limitEvent = args.limitEvent,
                                 limitEval = args.limitEval,
                                 isDryRun = args.isDryRun,
-                                isCursorBased = False )
+                                isCursorBased = False,
+                                includeStats = args.enableLabs,
+                                forceUrl = args.forceReplayUrl,
+                )
 
     error = response.get( 'error', None )
     if error:
@@ -100,6 +121,16 @@ def main( sourceArgs = None ):
     if not response[ 'results' ]:
         print( f"No results found matching query: {args.query}" )
         return
+
+    histogram = response.get("histogram")
+    facets = response.get("facets")
+
+    if args.enableLabs and histogram:
+        printHistogram(histogram)
+        print("")
+
+    if args.enableLabs and facets:
+        printFacets(facets)
 
     for result in response[ 'results' ]:
         if args.isPretty:
