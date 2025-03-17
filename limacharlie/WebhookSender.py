@@ -3,6 +3,8 @@ import gzip
 import requests
 from urllib.parse import quote
 
+from . import __version__
+
 class WebhookSender(object):
     def __init__(self, manager, hook_name, secret_value):
         self._manager = manager
@@ -21,7 +23,7 @@ class WebhookSender(object):
             headers = {
                 "Content-Type": "application/json",
                 "Content-Encoding": "gzip",
-                "User-Agent": "lc-sdk-webhook"
+                "User-Agent": "lc-sdk-webhook/%s" % (__version__)
             }
             response = self.client.post(self.url, data=b, headers=headers)
         except Exception as e:

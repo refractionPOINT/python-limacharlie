@@ -38,6 +38,7 @@ from . import json_utils as json
 from .request_utils import getCurlCommandString
 
 from .Jobs import Job
+from . import __version__
 
 from limacharlie import GLOBAL_OID
 from limacharlie import GLOBAL_UID
@@ -199,7 +200,7 @@ class Manager( object ):
                                   rawBody if rawBody is not None else urlencode( params, doseq = True ).encode(),
                                   headers = headers )
             request.get_method = lambda: verb
-            request.add_header( 'User-Agent', 'lc-py-api' )
+            request.add_header( 'User-Agent', 'lc-py-api/%s' % (__version__) )
             if contentType is not None:
                 request.add_header( 'Content-Type', contentType )
             u = urlopen( request, timeout = timeout )
