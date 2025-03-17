@@ -22,6 +22,8 @@
   for colors in the interactive and non-interactive mode when using `--pretty`
   flag.
 
+  Colors can use be disabled using `NO_COLOR=1` environment variable.
+
 - The library now depenends on two additional dependencies - `pygments` and
   `orjson`.
 
