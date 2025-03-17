@@ -191,7 +191,10 @@ class Manager( object ):
             if altRoot is None:
                 url = '%s/%s/%s' % ( ROOT_URL, API_VERSION, url )
             else:
-                url = '%s/%s' % ( altRoot, url )
+                if url:
+                    url = '%s/%s' % ( altRoot, url )
+                else:
+                    url = altRoot
 
             if queryParams is not None:
                 url = '%s?%s' % ( url, urlencode( queryParams ) )
