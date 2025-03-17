@@ -35,6 +35,7 @@ from .utils import GET
 from .utils import POST
 from .utils import DELETE
 from . import json_utils as json
+from .request_utils import getCurlCommandString
 
 from .Jobs import Job
 
@@ -227,43 +228,9 @@ class Manager( object ):
         self._printDebug("Request information:")
         self._printDebug( "%s: %s ( params=%s,body=%s ) ==> %s ( %s )" % ( verb, url, body, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
         self._printDebug("cURL command:")
-        self._printDebug(self._getCurlCommandString(request=request))
+        self._printDebug(getCurlCommandString(request=request))
 
         return ret
-    
-    def _getCurlCommandString(self, request: URLRequest):
-        """
-        Budl cURL command string for a specific request to aid with debugging.
-
-        Args:
-            request: The request object to build the cURL command from.
-        """
-        parts = ["curl"]
-
-        # Determine HTTP method (default to GET if not available)
-        method = request.get_method() if hasattr(request, "get_method") else "GET"
-        parts.extend(["-X", shlex.quote(method)])
-
-        # Extract and add headers from the request.
-        # request.header_items() returns a list of (header, value) pairs.
-        if hasattr(request, "header_items"):
-            for header, value in request.header_items():
-                parts.extend(["-H", shlex.quote(f"{header}: {value}")])
-
-        # If there's a data payload, add it.
-        if request.data:
-            try:
-                data_str = request.data.decode("utf-8")
-            except Exception:
-                data_str = str(request.data)
-            parts.extend(["-d", shlex.quote(data_str)])
-
-        # Append the URL. Use get_full_url() if available.
-        url = request.get_full_url() if hasattr(request, "get_full_url") else request.full_url
-        parts.append(shlex.quote(url))
-
-        # Join the parts into a single string command.
-        return " ".join(parts)
 
     # TODO: Fix mutable default (dict) in params
     def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, nMaxTotalRetries = 3, timeout = 60 * 10 ):
