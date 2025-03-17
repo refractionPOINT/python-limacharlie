@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.9.17 - TBD
+
+- Add new general `--debug-request` CLI flag.
+
+  When this flag is used, CLI will output additional debugging information,
+  including cURL commands which can be used to reproduce underlying requests
+  made by the CLI.
+
+  Keep in mind that this output can contain secrets (JWT authentication token)
+  so be careful how you use it and where and how you share the output of the
+  command when this flag is used.
+
+  Example usage:
+
+  ```bash
+  limacharlie --debug-request query  --query "-1m | plat == linux | * | event/DOMAIN_NAME contains 'akamai'"  --pretty
+  ```
+
+- Various improvements in the `limacharlie query` command, including support
+  for colors in the interactive and non-interactive mode when using `--pretty`
+  flag.
+
+- The library now depenends on two additional dependencies - `pygments` and
+  `orjson`.
+
 ## 4.9.13 - February 24th, 2025
 
 - Fix Docker image build.
