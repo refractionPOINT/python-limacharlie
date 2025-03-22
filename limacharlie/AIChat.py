@@ -3,6 +3,8 @@ from . import Manager
 import json
 import cmd
 import os.path
+import threading
+import time
 try:
     import readline
 except ImportError:
@@ -51,14 +53,20 @@ class AIChat( cmd.Cmd ):
         self._outFile: Optional[str] = None
         self._isid: Optional[str] = isid
         self._agentName: Optional[str] = agentName
+        self._knownIDs: set[str] = set()
         self._console = Console()  # Rich console for nice output
         self.should_exit = False
+        self._polling_thread: Optional[threading.Thread] = None
         if readline:
             readline.set_completer_delims( ' ' )
         super(AIChat, self).__init__()
         self._setPrompt()
+        
+        # If we have an ISID, start polling
+        if self._isid:
+            self._start_polling()
 
-    def onecmd(self, line):
+    def onecmd(self, line: str):
         """Override onecmd to check should_exit after each command."""
         super().onecmd(line)
         return self.should_exit
@@ -105,6 +113,38 @@ class AIChat( cmd.Cmd ):
                     border_style="yellow"
                 ))
 
+    def _poll_for_updates(self) -> None:
+        '''Poll for new interactions in a loop.'''
+        while not self.should_exit and self._isid:
+            try:
+                # Get the current session
+                resp: ExtensionResponse = self._lc.extensionRequest('ext-ai-agent-engine', 'get_session', {
+                    'isid': self._isid
+                })
+                
+                if 'data' in resp and 'session' in resp['data'] and 'history' in resp['data']['session']:
+                    # Get new interactions we haven't seen
+                    history = resp['data']['session']['history']
+                    new_interactions = [
+                        interaction for interaction in history 
+                        if 'id' in interaction and interaction['id'] not in self._knownIDs
+                    ]
+                    
+                    if new_interactions:
+                        self._outputInteractions(new_interactions)
+                
+            except Exception as e:
+                self._logOutput(f"Error polling for updates: {str(e)}", isError=True)
+            
+            # Sleep for a bit before next poll
+            time.sleep(5)
+
+    def _start_polling(self) -> None:
+        '''Start the polling thread.'''
+        if self._polling_thread is None:
+            self._polling_thread = threading.Thread(target=self._poll_for_updates, daemon=True)
+            self._polling_thread.start()
+
     def _handle_chat( self, inp: str ) -> bool:
         '''Send a message to the AI agent and display its response.
         
@@ -138,6 +178,8 @@ class AIChat( cmd.Cmd ):
             if 'isid' in resp:
                 self._isid = resp['isid']
                 self._setPrompt()
+                # Start polling now that we have an ISID
+                self._start_polling()
             
             # Display initial interactions
             if 'interactions' in resp:
@@ -180,6 +222,10 @@ class AIChat( cmd.Cmd ):
         return
 
     def _outputInteractions( self, toRender: List[Dict[str, Any]] ) -> None:
+        # Process all the interactions with IDs to records we've seen them
+        for d in toRender:
+            if d.get('id', None):
+                self._knownIDs.add(d['id'])
         # Filter out the interactions that don't have a "id" since it means they came from us.
         toRender = [ d for d in toRender if not d.get('user_interaction', None) ]
         for d in toRender:
@@ -193,7 +239,7 @@ class AIChat( cmd.Cmd ):
             elif "tool_results" in d:
                 # Render tool results as markdown
                 for tr in d['tool_results']:
-                    self._logOutput( f"Tool result: {tr['name']}({json.dumps(tr['result'])})", isMarkdown=True )
+                    self._logOutput( f"Tool result: {tr['name']}({json.dumps(tr['result'], indent=2)})", isMarkdown=False )
             else:
                 # For other interactions (like tool calls), show the raw JSON
                 self._logOutput( json.dumps( d, indent = 2 ) )
