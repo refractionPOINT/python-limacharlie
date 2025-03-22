@@ -37,14 +37,21 @@ def main( sourceArgs: list[str] | None = None ):
                          default = None,
                          help = 'name of the agent to use.' )
 
+    parser.add_argument( '--raw-tool-output',
+                         action = 'store_true',
+                         required = False,
+                         dest = 'rawToolOutput',
+                         default = False,
+                         help = 'display raw tool output instead of summaries.' )
+
     args = parser.parse_args( sourceArgs )
 
-    AIChat( Manager(), args.agentName, args.isid ).cmdloop()
+    AIChat( Manager(), args.agentName, args.isid, args.rawToolOutput ).cmdloop()
     return
 
 class AIChat( cmd.Cmd ):
-    def __init__( self, lc: Manager, agentName: str, isid: Optional[str] = None ):
-        self.intro = 'This LimaCharlie feature is in Beta, this capability requires the ext-ai-agent-engine extension to be installed.\nType /exit to quit.'
+    def __init__( self, lc: Manager, agentName: str, isid: Optional[str] = None, rawToolOutput: bool = False ):
+        self.intro = 'This LimaCharlie feature is in Beta, this capability requires the ext-ai-agent-engine extension to be installed.\nType /exit to quit.\nType /show_raw to toggle raw tool output display.'
         self._billed = 0
         self._histfile = os.path.expanduser( '~/.limacharlie_ai_chat_history' )
         self._histfile_size = 1000
@@ -57,6 +64,7 @@ class AIChat( cmd.Cmd ):
         self._console = Console()  # Rich console for nice output
         self.should_exit = False
         self._polling_thread: Optional[threading.Thread] = None
+        self._raw_tool_output: bool = rawToolOutput
         if readline:
             readline.set_completer_delims( ' ' )
         super(AIChat, self).__init__()
@@ -213,10 +221,20 @@ class AIChat( cmd.Cmd ):
         self.should_exit = True
         return True
 
+    def do_show_raw( self, inp: str ) -> bool:
+        '''Toggle raw tool output display.'''
+        self._raw_tool_output = not self._raw_tool_output
+        status = "enabled" if self._raw_tool_output else "disabled"
+        self._logOutput(f"Raw tool output display {status}", isMarkdown=False)
+        return False
+
     def default( self, line: str ) -> None:
-        '''Handle any input as a chat message unless it's /exit.'''
+        '''Handle any input as a chat message unless it's /exit or /show_raw.'''
         if line.strip() == '/exit':
             self.should_exit = True
+            return
+        if line.strip() == '/show_raw':
+            self.do_show_raw('')
             return
         self._handle_chat(line)
         return
@@ -237,9 +255,14 @@ class AIChat( cmd.Cmd ):
                 for fc in d['ai_function_call']:
                     self._logOutput( f"Calling function: {fc['name']}({json.dumps(fc['args'])})", isMarkdown=False )
             elif "tool_results" in d:
-                # Render tool results as markdown
+                # Render tool results based on raw output flag
                 for tr in d['tool_results']:
-                    self._logOutput( f"Tool result: {tr['name']}({json.dumps(tr['result'], indent=2)})", isMarkdown=False )
+                    if self._raw_tool_output:
+                        self._logOutput( f"Tool result: {tr['name']}({json.dumps(tr['result'], indent=2)})", isMarkdown=False )
+                    else:
+                        # Calculate size of result
+                        result_size = len(json.dumps(tr['result']))
+                        self._logOutput( f"Tool response for {tr['name']} (size: {result_size} bytes)", isMarkdown=False )
             else:
                 # For other interactions (like tool calls), show the raw JSON
                 self._logOutput( json.dumps( d, indent = 2 ) )
