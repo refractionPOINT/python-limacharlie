@@ -1,23 +1,17 @@
-from functools import cache
 from typing import Any, Dict, List, Optional
 from . import Manager
-from .Replay import Replay
 import json
 import cmd
-import sys
-try:
-    import pydoc
-except:
-    pydoc = None
-from tabulate import tabulate
-from termcolor import colored
 import os.path
 try:
     import readline
 except ImportError:
     readline = None
 
-from .utils import Spinner
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.text import Text
 
 # Type hint for extension request response
 ExtensionResponse = Dict[str, Any]
@@ -57,10 +51,17 @@ class AIChat( cmd.Cmd ):
         self._outFile: Optional[str] = None
         self._isid: Optional[str] = isid
         self._agentName: Optional[str] = agentName
+        self._console = Console()  # Rich console for nice output
+        self.should_exit = False
         if readline:
             readline.set_completer_delims( ' ' )
         super(AIChat, self).__init__()
         self._setPrompt()
+
+    def onecmd(self, line):
+        """Override onecmd to check should_exit after each command."""
+        super().onecmd(line)
+        return self.should_exit
 
     def preloop( self ):
         if readline and os.path.exists( self._histfile ):
@@ -72,11 +73,37 @@ class AIChat( cmd.Cmd ):
             readline.write_history_file( self._histfile )
 
     def precmd( self, line: str ):
-        self._logOutput( line, isNoPrint = True )
+        if line.strip() and not line.strip().startswith('/'):
+            # Only show user messages, not commands
+            self._console.print(Panel(
+                Text(line, style="bold white"),
+                title="[bold blue]User[/bold blue]",
+                border_style="blue"
+            ))
         return line
 
-    def _logOutput( self, output: str, isNoPrint: bool = False ):
-        print( output )
+    def _logOutput( self, output: str, isNoPrint: bool = False, isMarkdown: bool = False, isError: bool = False ):
+        if not isNoPrint:
+            if isError:
+                self._console.print(Panel(
+                    Text(output, style="bold red"),
+                    title="[bold red]Error[/bold red]",
+                    border_style="red"
+                ))
+            elif isMarkdown:
+                # Render markdown using rich inside a panel
+                self._console.print(Panel(
+                    Markdown(output),
+                    title="[bold green]AI Agent[/bold green]",
+                    border_style="green"
+                ))
+            else:
+                # For system messages or other non-markdown content
+                self._console.print(Panel(
+                    Text(output, style="bold yellow"),
+                    title="[bold yellow]System[/bold yellow]",
+                    border_style="yellow"
+                ))
 
     def _handle_chat( self, inp: str ) -> bool:
         '''Send a message to the AI agent and display its response.
@@ -116,7 +143,7 @@ class AIChat( cmd.Cmd ):
             if 'interactions' in resp:
                 self._outputInteractions(resp['interactions'])
             else:
-                self._logOutput( 'No interactions received from the agent:\n' + json.dumps( resp, indent = 2 ) )
+                self._logOutput( 'No interactions received from the agent:\n' + json.dumps( resp, indent = 2 ), isError=True )
         else:
             # We have an existing session, submit a user interaction
             request: Dict[str, Any] = {
@@ -135,33 +162,40 @@ class AIChat( cmd.Cmd ):
             if 'interactions' in resp:
                 self._outputInteractions(resp['interactions'])
             else:
-                self._logOutput( 'No interactions received from the agent:\n' + json.dumps( resp, indent = 2 ) )
+                self._logOutput( 'No interactions received from the agent:\n' + json.dumps( resp, indent = 2 ), isError=True )
 
         return False
 
-    def do_exit( self, inp: str ) -> bool:
-        '''Exit the chat session.'''
-        return False  # Not used anymore
-
     def do_slash_exit( self, inp: str ) -> bool:
         '''Exit the chat session.'''
+        self.should_exit = True
         return True
 
     def default( self, line: str ) -> None:
         '''Handle any input as a chat message unless it's /exit.'''
         if line.strip() == '/exit':
-            self.stop = True  # This is how cmd.Cmd handles stopping
+            self.should_exit = True
             return
         self._handle_chat(line)
         return
 
     def _outputInteractions( self, toRender: List[Dict[str, Any]] ) -> None:
         # Filter out the interactions that don't have a "id" since it means they came from us.
-        toRender = [ d for d in toRender if d.get('id', None) ]
+        toRender = [ d for d in toRender if not d.get('user_interaction', None) ]
         for d in toRender:
             if "ai_interaction" in d:
-                self._logOutput( d['ai_interaction']['msg'] )
+                # Render AI messages as markdown
+                self._logOutput( d['ai_interaction']['msg'], isMarkdown=True )
+            elif "ai_function_call" in d:
+                # Render tool calls as markdown
+                for fc in d['ai_function_call']:
+                    self._logOutput( f"Calling function: {fc['name']}({json.dumps(fc['args'])})", isMarkdown=False )
+            elif "tool_results" in d:
+                # Render tool results as markdown
+                for tr in d['tool_results']:
+                    self._logOutput( f"Tool result: {tr['name']}({json.dumps(tr['result'])})", isMarkdown=True )
             else:
+                # For other interactions (like tool calls), show the raw JSON
                 self._logOutput( json.dumps( d, indent = 2 ) )
 
     def _setPrompt( self ):
