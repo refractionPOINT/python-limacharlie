@@ -127,7 +127,8 @@ class AIChat( cmd.Cmd ):
             try:
                 # Get the current session
                 resp: ExtensionResponse = self._lc.extensionRequest('ext-ai-agent-engine', 'get_session', {
-                    'isid': self._isid
+                    'isid': self._isid,
+                    'excluding_interactions': list(self._knownIDs),
                 })
                 
                 if 'data' in resp and 'session' in resp['data'] and 'history' in resp['data']['session']:
