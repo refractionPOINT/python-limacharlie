@@ -1,9 +1,8 @@
 import os
 import sys
+import json
 
 from pygments import highlight, lexers, formatters
-
-from . import json_utils as json
 
 
 def useColors():

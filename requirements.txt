@@ -2,5 +2,4 @@ requests
 passlib
 pyyaml
 tabulate
-orjson
 pygments

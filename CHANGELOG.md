@@ -24,8 +24,7 @@
 
   Colors can use be disabled using `NO_COLOR=1` environment variable.
 
-- The library now depenends on two additional dependencies - `pygments` and
-  `orjson`.
+- The library now depenends on one additional dependency - `pygments`
 
 ## 4.9.13 - February 24th, 2025
 

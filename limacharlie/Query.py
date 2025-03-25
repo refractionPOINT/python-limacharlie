@@ -6,6 +6,7 @@ import cmd
 import atexit
 import sys
 import shutil
+import json
 from collections import OrderedDict
 try:
     import pydoc
@@ -20,7 +21,6 @@ except ImportError:
     readline = None
 
 from .utils import Spinner
-from . import json_utils as json
 from .term_utils import useColors, prettyFormatDict
 
 

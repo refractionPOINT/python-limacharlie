@@ -25,6 +25,7 @@ import cmd
 import zlib
 import base64
 import time
+import json
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -34,7 +35,6 @@ from .utils import LcApiException
 from .utils import GET
 from .utils import POST
 from .utils import DELETE
-from . import json_utils as json
 from .request_utils import getCurlCommandString
 
 from .Jobs import Job
