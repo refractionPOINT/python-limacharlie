@@ -2,7 +2,12 @@ import os
 import sys
 import json
 
-from pygments import highlight, lexers, formatters
+try:
+    from pygments import highlight, lexers, formatters
+    has_pygments = True
+except ImportError:
+    has_pygments = False
+    highlight, lexers, formatters = None, None, None
 
 
 def useColors():
@@ -37,7 +42,7 @@ def prettyFormatDict(data: dict, use_colors: bool = None, indent: int = 2) -> st
     formatted_json = json.dumps(data, sort_keys=True, indent=indent)
 
     use_colors = (use_colors if use_colors is not None else useColors())
-    if use_colors:
+    if use_colors and has_pygments:
         result = highlight(formatted_json, lexers.JsonLexer(), formatters.TerminalFormatter())
     else:
         result = formatted_json
