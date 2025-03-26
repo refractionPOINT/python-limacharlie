@@ -20,7 +20,7 @@ except ImportError:
 
 
 class ConsoleFallback:
-    def print(message: str) -> None:
+    def print(self, message: str) -> None:
         """
         Fallback to the basic print function if rich is not available.
 
@@ -44,7 +44,7 @@ def printFacets(facets: dict) -> None:
          - Limit total number of facets printed.
          - Limit total number of values printed for each facet.
      """
-     console = Console() if has_rich else ConsoleFallback
+     console = Console() if has_rich else ConsoleFallback()
 
      console.print("[bold cyan]Facets[/bold cyan]\n")
 
@@ -64,7 +64,7 @@ def printHistogram(hist_data, col_width=25):
      """
      Prints a histogram where timestamps are displayed on the left and bars are represented by # symbols.
      """
-     console = Console() if has_rich else ConsoleFallback
+     console = Console() if has_rich else ConsoleFallback()
      console.print("[bold cyan]Histogram[/bold cyan]\n")
 
      if not hist_data:
