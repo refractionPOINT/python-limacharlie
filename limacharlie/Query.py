@@ -346,11 +346,6 @@ class LCQuery( cmd.Cmd ):
             return prettyFormatDict( val )
         return val
 
-    def _formatVal ( self, val ):
-        if isinstance( val , dict ):
-            return prettyFormatDict( val )
-        return val
-
     def do_n( self, inp ):
         '''Fetch the Next page of results.'''
         if self._q is None:
