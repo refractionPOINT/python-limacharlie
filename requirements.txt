@@ -2,4 +2,5 @@ requests
 passlib
 pyyaml
 tabulate
+termcolor
 pygments
