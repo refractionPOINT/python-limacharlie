@@ -71,9 +71,7 @@ def printHistogram(hist_data, col_width=25):
          print("No histogram data available.")
          return
 
-     max_count = max(hist_data.values())
-
-         # Sort the keys for consistent ordering.
+    # Sort the keys for consistent ordering.
      keys = sorted(hist_data.keys())
      max_count = max(hist_data.values())
 
