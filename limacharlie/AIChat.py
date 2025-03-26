@@ -53,6 +53,7 @@ class AIChat( cmd.Cmd ):
     def __init__( self, lc: Manager, agentName: str, isid: Optional[str] = None, rawToolOutput: bool = False ):
         self.intro = 'This LimaCharlie feature is in Beta, this capability requires the ext-ai-agent-engine extension to be installed.\nType /exit to quit.\nType /show_raw to toggle raw tool output display.'
         self._billed = 0
+        self._total_tokens = 0
         self._histfile = os.path.expanduser( '~/.limacharlie_ai_chat_history' )
         self._histfile_size = 1000
         self._lc = lc
@@ -131,16 +132,23 @@ class AIChat( cmd.Cmd ):
                     'excluding_interactions': list(self._knownIDs),
                 })
                 
-                if 'data' in resp and 'session' in resp['data'] and 'history' in resp['data']['session']:
-                    # Get new interactions we haven't seen
-                    history = resp['data']['session']['history']
-                    new_interactions = [
-                        interaction for interaction in history 
-                        if 'id' in interaction and interaction['id'] not in self._knownIDs
-                    ]
+                if 'data' in resp and 'session' in resp['data']:
+                    session = resp['data']['session']
+                    # Update total tokens if available
+                    if 'total_tokens' in session:
+                        self._total_tokens = session['total_tokens']
+                        self._setPrompt()
                     
-                    if new_interactions:
-                        self._outputInteractions(new_interactions)
+                    if 'history' in session:
+                        # Get new interactions we haven't seen
+                        history = session['history']
+                        new_interactions = [
+                            interaction for interaction in history 
+                            if 'id' in interaction and interaction['id'] not in self._knownIDs
+                        ]
+
+                        if new_interactions:
+                            self._outputInteractions(new_interactions)
                 
             except Exception as e:
                 self._logOutput(f"Error polling for updates: {str(e)}", isError=True)
@@ -269,7 +277,7 @@ class AIChat( cmd.Cmd ):
                 self._logOutput( json.dumps( d, indent = 2 ) )
 
     def _setPrompt( self ):
-        self.prompt = f"ISID {self._isid} | Agent {self._agentName} | > "
+        self.prompt = f"ISID {self._isid} | Agent {self._agentName} | Tokens {self._total_tokens:,d} | > "
 
     def emptyline(self):
          return False
