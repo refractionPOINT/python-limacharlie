@@ -293,8 +293,9 @@ class LCQuery( cmd.Cmd ):
             # Ensure ts, routing, event ctable column ordering for events
             is_event = "ts" in event and "routing" in event and "event" in event
 
+            item = OrderedDict()
+
             if is_event:
-                item = OrderedDict()
                 item['ts'] = self._formatVal( event['ts'] )
                 item['routing'] = self._formatVal( event['routing'] )
                 item['event'] = self._formatVal( event['event'] )
