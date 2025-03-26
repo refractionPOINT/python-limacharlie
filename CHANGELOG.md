@@ -70,19 +70,19 @@
   **Example usage**
 
   Invite a single user:
-  
+
   ```bash
   $ limacharlie users invite --email=test1@example.com
   ```
 
   Invite multiple users:
-  
+
   ```bash
   $ limacharlie users invite --email=test1@example.com,test@example.com
   ```
 
   Invite multiple users (new line delimited entries in a file):
-  
+
   ```
   $ cat users_to_invite.txt
   tomaz+test1@example.com

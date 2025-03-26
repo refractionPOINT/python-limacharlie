@@ -21,7 +21,7 @@ except ImportError:
     readline = None
 
 from .utils import Spinner
-from .term_utils import useColors, prettyFormatDict
+from .term_utils import prettyFormatDict
 from .term_utils import printFacets, printHistogram
 
 
@@ -117,7 +117,6 @@ def main( sourceArgs = None ):
     if error:
         print( "ERROR: %s" % ( error, ) )
         return
-
     if not response[ 'results' ]:
         print( f"No results found matching query: {args.query}" )
         return
@@ -341,6 +340,11 @@ class LCQuery( cmd.Cmd ):
         if isinstance( col, dict ):
             return prettyFormatDict(col, indent = 2)
         return col
+
+    def _formatVal ( self, val ):
+        if isinstance( val , dict ):
+            return prettyFormatDict( val )
+        return val
 
     def _formatVal ( self, val ):
         if isinstance( val , dict ):
