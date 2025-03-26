@@ -1,9 +1,13 @@
 from functools import cache
+from functools import wraps
 from . import Manager
 from .Replay import Replay
-import json
 import cmd
+import atexit
 import sys
+import shutil
+import json
+from collections import OrderedDict
 try:
     import pydoc
 except:
@@ -17,6 +21,8 @@ except ImportError:
     readline = None
 
 from .utils import Spinner
+from .term_utils import useColors, prettyFormatDict
+
 
 def main( sourceArgs = None ):
     import argparse
@@ -90,11 +96,39 @@ def main( sourceArgs = None ):
     if error:
         print( "ERROR: %s" % ( error, ) )
         return
+    
+    if not response[ 'results' ]:
+        print( f"No results found matching query: {args.query}" )
+        return
+
     for result in response[ 'results' ]:
         if args.isPretty:
-            print( json.dumps( result[ 'data' ], indent = 2 ) )
+            print(prettyFormatDict(result[ 'data' ]))
         else:
             print( json.dumps( result[ 'data' ] ) )
+
+
+def requireIntValue(command_name: str):
+    """
+    Decorator which can be wrapped around do_set_xxx functions which require interger values.
+
+    It ensures the provided input is an integer, otherwise it logs an error.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(self, inp, *args, **kwargs):
+            if inp is None:
+                print(f"Error: {command_name} requires an integer value.", file=sys.stderr)
+                return None
+            try:
+                inp = int(inp)
+            except ValueError:
+                print(f"Error: {command_name} requires an integer value.", file=sys.stderr)
+                return None
+            return func(self, inp, *args, **kwargs)
+        return wrapper
+    return decorator
+
 
 class LCQuery( cmd.Cmd ):
     def __init__( self, replay, format, outFile ):
@@ -125,14 +159,23 @@ class LCQuery( cmd.Cmd ):
         self._populateSchema()
         self._setPrompt()
 
+        # Ensure it's called even if user exist with CTRL+C and similar - as such, we use atexit
+        # handler instead of postloop which is only called on quit command.
+        atexit.register(self.saveHistory)
+
     def preloop( self ):
         if readline and os.path.exists( self._histfile ):
             readline.read_history_file( self._histfile )
 
-    def postloop( self ):
+    def saveHistory( self ):
+        """
+        Save interactive prompt history to a history file on disk.
+        """
         if readline:
             readline.set_history_length( self._histfile_size )
             readline.write_history_file( self._histfile )
+            # Ensure secure permissions, there is a small race, but we can fix this later
+            os.chmod(self._histfile, 0o600)
 
     def precmd( self, inp ):
         self._logOutput( inp, isNoPrint = True )
@@ -234,6 +277,9 @@ class LCQuery( cmd.Cmd ):
             if pydoc is None:
                 self._logOutput( self._renderTable( toRender ) )
             else:
+                # Ensure ANSI escape codes are preserved by setting the pager appropriately.
+                if shutil.which('less') and not os.environ.get('PAGER'):
+                    os.environ['PAGER'] = 'less -R'
                 dat = self._renderTable( toRender )
                 self._logOutput( dat, isNoPrint = True )
                 pydoc.pager( dat )
@@ -241,12 +287,34 @@ class LCQuery( cmd.Cmd ):
             self._logOutput( 'unknown format' )
 
     def _renderTable( self, elem ):
-        return tabulate( ( { k: self._formatCol( v ) for k, v in e.items() } for e in elem ), headers = 'keys', tablefmt = 'grid' )
+        data = []
+
+        for event in elem:
+            # Ensure ts, routing, event ctable column ordering for events
+            is_event = "ts" in event and "routing" in event and "event" in event
+
+            item = OrderedDict()
+
+            if is_event:
+                item['ts'] = self._formatVal( event['ts'] )
+                item['routing'] = self._formatVal( event['routing'] )
+                item['event'] = self._formatVal( event['event'] )
+            else:
+                for key, value in event.items():
+                    item[key] = self._formatCol(value)
+            data.append(item)
+
+        return tabulate( data, headers = 'keys', tablefmt = 'grid', maxcolwidths=[None, None, None] )
 
     def _formatCol( self, col ):
         if isinstance( col, dict ):
-            return json.dumps( col, indent = 2 )
+            return prettyFormatDict(col, indent = 2)
         return col
+    
+    def _formatVal ( self, val ):
+        if isinstance( val , dict ):
+            return prettyFormatDict( val )
+        return val
 
     def do_n( self, inp ):
         '''Fetch the Next page of results.'''
@@ -380,11 +448,13 @@ class LCQuery( cmd.Cmd ):
                     self._schema.update( ( e[ 2 : ] for e in self._replay._lc.getSchema( f"evt:{evt}" )[ 'schema' ][ 'elements' ] ) )
         print( "" )
 
+    @requireIntValue("set_limit_event")
     def do_set_limit_event( self, inp ):
         '''Set the aproximate maximum number of events processed per request, like "1000"'''
         self._limitEvent = int(inp)
         self._setPrompt()
 
+    @requireIntValue("set_limit_eval")
     def do_set_limit_eval( self, inp ):
         '''Set the aproximate maximum number of evaluations per request, like "20000"'''
         self._limitEval = int(inp)

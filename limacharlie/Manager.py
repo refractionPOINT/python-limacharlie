@@ -1,6 +1,7 @@
 # Detect if this is Python 2 or 3
 import sys
 import os
+import shlex
 _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
@@ -19,12 +20,13 @@ else:
     from urllib.parse import quote as urlescape
 
 import uuid
-import json
 import traceback
 import cmd
 import zlib
 import base64
 import time
+import json
+from datetime import datetime, timezone
 from functools import wraps
 
 from .Sensor import Sensor
@@ -33,8 +35,10 @@ from .utils import LcApiException
 from .utils import GET
 from .utils import POST
 from .utils import DELETE
+from .request_utils import getCurlCommandString
 
 from .Jobs import Job
+from . import __version__
 
 from limacharlie import GLOBAL_OID
 from limacharlie import GLOBAL_UID
@@ -50,6 +54,20 @@ HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
 HTTP_GATEWAY_TIMEOUT = 504
 HTTP_OK = 200
+
+# Default function to call with debug messages.
+DEFAULT_PRINT_DEBUG_FN = None
+
+def set_default_print_debug_fn( fn ):
+    """
+    Set a default function to call with debug messages.
+
+    Args:
+        fn (function): the function to call with debug messages.
+    """
+    global DEFAULT_PRINT_DEBUG_FN
+    DEFAULT_PRINT_DEBUG_FN = fn
+
 
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
@@ -70,6 +88,8 @@ class Manager( object ):
             onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
             isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
         '''
+        print_debug_fn = print_debug_fn or DEFAULT_PRINT_DEBUG_FN
+
         # If an environment is specified, try to get its creds.
         if environment is not None:
             oid, uid, secret_api_key = _getEnvironmentCreds( environment )
@@ -133,7 +153,8 @@ class Manager( object ):
 
     def _printDebug( self, msg ):
         if self._debug is not None:
-            self._debug( msg )
+            time_string = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+            self._debug( f"{time_string}: {msg}" )
 
     def _refreshJWT( self, expiry = None ):
         try:
@@ -170,7 +191,10 @@ class Manager( object ):
             if altRoot is None:
                 url = '%s/%s/%s' % ( ROOT_URL, API_VERSION, url )
             else:
-                url = '%s/%s' % ( altRoot, url )
+                if url:
+                    url = '%s/%s' % ( altRoot, url )
+                else:
+                    url = altRoot
 
             if queryParams is not None:
                 url = '%s?%s' % ( url, urlencode( queryParams ) )
@@ -179,7 +203,7 @@ class Manager( object ):
                                   rawBody if rawBody is not None else urlencode( params, doseq = True ).encode(),
                                   headers = headers )
             request.get_method = lambda: verb
-            request.add_header( 'User-Agent', 'lc-py-api' )
+            request.add_header( 'User-Agent', 'lc-py-api/%s' % (__version__) )
             if contentType is not None:
                 request.add_header( 'Content-Type', contentType )
             u = urlopen( request, timeout = timeout )
@@ -200,7 +224,15 @@ class Manager( object ):
             except:
                 ret = ( e.getcode(), errorBody )
 
-        self._printDebug( "%s: %s ( %s ) ==> %s ( %s )" % ( verb, url, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
+        if rawBody:
+            body = rawBody.decode("utf-8")
+        else:
+            body = rawBody
+
+        self._printDebug("Request information:")
+        self._printDebug( "%s: %s ( params=%s,body=%s ) ==> %s ( %s )" % ( verb, url, body, str( params ), ret[ 0 ], str( ret[ 1 ] ) ) )
+        self._printDebug("cURL command:")
+        self._printDebug(getCurlCommandString(request=request))
 
         return ret
 

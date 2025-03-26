@@ -17,10 +17,16 @@ class queryContext( object ):
     def next( self ):
         if self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] is None:
             return None
+        
+        altRoot = 'https://%s' % ( self._replay._replayURL, )
+
+        if not altRoot.endswith( '/' ):
+            altRoot += '/'
+
         resp = self._replay._lc._apiCall( '',
                                           'POST',
                                           {},
-                                          altRoot = 'https://%s/' % ( self._replay._replayURL, ),
+                                          altRoot = altRoot,
                                           rawBody = json.dumps( self._req ).encode(),
                                           contentType = 'application/json' )
         cursor = resp.get( 'cursor', None )

@@ -123,7 +123,7 @@ class SpotCheck( object ):
                 # after being offline.
                 with self._lock:
                     # If there are no more sensors to check, we can exit.
-                    if 0 == self._pendingReCheck and 0 == len( self._sensorsLeftToCheck ):
+                    if 0 == self._pendingReCheck and 0 == self._sensorsLeftToCheck.qsize():
                         return
                 time.sleep( 2 )
                 continue
