@@ -4,3 +4,4 @@ pyyaml
 tabulate
 termcolor
 pygments
+rich

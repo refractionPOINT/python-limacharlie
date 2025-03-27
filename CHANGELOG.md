@@ -15,7 +15,7 @@
   Example usage:
 
   ```bash
-  limacharlie --debug-request query  --query "-1m | plat == linux | * | event/DOMAIN_NAME contains 'akamai'"  --pretty
+  limacharlie --debug-request query  --query "-1m | plat == linux | * | event/DOMAIN_NAME contains 'akamai'" --pretty
   ```
 
 - Various improvements in the `limacharlie query` command, including support
@@ -24,7 +24,23 @@
 
   Colors can use be disabled using `NO_COLOR=1` environment variable.
 
-- The library now depenends on one additional dependency - `pygments`
+- The library now depenends on two additional dependencies - `pygments`,
+  `rich`.
+
+- Add support for new `--labs` and `--force-replay-url` argument to the
+  `limacharlie query` command.
+
+  This flag enables some functionality which is experimental. As such, users
+  should not depend on it since there are no gurantees in terms of API stability,
+  performance, user experience, etc. It can get changed or removed at any point
+  without any prior notice.
+
+  Example usage:
+
+  ```bash
+  limacharlie ---query "-1m | plat == linux | * | event/DOMAIN_NAME contains 'akamai'" --labs --force-replay-url=https://0651b4f82df0a29c.replay.limacharlie.io
+  ```
+
 
 ## 4.9.13 - February 24th, 2025
 
@@ -54,19 +70,19 @@
   **Example usage**
 
   Invite a single user:
-  
+
   ```bash
   $ limacharlie users invite --email=test1@example.com
   ```
 
   Invite multiple users:
-  
+
   ```bash
   $ limacharlie users invite --email=test1@example.com,test@example.com
   ```
 
   Invite multiple users (new line delimited entries in a file):
-  
+
   ```
   $ cat users_to_invite.txt
   tomaz+test1@example.com
