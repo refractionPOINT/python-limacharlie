@@ -23,7 +23,7 @@ steps:
       pip install -r requirements-tests.txt
 
       # We use rerun since tests are flaky
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 10 tests/integration/ --oid=${_OID} --key=${_KEY}
+      pytest -s -v --durations=10 tests/integration/ --oid=${_OID} --key=${_KEY}
   waitFor: ["-"]  # Run in parallel with other steps.
 
 - id: "Run wheel Sanity Checks"
