@@ -191,15 +191,14 @@ def test_api_keys( oid, key ):
     assert( response[ 'api_key' ] )
     assert( response[ 'key_hash' ] )
 
-    try:
-        keys = lc.getApiKeys()
-        assert( response[ 'key_hash' ] in keys )
-        tmpKey = keys[ response[ 'key_hash' ] ]
-        assert( keyName == tmpKey[ 'name' ] )
-        tmpKey[ 'priv' ].sort()
-        assert( tmpKey[ 'priv' ] == perms )
-    finally:
-        lc.removeApiKey( response[ 'key_hash' ] )
+    keys = lc.getApiKeys()
+    assert( response[ 'key_hash' ] in keys )
+    tmpKey = keys[ response[ 'key_hash' ] ]
+    assert( keyName == tmpKey[ 'name' ] )
+    tmpKey[ 'priv' ].sort()
+    assert( tmpKey[ 'priv' ] == perms )
+
+    lc.removeApiKey( response[ 'key_hash' ] )
     keys = lc.getApiKeys()
     assert( response[ 'key_hash' ] not in keys )
 
