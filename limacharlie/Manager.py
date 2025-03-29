@@ -45,7 +45,9 @@ from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
 from limacharlie import _getEnvironmentCreds
 
-ROOT_URL = 'https://api.limacharlie.io'
+from typing import Any, Optional, Callable
+
+ROOT_URL = 'https://lc-api-go-exp-532932106819.northamerica-northeast1.run.app'
 API_VERSION = 'v1'
 
 API_TO_JWT_URL = 'https://jwt.limacharlie.io'
@@ -56,9 +58,9 @@ HTTP_GATEWAY_TIMEOUT = 504
 HTTP_OK = 200
 
 # Default function to call with debug messages.
-DEFAULT_PRINT_DEBUG_FN = None
+DEFAULT_PRINT_DEBUG_FN: Optional[Callable[[str], None]] = None
 
-def set_default_print_debug_fn( fn ):
+def set_default_print_debug_fn( fn: Optional[Callable[[str], None]] = None ):
     """
     Set a default function to call with debug messages.
 
@@ -72,7 +74,7 @@ def set_default_print_debug_fn( fn ):
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid = None, secret_api_key = None, environment = None, inv_id = None, print_debug_fn = None, is_interactive = False, extra_params = {}, jwt = None, uid = None, onRefreshAuth = None, isRetryQuotaErrors = False ):
+    def __init__( self, oid: Optional[str] = None, secret_api_key: Optional[str] = None, environment: Optional[str] = None, inv_id: Optional[str] = None, print_debug_fn: Optional[Callable[[str], None]] = None, is_interactive: bool = False, extra_params: dict[str, Any] = {}, jwt: Optional[str] = None, uid: Optional[str] = None, onRefreshAuth: Optional[Callable[[], None]] = None, isRetryQuotaErrors: bool = False ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -120,18 +122,18 @@ class Manager( object ):
         except:
             if jwt is None:
                 raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
-        self._oid = oid
-        self._uid = uid if uid else None
-        self._onRefreshAuth = onRefreshAuth
-        self._secret_api_key = secret_api_key
-        self._jwt = jwt
-        self._debug = print_debug_fn
-        self._lastSensorListContinuationToken = None
-        self._inv_id = inv_id
-        self._spout = None
-        self._is_interactive = is_interactive
-        self._extra_params = extra_params
-        self._isRetryQuotaErrors = isRetryQuotaErrors
+        self._oid: Optional[str] = oid
+        self._uid: Optional[str] = uid if uid else None
+        self._onRefreshAuth: Optional[Callable[[], None]] = onRefreshAuth
+        self._secret_api_key: Optional[str] = secret_api_key
+        self._jwt: Optional[str] = jwt
+        self._debug: Callable[[str], None] = print_debug_fn
+        self._lastSensorListContinuationToken: Optional[str] = None
+        self._inv_id: Optional[str] = inv_id
+        self._spout: Optional[Spout] = None
+        self._is_interactive: bool = is_interactive
+        self._extra_params: dict[str, Any] = extra_params
+        self._isRetryQuotaErrors: bool = isRetryQuotaErrors
         if self._is_interactive:
             if not self._inv_id:
                 raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
@@ -180,7 +182,7 @@ class Manager( object ):
             self._jwt = None
             raise LcApiException( 'Failed to get JWT from API key oid=%s uid=%s: %s' % ( self._oid, self._uid, e, ), code=code)
 
-    def _restCall( self, url, verb, params, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, timeout = None ):
+    def _restCall( self, url: str, verb: str, params: dict[str, Any] = {}, altRoot: Optional[str] = None, queryParams: Optional[dict[str, Any]] = None, rawBody: Optional[str] = None, contentType: Optional[str] = None, isNoAuth: bool = False, timeout: Optional[int] = None ) -> tuple[int, dict[str, Any]]:
         try:
             resp = None
             if not isNoAuth:
@@ -237,7 +239,7 @@ class Manager( object ):
         return ret
 
     # TODO: Fix mutable default (dict) in params
-    def _apiCall( self, url, verb, params = {}, altRoot = None, queryParams = None, rawBody = None, contentType = None, isNoAuth = False, nMaxTotalRetries = 3, timeout = 60 * 10 ):
+    def _apiCall( self, url: str, verb: str, params: dict[str, Any] = {}, altRoot: Optional[str] = None, queryParams: Optional[dict[str, Any]] = None, rawBody: Optional[str] = None, contentType: Optional[str] = None, isNoAuth: bool = False, nMaxTotalRetries: int = 3, timeout: int = 60 * 10 ) -> dict[str, Any]:
         hasAuthRefreshed = False
         nRetries = 0
 
@@ -385,6 +387,9 @@ class Manager( object ):
             'with_names' : True,
         }, altRoot = 'https://app.limacharlie.io/', isNoAuth = True )
         return resp
+
+    def getOrgInfo( self ) -> dict[str, Any]:
+        return self._apiCall( 'orgs/%s' % ( self._oid, ), GET, {} )
 
     def sensor( self, sid, inv_id = None, detailedInfo = None ):
         '''Get a Sensor object for the specific Sensor ID.
@@ -1195,7 +1200,7 @@ class Manager( object ):
         data = self._apiCall( 'orgs/%s/keys' % ( self._oid, ), GET, {} )
         return data.get( 'api_keys', None )
 
-    def addApiKey( self, keyName, permissions = [] ):
+    def addApiKey( self, keyName: str, permissions: list[str] = [], allowed_ip_range: Optional[str] = None ) -> dict[str, Any]:
         '''Add an API key to an organization.
 
         Args:
@@ -1204,13 +1209,16 @@ class Manager( object ):
         Returns:
             the secret value of the new API key.
         '''
-        data = self._apiCall( 'orgs/%s/keys' % ( self._oid, ), POST, {
+        req = {
             'key_name' : keyName,
             'perms' : ",".join( permissions ),
-        } )
+        }
+        if allowed_ip_range:
+            req['allowed_ip_range'] = allowed_ip_range
+        data = self._apiCall( 'orgs/%s/keys' % ( self._oid, ), POST, req )
         return data
 
-    def removeApiKey( self, keyHash ):
+    def removeApiKey( self, keyHash: str ):
         '''Remove an API key from an organization.
 
         Args:
