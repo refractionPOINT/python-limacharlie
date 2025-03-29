@@ -47,7 +47,7 @@ from limacharlie import _getEnvironmentCreds
 
 from typing import Any, Optional, Callable
 
-ROOT_URL = 'https://lc-api-go-exp-532932106819.northamerica-northeast1.run.app'
+ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
 
 API_TO_JWT_URL = 'https://jwt.limacharlie.io'
