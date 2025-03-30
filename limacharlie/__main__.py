@@ -124,6 +124,9 @@ def cli(args):
     elif args.action.lower() == 'query':
         from .Query import main as cmdMain
         cmdMain( actionArgs )
+    elif args.action.lower() == 'ai-chat':
+        from .AIChat import main as cmdMain
+        cmdMain( actionArgs )
     elif args.action.lower() == 'sync':
         from .Sync import main as cmdMain
         cmdMain( actionArgs )

@@ -19,6 +19,8 @@ else:
     from urllib.parse import urlencode
     from urllib.parse import quote as urlescape
 
+from typing import Any
+
 import uuid
 import traceback
 import cmd
@@ -939,7 +941,7 @@ class Manager( object ):
         # Maintained for backwards compatibility post rename replicant => service.
         return self.serviceRequest( *args, **kwargs )
 
-    def extensionRequest( self, extensionName, action, data, isImpersonate = False ):
+    def extensionRequest( self, extensionName: str, action: str, data: dict[str, Any], isImpersonate: bool = False ) -> dict[str, Any]:
         '''Issue a request to an Extension.
 
         Args:
@@ -1620,6 +1622,24 @@ class Manager( object ):
         return self._apiCall( 'invite/user', POST, {
             'user_email' : email,
         } )
+    
+    def get_cve_list( self, product, version, include_details = False ):
+        '''Get the list of CVEs.
+
+        Returns:
+            the list of CVEs.
+        '''
+        return self._apiCall( 'cves/%s/%s' % ( urlescape( product ), urlescape( version ) ), GET, queryParams = {
+            'include_details' : 'true' if include_details else 'false',
+        }, altRoot = 'https://vulnerability-db-service-usa-1-532932106819.us-central1.run.app/' )
+
+    def reset_redis_state( self ):
+        '''Reset the Redis state.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+        return self._apiCall( 'maintenance/reset-redis', POST, {}, altRoot = 'https://vulnerability-db-service-usa-1-532932106819.us-central1.run.app/' )
 
 def _eprint( msg ):
     sys.stderr.write( msg )
