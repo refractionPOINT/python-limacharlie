@@ -1406,25 +1406,20 @@ class Manager( object ):
         '''Get the list of all Schemas available for the Organization.
 
         Returns:
-            a list of Schema names.
+            a dict containing the list of available schemas.
         '''
-
-        req = {}
-
-        resp = self._apiCall( 'orgs/%s/schema' % self._oid, GET, queryParams = req )
-        return resp
+        return self._apiCall( 'orgs/%s/schema' % self._oid, GET )
 
     def getSchema( self, name ):
         '''Get a specific Schema Definition.
 
+        Args:
+            name (str): name of the schema to get (e.g. 'evt:DNS_REQUEST').
+
         Returns:
-            a Schema Definition for the given Schema Name.
+            a dict containing the schema definition.
         '''
-
-        req = {}
-
-        resp = self._apiCall( 'orgs/%s/schema/%s' % ( self._oid, urlescape( name ) ), GET, queryParams = req )
-        return resp
+        return self._apiCall( 'orgs/%s/schema/%s' % ( self._oid, urlescape( name ) ), GET )
 
     def resetSchemas( self ):
         '''Reset the Schema Definition for all Schemas in an Organization.
