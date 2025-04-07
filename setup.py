@@ -1,6 +1,6 @@
 from setuptools import setup
 
-__version__ = "4.9.18"
+__version__ = "4.9.19"
 __author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
 __author_email__ = "maxime@refractionpoint.com"
 __license__ = "Apache v2"
