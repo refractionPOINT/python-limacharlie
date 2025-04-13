@@ -9,6 +9,10 @@ from .utils import POST
 from .utils import FutureResults
 from .utils import enhanceEvent
 
+from typing import Any, Optional, Callable
+
+from . import Manager
+
 class Sensor( object ):
     '''Representation of a limacharlie.io Sensor.'''
 
@@ -26,7 +30,7 @@ class Sensor( object ):
     _ARCHITECTURE_ALPINE64 = 0x00000005
     _ARCHITECTURE_CHROME = 0x00000006
 
-    def __init__( self, manager, sid, detailedInfo = None ):
+    def __init__( self, manager: Manager, sid: str, detailedInfo: Optional[dict[str, Any]] = None ):
         try:
             uuid.UUID( sid )
         except:
@@ -40,7 +44,7 @@ class Sensor( object ):
         self._hostname = None
         self._detailedInfo = detailedInfo
 
-    def setInvId( self, inv_id ):
+    def setInvId( self, inv_id: str ):
         '''Set an investigation ID to be applied to all actions done using the object.
 
         Args:
@@ -49,7 +53,7 @@ class Sensor( object ):
 
         self._invId = inv_id
 
-    def waitToComeOnline( self, timeout ):
+    def waitToComeOnline( self, timeout: int ) -> bool:
         '''Wait for the sensor to be online.
 
         Args:
@@ -67,7 +71,7 @@ class Sensor( object ):
 
         return True
 
-    def task( self, tasks, inv_id = None ):
+    def task( self, tasks: str | list[str], inv_id: Optional[str] = None ):
         '''Send a task (or list of tasks) to the Sensor.
 
         Args:
@@ -90,7 +94,7 @@ class Sensor( object ):
             req[ 'investigation_id' ] = invId
         return self._manager._apiCall( '%s' % self.sid, POST, req )
 
-    def request( self, tasks ):
+    def request( self, tasks: str | list[str] ) -> FutureResults:
         '''Send a task (or list of tasks) to the Sensor and returns a FutureResults where the results will be sent; requires Manager is_interactive.
 
         Args:
@@ -103,14 +107,13 @@ class Sensor( object ):
             raise LcApiException( 'Manager provided was not created with is_interactive set to True, cannot track responses.' )
         thisTrackingId = '%s/%s' % ( self._manager._inv_id, str( uuid.uuid4() ) )
         future = FutureResults()
-
         self._manager._spout.registerFutureResults( thisTrackingId, future )
 
         self.task( tasks, inv_id = thisTrackingId )
 
         return future
 
-    def simpleRequest( self, tasks, timeout = 30, until_completion = False ):
+    def simpleRequest( self, tasks: str | list[str], timeout: int = 30, until_completion: bool | Callable[[dict[str, Any]], Any] = False ) -> Any:
         '''Make a request to the sensor assuming a single response.
 
         Args:
@@ -166,7 +169,7 @@ class Sensor( object ):
                     return allResponses
         return None
 
-    def tag( self, tag, ttl=None ):
+    def tag( self, tag: str, ttl: Optional[int] = None ) -> dict[str, Any]:
         '''Apply a Tag to the Sensor.
 
         Args:
@@ -182,7 +185,7 @@ class Sensor( object ):
             req = { 'tags' : tag }
         return self._manager._apiCall( '%s/tags' % self.sid, POST, req )
 
-    def untag( self, tag ):
+    def untag( self, tag: str ) -> dict[str, Any]:
         '''Remove a Tag from the Sensor.
 
         Args:
@@ -198,7 +201,7 @@ class Sensor( object ):
             req = { 'tags' : ','.join( tag ) }
         return self._manager._apiCall( '%s/tags' % self.sid, DELETE, req )
 
-    def getTags( self ):
+    def getTags( self ) -> list[str]:
         '''Get Tags applied to the Sensor.
 
         Returns:
@@ -208,7 +211,7 @@ class Sensor( object ):
         data = self._manager._apiCall( '%s/tags' % self.sid, GET )
         return data[ 'tags' ][ self.sid ].keys()
 
-    def getInfo( self ):
+    def getInfo( self ) -> dict[str, Any]:
         '''Get basic information on the Sensor.
 
         Returns:

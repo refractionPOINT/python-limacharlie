@@ -2,6 +2,7 @@ from limacharlie import Manager
 import yaml
 import sys
 import json
+from typing import Any, Callable
 
 from .utils import GET
 from .utils import POST
@@ -29,23 +30,23 @@ def reportError( msg ):
     sys.exit( 1 )
 
 class Hive( object ):
-    def __init__( self, man, hiveName, altPartitionKey = None ):
+    def __init__( self, man: Manager, hiveName: str, altPartitionKey: str | None = None ):
         self._hiveName = hiveName
         self._man = man
         self._partitionKey = altPartitionKey
         if self._partitionKey is None:
             self._partitionKey = self._man._oid
 
-    def list( self ):
+    def list( self ) -> dict[str, "HiveRecord"]:
         return { recordName : HiveRecord( recordName, record, self ) for recordName, record in self._man._apiCall( 'hive/%s/%s' % ( self._hiveName, self._partitionKey ), GET ).items() }
 
-    def get( self, recordName ):
+    def get( self, recordName: str ) -> "HiveRecord":
         return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/data' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), GET ), self )
 
-    def getMetadata( self, recordName ):
+    def getMetadata( self, recordName: str ) -> "HiveRecord":
         return HiveRecord( recordName, self._man._apiCall( 'hive/%s/%s/%s/mtd' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), GET ), self )
 
-    def set( self, record ):
+    def set( self, record: "HiveRecord" ) -> "HiveRecord":
         target = 'mtd'
 
         data = None
@@ -75,10 +76,10 @@ class Hive( object ):
 
         return self._man._apiCall( 'hive/%s/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( record.name, safe = '' ), target ), POST, req )
 
-    def delete( self, recordName ):
+    def delete( self, recordName: str ) -> None:
         return self._man._apiCall( 'hive/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), DELETE )
 
-    def rename(self, record_name, new_name):
+    def rename(self, record_name: str, new_name: str) -> None:
         target = "rename"
         params = {
             'new_name': urlescape(new_name, safe='')
@@ -88,7 +89,7 @@ class Hive( object ):
             'hive/%s/%s/%s/%s' % (self._hiveName, self._partitionKey, urlescape(record_name, safe=''), target), POST, queryParams=params)
 
 class HiveRecord( object ):
-    def __init__( self, recordName, data, api = None ):
+    def __init__( self, recordName: str, data: dict[str, Any], api: Hive | None = None ):
         self._api = api
         self.name = recordName
         self.arl = None
@@ -108,7 +109,7 @@ class HiveRecord( object ):
         self.lastError = data.get( 'sys_mtd', {} ).get( 'last_error', None )
         self.lastErrorTime = data.get( 'sys_mtd', {} ).get( 'last_error_ts', None )
 
-    def toJSON( self ):
+    def toJSON( self ) -> dict[str, Any]:
         return {
             'data' : self.data,
             'usr_mtd' : {
@@ -129,13 +130,13 @@ class HiveRecord( object ):
             },
         }
 
-    def delete( self ):
+    def delete( self ) -> None:
         return self._api.delete( self.name )
 
-    def fetch( self ):
+    def fetch( self ) -> "HiveRecord":
         return self._api.get( self.name )
 
-    def update( self, cb = None ):
+    def update( self, cb: Callable[["HiveRecord"], "HiveRecord"] | None = None ) -> None:
         # Perform a transactional update of the record
         # by using the "etag" provided by the API to make
         # sure we don't overwrite changes made to the
@@ -163,16 +164,16 @@ class HiveRecord( object ):
                 return ret
             record = self.fetch()
 
-def _do_list( args, man ):
+def _do_list( args, man: Manager ):
     printData( { r.name: r.toJSON() for r in Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).list().values() } )
 
-def _do_list_mtd( args, man ):
+def _do_list_mtd( args, man: Manager ):
     resp = { r.name: r.toJSON() for r in Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).list().values() }
     for k, r in resp.items():
         r[ 'data' ] = None
     printData( resp )
 
-def _do_get( args, man ):
+def _do_get( args, man: Manager ):
     if args.key is None:
         reportError( 'Key required' )
 
@@ -182,13 +183,13 @@ def _do_get( args, man ):
     else:
         printData( record.toJSON() )
 
-def _do_get_mtd( args, man ):
+def _do_get_mtd( args, man: Manager ):
     if args.key is None:
         reportError( 'Key required' )
 
     printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).getMetadata( args.key ).toJSON() )
 
-def _do_add( args, man ):
+def _do_add( args, man: Manager ):
     if args.key is None:
         reportError( 'Key required' )
 
@@ -224,19 +225,19 @@ def _do_add( args, man ):
 
     printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).set( HiveRecord( args.key, record ) ) )
 
-def _do_update( args, man ):
+def _do_update( args, man: Manager ):
     if args.key is None:
         reportError( 'Key required' )
 
     _do_add( args, man )
 
-def _do_remove( args, man ):
+def _do_remove( args, man: Manager ):
     if args.key is None:
         reportError( 'Key required' )
 
     printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).delete( args.key ) )
 
-def _do_rename( args, man ):
+def _do_rename( args, man: Manager ):
     if args.key is None:
         reportError( 'Key required' )
 
@@ -248,7 +249,7 @@ def _do_rename( args, man ):
 
     printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).rename( args.key, args.renameKey ) )
 
-def main( sourceArgs = None ):
+def main( sourceArgs: list[str] | None = None ) -> None:
     import argparse
 
     actions = {

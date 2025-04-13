@@ -47,7 +47,7 @@ from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
 from limacharlie import _getEnvironmentCreds
 
-from typing import Any, Optional, Callable
+from typing import Any, Optional, Callable, Generator
 
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
@@ -141,7 +141,7 @@ class Manager( object ):
                 raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
             self._refreshSpout()
 
-    def _unwrap( self, data, isRaw = False ):
+    def _unwrap( self, data: str, isRaw: bool = False ) -> Any:
         if isRaw:
             return zlib.decompress( base64.b64decode( data ), 16 + zlib.MAX_WBITS )
         else:
@@ -155,12 +155,12 @@ class Manager( object ):
             self._spout = None
         self._spout = Spout( self, 'event', is_parse = True, inv_id = self._inv_id, extra_params = self._extra_params )
 
-    def _printDebug( self, msg ):
+    def _printDebug( self, msg: str ):
         if self._debug is not None:
             time_string = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
             self._debug( f"{time_string}: {msg}" )
 
-    def _refreshJWT( self, expiry = None ):
+    def _refreshJWT( self, expiry: Optional[int] = None ):
         try:
             if self._secret_api_key is None:
                 raise Exception( 'No API key set' )
@@ -310,7 +310,7 @@ class Manager( object ):
         self._is_interactive = True
         self._refreshSpout()
 
-    def testAuth( self, permissions = [] ):
+    def testAuth( self, permissions: list[str] = [] ) -> bool:
         '''Tests authentication with limacharlie.io.
 
         Args:
@@ -393,7 +393,7 @@ class Manager( object ):
     def getOrgInfo( self ) -> dict[str, Any]:
         return self._apiCall( 'orgs/%s' % ( self._oid, ), GET, {} )
 
-    def sensor( self, sid, inv_id = None, detailedInfo = None ):
+    def sensor( self, sid: str, inv_id: Optional[str] = None, detailedInfo: Optional[dict[str, Any]] = None ) -> Sensor:
         '''Get a Sensor object for the specific Sensor ID.
 
         The sensor may or may not be online.
@@ -413,7 +413,7 @@ class Manager( object ):
             s.setInvId( self._inv_id )
         return s
 
-    def sensors( self, inv_id = None, selector = None, limit = None, with_ip = None, with_hostname_prefix = None ):
+    def sensors( self, inv_id: Optional[str] = None, selector: Optional[str] = None, limit: Optional[int] = None, with_ip: Optional[bool] = None, with_hostname_prefix: Optional[bool] = None ) -> Generator[Sensor, None, None]:
         '''Gets all Sensors in the Organization.
 
         The sensors may or may not be online.
@@ -456,7 +456,7 @@ class Manager( object ):
             if continuationToken is None:
                 break
 
-    def sensorsWithTag( self, tag ):
+    def sensorsWithTag( self, tag: str ) -> list[Sensor]:
         '''Get a list of sensors that have the matching tag.
 
         Args:
@@ -469,7 +469,7 @@ class Manager( object ):
         resp = self._apiCall( 'tags/%s/%s' % ( self._oid, urlescape( tag, '' ) ), GET, queryParams = {} )
         return [ Sensor( self, sid ) for sid in resp.keys() ]
 
-    def getAllTags( self ):
+    def getAllTags( self ) -> list[str]:
         '''Get a list of tags in use by sensors.
 
         Returns:
@@ -478,7 +478,7 @@ class Manager( object ):
 
         return self._apiCall( 'tags/%s' % ( self._oid, ), GET, queryParams = {} )[ 'tags' ]
 
-    def getAllOnlineSensors( self, onlySIDs = [] ):
+    def getAllOnlineSensors( self, onlySIDs: list[str] = [] ) -> list[str]:
         '''Get a list of all online sensors.
 
         Args:
@@ -494,7 +494,7 @@ class Manager( object ):
 
         return list( k for k, v in self._apiCall( 'online/%s' % ( self._oid, ), POST, req, queryParams = {} ).items() if v )
 
-    def outputs( self ):
+    def outputs( self ) -> list[dict[str, Any]]:
         '''Get the list of all Outputs configured for the Organization.
 
         Returns:
@@ -504,7 +504,7 @@ class Manager( object ):
         resp = self._apiCall( 'outputs/%s' % self._oid, GET )
         return resp.get( self._oid, {} )
 
-    def del_output( self, name ):
+    def del_output( self, name: str ):
         '''Remove an Output from the Organization.
 
         Args:
@@ -516,7 +516,7 @@ class Manager( object ):
 
         return self._apiCall( 'outputs/%s' % self._oid, DELETE, { 'name' : name } )
 
-    def add_output( self, name, module, type, **kwargs ):
+    def add_output( self, name: str, module: str, type: str, **kwargs: Any ) -> dict[str, Any]:
         '''Add an Output to the Organization.
 
         For detailed explanation and possible Output module parameters
@@ -538,7 +538,7 @@ class Manager( object ):
             req[ k ] = v
         return self._apiCall( 'outputs/%s' % self._oid, POST, req )
 
-    def hosts( self, hostname_expr, as_dict = False ):
+    def hosts( self, hostname_expr: str, as_dict: bool = False ) -> list[str]:
         '''Get the Sensor objects for hosts matching a hostname expression.
 
         Args:
@@ -551,7 +551,7 @@ class Manager( object ):
 
         return self.getSensorsWithHostname( hostname_expr, as_dict = as_dict )
 
-    def rules( self, namespace = None ):
+    def rules( self, namespace: Optional[str] = None ) -> list[dict[str, Any]]:
         '''DEPRECATED, use Hive accessors instead. Get the list of all Detection & Response rules for the Organization.
 
         Args:
@@ -568,7 +568,7 @@ class Manager( object ):
         resp = self._apiCall( 'rules/%s' % self._oid, GET, queryParams = req )
         return resp
 
-    def del_rule( self, name, namespace = None ):
+    def del_rule( self, name: str, namespace: Optional[str] = None ):
         '''DEPRECATED, use Hive accessors instead. Remove a Rule from the Organization.
 
         Args:
@@ -698,7 +698,7 @@ class Manager( object ):
             return True
         return False
 
-    def getHistoricDetections( self, start, end, limit = None, cat = None ):
+    def getHistoricDetections( self, start: int, end: int, limit: Optional[int] = None, cat: Optional[str] = None ) -> Generator[dict[str, Any], None, None]:
         '''Get the detections for this organization between the two times, requires Insight (retention) enabled.
 
         Args:
@@ -741,7 +741,7 @@ class Manager( object ):
             if limit is not None and limit <= nReturned:
                 break
 
-    def getAuditLogs( self, start, end, limit = None, event_type = None, sid = None ):
+    def getAuditLogs( self, start: int, end: int, limit: Optional[int] = None, event_type: Optional[str] = None, sid: Optional[str] = None ) -> Generator[dict[str, Any], None, None]:
         '''Get the audit logs for the organization.
 
         Args:
@@ -788,7 +788,7 @@ class Manager( object ):
             if limit is not None and limit <= nReturned:
                 break
 
-    def getHistoricDetectionByID( self, detect_id ):
+    def getHistoricDetectionByID( self, detect_id: str ) -> dict[str, Any]:
         '''Get the detection with a specific detect_id.
 
         Args:
@@ -799,7 +799,7 @@ class Manager( object ):
         '''
         return self._apiCall( 'insight/%s/detections/%s' % ( self._oid, detect_id, ), GET )
 
-    def getObjectInformation( self, objType, objName, info, isCaseSensitive = True, isWithWildcards = False, limit = None, isPerObject = None ):
+    def getObjectInformation( self, objType: str, objName: str, info: str, isCaseSensitive: bool = True, isWithWildcards: bool = False, limit: Optional[int] = None, isPerObject: Optional[bool] = None ) -> dict[str, Any]:
         '''Get information about an object (indicator) using Insight (retention) data.
 
         Args:
@@ -843,7 +843,7 @@ class Manager( object ):
         data = self._apiCall( 'insight/%s/objects/%s' % ( self._oid, objType ), GET, queryParams = req )
         return data
 
-    def getBatchObjectInformation( self, objects, isCaseSensitive = True ):
+    def getBatchObjectInformation( self, objects: dict[str, list[str]], isCaseSensitive: bool = True ) -> dict[str, Any]:
         '''Get object prevalence information in a batch.
 
         Args:
@@ -886,7 +886,7 @@ class Manager( object ):
             'linux' : ( None, None, None ),
         }
 
-    def getSensorsWithHostname( self, hostnamePrefix, as_dict = False ):
+    def getSensorsWithHostname( self, hostnamePrefix: str, as_dict: bool = False ) -> list[tuple[str, str]]:
         '''Get the list of sensor IDs and hostnames that match the given prefix.
 
         Args:
@@ -901,7 +901,7 @@ class Manager( object ):
         } )
         return data.get( 'sid', None )
 
-    def getSensorsWithIp( self, ip, start, end ):
+    def getSensorsWithIp( self, ip: str, start: int, end: int ) -> list[str]:
         '''Get the list of sensor IDs that used the given IP during the time range.
 
         Args:
