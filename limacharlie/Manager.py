@@ -221,6 +221,20 @@ class Manager( object ):
                 LcApiException( "Failed to decode data from API: %s" % e )
             u.close()
             ret = ( 200, resp )
+
+            # Prior to enforcement of rate limits, we return the headers
+            # in the response. Display the warning in stderr.
+            headers = u.getheaders()
+            quotaLimit = None
+            quotaPeriod = None
+            for header in headers:
+                if header[0] == 'X-RateLimit-Quota':
+                    quotaLimit = int(header[1])
+                if header[0] == 'X-RateLimit-Period':
+                    quotaPeriod = int(header[1])
+            if quotaLimit is not None or quotaPeriod is not None:
+                print(f"Warning: Rate limit hit, quota limit: {quotaLimit}, quota period: {quotaPeriod} seconds, see https://docs.limacharlie.io/v2/docs/en/api-keys?highlight=bulk", file=sys.stderr)
+
         except HTTPError as e:
             errorBody = e.read()
             try:
