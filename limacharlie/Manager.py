@@ -281,6 +281,11 @@ class Manager( object ):
                     if self._onRefreshAuth is not None:
                         self._onRefreshAuth( self )
                     else:
+                        if self._jwt is not None and self._api_key is None:
+                            # This is a case where we likely initialized the manager with a JWT,
+                            # but no API key. In this case, we can't refresh the JWT, so we'll
+                            # just fail.
+                            raise LcApiException( 'Auth error and no API key available: oid=%s uid=%s: %s' % ( self._oid, self._uid, data, ), code=code)
                         self._refreshJWT()
                     continue
                 else:
