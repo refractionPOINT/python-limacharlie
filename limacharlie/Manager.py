@@ -281,7 +281,7 @@ class Manager( object ):
                     if self._onRefreshAuth is not None:
                         self._onRefreshAuth( self )
                     else:
-                        if self._jwt is not None and self._api_key is None:
+                        if self._jwt is not None and self._secret_api_key is None:
                             # This is a case where we likely initialized the manager with a JWT,
                             # but no API key. In this case, we can't refresh the JWT, so we'll
                             # just fail.
@@ -1423,13 +1423,21 @@ class Manager( object ):
             'oid' : oid,
         } )
 
-    def getSchemas( self ):
+    def getSchemas( self, platform = None ):
         '''Get the list of all Schemas available for the Organization.
+
+        Args:
+            platform (str): optional platform name to filter the event types by.
 
         Returns:
             a dict containing the list of available schemas.
         '''
-        return self._apiCall( 'orgs/%s/schema' % self._oid, GET )
+        params = None
+        if platform is not None:
+            params = {
+                'platform' : platform,
+            }
+        return self._apiCall( 'orgs/%s/schema' % self._oid, GET, queryParams = params )
 
     def getSchema( self, name ):
         '''Get a specific Schema Definition.
@@ -1654,14 +1662,6 @@ class Manager( object ):
         return self._apiCall( 'cves/%s/%s' % ( urlescape( product ), urlescape( version ) ), GET, queryParams = {
             'include_details' : 'true' if include_details else 'false',
         }, altRoot = 'https://vulnerability-db-service-usa-1-532932106819.us-central1.run.app/' )
-
-    def reset_redis_state( self ):
-        '''Reset the Redis state.
-
-        Returns:
-            the REST API response (JSON).
-        '''
-        return self._apiCall( 'maintenance/reset-redis', POST, {}, altRoot = 'https://vulnerability-db-service-usa-1-532932106819.us-central1.run.app/' )
 
 def _eprint( msg ):
     sys.stderr.write( msg )
