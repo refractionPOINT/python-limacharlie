@@ -24,14 +24,11 @@ class queryContext( object ):
             self._altRoot += '/'
 
     def __iter__( self ):
-        return self
+        return ResultsIterator( self )
 
     def next( self ):
-        return self.__next__()
-
-    def __next__( self ):
         if self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] is None:
-            raise StopIteration()
+            return None
 
         resp = self._replay._lc._apiCall( '',
                                           'POST',
@@ -46,6 +43,49 @@ class queryContext( object ):
         if cursor is None:
             self.hasMore = False
         return resp
+
+class ResultsIterator( object ):
+    '''Iterator that yields individual results from a queryContext.
+
+    This provides a Python 3 compatible iterator interface that yields
+    one result at a time from the API response, automatically fetching
+    the next page when needed.
+    '''
+
+    def __init__( self, queryContext ):
+        self._queryContext = queryContext
+        self._currentResults = []
+        self._currentIndex = 0
+        self._hasMore = True
+
+    def __iter__( self ):
+        return self
+
+    def __next__( self ):
+        # If we've exhausted the current results, fetch the next page
+        if self._currentIndex >= len( self._currentResults ):
+            if not self._hasMore:
+                raise StopIteration()
+
+            # Get next page of results
+            resp = self._queryContext.next()
+            if resp is None:
+                self._hasMore = False
+                raise StopIteration()
+
+            # Update our state
+            self._currentResults = resp.get( 'results', [] )
+            self._currentIndex = 0
+            self._hasMore = self._queryContext.hasMore
+
+            # If we still have no results, we're done
+            if not self._currentResults:
+                raise StopIteration()
+
+        # Return the next result and advance the index
+        result = self._currentResults[ self._currentIndex ]
+        self._currentIndex += 1
+        return result['data']
 
 class Replay( object ):
     '''Interface to query historical sensor data in Insight with specific D&R rules.'''
@@ -87,7 +127,7 @@ class Replay( object ):
             req[ 'include_facets' ] = True
 
         if not isCursorBased:
-            return queryContext( self, req, forceUrl = forceUrl ).__next__()
+            return queryContext( self, req, forceUrl = forceUrl ).next()
 
         return queryContext( self, req, forceUrl = forceUrl )
 
