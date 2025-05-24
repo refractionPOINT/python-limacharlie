@@ -23,10 +23,15 @@ class queryContext( object ):
         if not self._altRoot.endswith( '/' ):
             self._altRoot += '/'
 
+    def __iter__( self ):
+        return self
 
     def next( self ):
+        return self.__next__()
+
+    def __next__( self ):
         if self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] is None:
-            return None
+            raise StopIteration()
 
         resp = self._replay._lc._apiCall( '',
                                           'POST',
@@ -82,7 +87,7 @@ class Replay( object ):
             req[ 'include_facets' ] = True
 
         if not isCursorBased:
-            return queryContext( self, req, forceUrl = forceUrl ).next()
+            return queryContext( self, req, forceUrl = forceUrl ).__next__()
 
         return queryContext( self, req, forceUrl = forceUrl )
 
