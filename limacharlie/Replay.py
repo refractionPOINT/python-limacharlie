@@ -23,8 +23,14 @@ class queryContext( object ):
         if not self._altRoot.endswith( '/' ):
             self._altRoot += '/'
 
+    def __iter__( self ):
+        # If the queryContext is used as an iterator, the returned data
+        # during iteration will be the per-row data, not including stats.
+        return ResultsIterator( self )
 
     def next( self ):
+        # If the queryContext is not used as an iterator, the user can call
+        # next() to get one page at a time of results including stats.
         if self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] is None:
             return None
 
@@ -41,6 +47,49 @@ class queryContext( object ):
         if cursor is None:
             self.hasMore = False
         return resp
+
+class ResultsIterator( object ):
+    '''Iterator that yields individual results from a queryContext.
+
+    This provides a Python 3 compatible iterator interface that yields
+    one result at a time from the API response, automatically fetching
+    the next page when needed.
+    '''
+
+    def __init__( self, queryContext ):
+        self._queryContext = queryContext
+        self._currentResults = []
+        self._currentIndex = 0
+        self._hasMore = True
+
+    def __iter__( self ):
+        return self
+
+    def __next__( self ):
+        # If we've exhausted the current results, fetch the next page
+        if self._currentIndex >= len( self._currentResults ):
+            if not self._hasMore:
+                raise StopIteration()
+
+            # Get next page of results
+            resp = self._queryContext.next()
+            if resp is None:
+                self._hasMore = False
+                raise StopIteration()
+
+            # Update our state
+            self._currentResults = resp.get( 'results', [] )
+            self._currentIndex = 0
+            self._hasMore = self._queryContext.hasMore
+
+            # If we still have no results, we're done
+            if not self._currentResults:
+                raise StopIteration()
+
+        # Return the next result and advance the index
+        result = self._currentResults[ self._currentIndex ]
+        self._currentIndex += 1
+        return result['data']
 
 class Replay( object ):
     '''Interface to query historical sensor data in Insight with specific D&R rules.'''
