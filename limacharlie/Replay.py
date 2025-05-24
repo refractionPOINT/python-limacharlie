@@ -24,9 +24,13 @@ class queryContext( object ):
             self._altRoot += '/'
 
     def __iter__( self ):
+        # If the queryContext is used as an iterator, the returned data
+        # during iteration will be the per-row data, not including stats.
         return ResultsIterator( self )
 
     def next( self ):
+        # If the queryContext is not used as an iterator, the user can call
+        # next() to get one page at a time of results including stats.
         if self._req[ 'event_source' ][ 'sensor_events' ][ 'cursor' ] is None:
             return None
 
