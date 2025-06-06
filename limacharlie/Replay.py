@@ -256,7 +256,7 @@ class Replay( object ):
             a dict containing results of the query.
         '''
 
-        resp = self._scanHistoricalSensor( ruleContent = ruleContent )
+        resp = self._scanHistoricalSensor( ruleContent = ruleContent, stream='event', events=[{}] )
 
         return resp
 
