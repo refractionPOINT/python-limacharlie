@@ -108,7 +108,7 @@ class Replay( object ):
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
     def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False, stream = 'event',
-                  includeStats = False, forceUrl = None ):
+                  includeStats = False, forceUrl = None, isValidation = False ):
         if not query:
             raise LcApiException( 'no query specified' )
 
@@ -129,6 +129,9 @@ class Replay( object ):
         if includeStats:
             req[ 'include_histogram' ] = True
             req[ 'include_facets' ] = True
+
+        if isValidation:
+            req[ 'is_validation' ] = True
 
         if not isCursorBased:
             return queryContext( self, req, forceUrl = forceUrl ).next()
