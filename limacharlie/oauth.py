@@ -20,7 +20,7 @@ class OAuthManager:
     """Manages OAuth authentication flow for LimaCharlie CLI."""
     
     # Firebase configuration - these would be provided by LimaCharlie
-    # Using placeholders that should be replaced with actual values
+    # TODO: Replace these with actual LimaCharlie Firebase project values
     FIREBASE_API_KEY = os.environ.get('LC_FIREBASE_API_KEY', 'YOUR_FIREBASE_WEB_API_KEY')
     FIREBASE_AUTH_DOMAIN = os.environ.get('LC_FIREBASE_AUTH_DOMAIN', 'your-project.firebaseapp.com')
     
@@ -46,6 +46,15 @@ class OAuthManager:
         Raises:
             OAuthError: If authentication fails
         """
+        # Check if Firebase configuration is set
+        if self.FIREBASE_API_KEY == 'YOUR_FIREBASE_WEB_API_KEY':
+            raise OAuthError(
+                "Firebase configuration not set. Please set the following environment variables:\n"
+                "  LC_FIREBASE_API_KEY='your-firebase-api-key'\n"
+                "  LC_FIREBASE_AUTH_DOMAIN='your-project.firebaseapp.com'\n"
+                "  LC_GOOGLE_CLIENT_ID='your-client-id.apps.googleusercontent.com'"
+            )
+        
         # Start local callback server
         self.callback_server = OAuthCallbackServer()
         port = self.callback_server.start()
@@ -87,8 +96,7 @@ class OAuthManager:
     
     def _get_google_client_id(self) -> str:
         """Get Google OAuth client ID from Firebase config."""
-        # This would typically be fetched from Firebase config
-        # For now, using environment variable or placeholder
+        # TODO: Replace with actual LimaCharlie Google OAuth client ID
         return os.environ.get('LC_GOOGLE_CLIENT_ID', 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com')
     
     def _exchange_code_for_tokens(self, auth_code: str, redirect_uri: str) -> Dict[str, str]:
