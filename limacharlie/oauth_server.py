@@ -93,11 +93,16 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(error_html.encode('utf-8'))
             self.wfile.flush()
         else:
-            # Invalid callback
-            self.send_response(400)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b"Invalid OAuth callback")
+            # Handle other requests (like favicon.ico)
+            if self.path == '/favicon.ico':
+                self.send_response(204)  # No Content
+                self.end_headers()
+            else:
+                # Invalid callback
+                self.send_response(400)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b"Invalid OAuth callback")
     
     def log_message(self, format, *args):
         """Suppress log messages."""
@@ -172,8 +177,9 @@ class OAuthCallbackServer:
     def _run_server(self):
         """Run the server until callback is received or timeout."""
         start_time = time.time()
+        got_result = False
         
-        while True:
+        while not got_result:
             if time.time() - start_time > self.timeout:
                 self.callback_queue.put({
                     'success': False,
@@ -187,12 +193,20 @@ class OAuthCallbackServer:
                 # Non-blocking check
                 result = self.callback_queue.get_nowait()
                 self.callback_queue.put(result)  # Put it back for wait_for_callback
+                got_result = True
+                print("DEBUG: Server got result, continuing to handle remaining requests")
+                # Continue to handle a few more requests (like favicon)
+                for _ in range(3):
+                    if self.server.handle_request() is False:
+                        break
                 break
             except queue.Empty:
                 pass
             
             # Handle one request with timeout
             self.server.handle_request()
+        
+        print("DEBUG: Server loop exiting")
     
     def wait_for_callback(self) -> Tuple[bool, Optional[str], Optional[str]]:
         """
@@ -222,9 +236,14 @@ class OAuthCallbackServer:
     
     def stop(self):
         """Stop the OAuth callback server."""
+        print("DEBUG: stop() called")
         if self.server:
-            # Set a flag to stop the server loop
-            self.server.shutdown()
+            # Shutdown must be called from a different thread
+            shutdown_thread = threading.Thread(target=self.server.shutdown)
+            shutdown_thread.start()
+            shutdown_thread.join(timeout=2)
             self.server.server_close()
+            print("DEBUG: Server shutdown complete")
         if self.server_thread and self.server_thread.is_alive():
             self.server_thread.join(timeout=2)
+            print("DEBUG: Server thread joined")
