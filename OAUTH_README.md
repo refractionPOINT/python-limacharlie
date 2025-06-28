@@ -16,17 +16,25 @@ The LimaCharlie CLI now supports OAuth authentication as an alternative to API k
 
 ## Usage
 
-### OAuth Login (Recommended - Uses Device Flow)
+### OAuth Login (Recommended)
 
 ```bash
 limacharlie login --oauth
 ```
 
 This will:
-1. Display a URL and code
-2. You visit the URL and enter the code  
-3. The CLI polls for completion
-4. No client secrets required - perfect for public distribution
+1. Open your browser to Google's OAuth page
+2. After you authenticate, redirect back to localhost  
+3. Firebase handles the code exchange server-side
+4. No client secrets required in the CLI - perfect for public distribution
+
+### OAuth Login Without Browser
+
+```bash
+limacharlie login --oauth --no-browser
+```
+
+This will print the URL for you to manually open instead of launching the browser.
 
 ### OAuth Device Flow (Alternative)
 
@@ -34,11 +42,10 @@ This will:
 limacharlie login --device-flow
 ```
 
-This uses the same device flow as `--oauth` (they are now equivalent).
-
-### OAuth Login Without Auto-Browser
-
-The device flow will ask if you want to open the browser automatically. You can press 'n' to skip and manually copy/paste the URL.
+This uses the device flow which:
+1. Displays a URL and code
+2. You visit the URL and enter the code
+3. The CLI polls for completion
 
 ### OAuth Login with Organization ID
 
@@ -80,9 +87,9 @@ env:
 
 No configuration is required! The OAuth feature comes pre-configured with LimaCharlie's Firebase project settings.
 
-### Note on Client Secrets
+### Security Note
 
-This CLI uses Google's Desktop OAuth client type. For desktop applications, Google treats the client secret as "public" - it's included in the code but isn't actually secret. This is Google's standard practice for desktop/CLI applications where the client secret cannot be kept confidential.
+This CLI implementation does not include any client secrets. The OAuth flow uses PKCE for security, and Firebase handles the code exchange server-side using the client credentials configured in the Firebase Console. This makes the CLI safe for public distribution.
 
 ### Optional Environment Variables
 
@@ -169,11 +176,13 @@ The OAuth feature is implemented in:
 
 ### Authentication Flow
 1. User authenticates with Google OAuth using PKCE flow (no client secret needed)
-2. Google returns an ID token after verifying the PKCE challenge
-3. The Google ID token is exchanged with Firebase for Firebase tokens
-4. The Firebase ID token is sent to jwt.limacharlie.io with `fb_auth` parameter
-5. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
-6. The LimaCharlie JWT is used for API calls
+2. Google returns an authorization code
+3. The authorization code is sent to Firebase's signInWithIdp endpoint
+4. Firebase exchanges the code server-side (using stored client credentials)
+5. Firebase returns ID and refresh tokens
+6. The Firebase ID token is sent to jwt.limacharlie.io with `fb_auth` parameter
+7. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
+8. The LimaCharlie JWT is used for API calls
 
 ### OAuth Redirect URIs
 The OAuth implementation uses the following redirect URIs (in order of preference):

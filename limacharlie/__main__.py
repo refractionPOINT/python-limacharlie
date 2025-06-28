@@ -113,8 +113,8 @@ def cli(args):
             if not success:
                 sys.exit( 1 )
         elif login_args.oauth:
-            # OAuth login flow - use device flow (no client secrets)
-            from .oauth_device import perform_device_flow_login
+            # OAuth login flow - use Firebase direct auth (no client secrets)
+            from .oauth_firebase_direct import perform_firebase_auth
             
             # Get OID if not provided
             oid = login_args.oid
@@ -140,10 +140,11 @@ def cli(args):
                 if '' == environment:
                     environment = 'default'
             
-            # Perform device flow login (no client secrets needed)
-            success = perform_device_flow_login(
+            # Perform Firebase auth (no client secrets needed)
+            success = perform_firebase_auth(
                 oid=oid if oid else None,
-                environment=environment if environment != 'default' else None
+                environment=environment if environment != 'default' else None,
+                no_browser=login_args.no_browser
             )
             
             if not success:
