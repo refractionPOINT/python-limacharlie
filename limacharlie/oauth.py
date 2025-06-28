@@ -84,21 +84,14 @@ class OAuthManager:
         print("Waiting for authentication...")
         
         # Wait for callback
-        print("DEBUG: Waiting for OAuth callback...")
         success, auth_code, error = self.callback_server.wait_for_callback()
-        print(f"DEBUG: Callback received - success: {success}, code: {auth_code is not None}, error: {error}")
-        
-        print("DEBUG: Stopping callback server...")
         self.callback_server.stop()
-        print("DEBUG: Server stopped")
         
         if not success:
             raise OAuthError(f"Authentication failed: {error}")
         
-        print("DEBUG: Exchanging authorization code for tokens...")
         # Exchange authorization code for tokens
         tokens = self._exchange_code_for_tokens(auth_code, redirect_uri)
-        print("DEBUG: Token exchange complete")
         
         return tokens
     
@@ -121,18 +114,47 @@ class OAuthManager:
         Raises:
             OAuthError: If token exchange fails
         """
-        # Exchange with Firebase
-        payload = {
-            'postBody': f'code={auth_code}&providerId=google.com&redirect_uri={redirect_uri}',
-            'requestUri': redirect_uri,
-            'returnIdpCredential': True,
-            'returnSecureToken': True
+        # First, exchange the authorization code for Google tokens
+        google_token_url = 'https://oauth2.googleapis.com/token'
+        
+        # Get the OAuth client secret (this should be configured)
+        client_secret = os.environ.get('LC_GOOGLE_CLIENT_SECRET', '')
+        if not client_secret:
+            # For installed applications, we might not need a client secret
+            client_secret = ''
+        
+        google_payload = {
+            'code': auth_code,
+            'client_id': self._get_google_client_id(),
+            'client_secret': client_secret,
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code'
         }
         
         try:
+            # Exchange code for Google tokens
+            response = requests.post(google_token_url, data=google_payload)
+            if response.status_code != 200:
+                error_data = response.json()
+                raise OAuthError(f"Google token exchange failed: {error_data.get('error_description', error_data.get('error', 'Unknown error'))}")
+            
+            google_tokens = response.json()
+            id_token = google_tokens.get('id_token')
+            
+            if not id_token:
+                raise OAuthError("No ID token received from Google")
+            
+            # Now sign in to Firebase with the Google ID token
+            firebase_payload = {
+                'postBody': f'id_token={id_token}&providerId=google.com',
+                'requestUri': 'http://localhost',  # Firebase requires this but doesn't use it
+                'returnIdpCredential': True,
+                'returnSecureToken': True
+            }
+            
             response = requests.post(
                 f"{self.FIREBASE_TOKEN_EXCHANGE_URL}?key={self.FIREBASE_API_KEY}",
-                json=payload,
+                json=firebase_payload,
                 headers={'Content-Type': 'application/json'}
             )
             response.raise_for_status()

@@ -17,16 +17,12 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET request from OAuth provider redirect."""
-        print(f"DEBUG: OAuth callback received - path: {self.path}")
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
-        print(f"DEBUG: Query params: {list(params.keys())}")
         
         # Extract auth code or error
         if 'code' in params:
-            print(f"DEBUG: Authorization code received")
             if self.callback_queue:
-                print("DEBUG: Putting result in queue")
                 self.callback_queue.put({
                     'success': True,
                     'code': params['code'][0],
@@ -194,7 +190,6 @@ class OAuthCallbackServer:
                 result = self.callback_queue.get_nowait()
                 self.callback_queue.put(result)  # Put it back for wait_for_callback
                 got_result = True
-                print("DEBUG: Server got result, continuing to handle remaining requests")
                 # Continue to handle a few more requests (like favicon)
                 for _ in range(3):
                     if self.server.handle_request() is False:
@@ -206,7 +201,6 @@ class OAuthCallbackServer:
             # Handle one request with timeout
             self.server.handle_request()
         
-        print("DEBUG: Server loop exiting")
     
     def wait_for_callback(self) -> Tuple[bool, Optional[str], Optional[str]]:
         """
@@ -215,12 +209,9 @@ class OAuthCallbackServer:
         Returns:
             Tuple of (success, auth_code, error_message)
         """
-        print("DEBUG: wait_for_callback called")
         try:
             # Wait for result with timeout
-            print(f"DEBUG: Waiting for queue result (timeout: {self.timeout}s)...")
             result = self.callback_queue.get(timeout=self.timeout)
-            print(f"DEBUG: Got result from queue: {result}")
             
             # Wait a bit for the response to be sent
             time.sleep(0.5)
@@ -231,19 +222,15 @@ class OAuthCallbackServer:
                 result.get('error')
             )
         except queue.Empty:
-            print("DEBUG: Queue timeout - no result received")
             return (False, None, 'Authentication timeout')
     
     def stop(self):
         """Stop the OAuth callback server."""
-        print("DEBUG: stop() called")
         if self.server:
             # Shutdown must be called from a different thread
             shutdown_thread = threading.Thread(target=self.server.shutdown)
             shutdown_thread.start()
             shutdown_thread.join(timeout=2)
             self.server.server_close()
-            print("DEBUG: Server shutdown complete")
         if self.server_thread and self.server_thread.is_alive():
             self.server_thread.join(timeout=2)
-            print("DEBUG: Server thread joined")
