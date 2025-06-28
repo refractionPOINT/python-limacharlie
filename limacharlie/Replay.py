@@ -108,7 +108,7 @@ class Replay( object ):
         self._replayURL = self._lc.getOrgURLs()[ 'replay' ]
 
     def _doQuery( self, query, limitEvent = None, limitEval = None, isDryRun = False, isCursorBased = False, stream = 'event',
-                  includeStats = False, forceUrl = None, isValidation = False ):
+                  includeStats = False, forceUrl = None, isValidation = False, isBackwards = False, isSummary = False ):
         if not query:
             raise LcApiException( 'no query specified' )
 
@@ -118,6 +118,8 @@ class Replay( object ):
             'limit_event' : 0 if limitEvent is None else limitEvent,
             'limit_eval' : 0 if limitEval is None else limitEval,
             'is_dry_run' : isDryRun,
+            'is_backwards' : isBackwards,
+            'is_summary' : isSummary,
             'event_source' : {
                 'stream' : stream,
                 'sensor_events' : {
@@ -125,6 +127,9 @@ class Replay( object ):
                 },
             },
         }
+
+        if isSummary:
+            req[ 'include_histogram' ] = True
 
         if includeStats:
             req[ 'include_histogram' ] = True
