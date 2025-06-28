@@ -131,10 +131,6 @@ class FirebaseDirectAuth:
         parsed = urllib.parse.urlparse(f"http://localhost{callback_path}")
         params = urllib.parse.parse_qs(parsed.query)
         
-        # Debug logging
-        print(f"[DEBUG] Callback path: {callback_path}")
-        print(f"[DEBUG] Query params: {params}")
-        
         # Check for error
         if 'error' in params:
             error = params['error'][0]
