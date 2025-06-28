@@ -25,7 +25,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             if self.callback_queue:
                 self.callback_queue.put({
                     'success': True,
-                    'code': params['code'][0],
+                    'path': self.path,  # Return full path for parsing
                     'error': None
                 })
             
@@ -59,7 +59,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             if self.callback_queue:
                 self.callback_queue.put({
                     'success': False,
-                    'code': None,
+                    'path': self.path,
                     'error': error_msg
                 })
             
@@ -175,11 +175,11 @@ class OAuthCallbackServer:
         start_time = time.time()
         got_result = False
         
-        while not got_result:
+        while not got_result and self.server:
             if time.time() - start_time > self.timeout:
                 self.callback_queue.put({
                     'success': False,
-                    'code': None,
+                    'path': None,
                     'error': 'Authentication timeout'
                 })
                 break
@@ -192,14 +192,22 @@ class OAuthCallbackServer:
                 got_result = True
                 # Continue to handle a few more requests (like favicon)
                 for _ in range(3):
-                    if self.server.handle_request() is False:
+                    try:
+                        if self.server and self.server.handle_request() is False:
+                            break
+                    except:
                         break
                 break
             except queue.Empty:
                 pass
             
             # Handle one request with timeout
-            self.server.handle_request()
+            try:
+                if self.server:
+                    self.server.handle_request()
+            except:
+                # Server was shut down
+                break
         
     
     def wait_for_callback(self) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -218,7 +226,7 @@ class OAuthCallbackServer:
             
             return (
                 result['success'],
-                result.get('code'),
+                result.get('path'),  # Return path instead of code
                 result.get('error')
             )
         except queue.Empty:

@@ -94,13 +94,16 @@ class FirebaseDirectAuth:
         
         # Wait for callback
         success, callback_data, error = self.callback_server.wait_for_callback()
-        self.callback_server.stop()
         
-        if not success:
-            raise FirebaseAuthError(f"Authentication failed: {error}")
-        
-        # Extract authorization code from callback
-        auth_code = self._extract_auth_code(callback_data)
+        try:
+            if not success:
+                raise FirebaseAuthError(f"Authentication failed: {error}")
+            
+            # Extract authorization code from callback
+            auth_code = self._extract_auth_code(callback_data)
+        finally:
+            # Always stop the server
+            self.callback_server.stop()
         
         # Exchange authorization code for Google tokens using PKCE
         google_tokens = self._exchange_code_for_tokens(auth_code, redirect_uri, code_verifier)
@@ -121,9 +124,16 @@ class FirebaseDirectAuth:
         Raises:
             FirebaseAuthError: If code not found or error in response
         """
+        if not callback_path:
+            raise FirebaseAuthError("No callback path received")
+            
         # Parse query parameters
         parsed = urllib.parse.urlparse(f"http://localhost{callback_path}")
         params = urllib.parse.parse_qs(parsed.query)
+        
+        # Debug logging
+        print(f"[DEBUG] Callback path: {callback_path}")
+        print(f"[DEBUG] Query params: {params}")
         
         # Check for error
         if 'error' in params:
