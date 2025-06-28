@@ -295,6 +295,9 @@ def perform_firebase_auth(oid: Optional[str] = None,
             oauth_creds=oauth_data.get('oauth')
         )
         
+        # Small delay to ensure output is flushed
+        time.sleep(0.5)
+        
         return True
         
     except FirebaseAuthError as e:
