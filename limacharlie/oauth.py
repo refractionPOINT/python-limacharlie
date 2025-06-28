@@ -84,14 +84,21 @@ class OAuthManager:
         print("Waiting for authentication...")
         
         # Wait for callback
+        print("DEBUG: Waiting for OAuth callback...")
         success, auth_code, error = self.callback_server.wait_for_callback()
+        print(f"DEBUG: Callback received - success: {success}, code: {auth_code is not None}, error: {error}")
+        
+        print("DEBUG: Stopping callback server...")
         self.callback_server.stop()
+        print("DEBUG: Server stopped")
         
         if not success:
             raise OAuthError(f"Authentication failed: {error}")
         
+        print("DEBUG: Exchanging authorization code for tokens...")
         # Exchange authorization code for tokens
         tokens = self._exchange_code_for_tokens(auth_code, redirect_uri)
+        print("DEBUG: Token exchange complete")
         
         return tokens
     

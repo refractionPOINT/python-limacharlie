@@ -17,12 +17,16 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET request from OAuth provider redirect."""
+        print(f"DEBUG: OAuth callback received - path: {self.path}")
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
+        print(f"DEBUG: Query params: {list(params.keys())}")
         
         # Extract auth code or error
         if 'code' in params:
+            print(f"DEBUG: Authorization code received")
             if self.callback_queue:
+                print("DEBUG: Putting result in queue")
                 self.callback_queue.put({
                     'success': True,
                     'code': params['code'][0],
@@ -197,9 +201,12 @@ class OAuthCallbackServer:
         Returns:
             Tuple of (success, auth_code, error_message)
         """
+        print("DEBUG: wait_for_callback called")
         try:
             # Wait for result with timeout
+            print(f"DEBUG: Waiting for queue result (timeout: {self.timeout}s)...")
             result = self.callback_queue.get(timeout=self.timeout)
+            print(f"DEBUG: Got result from queue: {result}")
             
             # Wait a bit for the response to be sent
             time.sleep(0.5)
@@ -210,6 +217,7 @@ class OAuthCallbackServer:
                 result.get('error')
             )
         except queue.Empty:
+            print("DEBUG: Queue timeout - no result received")
             return (False, None, 'Authentication timeout')
     
     def stop(self):
