@@ -53,6 +53,8 @@ class OAuthManager:
         port = self.callback_server.start()
         redirect_uri = f'http://localhost:{port}'
         
+        print(f"Using redirect URI: {redirect_uri}")
+        
         # Warn if using non-standard port
         if port not in [8085, 8086, 8087, 8088, 8089]:
             print(f"\nWARNING: Using port {port} which may not be authorized for OAuth.")
