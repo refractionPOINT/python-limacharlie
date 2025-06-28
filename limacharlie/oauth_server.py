@@ -26,12 +26,13 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             
             # Send success response
             self.send_response(200)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
             
             success_html = """
             <html>
             <head>
+                <meta charset="UTF-8">
                 <title>LimaCharlie CLI - Authentication Successful</title>
                 <style>
                     body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
@@ -45,7 +46,8 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             </body>
             </html>
             """
-            self.wfile.write(success_html.encode())
+            self.wfile.write(success_html.encode('utf-8'))
+            self.wfile.flush()
             
         elif 'error' in params:
             self.callback_result['error'] = params.get('error_description', ['Unknown error'])[0]
@@ -53,12 +55,13 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             
             # Send error response
             self.send_response(200)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
             
             error_html = f"""
             <html>
             <head>
+                <meta charset="UTF-8">
                 <title>LimaCharlie CLI - Authentication Failed</title>
                 <style>
                     body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
@@ -73,7 +76,8 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             </body>
             </html>
             """
-            self.wfile.write(error_html.encode())
+            self.wfile.write(error_html.encode('utf-8'))
+            self.wfile.flush()
         else:
             # Invalid callback
             self.send_response(400)
@@ -161,10 +165,6 @@ class OAuthCallbackServer:
                 break
             
             self.server.handle_request()
-        
-        # Handle one more request to send the response
-        if self.callback_result['success'] or self.callback_result['error']:
-            self.server.handle_request()
     
     def wait_for_callback(self) -> Tuple[bool, Optional[str], Optional[str]]:
         """
@@ -185,5 +185,8 @@ class OAuthCallbackServer:
     def stop(self):
         """Stop the OAuth callback server."""
         if self.server:
+            # Set a flag to stop the server loop
             self.server.shutdown()
             self.server.server_close()
+        if self.server_thread and self.server_thread.is_alive():
+            self.server_thread.join(timeout=2)
