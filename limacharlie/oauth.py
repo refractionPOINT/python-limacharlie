@@ -32,6 +32,11 @@ class OAuthManager:
     FIREBASE_TOKEN_EXCHANGE_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp'
     FIREBASE_REFRESH_URL = 'https://securetoken.googleapis.com/v1/token'
     
+    # Use Firebase's hosted auth domain for the flow
+    def get_firebase_auth_url(self):
+        """Get the Firebase hosted auth URL."""
+        return f"https://{self.FIREBASE_AUTH_DOMAIN}/__/auth/handler"
+    
     def __init__(self):
         """Initialize OAuth manager."""
         self.callback_server = None
@@ -151,7 +156,19 @@ class OAuthManager:
             response = requests.post(google_token_url, data=google_payload)
             if response.status_code != 200:
                 error_data = response.json()
-                raise OAuthError(f"Google token exchange failed: {error_data.get('error_description', error_data.get('error', 'Unknown error'))}")
+                error_msg = error_data.get('error_description', error_data.get('error', 'Unknown error'))
+                
+                # Special handling for client_secret error
+                if 'client_secret' in error_msg:
+                    raise OAuthError(
+                        "OAuth client configuration error: This OAuth client requires a client secret.\n"
+                        "For a public CLI tool, the OAuth client in Google Cloud Console should be:\n"
+                        "1. Type: 'Desktop' or 'Installed' application (not 'Web application')\n"
+                        "2. Or use a different authentication method\n\n"
+                        "Please contact LimaCharlie support to report this issue."
+                    )
+                
+                raise OAuthError(f"Google token exchange failed: {error_msg}")
             
             google_tokens = response.json()
             id_token = google_tokens.get('id_token')
