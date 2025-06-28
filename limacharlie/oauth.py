@@ -123,6 +123,7 @@ class OAuthManager:
     def _get_google_client_id(self) -> str:
         """Get Google OAuth client ID from Firebase config."""
         # This is a public identifier, not a secret
+        # TODO: Replace with Desktop/Installed app OAuth client ID
         return os.environ.get('LC_GOOGLE_CLIENT_ID', '978632190035-65t497hb3126j41in9nh3s7bsh330m1f.apps.googleusercontent.com')
     
     def _exchange_code_for_tokens(self, auth_code: str, redirect_uri: str, code_verifier: str) -> Dict[str, str]:

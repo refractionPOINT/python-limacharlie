@@ -145,6 +145,11 @@ The callback server automatically finds a free port. If issues persist, check fi
 ### Token expired
 The CLI automatically refreshes expired tokens. If refresh fails, re-authenticate with `limacharlie login --oauth`
 
+### "OAuth client requires a client secret" error
+This error occurs when the Google OAuth client is configured as a "Web application" type. For a public CLI tool, the OAuth client must be configured as a "Desktop" or "Installed" application type in Google Cloud Console. This is a configuration issue that needs to be fixed by the LimaCharlie team.
+
+**Workaround**: Use traditional API key authentication with `limacharlie login` (without --oauth)
+
 ### Invalid configuration
 Ensure the required Firebase environment variables are set correctly
 
