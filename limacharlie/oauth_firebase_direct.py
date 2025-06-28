@@ -104,7 +104,11 @@ class FirebaseDirectAuth:
                 json=payload,
                 headers={'Content-Type': 'application/json'}
             )
-            response.raise_for_status()
+            
+            if response.status_code != 200:
+                error_data = response.json()
+                error_msg = error_data.get('error', {}).get('message', 'Unknown error')
+                raise FirebaseAuthError(f"Failed to create auth URI: {error_msg}\nFull error: {error_data}")
             
             data = response.json()
             return data['authUri']
