@@ -5,13 +5,14 @@ import urllib.parse
 import socket
 from typing import Optional, Tuple
 import time
+import queue
 
 
 class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     """Handler for OAuth callback requests."""
     
-    def __init__(self, *args, callback_result=None, **kwargs):
-        self.callback_result = callback_result
+    def __init__(self, *args, callback_queue=None, **kwargs):
+        self.callback_queue = callback_queue
         super().__init__(*args, **kwargs)
     
     def do_GET(self):
@@ -21,8 +22,12 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         
         # Extract auth code or error
         if 'code' in params:
-            self.callback_result['code'] = params['code'][0]
-            self.callback_result['success'] = True
+            if self.callback_queue:
+                self.callback_queue.put({
+                    'success': True,
+                    'code': params['code'][0],
+                    'error': None
+                })
             
             # Send success response
             self.send_response(200)
@@ -50,8 +55,13 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
             
         elif 'error' in params:
-            self.callback_result['error'] = params.get('error_description', ['Unknown error'])[0]
-            self.callback_result['success'] = False
+            error_msg = params.get('error_description', ['Unknown error'])[0]
+            if self.callback_queue:
+                self.callback_queue.put({
+                    'success': False,
+                    'code': None,
+                    'error': error_msg
+                })
             
             # Send error response
             self.send_response(200)
@@ -71,7 +81,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             </head>
             <body>
                 <div class="error">✗ Authentication Failed</div>
-                <div class="message">Error: {self.callback_result['error']}</div>
+                <div class="message">Error: {error_msg}</div>
                 <div class="message">Please return to the CLI and try again.</div>
             </body>
             </html>
@@ -103,7 +113,7 @@ class OAuthCallbackServer:
         self.timeout = timeout
         self.port = None
         self.server = None
-        self.callback_result = {'success': False, 'code': None, 'error': None}
+        self.callback_queue = queue.Queue()
         self.server_thread = None
     
     def find_free_port(self) -> int:
@@ -138,10 +148,10 @@ class OAuthCallbackServer:
         """
         self.port = self.find_free_port()
         
-        # Create handler with callback result reference
+        # Create handler with callback queue reference
         handler = lambda *args, **kwargs: OAuthCallbackHandler(
             *args, 
-            callback_result=self.callback_result, 
+            callback_queue=self.callback_queue, 
             **kwargs
         )
         
@@ -159,11 +169,25 @@ class OAuthCallbackServer:
         """Run the server until callback is received or timeout."""
         start_time = time.time()
         
-        while not self.callback_result['success'] and not self.callback_result['error']:
+        while True:
             if time.time() - start_time > self.timeout:
-                self.callback_result['error'] = 'Authentication timeout'
+                self.callback_queue.put({
+                    'success': False,
+                    'code': None,
+                    'error': 'Authentication timeout'
+                })
                 break
             
+            # Check if we have a callback result
+            try:
+                # Non-blocking check
+                result = self.callback_queue.get_nowait()
+                self.callback_queue.put(result)  # Put it back for wait_for_callback
+                break
+            except queue.Empty:
+                pass
+            
+            # Handle one request with timeout
             self.server.handle_request()
     
     def wait_for_callback(self) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -173,14 +197,20 @@ class OAuthCallbackServer:
         Returns:
             Tuple of (success, auth_code, error_message)
         """
-        if self.server_thread:
-            self.server_thread.join(timeout=self.timeout + 5)
-        
-        return (
-            self.callback_result['success'],
-            self.callback_result.get('code'),
-            self.callback_result.get('error')
-        )
+        try:
+            # Wait for result with timeout
+            result = self.callback_queue.get(timeout=self.timeout)
+            
+            # Wait a bit for the response to be sent
+            time.sleep(0.5)
+            
+            return (
+                result['success'],
+                result.get('code'),
+                result.get('error')
+            )
+        except queue.Empty:
+            return (False, None, 'Authentication timeout')
     
     def stop(self):
         """Stop the OAuth callback server."""
