@@ -169,11 +169,11 @@ class Manager( object ):
         try:
             # Check if we're using OAuth
             if self._oauth_creds is not None:
-                # Check if token is expired
+                # Check if Firebase token is expired
                 from .oauth import OAuthManager
                 if OAuthManager.is_token_expired(self._oauth_creds.get('expires_at', 0)):
-                    # Refresh the OAuth token
-                    self._printDebug("OAuth token expired, refreshing...")
+                    # Refresh the Firebase OAuth token
+                    self._printDebug("Firebase token expired, refreshing...")
                     new_tokens = OAuthManager.refresh_token(self._oauth_creds['refresh_token'])
                     
                     # Update stored OAuth credentials
@@ -181,9 +181,21 @@ class Manager( object ):
                     self._oauth_creds['expires_at'] = new_tokens['expires_at']
                     
                     # TODO: Update the credentials file with new tokens
-                    
-                # Use the OAuth ID token as JWT
-                self._jwt = self._oauth_creds['id_token']
+                
+                # Exchange Firebase JWT for LimaCharlie JWT
+                authData = { "fb_auth" : self._oauth_creds['id_token'] }
+                if self._oid is not None:
+                    authData[ 'oid' ] = self._oid
+                if expiry is not None:
+                    authData[ 'expiry' ] = int( expiry )
+                
+                request = URLRequest( API_TO_JWT_URL,
+                                      urlencode( authData ).encode(),
+                                      headers = { "Content-Type": "application/x-www-form-urlencoded" } )
+                request.get_method = lambda: "POST"
+                u = urlopen( request )
+                self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
+                u.close()
                 
                 if self._onRefreshAuth is not None:
                     self._onRefreshAuth()

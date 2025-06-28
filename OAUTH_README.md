@@ -101,9 +101,11 @@ PERMISSIONS:
 
 ## Token Management
 
-- Tokens are automatically refreshed when they expire
+- Firebase tokens are automatically refreshed when they expire
 - The CLI checks token expiry with a 5-minute buffer
-- Refresh tokens are used to obtain new ID tokens without re-authentication
+- Firebase ID tokens are exchanged for LimaCharlie JWTs via jwt.limacharlie.io
+- The exchange happens automatically on each API call
+- Refresh tokens are used to obtain new Firebase ID tokens without re-authentication
 
 ## Backward Compatibility
 
@@ -146,6 +148,13 @@ The OAuth feature is implemented in:
 - `limacharlie/oauth.py`: Main OAuth flow logic
 - `limacharlie/oauth_server.py`: Local callback server
 - `limacharlie/__main__.py`: CLI command updates
-- `limacharlie/Manager.py`: OAuth token handling in API calls
+- `limacharlie/Manager.py`: Firebase JWT to LimaCharlie JWT exchange
+
+### Authentication Flow
+1. User authenticates with Google via Firebase
+2. Firebase returns an ID token and refresh token
+3. The Firebase ID token is sent to jwt.limacharlie.io with `fb_auth` parameter
+4. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
+5. The LimaCharlie JWT is used for API calls
 
 The implementation follows OAuth 2.0 best practices and integrates with Firebase Authentication for token management.
