@@ -85,6 +85,8 @@ If you need to override the default configuration (e.g., for development), you c
 - `LC_FIREBASE_AUTH_DOMAIN`: Override Firebase auth domain
 - `LC_GOOGLE_CLIENT_ID`: Override Google OAuth client ID
 
+Note: This implementation uses PKCE (Proof Key for Code Exchange) for secure public client authentication. No client secret is required.
+
 ## Checking Authentication Status
 
 To see your current authentication method and status:
@@ -155,11 +157,12 @@ The OAuth feature is implemented in:
 - `limacharlie/Manager.py`: Firebase JWT to LimaCharlie JWT exchange
 
 ### Authentication Flow
-1. User authenticates with Google via Firebase
-2. Firebase returns an ID token and refresh token
-3. The Firebase ID token is sent to jwt.limacharlie.io with `fb_auth` parameter
-4. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
-5. The LimaCharlie JWT is used for API calls
+1. User authenticates with Google OAuth using PKCE flow (no client secret needed)
+2. Google returns an ID token after verifying the PKCE challenge
+3. The Google ID token is exchanged with Firebase for Firebase tokens
+4. The Firebase ID token is sent to jwt.limacharlie.io with `fb_auth` parameter
+5. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
+6. The LimaCharlie JWT is used for API calls
 
 ### OAuth Redirect URIs
 The OAuth implementation uses the following redirect URIs (in order of preference):

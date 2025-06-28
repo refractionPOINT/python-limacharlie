@@ -6,6 +6,9 @@ import time
 from typing import Dict, Optional, Tuple
 import os
 import sys
+import hashlib
+import base64
+import secrets
 
 from .oauth_server import OAuthCallbackServer
 from . import utils
@@ -33,6 +36,18 @@ class OAuthManager:
         """Initialize OAuth manager."""
         self.callback_server = None
     
+    def _generate_pkce_challenge(self) -> Tuple[str, str]:
+        """Generate PKCE code verifier and challenge."""
+        # Generate a random code verifier
+        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+        
+        # Create the code challenge using SHA256
+        code_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode('utf-8')).digest()
+        ).decode('utf-8').rstrip('=')
+        
+        return code_verifier, code_challenge
+    
     def start_oauth_flow(self, no_browser: bool = False) -> Dict[str, str]:
         """
         Start the OAuth authentication flow.
@@ -48,6 +63,9 @@ class OAuthManager:
         """
         # Firebase configuration is now built-in, no need to check
         
+        # Generate PKCE parameters
+        self.code_verifier, code_challenge = self._generate_pkce_challenge()
+        
         # Start local callback server
         self.callback_server = OAuthCallbackServer()
         port = self.callback_server.start()
@@ -61,14 +79,16 @@ class OAuthManager:
             print("Preferred ports (8085-8089) are in use.")
             print("The authentication may fail with redirect_uri_mismatch error.\n")
         
-        # Build OAuth URL
+        # Build OAuth URL with PKCE
         auth_params = {
             'client_id': self._get_google_client_id(),
             'redirect_uri': redirect_uri,
             'response_type': 'code',
             'scope': 'openid email profile',
             'access_type': 'offline',
-            'prompt': 'consent'  # Ensure we get refresh token
+            'prompt': 'consent',  # Ensure we get refresh token
+            'code_challenge': code_challenge,
+            'code_challenge_method': 'S256'
         }
         
         auth_url = f"{self.GOOGLE_OAUTH_URL}?{urllib.parse.urlencode(auth_params)}"
@@ -90,8 +110,8 @@ class OAuthManager:
         if not success:
             raise OAuthError(f"Authentication failed: {error}")
         
-        # Exchange authorization code for tokens
-        tokens = self._exchange_code_for_tokens(auth_code, redirect_uri)
+        # Exchange authorization code for tokens (pass the code_verifier for PKCE)
+        tokens = self._exchange_code_for_tokens(auth_code, redirect_uri, self.code_verifier)
         
         return tokens
     
@@ -100,13 +120,14 @@ class OAuthManager:
         # This is a public identifier, not a secret
         return os.environ.get('LC_GOOGLE_CLIENT_ID', '978632190035-65t497hb3126j41in9nh3s7bsh330m1f.apps.googleusercontent.com')
     
-    def _exchange_code_for_tokens(self, auth_code: str, redirect_uri: str) -> Dict[str, str]:
+    def _exchange_code_for_tokens(self, auth_code: str, redirect_uri: str, code_verifier: str) -> Dict[str, str]:
         """
         Exchange authorization code for Firebase ID token and refresh token.
         
         Args:
             auth_code: Authorization code from OAuth callback
             redirect_uri: Redirect URI used in OAuth flow
+            code_verifier: PKCE code verifier
             
         Returns:
             Dictionary with id_token, refresh_token, and expires_in
@@ -114,21 +135,15 @@ class OAuthManager:
         Raises:
             OAuthError: If token exchange fails
         """
-        # First, exchange the authorization code for Google tokens
+        # First, exchange the authorization code for Google tokens using PKCE
         google_token_url = 'https://oauth2.googleapis.com/token'
-        
-        # Get the OAuth client secret (this should be configured)
-        client_secret = os.environ.get('LC_GOOGLE_CLIENT_SECRET', '')
-        if not client_secret:
-            # For installed applications, we might not need a client secret
-            client_secret = ''
         
         google_payload = {
             'code': auth_code,
             'client_id': self._get_google_client_id(),
-            'client_secret': client_secret,
             'redirect_uri': redirect_uri,
-            'grant_type': 'authorization_code'
+            'grant_type': 'authorization_code',
+            'code_verifier': code_verifier  # PKCE verifier instead of client secret
         }
         
         try:
