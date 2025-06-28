@@ -49,39 +49,120 @@ def cli(args):
         from . import __version__
         print( "LimaCharlie Python SDK Version %s" % ( __version__, ) )
     elif args.action.lower() == 'login':
-        # TODO: Support non interactive mode aka using --oid, --alias, --key, --uid option.
-        from .utils import writeCredentialsToConfig
-
-        if _IS_PYTHON_2:
-            oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
+        # Parse login arguments
+        parser = argparse.ArgumentParser( prog = 'limacharlie login' )
+        parser.add_argument( '--oauth',
+                             action = 'store_true',
+                             help = 'use OAuth authentication instead of API key' )
+        parser.add_argument( '--no-browser',
+                             action = 'store_true',
+                             help = 'print URL instead of opening browser (OAuth only)' )
+        parser.add_argument( '--oid',
+                             type = str,
+                             help = 'organization ID (non-interactive mode)' )
+        parser.add_argument( '--environment', '--env',
+                             type = str,
+                             help = 'environment name (default: "default")' )
+        parser.add_argument( '--api-key',
+                             type = str,
+                             help = 'API key (non-interactive mode)' )
+        parser.add_argument( '--uid',
+                             type = str,
+                             default = '',
+                             help = 'user ID for user-scoped API keys' )
+        
+        login_args = parser.parse_args( actionArgs )
+        
+        if login_args.oauth:
+            # OAuth login flow
+            from .oauth import perform_oauth_login
+            
+            # Get OID if not provided
+            oid = login_args.oid
+            if not oid:
+                if _IS_PYTHON_2:
+                    oid = raw_input( 'Enter your Organization ID (UUID), or leave empty: ' ) # noqa
+                else:
+                    oid = input( 'Enter your Organization ID (UUID), or leave empty: ' )
+                if oid:
+                    try:
+                        uuid.UUID( oid )
+                    except:
+                        print( "Invalid OID" )
+                        sys.exit( 1 )
+            
+            # Get environment name
+            environment = login_args.environment
+            if not environment:
+                if _IS_PYTHON_2:
+                    environment = raw_input( 'Enter a name for this access (environment), or leave empty to set default: ' ) # noqa
+                else:
+                    environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
+                if '' == environment:
+                    environment = 'default'
+            
+            # Perform OAuth login
+            success = perform_oauth_login(
+                oid=oid if oid else None,
+                environment=environment if environment != 'default' else None,
+                no_browser=login_args.no_browser
+            )
+            
+            if not success:
+                sys.exit( 1 )
         else:
-            oid = input( 'Enter your Organization ID (UUID): ' )
-        try:
-            uuid.UUID( oid )
-        except:
-            print( "Invalid OID" )
-            sys.exit( 1 )
-        if _IS_PYTHON_2:
-            alias = raw_input( 'Enter a name for this access (alias), or leave empty to set default: ' ) # noqa
-        else:
-            alias = input( 'Enter a name for this access (alias), or leave empty to set default: ' )
-        if '' == alias:
-            alias = 'default'
-        secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
-        if _IS_PYTHON_2:
-            uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' ) # noqa
-        else:
-            uid = input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' )
-        try:
-            if uid != '':
-                if 20 > len( uid ):
+            # Traditional API key login
+            from .utils import writeCredentialsToConfig
+            
+            # Support non-interactive mode
+            if login_args.oid and login_args.api_key:
+                # Non-interactive mode
+                oid = login_args.oid
+                try:
+                    uuid.UUID( oid )
+                except:
+                    print( "Invalid OID" )
+                    sys.exit( 1 )
+                
+                environment = login_args.environment if login_args.environment else 'default'
+                secretApiKey = login_args.api_key
+                uid = login_args.uid
+                
+                if uid != '' and len(uid) > 20:
                     print("UID must be maximum 20 characters long.")
                     sys.exit(1)
-        except:
-            print( "Invalid UID" )
-            sys.exit( 1 )
+            else:
+                # Interactive mode (original behavior)
+                if _IS_PYTHON_2:
+                    oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
+                else:
+                    oid = input( 'Enter your Organization ID (UUID): ' )
+                try:
+                    uuid.UUID( oid )
+                except:
+                    print( "Invalid OID" )
+                    sys.exit( 1 )
+                if _IS_PYTHON_2:
+                    environment = raw_input( 'Enter a name for this access (environment), or leave empty to set default: ' ) # noqa
+                else:
+                    environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
+                if '' == environment:
+                    environment = 'default'
+                secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+                if _IS_PYTHON_2:
+                    uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' ) # noqa
+                else:
+                    uid = input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' )
+                try:
+                    if uid != '':
+                        if 20 > len( uid ):
+                            print("UID must be maximum 20 characters long.")
+                            sys.exit(1)
+                except:
+                    print( "Invalid UID" )
+                    sys.exit( 1 )
 
-        writeCredentialsToConfig( alias, oid, secretApiKey, uid )
+            writeCredentialsToConfig( environment, oid, secretApiKey, uid )
     elif args.action.lower() == 'use':
         parser = argparse.ArgumentParser( prog = 'limacharlie use' )
         parser.add_argument( 'environment_name',
@@ -147,7 +228,19 @@ def cli(args):
         tmpManager = Manager()
         print( "OID: %s" % ( tmpManager._oid, ) )
         print( "UID: %s" % ( tmpManager._uid, ) )
-        print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
+        if tmpManager._oauth_creds:
+            print( "AUTH: OAuth (Provider: %s)" % ( tmpManager._oauth_creds.get('provider', 'unknown'), ) )
+            from .oauth import OAuthManager
+            expires_at = tmpManager._oauth_creds.get('expires_at', 0)
+            if OAuthManager.is_token_expired(expires_at):
+                print( "TOKEN: Expired" )
+            else:
+                import time
+                remaining = expires_at - int(time.time())
+                print( "TOKEN: Valid for %d minutes" % ( remaining // 60, ) )
+        else:
+            print( "AUTH: API Key" )
+            print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
         print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
     elif args.action.lower() == 'logs' or args.action.lower() == 'artifacts':
         from .Logs import main as cmdMain

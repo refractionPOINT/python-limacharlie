@@ -45,6 +45,7 @@ from . import __version__
 from limacharlie import GLOBAL_OID
 from limacharlie import GLOBAL_UID
 from limacharlie import GLOBAL_API_KEY
+from limacharlie import GLOBAL_OAUTH
 from limacharlie import _getEnvironmentCreds
 
 from typing import Any, Optional, Callable
@@ -95,9 +96,10 @@ class Manager( object ):
         print_debug_fn = print_debug_fn or DEFAULT_PRINT_DEBUG_FN
 
         # If an environment is specified, try to get its creds.
+        oauth_creds = None
         if environment is not None:
-            oid, uid, secret_api_key = _getEnvironmentCreds( environment )
-            if secret_api_key is None or ( oid is None and uid is None ):
+            oid, uid, secret_api_key, oauth_creds = _getEnvironmentCreds( environment )
+            if (secret_api_key is None and oauth_creds is None) or ( oid is None and uid is None ):
                 raise LcApiException( 'LimaCharlie environment not configured, use "limacharlie login".')
         else:
             # Otherwise, try to take the values in parameter. But if
@@ -110,9 +112,10 @@ class Manager( object ):
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 oid = GLOBAL_OID
             if secret_api_key is None and jwt is None:
-                if GLOBAL_API_KEY is None:
+                if GLOBAL_API_KEY is None and GLOBAL_OAUTH is None:
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 secret_api_key = GLOBAL_API_KEY
+                oauth_creds = GLOBAL_OAUTH
 
         try:
             if oid is not None and oid != '-':
@@ -120,14 +123,16 @@ class Manager( object ):
         except:
             raise LcApiException( 'Invalid oid, should be in UUID format.' )
         try:
-            uuid.UUID( secret_api_key )
+            if secret_api_key is not None:
+                uuid.UUID( secret_api_key )
         except:
-            if jwt is None:
+            if jwt is None and oauth_creds is None:
                 raise LcApiException( 'Invalid secret API key, should be in UUID format.' )
         self._oid: Optional[str] = oid
         self._uid: Optional[str] = uid if uid else None
         self._onRefreshAuth: Optional[Callable[[], None]] = onRefreshAuth
         self._secret_api_key: Optional[str] = secret_api_key
+        self._oauth_creds: Optional[dict] = oauth_creds
         self._jwt: Optional[str] = jwt
         self._debug: Callable[[str], None] = print_debug_fn
         self._lastSensorListContinuationToken: Optional[str] = None
@@ -162,8 +167,31 @@ class Manager( object ):
 
     def _refreshJWT( self, expiry = None ):
         try:
+            # Check if we're using OAuth
+            if self._oauth_creds is not None:
+                # Check if token is expired
+                from .oauth import OAuthManager
+                if OAuthManager.is_token_expired(self._oauth_creds.get('expires_at', 0)):
+                    # Refresh the OAuth token
+                    self._printDebug("OAuth token expired, refreshing...")
+                    new_tokens = OAuthManager.refresh_token(self._oauth_creds['refresh_token'])
+                    
+                    # Update stored OAuth credentials
+                    self._oauth_creds['id_token'] = new_tokens['id_token']
+                    self._oauth_creds['expires_at'] = new_tokens['expires_at']
+                    
+                    # TODO: Update the credentials file with new tokens
+                    
+                # Use the OAuth ID token as JWT
+                self._jwt = self._oauth_creds['id_token']
+                
+                if self._onRefreshAuth is not None:
+                    self._onRefreshAuth()
+                return
+            
+            # Traditional API key flow
             if self._secret_api_key is None:
-                raise Exception( 'No API key set' )
+                raise Exception( 'No API key or OAuth credentials set' )
             authData = { "secret" : self._secret_api_key }
             if self._uid is not None:
                 authData[ 'uid' ] = self._uid
@@ -182,7 +210,7 @@ class Manager( object ):
             # TODO: Catch more specific exception
             code = e.__dict__.get("code", None)
             self._jwt = None
-            raise LcApiException( 'Failed to get JWT from API key oid=%s uid=%s: %s' % ( self._oid, self._uid, e, ), code=code)
+            raise LcApiException( 'Failed to get JWT: %s' % ( e, ), code=code)
 
     def _restCall( self, url: str, verb: str, params: dict[str, Any] = {}, altRoot: Optional[str] = None, queryParams: Optional[dict[str, Any]] = None, rawBody: Optional[str] = None, contentType: Optional[str] = None, isNoAuth: bool = False, timeout: Optional[int] = None ) -> tuple[int, dict[str, Any]]:
         try:
