@@ -104,6 +104,21 @@ class OAuthCallbackServer:
     
     def find_free_port(self) -> int:
         """Find a free port for the local server."""
+        # Try preferred ports first (these should be whitelisted in Google OAuth)
+        preferred_ports = [8085, 8086, 8087, 8088, 8089]
+        
+        for port in preferred_ports:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('localhost', port))
+                    s.close()
+                    return port
+            except OSError:
+                # Port is in use, try next one
+                continue
+        
+        # If all preferred ports are taken, fall back to random port
+        # (This will fail OAuth, but at least gives a clear error)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(('', 0))
             s.listen(1)

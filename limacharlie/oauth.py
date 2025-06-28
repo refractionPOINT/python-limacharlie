@@ -53,6 +53,12 @@ class OAuthManager:
         port = self.callback_server.start()
         redirect_uri = f'http://localhost:{port}'
         
+        # Warn if using non-standard port
+        if port not in [8085, 8086, 8087, 8088, 8089]:
+            print(f"\nWARNING: Using port {port} which may not be authorized for OAuth.")
+            print("Preferred ports (8085-8089) are in use.")
+            print("The authentication may fail with redirect_uri_mismatch error.\n")
+        
         # Build OAuth URL
         auth_params = {
             'client_id': self._get_google_client_id(),

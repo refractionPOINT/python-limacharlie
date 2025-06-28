@@ -161,4 +161,14 @@ The OAuth feature is implemented in:
 4. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
 5. The LimaCharlie JWT is used for API calls
 
+### OAuth Redirect URIs
+The OAuth implementation uses the following redirect URIs (in order of preference):
+- `http://localhost:8085`
+- `http://localhost:8086`
+- `http://localhost:8087`
+- `http://localhost:8088`
+- `http://localhost:8089`
+
+These URIs must be added to the Google OAuth client's authorized redirect URIs in the Google Cloud Console.
+
 The implementation follows OAuth 2.0 best practices and integrates with Firebase Authentication for token management.
