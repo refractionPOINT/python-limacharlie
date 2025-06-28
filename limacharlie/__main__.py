@@ -28,7 +28,7 @@ def cli(args):
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -232,6 +232,56 @@ def cli(args):
                 print( "Environment not found" )
                 sys.exit( 1 )
             print( 'export LC_CURRENT_ENV="%s"' % args.environment_name )
+    elif args.action.lower() == 'set-oid':
+        parser = argparse.ArgumentParser( prog = 'limacharlie set-oid' )
+        parser.add_argument( 'oid',
+                             type = str,
+                             help = 'Organization ID (UUID) to set as default' )
+        parser.add_argument( '--environment', '--env',
+                             type = str,
+                             default = 'default',
+                             help = 'environment to update (default: "default")' )
+        args = parser.parse_args( actionArgs )
+        
+        # Validate OID format
+        try:
+            uuid.UUID( args.oid )
+        except:
+            print( "Invalid OID format. Must be a valid UUID." )
+            sys.exit( 1 )
+        
+        # Load existing config
+        from .utils import loadCredentials
+        config = loadCredentials()
+        if config is None:
+            print( "No existing configuration found. Please run 'limacharlie login' first." )
+            sys.exit( 1 )
+        
+        # Update OID based on environment
+        if args.environment == 'default':
+            if 'oid' not in config and 'api_key' not in config and 'oauth' not in config:
+                print( "No default credentials found. Please run 'limacharlie login' first." )
+                sys.exit( 1 )
+            old_oid = config.get( 'oid', 'not set' )
+            config['oid'] = args.oid
+            print( f"Updated default OID from {old_oid} to {args.oid}" )
+        else:
+            # Update specific environment
+            if 'env' not in config or args.environment not in config['env']:
+                print( f"Environment '{args.environment}' not found." )
+                sys.exit( 1 )
+            old_oid = config['env'][args.environment].get( 'oid', 'not set' )
+            config['env'][args.environment]['oid'] = args.oid
+            print( f"Updated OID for environment '{args.environment}' from {old_oid} to {args.oid}" )
+        
+        # Save updated config
+        with open( CONFIG_FILE_PATH, 'w' ) as f:
+            yaml.safe_dump( config, f )
+        
+        # Set file permissions to 600 (read/write for owner only)
+        os.chmod( CONFIG_FILE_PATH, stat.S_IRUSR | stat.S_IWUSR )
+        
+        print( "Configuration updated successfully." )
     elif args.action.lower() == 'dr':
         from .DRCli import main as cmdMain
         cmdMain( actionArgs )
