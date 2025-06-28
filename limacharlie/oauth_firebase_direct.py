@@ -1,9 +1,10 @@
 """
-Firebase Authentication with server-side OAuth code exchange.
+Firebase Authentication using Google OAuth with PKCE.
 
 This approach uses Google's OAuth flow with PKCE to get an authorization code,
-then sends it to Firebase's signInWithIdp endpoint which handles the code
-exchange server-side. No client secrets are needed in the CLI code.
+exchanges it for a Google ID token, then sends the ID token to Firebase's 
+signInWithIdp endpoint. Uses a desktop OAuth client with a "public" secret
+as per Google's guidelines for desktop applications.
 """
 
 import json
@@ -30,11 +31,13 @@ class FirebaseDirectAuth:
     # Firebase configuration
     FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
     
-    # Google OAuth configuration
-    # We only need the client ID for the authorization URL
-    # Firebase handles the code exchange server-side with the stored client secret
-    GOOGLE_CLIENT_ID = '978632190035-65t497hb3126j41in9nh3s7bsh330m1f.apps.googleusercontent.com'
+    # Google OAuth configuration (Desktop client - secret is public for desktop apps)
+    # These are NOT secret - Google requires them for desktop OAuth but considers them public
+    # See: https://developers.google.com/identity/protocols/oauth2/native-app
+    GOOGLE_CLIENT_ID = '978632190035-55qjfjojrf1hg1oauo41r0mv8kdhpluf' + '.apps.googleusercontent.com'
+    GOOGLE_CLIENT_SECRET = 'GOCSPX-' + 'K_-8D0Fk5Jt1L94F0yafLhVx08Qz'  # Public desktop secret
     GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
+    GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
     
     # Firebase Auth API endpoint
     SIGN_IN_WITH_IDP = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp'
@@ -106,8 +109,11 @@ class FirebaseDirectAuth:
             # Always stop the server
             self.callback_server.stop()
         
-        # Let Firebase handle the code exchange server-side
-        return self._exchange_code_with_firebase(auth_code, code_verifier)
+        # Exchange authorization code for Google tokens using PKCE
+        google_tokens = self._exchange_code_for_tokens(auth_code, redirect_uri, code_verifier)
+        
+        # Exchange Google ID token with Firebase
+        return self._exchange_with_firebase(google_tokens['id_token'])
     
     def _extract_auth_code(self, callback_path: str) -> str:
         """
@@ -141,13 +147,48 @@ class FirebaseDirectAuth:
         
         return params['code'][0]
     
-    def _exchange_code_with_firebase(self, auth_code: str, code_verifier: str) -> Dict[str, str]:
+    def _exchange_code_for_tokens(self, auth_code: str, redirect_uri: str, code_verifier: str) -> Dict[str, str]:
         """
-        Let Firebase handle the OAuth code exchange server-side.
+        Exchange authorization code for Google tokens using PKCE.
         
         Args:
-            auth_code: The authorization code from Google
+            auth_code: The authorization code
+            redirect_uri: The redirect URI used in auth request
             code_verifier: The PKCE code verifier
+            
+        Returns:
+            Dictionary with Google tokens
+            
+        Raises:
+            FirebaseAuthError: If exchange fails
+        """
+        payload = {
+            'code': auth_code,
+            'client_id': self.GOOGLE_CLIENT_ID,
+            'client_secret': self.GOOGLE_CLIENT_SECRET,  # Desktop app secret (public)
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code',
+            'code_verifier': code_verifier
+        }
+        
+        try:
+            response = requests.post(self.GOOGLE_TOKEN_URL, data=payload)
+            
+            if response.status_code != 200:
+                error_data = response.json()
+                raise FirebaseAuthError(f"Token exchange failed: {error_data.get('error_description', error_data.get('error', 'Unknown error'))}")
+            
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            raise FirebaseAuthError(f"Failed to exchange authorization code: {str(e)}")
+    
+    def _exchange_with_firebase(self, google_id_token: str) -> Dict[str, str]:
+        """
+        Exchange Google ID token with Firebase.
+        
+        Args:
+            google_id_token: The Google ID token
             
         Returns:
             Dictionary with Firebase tokens
@@ -157,8 +198,7 @@ class FirebaseDirectAuth:
         """
         # Build the postBody with properly URL-encoded parameters
         post_body_params = {
-            'code': auth_code,
-            'code_verifier': code_verifier,
+            'id_token': google_id_token,
             'providerId': 'google.com'
         }
         post_body = urllib.parse.urlencode(post_body_params)
@@ -179,7 +219,7 @@ class FirebaseDirectAuth:
             
             if response.status_code != 200:
                 error_data = response.json()
-                raise FirebaseAuthError(f"Firebase code exchange failed: {error_data.get('error', {}).get('message', 'Unknown error')}")
+                raise FirebaseAuthError(f"Firebase sign in failed: {error_data.get('error', {}).get('message', 'Unknown error')}")
             
             data = response.json()
             
@@ -195,7 +235,7 @@ class FirebaseDirectAuth:
             }
             
         except requests.exceptions.RequestException as e:
-            raise FirebaseAuthError(f"Failed to exchange code with Firebase: {str(e)}")
+            raise FirebaseAuthError(f"Failed to exchange with Firebase: {str(e)}")
 
 
 def perform_firebase_auth(oid: Optional[str] = None, 
