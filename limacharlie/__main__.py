@@ -54,9 +54,6 @@ def cli(args):
         parser.add_argument( '--oauth',
                              action = 'store_true',
                              help = 'use OAuth authentication instead of API key' )
-        parser.add_argument( '--device-flow',
-                             action = 'store_true',
-                             help = 'use OAuth device flow (for public CLI, no secrets needed)' )
         parser.add_argument( '--no-browser',
                              action = 'store_true',
                              help = 'print URL instead of opening browser (OAuth only)' )
@@ -76,53 +73,14 @@ def cli(args):
         
         login_args = parser.parse_args( actionArgs )
         
-        if login_args.device_flow:
-            # Device flow OAuth (no secrets needed)
-            from .oauth_device import perform_device_flow_login
-            
-            # Get OID if not provided
-            oid = login_args.oid
-            if not oid:
-                if _IS_PYTHON_2:
-                    oid = raw_input( 'Enter your Organization ID (UUID), or leave empty: ' ) # noqa
-                else:
-                    oid = input( 'Enter your Organization ID (UUID), or leave empty: ' )
-                if oid:
-                    try:
-                        uuid.UUID( oid )
-                    except:
-                        print( "Invalid OID" )
-                        sys.exit( 1 )
-            
-            # Get environment name
-            environment = login_args.environment
-            if not environment:
-                if _IS_PYTHON_2:
-                    environment = raw_input( 'Enter a name for this access (environment), or leave empty to set default: ' ) # noqa
-                else:
-                    environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
-                if '' == environment:
-                    environment = 'default'
-            
-            # Perform device flow login
-            success = perform_device_flow_login(
-                oid=oid if oid else None,
-                environment=environment if environment != 'default' else None
-            )
-            
-            if not success:
-                sys.exit( 1 )
-        elif login_args.oauth:
+        if login_args.oauth:
             # OAuth login flow - use Firebase direct auth (no client secrets)
             from .oauth_firebase_direct import perform_firebase_auth
             
             # Get OID if not provided
             oid = login_args.oid
             if not oid:
-                if _IS_PYTHON_2:
-                    oid = raw_input( 'Enter your Organization ID (UUID), or leave empty: ' ) # noqa
-                else:
-                    oid = input( 'Enter your Organization ID (UUID), or leave empty: ' )
+                oid = input( 'Enter your Organization ID (UUID), or leave empty: ' )
                 if oid:
                     try:
                         uuid.UUID( oid )
@@ -133,10 +91,7 @@ def cli(args):
             # Get environment name
             environment = login_args.environment
             if not environment:
-                if _IS_PYTHON_2:
-                    environment = raw_input( 'Enter a name for this access (environment), or leave empty to set default: ' ) # noqa
-                else:
-                    environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
+                environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
                 if '' == environment:
                     environment = 'default'
             

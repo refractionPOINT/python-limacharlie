@@ -4,7 +4,7 @@ This document describes the OAuth authentication feature for the LimaCharlie CLI
 
 ## Overview
 
-The LimaCharlie CLI now supports OAuth authentication as an alternative to API keys. This allows users to authenticate using their Google account through a browser-based flow, similar to Firebase CLI and other modern tools.
+The LimaCharlie CLI supports OAuth authentication as an alternative to API keys. This allows users to authenticate using their Google account through a browser-based flow.
 
 ## Features
 
@@ -16,7 +16,7 @@ The LimaCharlie CLI now supports OAuth authentication as an alternative to API k
 
 ## Usage
 
-### OAuth Login (Recommended)
+### OAuth Login
 
 ```bash
 limacharlie login --oauth
@@ -25,8 +25,8 @@ limacharlie login --oauth
 This will:
 1. Open your browser to Google's OAuth page
 2. After you authenticate, redirect back to localhost  
-3. Firebase handles the code exchange server-side
-4. No client secrets required in the CLI - perfect for public distribution
+3. Exchange the authorization code for tokens
+4. Store the tokens securely in `~/.limacharlie`
 
 ### OAuth Login Without Browser
 
@@ -35,17 +35,6 @@ limacharlie login --oauth --no-browser
 ```
 
 This will print the URL for you to manually open instead of launching the browser.
-
-### OAuth Device Flow (Alternative)
-
-```bash
-limacharlie login --device-flow
-```
-
-This uses the device flow which:
-1. Displays a URL and code
-2. You visit the URL and enter the code
-3. The CLI polls for completion
 
 ### OAuth Login with Organization ID
 
@@ -87,18 +76,9 @@ env:
 
 No configuration is required! The OAuth feature comes pre-configured with LimaCharlie's Firebase project settings.
 
-### Security Note
+### Security
 
-This CLI implementation does not include any client secrets. The OAuth flow uses PKCE for security, and Firebase handles the code exchange server-side using the client credentials configured in the Firebase Console. This makes the CLI safe for public distribution.
-
-### Optional Environment Variables
-
-If you need to override the default configuration (e.g., for development), you can set:
-
-- `LC_FIREBASE_API_KEY`: Override Firebase Web API key
-- `LC_FIREBASE_AUTH_DOMAIN`: Override Firebase auth domain
-- `LC_GOOGLE_CLIENT_ID`: Override Google OAuth client ID
-- `LC_GOOGLE_CLIENT_SECRET`: Override Google OAuth client secret (desktop apps only)
+The OAuth implementation uses Google's OAuth 2.0 flow with PKCE (Proof Key for Code Exchange) for enhanced security. Desktop OAuth clients include a "public" client secret as per Google's guidelines for desktop applications.
 
 ## Checking Authentication Status
 
@@ -153,45 +133,29 @@ Organizations using API keys will continue to work without any changes.
 Use `--no-browser` flag and manually copy/paste the URL
 
 ### Port conflicts
-The callback server automatically finds a free port. If issues persist, check firewall settings.
+The callback server automatically finds a free port from the range 8085-8089. If all ports are in use, check your firewall settings.
 
 ### Token expired
 The CLI automatically refreshes expired tokens. If refresh fails, re-authenticate with `limacharlie login --oauth`
 
-### "OAuth client requires a client secret" error
-This error occurs when the Google OAuth client is configured as a "Web application" type. For a public CLI tool, the OAuth client must be configured as a "Desktop" or "Installed" application type in Google Cloud Console. This is a configuration issue that needs to be fixed by the LimaCharlie team.
-
-**Workaround**: Use traditional API key authentication with `limacharlie login` (without --oauth)
-
-### Invalid configuration
-Ensure the required Firebase environment variables are set correctly
-
 ## Implementation Details
 
 The OAuth feature is implemented in:
-- `limacharlie/oauth.py`: Main OAuth flow logic
+- `limacharlie/oauth_firebase_direct.py`: OAuth flow implementation
 - `limacharlie/oauth_server.py`: Local callback server
-- `limacharlie/__main__.py`: CLI command updates
+- `limacharlie/oauth.py`: Token management utilities
+- `limacharlie/__main__.py`: CLI command integration
 - `limacharlie/Manager.py`: Firebase JWT to LimaCharlie JWT exchange
 
 ### Authentication Flow
-1. User authenticates with Google OAuth using PKCE flow (no client secret needed)
+1. User authenticates with Google OAuth using PKCE flow
 2. Google returns an authorization code
-3. The authorization code is sent to Firebase's signInWithIdp endpoint
-4. Firebase exchanges the code server-side (using stored client credentials)
+3. The code is exchanged for Google tokens
+4. Google ID token is sent to Firebase's signInWithIdp endpoint
 5. Firebase returns ID and refresh tokens
 6. The Firebase ID token is sent to jwt.limacharlie.io with `fb_auth` parameter
 7. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
 8. The LimaCharlie JWT is used for API calls
 
 ### OAuth Redirect URIs
-The OAuth implementation uses the following redirect URIs (in order of preference):
-- `http://localhost:8085`
-- `http://localhost:8086`
-- `http://localhost:8087`
-- `http://localhost:8088`
-- `http://localhost:8089`
-
-These URIs must be added to the Google OAuth client's authorized redirect URIs in the Google Cloud Console.
-
-The implementation follows OAuth 2.0 best practices and integrates with Firebase Authentication for token management.
+The implementation uses localhost ports 8085-8089 for OAuth callbacks. These URIs are configured in the Google OAuth client settings.
