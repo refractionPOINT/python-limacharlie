@@ -19,10 +19,10 @@ class OAuthError(Exception):
 class OAuthManager:
     """Manages OAuth authentication flow for LimaCharlie CLI."""
     
-    # Firebase configuration - these would be provided by LimaCharlie
-    # TODO: Replace these with actual LimaCharlie Firebase project values
-    FIREBASE_API_KEY = os.environ.get('LC_FIREBASE_API_KEY', 'YOUR_FIREBASE_WEB_API_KEY')
-    FIREBASE_AUTH_DOMAIN = os.environ.get('LC_FIREBASE_AUTH_DOMAIN', 'your-project.firebaseapp.com')
+    # Firebase configuration for LimaCharlie
+    # These are public identifiers, not secrets
+    FIREBASE_API_KEY = os.environ.get('LC_FIREBASE_API_KEY', 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w')
+    FIREBASE_AUTH_DOMAIN = os.environ.get('LC_FIREBASE_AUTH_DOMAIN', 'refractionpoint-lce.firebaseapp.com')
     
     # OAuth endpoints
     GOOGLE_OAUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
@@ -46,14 +46,7 @@ class OAuthManager:
         Raises:
             OAuthError: If authentication fails
         """
-        # Check if Firebase configuration is set
-        if self.FIREBASE_API_KEY == 'YOUR_FIREBASE_WEB_API_KEY':
-            raise OAuthError(
-                "Firebase configuration not set. Please set the following environment variables:\n"
-                "  LC_FIREBASE_API_KEY='your-firebase-api-key'\n"
-                "  LC_FIREBASE_AUTH_DOMAIN='your-project.firebaseapp.com'\n"
-                "  LC_GOOGLE_CLIENT_ID='your-client-id.apps.googleusercontent.com'"
-            )
+        # Firebase configuration is now built-in, no need to check
         
         # Start local callback server
         self.callback_server = OAuthCallbackServer()
@@ -96,8 +89,8 @@ class OAuthManager:
     
     def _get_google_client_id(self) -> str:
         """Get Google OAuth client ID from Firebase config."""
-        # TODO: Replace with actual LimaCharlie Google OAuth client ID
-        return os.environ.get('LC_GOOGLE_CLIENT_ID', 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com')
+        # This is a public identifier, not a secret
+        return os.environ.get('LC_GOOGLE_CLIENT_ID', '978632190035-65t497hb3126j41in9nh3s7bsh330m1f.apps.googleusercontent.com')
     
     def _exchange_code_for_tokens(self, auth_code: str, redirect_uri: str) -> Dict[str, str]:
         """

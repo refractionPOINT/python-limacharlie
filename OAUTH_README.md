@@ -73,13 +73,17 @@ env:
       provider: google
 ```
 
-## Environment Variables
+## Configuration
 
-The OAuth feature requires Firebase configuration. These can be set via environment variables:
+No configuration is required! The OAuth feature comes pre-configured with LimaCharlie's Firebase project settings.
 
-- `LC_FIREBASE_API_KEY`: Your Firebase Web API key
-- `LC_FIREBASE_AUTH_DOMAIN`: Your Firebase auth domain (e.g., `project.firebaseapp.com`)
-- `LC_GOOGLE_CLIENT_ID`: Your Google OAuth client ID
+### Optional Environment Variables
+
+If you need to override the default configuration (e.g., for development), you can set:
+
+- `LC_FIREBASE_API_KEY`: Override Firebase Web API key
+- `LC_FIREBASE_AUTH_DOMAIN`: Override Firebase auth domain
+- `LC_GOOGLE_CLIENT_ID`: Override Google OAuth client ID
 
 ## Checking Authentication Status
 
