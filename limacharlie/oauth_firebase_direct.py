@@ -155,9 +155,17 @@ class FirebaseDirectAuth:
         Raises:
             FirebaseAuthError: If exchange fails
         """
+        # Build the postBody with properly URL-encoded parameters
+        post_body_params = {
+            'code': auth_code,
+            'code_verifier': code_verifier,
+            'providerId': 'google.com'
+        }
+        post_body = urllib.parse.urlencode(post_body_params)
+        
         payload = {
             'requestUri': 'http://localhost',
-            'postBody': f'code={auth_code}&code_verifier={code_verifier}&providerId=google.com',
+            'postBody': post_body,
             'returnSecureToken': True,
             'returnIdpCredential': True
         }
