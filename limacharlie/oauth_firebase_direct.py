@@ -52,12 +52,23 @@ class FirebaseDirectAuth:
         # Start local callback server
         self.callback_server = OAuthCallbackServer()
         port = self.callback_server.start()
-        redirect_uri = f'http://localhost:{port}/auth/handler'
+        redirect_uri = f'http://localhost:{port}'
         
         print(f"OAuth callback server started on port {port}")
         
-        # Create auth URI with Firebase
-        auth_uri = self._create_auth_uri(redirect_uri)
+        # Use Firebase's hosted auth UI directly
+        # This is similar to how Firebase SDK does it
+        auth_params = {
+            'apiKey': self.FIREBASE_API_KEY,
+            'providerId': 'google.com',
+            'continueUrl': redirect_uri,
+            'oauth_scope': 'openid email profile',
+            'prompt': 'consent',
+            'access_type': 'offline'
+        }
+        
+        # Firebase hosted UI URL
+        auth_uri = f"https://refractionpoint-lce.firebaseapp.com/__/auth/handler?{urllib.parse.urlencode(auth_params)}"
         
         # Open browser or print URL
         if no_browser:
@@ -76,47 +87,11 @@ class FirebaseDirectAuth:
         if not success:
             raise FirebaseAuthError(f"Authentication failed: {error}")
         
-        # The callback should contain the full redirect URL
-        # Parse it and sign in with IDP
-        return self._sign_in_with_idp(callback_data, redirect_uri)
+        # The callback should contain the auth response
+        # Parse it and extract tokens
+        return self._parse_auth_response(callback_data)
     
-    def _create_auth_uri(self, redirect_uri: str) -> str:
-        """
-        Create authentication URI using Firebase.
-        
-        Args:
-            redirect_uri: Where to redirect after auth
-            
-        Returns:
-            The auth URI to open in browser
-        """
-        payload = {
-            'identifier': '',  # Can be empty for initial auth
-            'continueUri': redirect_uri,
-            'providerId': 'google.com',  # Google OAuth provider
-            'oauthScope': 'openid email profile',
-            'sessionId': self.session_id
-        }
-        
-        try:
-            response = requests.post(
-                f"{self.CREATE_AUTH_URI}?key={self.FIREBASE_API_KEY}",
-                json=payload,
-                headers={'Content-Type': 'application/json'}
-            )
-            
-            if response.status_code != 200:
-                error_data = response.json()
-                error_msg = error_data.get('error', {}).get('message', 'Unknown error')
-                raise FirebaseAuthError(f"Failed to create auth URI: {error_msg}\nFull error: {error_data}")
-            
-            data = response.json()
-            return data['authUri']
-            
-        except requests.exceptions.RequestException as e:
-            raise FirebaseAuthError(f"Failed to create auth URI: {str(e)}")
-    
-    def _sign_in_with_idp(self, callback_url: str, original_redirect_uri: str) -> Dict[str, str]:
+    def _parse_auth_response(self, callback_path: str) -> Dict[str, str]:
         """
         Complete sign in with IDP using the callback data.
         
