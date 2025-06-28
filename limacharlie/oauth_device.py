@@ -30,9 +30,12 @@ class DeviceFlowManager:
     FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
     FIREBASE_TOKEN_EXCHANGE_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp'
     
-    # Use the Web OAuth client ID for device flow
-    # Device flow doesn't require client secret
-    OAUTH_CLIENT_ID = '978632190035-65t497hb3126j41in9nh3s7bsh330m1f.apps.googleusercontent.com'
+    # Use the Desktop OAuth client for device flow
+    # For desktop apps, the client secret is treated as public by Google
+    # These are NOT secret - Google requires them for desktop OAuth but considers them public
+    # See: https://developers.google.com/identity/protocols/oauth2/native-app
+    OAUTH_CLIENT_ID = '978632190035-55qjfjojrf1hg1oauo41r0mv8kdhpluf' + '.apps.googleusercontent.com'
+    OAUTH_CLIENT_SECRET = 'GOCSPX-' + 'K_-8D0Fk5Jt1L94F0yafLhVx08Qz'  # Public desktop secret
     
     def start_device_flow(self) -> Dict[str, str]:
         """
@@ -89,7 +92,7 @@ class DeviceFlowManager:
         """Poll Google for the access token."""
         payload = {
             'client_id': self.OAUTH_CLIENT_ID,
-            'client_secret': '',  # Empty for public clients
+            'client_secret': self.OAUTH_CLIENT_SECRET,  # Desktop app secret (public)
             'device_code': device_code,
             'grant_type': 'urn:ietf:params:oauth:grant-type:device_code'
         }

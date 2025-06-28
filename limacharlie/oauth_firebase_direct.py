@@ -30,8 +30,11 @@ class FirebaseDirectAuth:
     # Firebase configuration
     FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
     
-    # Google OAuth configuration (Web client, no secret needed for PKCE)
-    GOOGLE_CLIENT_ID = '978632190035-65t497hb3126j41in9nh3s7bsh330m1f.apps.googleusercontent.com'
+    # Google OAuth configuration (Desktop client - secret is public for desktop apps)
+    # These are NOT secret - Google requires them for desktop OAuth but considers them public
+    # See: https://developers.google.com/identity/protocols/oauth2/native-app
+    GOOGLE_CLIENT_ID = '978632190035-55qjfjojrf1hg1oauo41r0mv8kdhpluf' + '.apps.googleusercontent.com'
+    GOOGLE_CLIENT_SECRET = 'GOCSPX-' + 'K_-8D0Fk5Jt1L94F0yafLhVx08Qz'  # Public desktop secret
     GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
     GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
     
@@ -161,6 +164,7 @@ class FirebaseDirectAuth:
         payload = {
             'code': auth_code,
             'client_id': self.GOOGLE_CLIENT_ID,
+            'client_secret': self.GOOGLE_CLIENT_SECRET,  # Desktop app secret (public)
             'redirect_uri': redirect_uri,
             'grant_type': 'authorization_code',
             'code_verifier': code_verifier

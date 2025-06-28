@@ -80,6 +80,10 @@ env:
 
 No configuration is required! The OAuth feature comes pre-configured with LimaCharlie's Firebase project settings.
 
+### Note on Client Secrets
+
+This CLI uses Google's Desktop OAuth client type. For desktop applications, Google treats the client secret as "public" - it's included in the code but isn't actually secret. This is Google's standard practice for desktop/CLI applications where the client secret cannot be kept confidential.
+
 ### Optional Environment Variables
 
 If you need to override the default configuration (e.g., for development), you can set:
@@ -87,8 +91,7 @@ If you need to override the default configuration (e.g., for development), you c
 - `LC_FIREBASE_API_KEY`: Override Firebase Web API key
 - `LC_FIREBASE_AUTH_DOMAIN`: Override Firebase auth domain
 - `LC_GOOGLE_CLIENT_ID`: Override Google OAuth client ID
-
-Note: This implementation uses PKCE (Proof Key for Code Exchange) for secure public client authentication. No client secret is required.
+- `LC_GOOGLE_CLIENT_SECRET`: Override Google OAuth client secret (desktop apps only)
 
 ## Checking Authentication Status
 
