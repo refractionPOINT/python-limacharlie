@@ -146,14 +146,16 @@ class OAuthManager:
         google_payload = {
             'code': auth_code,
             'client_id': self._get_google_client_id(),
+            'client_secret': '',  # Empty for Desktop OAuth clients
             'redirect_uri': redirect_uri,
             'grant_type': 'authorization_code',
-            'code_verifier': code_verifier  # PKCE verifier instead of client secret
+            'code_verifier': code_verifier  # PKCE verifier for additional security
         }
         
         try:
             # Exchange code for Google tokens
             response = requests.post(google_token_url, data=google_payload)
+            
             if response.status_code != 200:
                 error_data = response.json()
                 error_msg = error_data.get('error_description', error_data.get('error', 'Unknown error'))
