@@ -16,7 +16,19 @@ The LimaCharlie CLI now supports OAuth authentication as an alternative to API k
 
 ## Usage
 
-### Basic OAuth Login
+### OAuth Device Flow (Recommended for Public CLI)
+
+```bash
+limacharlie login --device-flow
+```
+
+This will:
+1. Display a URL and code
+2. You visit the URL and enter the code
+3. The CLI polls for completion
+4. No client secrets required - perfect for public distribution
+
+### Standard OAuth Login (Requires Client Configuration)
 
 ```bash
 limacharlie login --oauth
@@ -28,6 +40,8 @@ This will:
 3. After authentication, redirect back to the local server
 4. Exchange the authorization code for Firebase tokens
 5. Store the tokens securely in `~/.limacharlie`
+
+Note: This method requires proper OAuth client configuration without secrets.
 
 ### OAuth Login Without Browser
 
