@@ -35,7 +35,7 @@ class FirebaseDirectAuth:
     # These are NOT secret - Google requires them for desktop OAuth but considers them public
     # See: https://developers.google.com/identity/protocols/oauth2/native-app
     GOOGLE_CLIENT_ID = '978632190035-55qjfjojrf1hg1oauo41r0mv8kdhpluf' + '.apps.googleusercontent.com'
-    GOOGLE_CLIENT_SECRET = 'GOCSPX-' + 'K_-8D0Fk5Jt1L94F0yafLhVx08Qz'  # Public desktop secret
+    GOOGLE_CLIENT_SECRET = 'GOCSPX-' + '3kDK3wDgAF9j1gS0uWz8fitL4wtt'  # Public desktop secret
     GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
     GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
     
