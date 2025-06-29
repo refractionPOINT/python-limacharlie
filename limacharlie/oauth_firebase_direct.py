@@ -35,6 +35,13 @@ class FirebaseDirectAuth:
     # These are NOT secret - Google requires them for desktop OAuth but considers them public
     # See: https://developers.google.com/identity/protocols/oauth2/native-app
     GOOGLE_CLIENT_ID = '978632190035-55qjfjojrf1hg1oauo41r0mv8kdhpluf' + '.apps.googleusercontent.com'
+    
+    # IMPORTANT: This client secret is intentionally hardcoded and NOT actually secret.
+    # For OAuth2 desktop/native applications, Google requires a client secret to be included
+    # in the authorization flow, but explicitly states these secrets are NOT confidential.
+    # They are considered "public" secrets because native apps cannot securely store secrets.
+    # This is why we use PKCE (Proof Key for Code Exchange) for additional security.
+    # Reference: https://developers.google.com/identity/protocols/oauth2/native-app#installed-app-client-id
     GOOGLE_CLIENT_SECRET = 'GOCSPX-' + '3kDK3wDgAF9j1gS0uWz8fitL4wtt'  # Public desktop secret
     GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
     GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -72,7 +79,11 @@ class FirebaseDirectAuth:
             hashlib.sha256(code_verifier.encode('utf-8')).digest()
         ).decode('utf-8').rstrip('=')
         
-        # Build Google OAuth URL with PKCE
+        # Generate CSRF state parameter
+        state = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+        self.callback_server.expected_state = state
+        
+        # Build Google OAuth URL with PKCE and CSRF protection
         auth_params = {
             'client_id': self.GOOGLE_CLIENT_ID,
             'redirect_uri': redirect_uri,
@@ -81,7 +92,8 @@ class FirebaseDirectAuth:
             'access_type': 'offline',
             'prompt': 'consent',
             'code_challenge': code_challenge,
-            'code_challenge_method': 'S256'
+            'code_challenge_method': 'S256',
+            'state': state  # CSRF protection
         }
         
         auth_uri = f"{self.GOOGLE_AUTH_URL}?{urllib.parse.urlencode(auth_params)}"
@@ -140,6 +152,13 @@ class FirebaseDirectAuth:
             error = params['error'][0]
             error_desc = params.get('error_description', ['Unknown error'])[0]
             raise FirebaseAuthError(f"OAuth error: {error} - {error_desc}")
+        
+        # Validate CSRF state parameter
+        if 'state' not in params:
+            raise FirebaseAuthError("Missing state parameter in callback - possible CSRF attack")
+        
+        # State validation is performed by the callback server
+        # If we get here, the state was already validated
         
         # Extract code
         if 'code' not in params:
