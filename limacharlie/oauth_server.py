@@ -154,7 +154,9 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                         You've been successfully authenticated with LimaCharlie CLI.<br>
                         Your credentials have been securely stored.
                     </p>
-                    <a href="#" class="action" onclick="window.close(); return false;">Close Window</a>
+                    <div class="message" style="margin-bottom: 20px;">
+                        You can safely close this browser window/tab.
+                    </div>
                     <div class="cli-hint">Return to your terminal to continue</div>
                 </div>
             </body>
@@ -309,7 +311,9 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                         The authentication process encountered an error.<br>
                         Please return to your terminal and try again.
                     </p>
-                    <a href="#" class="action" onclick="window.close(); return false;">Close Window</a>
+                    <div class="message" style="margin-bottom: 20px;">
+                        You can close this browser window/tab.
+                    </div>
                     <div class="cli-hint">Run 'limacharlie login --oauth' to retry</div>
                 </div>
             </body>
@@ -464,10 +468,20 @@ class OAuthCallbackServer:
     def stop(self):
         """Stop the OAuth callback server."""
         if self.server:
+            # Set server to None to signal the thread to stop
+            server = self.server
+            self.server = None
+            
             # Shutdown must be called from a different thread
-            shutdown_thread = threading.Thread(target=self.server.shutdown)
+            shutdown_thread = threading.Thread(target=server.shutdown)
+            shutdown_thread.daemon = True
             shutdown_thread.start()
-            shutdown_thread.join(timeout=2)
-            self.server.server_close()
+            shutdown_thread.join(timeout=1)
+            
+            try:
+                server.server_close()
+            except:
+                pass
+                
         if self.server_thread and self.server_thread.is_alive():
-            self.server_thread.join(timeout=2)
+            self.server_thread.join(timeout=1)

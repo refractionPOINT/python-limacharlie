@@ -295,8 +295,8 @@ def perform_firebase_auth(oid: Optional[str] = None,
             oauth_creds=oauth_data.get('oauth')
         )
         
-        # Small delay to ensure output is flushed
-        time.sleep(0.5)
+        # Small delay to ensure output is flushed and threads clean up
+        time.sleep(1.0)
         
         return True
         
