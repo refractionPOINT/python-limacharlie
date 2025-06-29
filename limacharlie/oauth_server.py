@@ -20,6 +20,31 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
         
+        # Validate CSRF state parameter if expected
+        if hasattr(self.server, 'expected_state') and self.server.expected_state:
+            if 'state' not in params:
+                # Missing state parameter
+                self.send_error_response("Missing state parameter - possible CSRF attack")
+                if self.callback_queue:
+                    self.callback_queue.put({
+                        'success': False,
+                        'path': self.path,
+                        'error': 'Missing state parameter - possible CSRF attack'
+                    })
+                return
+            
+            received_state = params['state'][0] if params['state'] else None
+            if received_state != self.server.expected_state:
+                # Invalid state parameter
+                self.send_error_response("Invalid state parameter - possible CSRF attack")
+                if self.callback_queue:
+                    self.callback_queue.put({
+                        'success': False,
+                        'path': self.path,
+                        'error': 'Invalid state parameter - possible CSRF attack'
+                    })
+                return
+        
         # Extract auth code or error
         if 'code' in params:
             if self.callback_queue:
@@ -333,6 +358,134 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Invalid OAuth callback")
     
+    def send_error_response(self, error_msg: str):
+        """Send an error response with the given message."""
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.end_headers()
+        
+        error_html = f"""
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>LimaCharlie CLI - Authentication Failed</title>
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700&family=Inter:wght@400;500&display=swap');
+                
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                
+                body {{
+                    font-family: 'Inter', -apple-system, sans-serif;
+                    background: #00030C;
+                    color: #ffffff;
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background-image: 
+                        radial-gradient(circle at 20% 50%, rgba(240, 36, 99, 0.15) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(240, 36, 99, 0.1) 0%, transparent 50%);
+                }}
+                
+                .container {{
+                    text-align: center;
+                    padding: 60px 40px;
+                    background: rgba(255, 255, 255, 0.02);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 16px;
+                    backdrop-filter: blur(10px);
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                    max-width: 500px;
+                    width: 90%;
+                }}
+                
+                .logo {{
+                    font-family: 'Syne', sans-serif;
+                    font-size: 32px;
+                    font-weight: 700;
+                    color: #5ADEF9;
+                    margin-bottom: 40px;
+                    text-transform: uppercase;
+                    letter-spacing: 2px;
+                }}
+                
+                .error-icon {{
+                    width: 80px;
+                    height: 80px;
+                    margin: 0 auto 30px;
+                    background: linear-gradient(135deg, #F02463 0%, #FF4B6E 100%);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 40px;
+                    color: #00030C;
+                    font-weight: bold;
+                    box-shadow: 0 4px 20px rgba(240, 36, 99, 0.4);
+                }}
+                
+                .title {{
+                    font-size: 28px;
+                    font-weight: 500;
+                    margin-bottom: 16px;
+                    color: #ffffff;
+                }}
+                
+                .error-message {{
+                    font-size: 16px;
+                    color: #F02463;
+                    margin-bottom: 16px;
+                    padding: 12px 20px;
+                    background: rgba(240, 36, 99, 0.1);
+                    border: 1px solid rgba(240, 36, 99, 0.2);
+                    border-radius: 8px;
+                    font-family: 'Courier New', monospace;
+                }}
+                
+                .message {{
+                    font-size: 16px;
+                    color: rgba(255, 255, 255, 0.7);
+                    line-height: 1.6;
+                    margin-bottom: 40px;
+                }}
+                
+                .cli-hint {{
+                    margin-top: 40px;
+                    padding: 16px;
+                    background: rgba(255, 255, 255, 0.05);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 8px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 14px;
+                    color: #5ADEF9;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="logo">LimaCharlie</div>
+                <div class="error-icon">✕</div>
+                <h1 class="title">Authentication Failed</h1>
+                <div class="error-message">{error_msg}</div>
+                <p class="message">
+                    The authentication process encountered an error.<br>
+                    Please return to your terminal and try again.
+                </p>
+                <div class="message" style="margin-bottom: 20px;">
+                    You can close this browser window/tab.
+                </div>
+                <div class="cli-hint">Run 'limacharlie login --oauth' to retry</div>
+            </div>
+        </body>
+        </html>
+        """
+        self.wfile.write(error_html.encode('utf-8'))
+        self.wfile.flush()
+    
     def log_message(self, format, *args):
         """Suppress log messages."""
         pass
@@ -353,11 +506,18 @@ class OAuthCallbackServer:
         self.server = None
         self.callback_queue = queue.Queue()
         self.server_thread = None
+        self.expected_state = None  # For CSRF validation
     
     def find_free_port(self) -> int:
         """Find a free port for the local server."""
         # Try preferred ports first (these should be whitelisted in Google OAuth)
-        preferred_ports = [8085, 8086, 8087, 8088, 8089]
+        # Extended range to provide better availability
+        preferred_ports = [
+            8085, 8086, 8087, 8088, 8089,  # Original ports
+            8090, 8091, 8092, 8093, 8094,  # Extended range
+            8095, 8096, 8097, 8098, 8099,  # Additional ports
+            9085, 9086, 9087, 9088, 9089   # Alternative range
+        ]
         
         for port in preferred_ports:
             try:
@@ -370,7 +530,10 @@ class OAuthCallbackServer:
                 continue
         
         # If all preferred ports are taken, fall back to random port
-        # (This will fail OAuth, but at least gives a clear error)
+        # Note: This will likely fail OAuth as the random port won't be whitelisted,
+        # but at least provides a clear error message to the user
+        print("Warning: All preferred OAuth callback ports (8085-8099, 9085-9089) are in use.")
+        print("Attempting to use a random port, which may not be whitelisted in the OAuth configuration.")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(('localhost', 0))
             s.listen(1)
@@ -395,6 +558,10 @@ class OAuthCallbackServer:
         
         self.server = socketserver.TCPServer(('localhost', self.port), handler)
         self.server.timeout = 1  # Check for shutdown every second
+        
+        # Pass expected_state to the server if set
+        if self.expected_state:
+            self.server.expected_state = self.expected_state
         
         # Start server in separate thread
         self.server_thread = threading.Thread(target=self._run_server)
