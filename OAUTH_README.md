@@ -4,7 +4,7 @@ This document describes the OAuth authentication feature for the LimaCharlie CLI
 
 ## Overview
 
-The LimaCharlie CLI supports OAuth authentication as an alternative to API keys. This allows users to authenticate using their Google account through a browser-based flow.
+The LimaCharlie CLI supports OAuth authentication as an alternative to API keys. This allows users to authenticate using their Google or Microsoft account through a browser-based flow.
 
 ## Features
 
@@ -19,11 +19,15 @@ The LimaCharlie CLI supports OAuth authentication as an alternative to API keys.
 ### OAuth Login
 
 ```bash
+# Default (Google)
 limacharlie login --oauth
+
+# Microsoft
+limacharlie login --oauth --provider microsoft
 ```
 
 This will:
-1. Open your browser to Google's OAuth page
+1. Open your browser to the selected provider's OAuth page
 2. After you authenticate, redirect back to localhost  
 3. Exchange the authorization code for tokens
 4. Store the tokens securely in `~/.limacharlie`
@@ -31,7 +35,11 @@ This will:
 ### OAuth Login Without Browser
 
 ```bash
+# Google
 limacharlie login --oauth --no-browser
+
+# Microsoft
+limacharlie login --oauth --provider microsoft --no-browser
 ```
 
 This will print the URL for you to manually open instead of launching the browser.
@@ -92,7 +100,7 @@ Output for OAuth authentication:
 ```
 OID: your-org-id
 UID: your-user-id
-AUTH: OAuth (Provider: google)
+AUTH: OAuth (Provider: google or microsoft)
 TOKEN: Valid for 45 minutes
 PERMISSIONS:
   ...
@@ -141,21 +149,21 @@ The CLI automatically refreshes expired tokens. If refresh fails, re-authenticat
 ## Implementation Details
 
 The OAuth feature is implemented in:
-- `limacharlie/oauth_firebase_direct.py`: OAuth flow implementation
+- `limacharlie/oauth_firebase_simple.py`: Simplified Firebase OAuth flow implementation
+- `limacharlie/oauth_simple.py`: Token management utilities
 - `limacharlie/oauth_server.py`: Local callback server
-- `limacharlie/oauth.py`: Token management utilities
-- `limacharlie/__main__.py`: CLI command integration
+- `limacharlie/__main__.py`: CLI command integration with provider selection
 - `limacharlie/Manager.py`: Firebase JWT to LimaCharlie JWT exchange
 
 ### Authentication Flow
-1. User authenticates with Google OAuth using PKCE flow
-2. Google returns an authorization code
-3. The code is exchanged for Google tokens
-4. Google ID token is sent to Firebase's signInWithIdp endpoint
+1. Firebase generates an OAuth URL for the selected provider (Google or Microsoft)
+2. User authenticates with their provider account
+3. Provider redirects back with authentication response
+4. Response is sent to Firebase's signInWithIdp endpoint
 5. Firebase returns ID and refresh tokens
 6. The Firebase ID token is sent to jwt.limacharlie.io with `fb_auth` parameter
 7. jwt.limacharlie.io verifies the Firebase token and returns a LimaCharlie JWT
 8. The LimaCharlie JWT is used for API calls
 
 ### OAuth Redirect URIs
-The implementation uses localhost ports 8085-8089 for OAuth callbacks. These URIs are configured in the Google OAuth client settings.
+The implementation uses localhost ports 8085-8089 for OAuth callbacks. Firebase handles the provider-specific OAuth configuration internally.

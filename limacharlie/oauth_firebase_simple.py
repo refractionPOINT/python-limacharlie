@@ -55,11 +55,12 @@ class SimpleFirebaseAuth:
         """Initialize Firebase auth manager."""
         self.callback_server = None
     
-    def start_auth_flow(self, no_browser: bool = False) -> Dict[str, str]:
+    def start_auth_flow(self, provider_id: str = "google.com", no_browser: bool = False) -> Dict[str, str]:
         """
         Start OAuth flow using Firebase's createAuthUri.
         
         Args:
+            provider_id: OAuth provider ID (e.g., "google.com", "microsoft.com")
             no_browser: If True, print URL instead of opening browser
             
         Returns:
@@ -74,10 +75,11 @@ class SimpleFirebaseAuth:
         redirect_uri = f'http://localhost:{port}/callback'
         
         print(f"OAuth callback server started on port {port}")
+        print(f"Using OAuth provider: {provider_id}")
         
         # Step 1: Get auth URI from Firebase
         session_id, auth_uri = self._create_auth_uri(
-            provider_id="google.com",
+            provider_id=provider_id,
             scopes=("openid", "email", "profile"),
             redirect_uri=redirect_uri
         )
@@ -106,7 +108,7 @@ class SimpleFirebaseAuth:
             self.callback_server.stop()
         
         # Step 2: Exchange with Firebase using signInWithIdp
-        return self._sign_in_with_idp(redirect_uri, query_string, session_id)
+        return self._sign_in_with_idp(redirect_uri, query_string, session_id, provider_id)
     
     def _create_auth_uri(self, provider_id: str, scopes: Tuple[str, ...], 
                         redirect_uri: str) -> Tuple[str, str]:
@@ -175,7 +177,7 @@ class SimpleFirebaseAuth:
         return query_string
     
     def _sign_in_with_idp(self, request_uri: str, query_string: str, 
-                         session_id: str) -> Dict[str, str]:
+                         session_id: str, provider_id: str) -> Dict[str, str]:
         """
         Exchange provider response with Firebase.
         
@@ -183,6 +185,7 @@ class SimpleFirebaseAuth:
             request_uri: The redirect URI used
             query_string: Full query string from provider
             session_id: Session ID from createAuthUri
+            provider_id: OAuth provider ID
             
         Returns:
             Dictionary with Firebase tokens
@@ -213,7 +216,7 @@ class SimpleFirebaseAuth:
                 'id_token': data['idToken'],
                 'refresh_token': data['refreshToken'],
                 'expires_at': expires_at,
-                'provider': 'google'
+                'provider': provider_id  # Store the actual provider used
             }
             
         except requests.exceptions.RequestException as e:
@@ -254,7 +257,8 @@ class SimpleFirebaseAuth:
 
 def perform_simple_firebase_auth(oid: Optional[str] = None, 
                                 environment: Optional[str] = None,
-                                no_browser: bool = False) -> bool:
+                                no_browser: bool = False,
+                                provider: str = 'google') -> bool:
     """
     Perform simplified Firebase authentication and save credentials.
     
@@ -262,6 +266,7 @@ def perform_simple_firebase_auth(oid: Optional[str] = None,
         oid: Organization ID (optional)
         environment: Environment name (optional)
         no_browser: Don't open browser automatically
+        provider: OAuth provider to use ('google' or 'microsoft')
         
     Returns:
         True if login successful
@@ -272,8 +277,17 @@ def perform_simple_firebase_auth(oid: Optional[str] = None,
         # Initialize Firebase auth
         auth = SimpleFirebaseAuth()
         
+        # Map CLI provider names to Firebase provider IDs
+        provider_map = {
+            'google': 'google.com',
+            'microsoft': 'microsoft.com'
+        }
+        
         # Perform auth flow
-        tokens = auth.start_auth_flow(no_browser=no_browser)
+        tokens = auth.start_auth_flow(
+            provider_id=provider_map[provider],
+            no_browser=no_browser
+        )
         
         # Load existing config
         config = utils.loadCredentials()

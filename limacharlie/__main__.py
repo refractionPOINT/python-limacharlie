@@ -57,6 +57,11 @@ def cli(args):
         parser.add_argument( '--no-browser',
                              action = 'store_true',
                              help = 'print URL instead of opening browser (OAuth only)' )
+        parser.add_argument( '--provider',
+                             type = str,
+                             choices = ['google', 'microsoft'],
+                             default = 'google',
+                             help = 'OAuth provider to use (default: google)' )
         parser.add_argument( '--oid',
                              type = str,
                              help = 'organization ID (non-interactive mode)' )
@@ -101,7 +106,8 @@ def cli(args):
             success = perform_simple_firebase_auth(
                 oid=oid if oid else None,
                 environment=environment if environment != 'default' else None,
-                no_browser=login_args.no_browser
+                no_browser=login_args.no_browser,
+                provider=login_args.provider
             )
             
             if not success:
