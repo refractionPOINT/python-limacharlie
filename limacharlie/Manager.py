@@ -179,8 +179,19 @@ class Manager( object ):
                     # Update stored OAuth credentials
                     self._oauth_creds['id_token'] = new_tokens['id_token']
                     self._oauth_creds['expires_at'] = new_tokens['expires_at']
+                    self._oauth_creds['refresh_token'] = new_tokens['refresh_token']
                     
-                    # TODO: Update the credentials file with new tokens
+                    # Update the credentials file with new tokens
+                    from . import utils
+                    # Determine environment from current config
+                    environment = os.environ.get('LC_CURRENT_ENV', 'default')
+                    utils.writeCredentialsToConfig(
+                        environment,
+                        self._oid,
+                        None,  # No API key
+                        uid=self._uid,
+                        oauth_creds=self._oauth_creds
+                    )
                 
                 # Exchange Firebase JWT for LimaCharlie JWT
                 authData = { "fb_auth" : self._oauth_creds['id_token'] }
