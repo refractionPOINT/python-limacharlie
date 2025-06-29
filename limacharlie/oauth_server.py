@@ -40,14 +40,123 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                 <meta charset="UTF-8">
                 <title>LimaCharlie CLI - Authentication Successful</title>
                 <style>
-                    body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                    .success { color: #4CAF50; font-size: 24px; }
-                    .message { margin-top: 20px; color: #666; }
+                    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700&family=Inter:wght@400;500&display=swap');
+                    
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }
+                    
+                    body {
+                        font-family: 'Inter', -apple-system, sans-serif;
+                        background: #00030C;
+                        color: #ffffff;
+                        min-height: 100vh;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background-image: 
+                            radial-gradient(circle at 20% 50%, rgba(39, 120, 198, 0.15) 0%, transparent 50%),
+                            radial-gradient(circle at 80% 80%, rgba(90, 222, 249, 0.1) 0%, transparent 50%);
+                    }
+                    
+                    .container {
+                        text-align: center;
+                        padding: 60px 40px;
+                        background: rgba(255, 255, 255, 0.02);
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        border-radius: 16px;
+                        backdrop-filter: blur(10px);
+                        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                        max-width: 500px;
+                        width: 90%;
+                    }
+                    
+                    .logo {
+                        font-family: 'Syne', sans-serif;
+                        font-size: 32px;
+                        font-weight: 700;
+                        color: #5ADEF9;
+                        margin-bottom: 40px;
+                        text-transform: uppercase;
+                        letter-spacing: 2px;
+                    }
+                    
+                    .success-icon {
+                        width: 80px;
+                        height: 80px;
+                        margin: 0 auto 30px;
+                        background: linear-gradient(135deg, #2778C6 0%, #5ADEF9 100%);
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 40px;
+                        color: #00030C;
+                        font-weight: bold;
+                        box-shadow: 0 4px 20px rgba(90, 222, 249, 0.4);
+                    }
+                    
+                    .title {
+                        font-size: 28px;
+                        font-weight: 500;
+                        margin-bottom: 16px;
+                        color: #ffffff;
+                    }
+                    
+                    .message {
+                        font-size: 16px;
+                        color: rgba(255, 255, 255, 0.7);
+                        line-height: 1.6;
+                        margin-bottom: 40px;
+                    }
+                    
+                    .action {
+                        display: inline-block;
+                        padding: 12px 32px;
+                        background: linear-gradient(135deg, #2778C6 0%, #5ADEF9 100%);
+                        color: #00030C;
+                        text-decoration: none;
+                        font-weight: 500;
+                        font-size: 14px;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        border-radius: 4px;
+                        position: relative;
+                        overflow: hidden;
+                        transition: all 0.3s ease;
+                    }
+                    
+                    .action:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 4px 20px rgba(90, 222, 249, 0.4);
+                    }
+                    
+                    .cli-hint {
+                        margin-top: 40px;
+                        padding: 16px;
+                        background: rgba(255, 255, 255, 0.05);
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        border-radius: 8px;
+                        font-family: 'Courier New', monospace;
+                        font-size: 14px;
+                        color: #5ADEF9;
+                    }
                 </style>
             </head>
             <body>
-                <div class="success">✓ Authentication Successful!</div>
-                <div class="message">You can now close this window and return to the CLI.</div>
+                <div class="container">
+                    <div class="logo">LimaCharlie</div>
+                    <div class="success-icon">✓</div>
+                    <h1 class="title">Authentication Successful</h1>
+                    <p class="message">
+                        You've been successfully authenticated with LimaCharlie CLI.<br>
+                        Your credentials have been securely stored.
+                    </p>
+                    <a href="#" class="action" onclick="window.close(); return false;">Close Window</a>
+                    <div class="cli-hint">Return to your terminal to continue</div>
+                </div>
             </body>
             </html>
             """
@@ -74,15 +183,135 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                 <meta charset="UTF-8">
                 <title>LimaCharlie CLI - Authentication Failed</title>
                 <style>
-                    body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                    .error {{ color: #f44336; font-size: 24px; }}
-                    .message {{ margin-top: 20px; color: #666; }}
+                    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700&family=Inter:wght@400;500&display=swap');
+                    
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+                    
+                    body {{
+                        font-family: 'Inter', -apple-system, sans-serif;
+                        background: #00030C;
+                        color: #ffffff;
+                        min-height: 100vh;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background-image: 
+                            radial-gradient(circle at 20% 50%, rgba(240, 36, 99, 0.15) 0%, transparent 50%),
+                            radial-gradient(circle at 80% 80%, rgba(240, 36, 99, 0.1) 0%, transparent 50%);
+                    }}
+                    
+                    .container {{
+                        text-align: center;
+                        padding: 60px 40px;
+                        background: rgba(255, 255, 255, 0.02);
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        border-radius: 16px;
+                        backdrop-filter: blur(10px);
+                        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                        max-width: 500px;
+                        width: 90%;
+                    }}
+                    
+                    .logo {{
+                        font-family: 'Syne', sans-serif;
+                        font-size: 32px;
+                        font-weight: 700;
+                        color: #5ADEF9;
+                        margin-bottom: 40px;
+                        text-transform: uppercase;
+                        letter-spacing: 2px;
+                    }}
+                    
+                    .error-icon {{
+                        width: 80px;
+                        height: 80px;
+                        margin: 0 auto 30px;
+                        background: linear-gradient(135deg, #F02463 0%, #FF4B6E 100%);
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 40px;
+                        color: #00030C;
+                        font-weight: bold;
+                        box-shadow: 0 4px 20px rgba(240, 36, 99, 0.4);
+                    }}
+                    
+                    .title {{
+                        font-size: 28px;
+                        font-weight: 500;
+                        margin-bottom: 16px;
+                        color: #ffffff;
+                    }}
+                    
+                    .error-message {{
+                        font-size: 16px;
+                        color: #F02463;
+                        margin-bottom: 16px;
+                        padding: 12px 20px;
+                        background: rgba(240, 36, 99, 0.1);
+                        border: 1px solid rgba(240, 36, 99, 0.2);
+                        border-radius: 8px;
+                        font-family: 'Courier New', monospace;
+                    }}
+                    
+                    .message {{
+                        font-size: 16px;
+                        color: rgba(255, 255, 255, 0.7);
+                        line-height: 1.6;
+                        margin-bottom: 40px;
+                    }}
+                    
+                    .action {{
+                        display: inline-block;
+                        padding: 12px 32px;
+                        background: rgba(255, 255, 255, 0.1);
+                        color: #ffffff;
+                        text-decoration: none;
+                        font-weight: 500;
+                        font-size: 14px;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                        border-radius: 4px;
+                        transition: all 0.3s ease;
+                    }}
+                    
+                    .action:hover {{
+                        background: rgba(255, 255, 255, 0.15);
+                        border-color: rgba(255, 255, 255, 0.3);
+                        transform: translateY(-2px);
+                    }}
+                    
+                    .cli-hint {{
+                        margin-top: 40px;
+                        padding: 16px;
+                        background: rgba(255, 255, 255, 0.05);
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        border-radius: 8px;
+                        font-family: 'Courier New', monospace;
+                        font-size: 14px;
+                        color: #5ADEF9;
+                    }}
                 </style>
             </head>
             <body>
-                <div class="error">✗ Authentication Failed</div>
-                <div class="message">Error: {error_msg}</div>
-                <div class="message">Please return to the CLI and try again.</div>
+                <div class="container">
+                    <div class="logo">LimaCharlie</div>
+                    <div class="error-icon">✕</div>
+                    <h1 class="title">Authentication Failed</h1>
+                    <div class="error-message">{error_msg}</div>
+                    <p class="message">
+                        The authentication process encountered an error.<br>
+                        Please return to your terminal and try again.
+                    </p>
+                    <a href="#" class="action" onclick="window.close(); return false;">Close Window</a>
+                    <div class="cli-hint">Run 'limacharlie login --oauth' to retry</div>
+                </div>
             </body>
             </html>
             """
