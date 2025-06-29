@@ -169,17 +169,19 @@ class Manager( object ):
         try:
             # Check if we're using OAuth
             if self._oauth_creds is not None:
-                # Check if Firebase token is expired
-                from .oauth import OAuthManager
-                if OAuthManager.is_token_expired(self._oauth_creds.get('expires_at', 0)):
-                    # Refresh the Firebase OAuth token
-                    self._printDebug("Firebase token expired, refreshing...")
-                    new_tokens = OAuthManager.refresh_token(self._oauth_creds['refresh_token'])
-                    
-                    # Update stored OAuth credentials
-                    self._oauth_creds['id_token'] = new_tokens['id_token']
-                    self._oauth_creds['expires_at'] = new_tokens['expires_at']
-                    self._oauth_creds['refresh_token'] = new_tokens['refresh_token']
+                # Use simplified OAuth manager
+                from .oauth_simple import SimpleOAuthManager
+                oauth_manager = SimpleOAuthManager()
+                
+                # Ensure we have a valid token (handles refresh if needed)
+                updated_creds = oauth_manager.ensure_valid_token(self._oauth_creds)
+                
+                if updated_creds is None:
+                    raise LcApiException('Failed to refresh OAuth token')
+                
+                # Update our credentials if they were refreshed
+                if updated_creds != self._oauth_creds:
+                    self._oauth_creds = updated_creds
                     
                     # Update the credentials file with new tokens
                     from . import utils

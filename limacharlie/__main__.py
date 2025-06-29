@@ -74,8 +74,8 @@ def cli(args):
         login_args = parser.parse_args( actionArgs )
         
         if login_args.oauth:
-            # OAuth login flow - use Firebase direct auth (no client secrets)
-            from .oauth_firebase_direct import perform_firebase_auth
+            # OAuth login flow - use simplified Firebase auth
+            from .oauth_firebase_simple import perform_simple_firebase_auth
             
             # Get OID if not provided
             oid = login_args.oid
@@ -95,8 +95,8 @@ def cli(args):
                 if '' == environment:
                     environment = 'default'
             
-            # Perform Firebase auth (no client secrets needed)
-            success = perform_firebase_auth(
+            # Perform simplified Firebase auth
+            success = perform_simple_firebase_auth(
                 oid=oid if oid else None,
                 environment=environment if environment != 'default' else None,
                 no_browser=login_args.no_browser
