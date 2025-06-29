@@ -2,7 +2,20 @@
 Simplified Firebase Authentication for LimaCharlie CLI.
 
 This implementation uses Firebase's createAuthUri approach which eliminates
-the need to manage Google OAuth client credentials directly.
+the need to manage OAuth provider credentials directly. Instead of handling
+Google OAuth ourselves, we let Firebase manage the OAuth flow:
+
+1. Request auth URI from Firebase (createAuthUri) - Firebase generates the 
+   proper OAuth URL for the provider
+2. User authenticates with the provider (Google) via Firebase's generated URL
+3. Provider redirects back with auth response
+4. Exchange the response with Firebase (signInWithIdp) to get Firebase tokens
+
+Benefits over direct OAuth implementation:
+- No OAuth client secrets needed in our code
+- Firebase handles OAuth complexity and provider-specific quirks
+- Easy to add support for other providers (GitHub, Apple, etc.)
+- More secure - provider tokens never touch our infrastructure
 """
 
 import json
@@ -22,9 +35,14 @@ class FirebaseAuthError(Exception):
 
 
 class SimpleFirebaseAuth:
-    """Simplified Firebase authentication without provider secrets."""
+    """Simplified Firebase authentication without provider secrets.
     
-    # Firebase configuration
+    This class implements the Firebase authentication flow where Firebase
+    manages all OAuth provider interactions. We only need the Firebase API key,
+    not any OAuth client credentials.
+    """
+    
+    # Firebase configuration - this is the only credential we need
     FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
     
     # Firebase Auth API endpoints

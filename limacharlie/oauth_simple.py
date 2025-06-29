@@ -1,5 +1,13 @@
 """
 Simplified OAuth token management for Firebase authentication.
+
+This module handles the token lifecycle for the simplified Firebase auth flow:
+- Checks token expiration with a safety buffer
+- Refreshes expired tokens using Firebase's refresh endpoint
+- Returns updated credentials for storage
+
+The simplified approach means we only deal with Firebase tokens, not provider-specific
+tokens, making the refresh logic much cleaner and more reliable.
 """
 
 import time

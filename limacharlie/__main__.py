@@ -75,6 +75,8 @@ def cli(args):
         
         if login_args.oauth:
             # OAuth login flow - use simplified Firebase auth
+            # This approach lets Firebase handle all OAuth provider complexity,
+            # eliminating the need to manage OAuth client credentials in our code
             from .oauth_firebase_simple import perform_simple_firebase_auth
             
             # Get OID if not provided
