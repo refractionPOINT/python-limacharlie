@@ -18,6 +18,7 @@ import hashlib
 import base64
 
 from .oauth_server import OAuthCallbackServer
+from .constants import FIREBASE_API_KEY
 
 
 class FirebaseAuthError(Exception):
@@ -28,8 +29,7 @@ class FirebaseAuthError(Exception):
 class FirebaseDirectAuth:
     """Direct Firebase authentication without client secrets."""
     
-    # Firebase configuration
-    FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
+    # Firebase configuration - imported from constants
     
     # Google OAuth configuration (Desktop client - secret is public for desktop apps)
     # These are NOT secret - Google requires them for desktop OAuth but considers them public
@@ -69,54 +69,56 @@ class FirebaseDirectAuth:
         # Start local callback server
         self.callback_server = OAuthCallbackServer()
         port = self.callback_server.start()
-        redirect_uri = f'http://localhost:{port}'
-        
-        print(f"OAuth callback server started on port {port}")
-        
-        # Generate PKCE parameters
-        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
-        code_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode('utf-8')).digest()
-        ).decode('utf-8').rstrip('=')
-        
-        # Generate CSRF state parameter
-        state = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
-        self.callback_server.expected_state = state
-        
-        # Build Google OAuth URL with PKCE and CSRF protection
-        auth_params = {
-            'client_id': self.GOOGLE_CLIENT_ID,
-            'redirect_uri': redirect_uri,
-            'response_type': 'code',
-            'scope': 'openid email profile',
-            'access_type': 'offline',
-            'prompt': 'consent',
-            'code_challenge': code_challenge,
-            'code_challenge_method': 'S256',
-            'state': state  # CSRF protection
-        }
-        
-        auth_uri = f"{self.GOOGLE_AUTH_URL}?{urllib.parse.urlencode(auth_params)}"
-        
-        # Open browser or print URL
-        if no_browser:
-            print(f"\nPlease visit this URL to authenticate:\n{auth_uri}\n")
-        else:
-            print(f"Opening browser for authentication...")
-            if not webbrowser.open(auth_uri):
-                print(f"\nCould not open browser. Please visit this URL:\n{auth_uri}\n")
-        
-        print("Waiting for authentication...")
-        
-        # Wait for callback
-        success, callback_data, error = self.callback_server.wait_for_callback()
         
         try:
+            redirect_uri = f'http://localhost:{port}'
+            
+            print(f"OAuth callback server started on port {port}")
+            
+            # Generate PKCE parameters
+            code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode('utf-8')).digest()
+            ).decode('utf-8').rstrip('=')
+            
+            # Generate CSRF state parameter
+            state = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+            self.callback_server.expected_state = state
+            
+            # Build Google OAuth URL with PKCE and CSRF protection
+            auth_params = {
+                'client_id': self.GOOGLE_CLIENT_ID,
+                'redirect_uri': redirect_uri,
+                'response_type': 'code',
+                'scope': 'openid email profile',
+                'access_type': 'offline',
+                'prompt': 'consent',
+                'code_challenge': code_challenge,
+                'code_challenge_method': 'S256',
+                'state': state  # CSRF protection
+            }
+            
+            auth_uri = f"{self.GOOGLE_AUTH_URL}?{urllib.parse.urlencode(auth_params)}"
+            
+            # Open browser or print URL
+            if no_browser:
+                print(f"\nPlease visit this URL to authenticate:\n{auth_uri}\n")
+            else:
+                print(f"Opening browser for authentication...")
+                if not webbrowser.open(auth_uri):
+                    print(f"\nCould not open browser. Please visit this URL:\n{auth_uri}\n")
+            
+            print("Waiting for authentication...")
+            
+            # Wait for callback
+            success, callback_data, error = self.callback_server.wait_for_callback()
+            
             if not success:
                 raise FirebaseAuthError(f"Authentication failed: {error}")
             
             # Extract authorization code from callback
             auth_code = self._extract_auth_code(callback_data)
+            
         finally:
             # Always stop the server
             self.callback_server.stop()
@@ -231,7 +233,7 @@ class FirebaseDirectAuth:
         
         try:
             response = requests.post(
-                f"{self.SIGN_IN_WITH_IDP}?key={self.FIREBASE_API_KEY}",
+                f"{self.SIGN_IN_WITH_IDP}?key={FIREBASE_API_KEY}",
                 json=payload,
                 headers={'Content-Type': 'application/json'}
             )

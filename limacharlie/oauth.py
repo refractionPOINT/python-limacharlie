@@ -6,12 +6,13 @@ import time
 import requests
 from typing import Dict
 
+from .constants import FIREBASE_API_KEY
+
 
 class OAuthManager:
     """Utility class for OAuth token management."""
     
     # Firebase configuration
-    FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
     FIREBASE_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token'
     
     @staticmethod
@@ -55,7 +56,7 @@ class OAuthManager:
         
         try:
             response = requests.post(
-                f"{OAuthManager.FIREBASE_TOKEN_URL}?key={OAuthManager.FIREBASE_API_KEY}",
+                f"{OAuthManager.FIREBASE_TOKEN_URL}?key={FIREBASE_API_KEY}",
                 data=payload,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'}
             )

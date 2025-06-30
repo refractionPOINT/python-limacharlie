@@ -27,6 +27,7 @@ import os
 from typing import Dict, Optional, Tuple
 
 from .oauth_server import OAuthCallbackServer
+from .constants import FIREBASE_API_KEY
 
 
 class FirebaseAuthError(Exception):
@@ -42,8 +43,7 @@ class SimpleFirebaseAuth:
     not any OAuth client credentials.
     """
     
-    # Firebase configuration - this is the only credential we need
-    FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
+    # Firebase configuration - imported from constants
     
     # Firebase Auth API endpoints
     _BASE = "https://identitytoolkit.googleapis.com/v1"
@@ -72,37 +72,39 @@ class SimpleFirebaseAuth:
         # Start local callback server
         self.callback_server = OAuthCallbackServer()
         port = self.callback_server.start()
-        redirect_uri = f'http://localhost:{port}/callback'
-        
-        print(f"OAuth callback server started on port {port}")
-        print(f"Using OAuth provider: {provider_id}")
-        
-        # Step 1: Get auth URI from Firebase
-        session_id, auth_uri = self._create_auth_uri(
-            provider_id=provider_id,
-            scopes=("openid", "email", "profile"),
-            redirect_uri=redirect_uri
-        )
-        
-        # Open browser or print URL
-        if no_browser:
-            print(f"\nPlease visit this URL to authenticate:\n{auth_uri}\n")
-        else:
-            print(f"Opening browser for authentication...")
-            if not webbrowser.open(auth_uri):
-                print(f"\nCould not open browser. Please visit this URL:\n{auth_uri}\n")
-        
-        print("Waiting for authentication...")
-        
-        # Wait for callback
-        success, callback_data, error = self.callback_server.wait_for_callback()
         
         try:
+            redirect_uri = f'http://localhost:{port}/callback'
+            
+            print(f"OAuth callback server started on port {port}")
+            print(f"Using OAuth provider: {provider_id}")
+            
+            # Step 1: Get auth URI from Firebase
+            session_id, auth_uri = self._create_auth_uri(
+                provider_id=provider_id,
+                scopes=("openid", "email", "profile"),
+                redirect_uri=redirect_uri
+            )
+            
+            # Open browser or print URL
+            if no_browser:
+                print(f"\nPlease visit this URL to authenticate:\n{auth_uri}\n")
+            else:
+                print(f"Opening browser for authentication...")
+                if not webbrowser.open(auth_uri):
+                    print(f"\nCould not open browser. Please visit this URL:\n{auth_uri}\n")
+            
+            print("Waiting for authentication...")
+            
+            # Wait for callback
+            success, callback_data, error = self.callback_server.wait_for_callback()
+            
             if not success:
                 raise FirebaseAuthError(f"Authentication failed: {error}")
             
             # Extract query string from callback
             query_string = self._extract_query_string(callback_data)
+            
         finally:
             # Always stop the server
             self.callback_server.stop()
@@ -126,7 +128,7 @@ class SimpleFirebaseAuth:
         Raises:
             FirebaseAuthError: If request fails
         """
-        url = f"{self._CREATE_AUTH_URI}?key={self.FIREBASE_API_KEY}"
+        url = f"{self._CREATE_AUTH_URI}?key={FIREBASE_API_KEY}"
         payload = {
             "providerId": provider_id,
             "continueUri": redirect_uri,
@@ -193,7 +195,7 @@ class SimpleFirebaseAuth:
         Raises:
             FirebaseAuthError: If exchange fails
         """
-        url = f"{self._SIGN_IN_WITH_IDP}?key={self.FIREBASE_API_KEY}"
+        url = f"{self._SIGN_IN_WITH_IDP}?key={FIREBASE_API_KEY}"
         payload = {
             "requestUri": request_uri,
             "postBody": query_string,  # Full query from provider redirect
@@ -235,7 +237,7 @@ class SimpleFirebaseAuth:
         Raises:
             FirebaseAuthError: If refresh fails
         """
-        url = f"{self._REFRESH}?key={self.FIREBASE_API_KEY}"
+        url = f"{self._REFRESH}?key={FIREBASE_API_KEY}"
         payload = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
