@@ -18,7 +18,7 @@ def _getEnvironmentCreds( name ):
     if credsFile is None:
         credsFile = CONFIG_FILE_PATH
     if not os.path.isfile( credsFile ):
-        return ( None, None, None )
+        return ( None, None, None, None )
     with open( credsFile, 'rb' ) as f:
         credsFile = yaml.safe_load( f.read() )
 
@@ -27,18 +27,20 @@ def _getEnvironmentCreds( name ):
             oid = credsFile.get( 'oid', None )
             uid = credsFile.get( 'uid', None )
             key = credsFile.get( 'api_key', None )
+            oauth = credsFile.get( 'oauth', None )
 
-            return ( oid, uid, key )
+            return ( oid, uid, key, oauth )
 
         if name not in credsFile.get( 'env', {} ):
-            return ( None, None, None )
+            return ( None, None, None, None )
 
         envData = credsFile[ 'env' ][ name ]
         oid = envData.get( 'oid', None )
         uid = envData.get( 'uid', None )
         key = envData.get( 'api_key', None )
+        oauth = envData.get( 'oauth', None )
 
-        return ( oid, uid, key )
+        return ( oid, uid, key, oauth )
 
 # Global credentials are acquired in the following order:
 # 1- LC_OID and LC_API_KEY environment variables.
@@ -47,11 +49,12 @@ def _getEnvironmentCreds( name ):
 GLOBAL_OID = os.environ.get( 'LC_OID', None )
 GLOBAL_UID = os.environ.get( 'LC_UID', None )
 GLOBAL_API_KEY = os.environ.get( 'LC_API_KEY', None )
+GLOBAL_OAUTH = None
 if GLOBAL_API_KEY is None:
     _lcEnv = os.environ.get( 'LC_CURRENT_ENV', 'default' )
     if _lcEnv == '':
         _lcEnv = 'default'
-    GLOBAL_OID, GLOBAL_UID, GLOBAL_API_KEY = _getEnvironmentCreds( _lcEnv )
+    GLOBAL_OID, GLOBAL_UID, GLOBAL_API_KEY, GLOBAL_OAUTH = _getEnvironmentCreds( _lcEnv )
 
 from .Manager import Manager
 from .Firehose import Firehose

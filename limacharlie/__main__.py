@@ -28,7 +28,7 @@ def cli(args):
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -49,39 +49,122 @@ def cli(args):
         from . import __version__
         print( "LimaCharlie Python SDK Version %s" % ( __version__, ) )
     elif args.action.lower() == 'login':
-        # TODO: Support non interactive mode aka using --oid, --alias, --key, --uid option.
-        from .utils import writeCredentialsToConfig
-
-        if _IS_PYTHON_2:
-            oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
+        # Parse login arguments
+        parser = argparse.ArgumentParser( prog = 'limacharlie login' )
+        parser.add_argument( '--oauth',
+                             action = 'store_true',
+                             help = 'use OAuth authentication instead of API key' )
+        parser.add_argument( '--no-browser',
+                             action = 'store_true',
+                             help = 'print URL instead of opening browser (OAuth only)' )
+        parser.add_argument( '--provider',
+                             type = str,
+                             choices = ['google', 'microsoft'],
+                             default = 'google',
+                             help = 'OAuth provider to use (default: google)' )
+        parser.add_argument( '--oid',
+                             type = str,
+                             help = 'organization ID (non-interactive mode)' )
+        parser.add_argument( '--environment', '--env',
+                             type = str,
+                             help = 'environment name (default: "default")' )
+        parser.add_argument( '--api-key',
+                             type = str,
+                             help = 'API key (non-interactive mode)' )
+        parser.add_argument( '--uid',
+                             type = str,
+                             default = '',
+                             help = 'user ID for user-scoped API keys' )
+        
+        login_args = parser.parse_args( actionArgs )
+        
+        if login_args.oauth:
+            # OAuth login flow - use simplified Firebase auth
+            # This approach lets Firebase handle all OAuth provider complexity,
+            # eliminating the need to manage OAuth client credentials in our code
+            from .oauth_firebase_simple import perform_simple_firebase_auth
+            
+            # Get OID if not provided
+            oid = login_args.oid
+            if not oid:
+                oid = input( 'Enter your Organization ID (UUID), or leave empty: ' )
+                if oid:
+                    try:
+                        uuid.UUID( oid )
+                    except:
+                        print( "Invalid OID" )
+                        sys.exit( 1 )
+            
+            # Get environment name
+            environment = login_args.environment
+            if not environment:
+                environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
+                if '' == environment:
+                    environment = 'default'
+            
+            # Perform simplified Firebase auth
+            success = perform_simple_firebase_auth(
+                oid=oid if oid else None,
+                environment=environment if environment != 'default' else None,
+                no_browser=login_args.no_browser,
+                provider=login_args.provider
+            )
+            
+            if not success:
+                sys.exit( 1 )
         else:
-            oid = input( 'Enter your Organization ID (UUID): ' )
-        try:
-            uuid.UUID( oid )
-        except:
-            print( "Invalid OID" )
-            sys.exit( 1 )
-        if _IS_PYTHON_2:
-            alias = raw_input( 'Enter a name for this access (alias), or leave empty to set default: ' ) # noqa
-        else:
-            alias = input( 'Enter a name for this access (alias), or leave empty to set default: ' )
-        if '' == alias:
-            alias = 'default'
-        secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
-        if _IS_PYTHON_2:
-            uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' ) # noqa
-        else:
-            uid = input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' )
-        try:
-            if uid != '':
-                if 20 > len( uid ):
+            # Traditional API key login
+            from .utils import writeCredentialsToConfig
+            
+            # Support non-interactive mode
+            if login_args.oid and login_args.api_key:
+                # Non-interactive mode
+                oid = login_args.oid
+                try:
+                    uuid.UUID( oid )
+                except:
+                    print( "Invalid OID" )
+                    sys.exit( 1 )
+                
+                environment = login_args.environment if login_args.environment else 'default'
+                secretApiKey = login_args.api_key
+                uid = login_args.uid
+                
+                if uid != '' and len(uid) > 20:
                     print("UID must be maximum 20 characters long.")
                     sys.exit(1)
-        except:
-            print( "Invalid UID" )
-            sys.exit( 1 )
+            else:
+                # Interactive mode (original behavior)
+                if _IS_PYTHON_2:
+                    oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
+                else:
+                    oid = input( 'Enter your Organization ID (UUID): ' )
+                try:
+                    uuid.UUID( oid )
+                except:
+                    print( "Invalid OID" )
+                    sys.exit( 1 )
+                if _IS_PYTHON_2:
+                    environment = raw_input( 'Enter a name for this access (environment), or leave empty to set default: ' ) # noqa
+                else:
+                    environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
+                if '' == environment:
+                    environment = 'default'
+                secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
+                if _IS_PYTHON_2:
+                    uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' ) # noqa
+                else:
+                    uid = input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' )
+                try:
+                    if uid != '':
+                        if 20 > len( uid ):
+                            print("UID must be maximum 20 characters long.")
+                            sys.exit(1)
+                except:
+                    print( "Invalid UID" )
+                    sys.exit( 1 )
 
-        writeCredentialsToConfig( alias, oid, secretApiKey, uid )
+            writeCredentialsToConfig( environment, oid, secretApiKey, uid )
     elif args.action.lower() == 'use':
         parser = argparse.ArgumentParser( prog = 'limacharlie use' )
         parser.add_argument( 'environment_name',
@@ -112,6 +195,56 @@ def cli(args):
                 print( "Environment not found" )
                 sys.exit( 1 )
             print( 'export LC_CURRENT_ENV="%s"' % args.environment_name )
+    elif args.action.lower() == 'set-oid':
+        parser = argparse.ArgumentParser( prog = 'limacharlie set-oid' )
+        parser.add_argument( 'oid',
+                             type = str,
+                             help = 'Organization ID (UUID) to set as default' )
+        parser.add_argument( '--environment', '--env',
+                             type = str,
+                             default = 'default',
+                             help = 'environment to update (default: "default")' )
+        args = parser.parse_args( actionArgs )
+        
+        # Validate OID format
+        try:
+            uuid.UUID( args.oid )
+        except:
+            print( "Invalid OID format. Must be a valid UUID." )
+            sys.exit( 1 )
+        
+        # Load existing config
+        from .utils import loadCredentials
+        config = loadCredentials()
+        if config is None:
+            print( "No existing configuration found. Please run 'limacharlie login' first." )
+            sys.exit( 1 )
+        
+        # Update OID based on environment
+        if args.environment == 'default':
+            if 'oid' not in config and 'api_key' not in config and 'oauth' not in config:
+                print( "No default credentials found. Please run 'limacharlie login' first." )
+                sys.exit( 1 )
+            old_oid = config.get( 'oid', 'not set' )
+            config['oid'] = args.oid
+            print( f"Updated default OID from {old_oid} to {args.oid}" )
+        else:
+            # Update specific environment
+            if 'env' not in config or args.environment not in config['env']:
+                print( f"Environment '{args.environment}' not found." )
+                sys.exit( 1 )
+            old_oid = config['env'][args.environment].get( 'oid', 'not set' )
+            config['env'][args.environment]['oid'] = args.oid
+            print( f"Updated OID for environment '{args.environment}' from {old_oid} to {args.oid}" )
+        
+        # Save updated config
+        with open( CONFIG_FILE_PATH, 'w' ) as f:
+            yaml.safe_dump( config, f )
+        
+        # Set file permissions to 600 (read/write for owner only)
+        os.chmod( CONFIG_FILE_PATH, stat.S_IRUSR | stat.S_IWUSR )
+        
+        print( "Configuration updated successfully." )
     elif args.action.lower() == 'dr':
         from .DRCli import main as cmdMain
         cmdMain( actionArgs )
@@ -147,7 +280,19 @@ def cli(args):
         tmpManager = Manager()
         print( "OID: %s" % ( tmpManager._oid, ) )
         print( "UID: %s" % ( tmpManager._uid, ) )
-        print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
+        if tmpManager._oauth_creds:
+            print( "AUTH: OAuth (Provider: %s)" % ( tmpManager._oauth_creds.get('provider', 'unknown'), ) )
+            from .oauth import OAuthManager
+            expires_at = tmpManager._oauth_creds.get('expires_at', 0)
+            if OAuthManager.is_token_expired(expires_at):
+                print( "TOKEN: Expired" )
+            else:
+                import time
+                remaining = expires_at - int(time.time())
+                print( "TOKEN: Valid for %d minutes" % ( remaining // 60, ) )
+        else:
+            print( "AUTH: API Key" )
+            print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
         print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
     elif args.action.lower() == 'logs' or args.action.lower() == 'artifacts':
         from .Logs import main as cmdMain

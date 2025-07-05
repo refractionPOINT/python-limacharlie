@@ -258,15 +258,30 @@ class Spinner:
         if exception is not None:
             return False
         
-def writeCredentialsToConfig(alias, oid, secretApiKey, uid=""):
+def loadCredentials():
+    """
+    Load credentials from config file.
+    
+    Returns:
+        dict: Loaded credentials or None if file doesn't exist
+    """
+    try:
+        with open(CONFIG_FILE_PATH, 'rb') as f:
+            return yaml.safe_load(f.read())
+    except FileNotFoundError:
+        return None
+
+def writeCredentialsToConfig(alias, oid, secretApiKey, uid="", environment=None, oauth_creds=None):
     """
     Securely write credentials to a file on disk.
 
     Args:
-        alias (str): Alias to store the credentials under.
+        alias (str): Alias to store the credentials under (deprecated, use environment).
         oid (str): The organization ID.
         secretApiKey (str): The secret API key.
         uid (str): The user ID (optional, only for user scoped API keys).
+        environment (str): Environment name (replaces alias).
+        oauth_creds (dict): OAuth credentials (id_token, refresh_token, etc).
     """
     conf = {}
 
@@ -281,19 +296,35 @@ def writeCredentialsToConfig(alias, oid, secretApiKey, uid=""):
     # Handle scenario where a file is empty
     conf = conf or {}
 
-    if alias == "default":
-        conf[ 'oid' ] = oid
-        conf[ 'api_key' ] = secretApiKey
+    # Use environment if provided, otherwise fall back to alias
+    env_name = environment if environment is not None else alias
+
+    if env_name == "default" or env_name is None:
+        # Update default credentials
+        if oid is not None:
+            conf[ 'oid' ] = oid
+        if secretApiKey is not None:
+            conf[ 'api_key' ] = secretApiKey
         if uid != '':
             conf[ 'uid' ] = uid
-        else:
+        elif uid == '' and 'uid' in conf:
             conf.pop( 'uid', None )
+        if oauth_creds is not None:
+            conf[ 'oauth' ] = oauth_creds
     else:
+        # Update named environment
         conf.setdefault( 'env', {} )
-        conf[ 'env' ].setdefault( alias, {} )[ 'oid' ] = oid
-        conf[ 'env' ].setdefault( alias, {} )[ 'api_key' ] = secretApiKey
+        conf[ 'env' ].setdefault( env_name, {} )
+        if oid is not None:
+            conf[ 'env' ][ env_name ][ 'oid' ] = oid
+        if secretApiKey is not None:
+            conf[ 'env' ][ env_name ][ 'api_key' ] = secretApiKey
         if uid != '':
-            conf[ 'env' ].setdefault( alias, {} )[ 'uid' ] = uid
+            conf[ 'env' ][ env_name ][ 'uid' ] = uid
+        elif uid == '' and 'uid' in conf[ 'env' ][ env_name ]:
+            conf[ 'env' ][ env_name ].pop( 'uid', None )
+        if oauth_creds is not None:
+            conf[ 'env' ][ env_name ][ 'oauth' ] = oauth_creds
 
     content = yaml.safe_dump( conf, default_flow_style = False ).encode()
 
