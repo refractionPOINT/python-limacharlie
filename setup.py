@@ -15,7 +15,7 @@ setup( name = 'limacharlie',
        license = __license__,
        packages = [ 'limacharlie' ],
        zip_safe = True,
-       install_requires = [ 'requests', 'passlib', 'pyyaml', 'tabulate', 'termcolor', 'pygments', 'rich' ],
+       install_requires = [ 'requests', 'passlib', 'pyyaml', 'tabulate', 'termcolor', 'pygments', 'rich', 'cryptography>=44.0.1' ],
        long_description = 'Python API for limacharlie.io, an endpoint detection and response service.',
        entry_points = {
            'console_scripts': [
