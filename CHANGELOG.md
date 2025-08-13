@@ -2,6 +2,26 @@
 
 ## 4.9.17 - TBD
 
+- Add support for Hive record validation API endpoint.
+
+  The new `validate()` method on both `Hive` and `HiveRecord` classes allows
+  dry-run validation of Hive records without storing them. This helps prevent
+  invalid configurations from being committed.
+
+  Example usage:
+  ```python
+  # Validate a record before setting it
+  result = hive.validate(record)
+  if 'error' not in result:
+      # Safe to proceed with setting the record
+      hive.set(record)
+  ```
+
+  Also adds `validate` action to the CLI:
+  ```bash
+  limacharlie hive validate <hive_name> -k <key> -d <data_file>
+  ```
+
 - Add new general `--debug-request` CLI flag.
 
   When this flag is used, CLI will output additional debugging information,
