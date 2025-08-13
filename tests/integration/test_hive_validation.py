@@ -3,7 +3,6 @@ import json
 import time
 import random
 import string
-import pytest
 
 def test_hive_validate_valid_record(oid, key):
     """Test validation of a valid Hive record"""
@@ -36,18 +35,10 @@ def test_hive_validate_valid_record(oid, key):
     })
     
     # Validate the record
-    try:
-        result = hive.validate(record)
-        # Should return success for a valid record
-        assert result is not None
-        assert 'error' not in result
-    except limacharlie.utils.LcApiException as e:
-        if '404' in str(e) or 'not found' in str(e).lower():
-            pytest.skip("Validation endpoint not yet available")
-        elif 'UNKNOWN_HIVE' in str(e):
-            pytest.skip("dr-general hive not available in test environment")
-        else:
-            raise
+    result = hive.validate(record)
+    # Should return success for a valid record
+    assert result is not None
+    assert 'error' not in result
 
 
 def test_hive_validate_with_etag(oid, key):
@@ -89,15 +80,6 @@ def test_hive_validate_with_etag(oid, key):
             
             validate_result = hive.validate(record)
             assert validate_result is not None
-    except limacharlie.utils.LcApiException as e:
-        if '404' in str(e) or 'not found' in str(e).lower():
-            pytest.skip("Validation endpoint not yet available")
-        elif 'UNKNOWN_HIVE' in str(e):
-            pytest.skip("dr-general hive not available in test environment")
-        elif 'NOT_FOUND' in str(e):
-            pass
-        else:
-            raise
     finally:
         # Clean up
         try:
@@ -130,16 +112,9 @@ def test_hive_validate_with_arl(oid, key):
         # The validation should work but ARL retrieval might fail
         # We're just testing that the validate endpoint accepts ARL
         assert result is not None
-    except limacharlie.utils.LcApiException as e:
-        if '404' in str(e) or 'not found' in str(e).lower():
-            pytest.skip("Validation endpoint not yet available")
-        elif 'UNKNOWN_HIVE' in str(e):
-            pytest.skip("dr-general hive not available in test environment")
-        else:
-            # Expected to fail if ARL points to invalid location
-            # But the validate endpoint should still be called
-            pass
     except Exception as e:
+        # Expected to fail if ARL points to invalid location
+        # But the validate endpoint should still be called
         pass
 
 
@@ -170,16 +145,8 @@ def test_hive_record_validate_method(oid, key):
     }, api=hive)
     
     # Use the record's validate method
-    try:
-        result = record.validate()
-        assert result is not None
-    except limacharlie.utils.LcApiException as e:
-        if '404' in str(e) or 'not found' in str(e).lower():
-            pytest.skip("Validation endpoint not yet available")
-        elif 'UNKNOWN_HIVE' in str(e):
-            pytest.skip("dr-general hive not available in test environment")
-        else:
-            raise
+    result = record.validate()
+    assert result is not None
 
 
 def test_hive_validate_invalid_data(oid, key):
@@ -211,16 +178,8 @@ def test_hive_validate_invalid_data(oid, key):
         # Validation might fail due to invalid structure
         # But if it passes, we still assert it returns something
         assert result is not None
-    except limacharlie.utils.LcApiException as e:
-        if '404' in str(e) or 'not found' in str(e).lower():
-            pytest.skip("Validation endpoint not yet available")
-        elif 'UNKNOWN_HIVE' in str(e):
-            pytest.skip("dr-general hive not available in test environment")
-        else:
-            # Expected - invalid data should cause validation error
-            pass
     except Exception as e:
-        # Some hives might reject invalid data
+        # Expected - invalid data should cause validation error
         pass
 
 
@@ -259,13 +218,5 @@ def test_hive_validate_with_metadata(oid, key):
     })
     
     # Validate the record with full metadata
-    try:
-        result = hive.validate(record)
-        assert result is not None
-    except limacharlie.utils.LcApiException as e:
-        if '404' in str(e) or 'not found' in str(e).lower():
-            pytest.skip("Validation endpoint not yet available")
-        elif 'UNKNOWN_HIVE' in str(e):
-            pytest.skip("dr-general hive not available in test environment")
-        else:
-            raise
+    result = hive.validate(record)
+    assert result is not None
