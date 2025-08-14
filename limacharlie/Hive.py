@@ -78,6 +78,34 @@ class Hive( object ):
     def delete( self, recordName ):
         return self._man._apiCall( 'hive/%s/%s/%s' % ( self._hiveName, self._partitionKey, urlescape( recordName, safe = '' ) ), DELETE )
 
+    def validate( self, record ):
+        data = None
+        if record.data is not None or record.arl is not None:
+            pass
+
+        usrMtd = {}
+        if record.expiry is not None:
+            usrMtd[ 'expiry' ] = record.expiry
+        if record.enabled is not None:
+            usrMtd[ 'enabled' ] = record.enabled
+        if record.tags is not None:
+            usrMtd[ 'tags' ] = record.tags
+        if record.comment is not None:
+            usrMtd[ 'comment' ] = record.comment
+
+        req = {
+            'data' : json.dumps( record.data ),
+        }
+
+        if record.etag is not None:
+            req[ 'etag' ] = record.etag
+        if len( usrMtd ) != 0:
+            req[ 'usr_mtd' ] = json.dumps( usrMtd )
+        if record.arl is not None:
+            req [ 'arl' ] = record.arl
+
+        return self._man._apiCall( 'hive/%s/%s/%s/validate' % ( self._hiveName, self._partitionKey, urlescape( record.name, safe = '' ) ), POST, req )
+
     def rename(self, record_name, new_name):
         target = "rename"
         params = {
@@ -134,6 +162,9 @@ class HiveRecord( object ):
 
     def fetch( self ):
         return self._api.get( self.name )
+
+    def validate( self ):
+        return self._api.validate( self )
 
     def update( self, cb = None ):
         # Perform a transactional update of the record
@@ -248,6 +279,42 @@ def _do_rename( args, man ):
 
     printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).rename( args.key, args.renameKey ) )
 
+def _do_validate( args, man ):
+    if args.key is None:
+        reportError( 'Key required' )
+
+    record = {
+        'data' : None,
+    }
+
+    if args.data is not None:
+        if args.data == '-':
+            data = "\n".join( sys.stdin.readlines() )
+        else:
+            data = open( args.data, 'rb' ).read().decode()
+        if args.dataKey is not None:
+            data = json.dumps( { args.dataKey : data } )
+        data = json.loads( data )
+        record[ 'data' ] = data
+
+    usrMtd = {}
+    if args.expiry is not None:
+        usrMtd[ 'expiry' ] = args.expiry
+    if args.enabled is not None:
+        usrMtd[ 'enabled' ] = args.enabled.lower() not in ( '0', 'false', 'no', 'off' )
+    if args.tags is not None:
+        usrMtd[ 'tags' ] = [ t.strip() for t in args.tags.split( ',' ) ]
+    if args.comment is not None:
+        usrMtd[ 'comment' ] = args.comment
+    record[ 'usr_mtd' ] = usrMtd
+
+    sysMtd = {}
+    if args.etag is not None:
+        sysMtd[ 'etag' ] = args.etag
+    record[ 'sys_mtd' ] = sysMtd
+
+    printData( Hive( man, args.hive_name, altPartitionKey = args.partitionKey ).validate( HiveRecord( args.key, record ) ) )
+
 def main( sourceArgs = None ):
     import argparse
 
@@ -260,6 +327,7 @@ def main( sourceArgs = None ):
         'update' : _do_update,
         'remove' : _do_remove,
         'rename': _do_rename,
+        'validate' : _do_validate,
     }
 
     parser = argparse.ArgumentParser( prog = 'limacharlie hive' )
