@@ -213,13 +213,22 @@ class SimpleFirebaseAuth:
             # Calculate expiry timestamp
             expires_in = int(data.get('expiresIn', '3600'))
             expires_at = int(time.time()) + expires_in
-            
-            return {
+
+            # Extract Firebase UID (localId)
+            firebase_uid = data.get('localId')
+
+            result = {
                 'id_token': data['idToken'],
                 'refresh_token': data['refreshToken'],
                 'expires_at': expires_at,
                 'provider': provider_id  # Store the actual provider used
             }
+
+            # Include UID if available
+            if firebase_uid:
+                result['uid'] = firebase_uid
+
+            return result
             
         except requests.exceptions.RequestException as e:
             raise FirebaseAuthError(f"Failed to sign in with IdP: {str(e)}")
@@ -300,11 +309,14 @@ def perform_simple_firebase_auth(oid: Optional[str] = None,
         oauth_data = {
             'oauth': tokens
         }
-        
+
         # Add OID if provided
         if oid:
             oauth_data['oid'] = oid
-        
+
+        # Extract UID from tokens if available
+        uid = tokens.get('uid', '')
+
         # Save credentials using the same logic as other auth methods
         if environment and environment != 'default':
             # Save to named environment
@@ -316,12 +328,13 @@ def perform_simple_firebase_auth(oid: Optional[str] = None,
             # Save to default
             config.update(oauth_data)
             print("\nOAuth credentials saved as default")
-        
+
         # Write config
         utils.writeCredentialsToConfig(
             environment if environment else 'default',
             oauth_data.get('oid'),
             None,  # No API key
+            uid=uid,  # Pass Firebase UID
             oauth_creds=oauth_data.get('oauth')
         )
         
