@@ -1,3 +1,4 @@
+
 # Detect if this is Python 2 or 3
 import sys
 import os
@@ -448,19 +449,50 @@ class Manager( object ):
         resp = self._apiCall( 'who', GET, {}, altRoot =  "%s/%s" % ( ROOT_URL, API_VERSION ) )
         return resp
 
-    def userAccessibleOrgs( self ):
-        '''Query the API with a User API to see which organizations the user has access to.
+    def userAccessibleOrgs( self, offset = None, limit = None, filter = None, sort_by = None, sort_order = None, with_names = True ):
+        '''Query the API to see which organizations the user has access to.
+
+        Args:
+            offset (int): number of organizations to skip from the start.
+            limit (int): maximum number of organizations to return (default 10).
+            filter (str): case-insensitive substring filter on name, description, or oid.
+            sort_by (str): field to sort by: 'name' or 'description' (default: 'name').
+            sort_order (str): sort order: 'asc' or 'desc' (default: 'asc').
+            with_names (bool): if True (default), include organization names in the response.
 
         Returns:
-            A dict with org OIDs and names.
+            A dict with 'orgs' key containing a list of OIDs and optional 'names' key with OID->name mapping.
         '''
+        queryParams = {}
+        if offset is not None:
+            queryParams['offset'] = str(offset)
+        if limit is not None:
+            queryParams['limit'] = str(limit)
+        if filter is not None:
+            queryParams['filter'] = filter
+        if sort_by is not None:
+            queryParams['sort_by'] = sort_by
+        if sort_order is not None:
+            queryParams['sort_order'] = sort_order
 
-        resp = self._apiCall( '/user_key_info', POST, {}, queryParams = {
-            'uid' : self._uid,
-            'secret' : self._secret_api_key,
-            'with_names' : True,
-        }, altRoot = 'https://app.limacharlie.io/', isNoAuth = True )
-        return resp
+        resp = self._apiCall( 'user/orgs', GET, queryParams = queryParams )
+
+        # Transform response to match old format
+        orgs_list = resp.get('orgs', [])
+
+        # Extract OIDs as a list
+        oids = [org.get('oid') for org in orgs_list if org.get('oid')]
+
+        ret_data = {
+            'orgs': oids
+        }
+
+        # Include names if requested
+        if with_names:
+            names = {org.get('oid'): org.get('name') for org in orgs_list if org.get('oid')}
+            ret_data['names'] = names
+
+        return ret_data
 
     def getOrgInfo( self ) -> dict[str, Any]:
         return self._apiCall( 'orgs/%s' % ( self._oid, ), GET, {} )
