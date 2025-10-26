@@ -30,3 +30,6 @@ class Billing( object ):
 
     def getUserAuthRequirements( self ):
         return self._manager._apiCall( 'user/self/auth', GET, altRoot = 'https://billing.limacharlie.io/' )
+
+    def getSkuDefinitions( self ):
+        return self._manager._apiCall( 'orgs/%s/sku-definitions' % ( self._manager._oid, ), GET, altRoot = 'https://billing.limacharlie.io/' )

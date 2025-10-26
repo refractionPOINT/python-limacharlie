@@ -1,3 +1,4 @@
+
 # Detect if this is Python 2 or 3
 import sys
 import os
@@ -77,7 +78,7 @@ def set_default_print_debug_fn( fn: Optional[Callable[[str], None]] = None ):
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid: Optional[str] = None, secret_api_key: Optional[str] = None, environment: Optional[str] = None, inv_id: Optional[str] = None, print_debug_fn: Optional[Callable[[str], None]] = None, is_interactive: bool = False, extra_params: dict[str, Any] = {}, jwt: Optional[str] = None, uid: Optional[str] = None, onRefreshAuth: Optional[Callable[[], None]] = None, isRetryQuotaErrors: bool = False ):
+    def __init__( self, oid: Optional[str] = None, secret_api_key: Optional[str] = None, environment: Optional[str] = None, inv_id: Optional[str] = None, print_debug_fn: Optional[Callable[[str], None]] = None, is_interactive: bool = False, extra_params: dict[str, Any] = {}, jwt: Optional[str] = None, uid: Optional[str] = None, onRefreshAuth: Optional[Callable[[], None]] = None, isRetryQuotaErrors: bool = False, oauth_creds: Optional[dict] = None ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -92,11 +93,11 @@ class Manager( object ):
             uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID, set to False to override the current environment.
             onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
             isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
+            oauth_creds (dict): OAuth credentials dictionary with 'id_token', 'refresh_token', and 'provider' keys.
         '''
         print_debug_fn = print_debug_fn or DEFAULT_PRINT_DEBUG_FN
 
         # If an environment is specified, try to get its creds.
-        oauth_creds = None
         if environment is not None:
             oid, uid, secret_api_key, oauth_creds = _getEnvironmentCreds( environment )
             if (secret_api_key is None and oauth_creds is None) or ( oid is None and uid is None ):
@@ -111,11 +112,12 @@ class Manager( object ):
                 if GLOBAL_OID is None and uid is None:
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 oid = GLOBAL_OID
-            if secret_api_key is None and jwt is None:
+            if secret_api_key is None and jwt is None and oauth_creds is None:
                 if GLOBAL_API_KEY is None and GLOBAL_OAUTH is None:
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 secret_api_key = GLOBAL_API_KEY
-                oauth_creds = GLOBAL_OAUTH
+                if oauth_creds is None:
+                    oauth_creds = GLOBAL_OAUTH
 
         try:
             if oid is not None and oid != '-':
@@ -448,19 +450,50 @@ class Manager( object ):
         resp = self._apiCall( 'who', GET, {}, altRoot =  "%s/%s" % ( ROOT_URL, API_VERSION ) )
         return resp
 
-    def userAccessibleOrgs( self ):
-        '''Query the API with a User API to see which organizations the user has access to.
+    def userAccessibleOrgs( self, offset = None, limit = None, filter = None, sort_by = None, sort_order = None, with_names = True ):
+        '''Query the API to see which organizations the user has access to.
+
+        Args:
+            offset (int): number of organizations to skip from the start.
+            limit (int): maximum number of organizations to return (default 10).
+            filter (str): case-insensitive substring filter on name, description, or oid.
+            sort_by (str): field to sort by: 'name' or 'description' (default: 'name').
+            sort_order (str): sort order: 'asc' or 'desc' (default: 'asc').
+            with_names (bool): if True (default), include organization names in the response.
 
         Returns:
-            A dict with org OIDs and names.
+            A dict with 'orgs' key containing a list of OIDs and optional 'names' key with OID->name mapping.
         '''
+        queryParams = {}
+        if offset is not None:
+            queryParams['offset'] = str(offset)
+        if limit is not None:
+            queryParams['limit'] = str(limit)
+        if filter is not None:
+            queryParams['filter'] = filter
+        if sort_by is not None:
+            queryParams['sort_by'] = sort_by
+        if sort_order is not None:
+            queryParams['sort_order'] = sort_order
 
-        resp = self._apiCall( '/user_key_info', POST, {}, queryParams = {
-            'uid' : self._uid,
-            'secret' : self._secret_api_key,
-            'with_names' : True,
-        }, altRoot = 'https://app.limacharlie.io/', isNoAuth = True )
-        return resp
+        resp = self._apiCall( 'user/orgs', GET, queryParams = queryParams )
+
+        # Transform response to match old format
+        orgs_list = resp.get('orgs', [])
+
+        # Extract OIDs as a list
+        oids = [org.get('oid') for org in orgs_list if org.get('oid')]
+
+        ret_data = {
+            'orgs': oids
+        }
+
+        # Include names if requested
+        if with_names:
+            names = {org.get('oid'): org.get('name') for org in orgs_list if org.get('oid')}
+            ret_data['names'] = names
+
+        return ret_data
 
     def getOrgInfo( self ) -> dict[str, Any]:
         return self._apiCall( 'orgs/%s' % ( self._oid, ), GET, {} )
