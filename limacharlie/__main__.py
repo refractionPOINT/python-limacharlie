@@ -1,9 +1,4 @@
-# Detect if this is Python 2 or 3
 import sys
-_IS_PYTHON_2 = False
-if sys.version_info[ 0 ] < 3:
-    _IS_PYTHON_2 = True
-
 import traceback
 from .constants import CONFIG_FILE_PATH
 
@@ -135,26 +130,17 @@ def cli(args):
                     sys.exit(1)
             else:
                 # Interactive mode (original behavior)
-                if _IS_PYTHON_2:
-                    oid = raw_input( 'Enter your Organization ID (UUID): ' ) # noqa
-                else:
-                    oid = input( 'Enter your Organization ID (UUID): ' )
+                oid = input( 'Enter your Organization ID (UUID): ' )
                 try:
                     uuid.UUID( oid )
                 except:
                     print( "Invalid OID" )
                     sys.exit( 1 )
-                if _IS_PYTHON_2:
-                    environment = raw_input( 'Enter a name for this access (environment), or leave empty to set default: ' ) # noqa
-                else:
-                    environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
+                environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
                 if '' == environment:
                     environment = 'default'
                 secretApiKey = getpass.getpass( prompt = 'Enter secret API key: ' )
-                if _IS_PYTHON_2:
-                    uid = raw_input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' ) # noqa
-                else:
-                    uid = input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' )
+                uid = input( 'If this key is a *user* API key, specify your UID, or leave empty for a normal API key (UUID): ' )
                 try:
                     if uid != '':
                         if 20 > len( uid ):

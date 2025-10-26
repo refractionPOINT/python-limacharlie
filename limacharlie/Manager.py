@@ -78,7 +78,7 @@ def set_default_print_debug_fn( fn: Optional[Callable[[str], None]] = None ):
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
-    def __init__( self, oid: Optional[str] = None, secret_api_key: Optional[str] = None, environment: Optional[str] = None, inv_id: Optional[str] = None, print_debug_fn: Optional[Callable[[str], None]] = None, is_interactive: bool = False, extra_params: dict[str, Any] = {}, jwt: Optional[str] = None, uid: Optional[str] = None, onRefreshAuth: Optional[Callable[[], None]] = None, isRetryQuotaErrors: bool = False ):
+    def __init__( self, oid: Optional[str] = None, secret_api_key: Optional[str] = None, environment: Optional[str] = None, inv_id: Optional[str] = None, print_debug_fn: Optional[Callable[[str], None]] = None, is_interactive: bool = False, extra_params: dict[str, Any] = {}, jwt: Optional[str] = None, uid: Optional[str] = None, onRefreshAuth: Optional[Callable[[], None]] = None, isRetryQuotaErrors: bool = False, oauth_creds: Optional[dict] = None ):
         '''Create a session manager for interaction with limacharlie.io, much of the Python API relies on this object.
 
         Args:
@@ -93,11 +93,11 @@ class Manager( object ):
             uid (str): a limacharlie.io user ID, if present authentication will be based on it instead of organization ID, set to False to override the current environment.
             onRefreshAuth (func): if provided, function is called whenever a JWT would be refreshed using the API key.
             isRetryQuotaErrors (bool): if True, the Manager will attempt to retry queries when it gets an out-of-quota error (HTTP 429).
+            oauth_creds (dict): OAuth credentials dictionary with 'id_token', 'refresh_token', and 'provider' keys.
         '''
         print_debug_fn = print_debug_fn or DEFAULT_PRINT_DEBUG_FN
 
         # If an environment is specified, try to get its creds.
-        oauth_creds = None
         if environment is not None:
             oid, uid, secret_api_key, oauth_creds = _getEnvironmentCreds( environment )
             if (secret_api_key is None and oauth_creds is None) or ( oid is None and uid is None ):
@@ -112,11 +112,12 @@ class Manager( object ):
                 if GLOBAL_OID is None and uid is None:
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 oid = GLOBAL_OID
-            if secret_api_key is None and jwt is None:
+            if secret_api_key is None and jwt is None and oauth_creds is None:
                 if GLOBAL_API_KEY is None and GLOBAL_OAUTH is None:
                     raise LcApiException( 'LimaCharlie "default" environment not set, please use "limacharlie login".' )
                 secret_api_key = GLOBAL_API_KEY
-                oauth_creds = GLOBAL_OAUTH
+                if oauth_creds is None:
+                    oauth_creds = GLOBAL_OAUTH
 
         try:
             if oid is not None and oid != '-':
