@@ -212,13 +212,18 @@ Use `--no-browser` flag and manually copy/paste the URL
 ### Port conflicts
 The callback server automatically finds a free port from the range 8085-8089. If all 5 ports are in use, you'll get an error message with instructions on how to free up a port using `lsof` (macOS/Linux) or `netstat` (Windows).
 
-### Microsoft OAuth error: "invalid redirect_uri"
-If you see an error like `The provided value for the input parameter 'redirect_uri' is not valid`:
+### OAuth error: "redirect_uri_mismatch" or "invalid redirect_uri"
+If you see errors like:
+- `The provided value for the input parameter 'redirect_uri' is not valid` (Microsoft)
+- `Error 400: redirect_uri_mismatch` (Google)
 
-1. The localhost redirect URIs need to be whitelisted in the Microsoft OAuth app configuration
+**Solution:**
+1. The localhost redirect URIs need to be whitelisted in the OAuth provider configuration
 2. See the **OAuth Redirect URIs** section above for detailed setup instructions
-3. You need to add the 5 localhost ports (8085-8089) to the Microsoft app's allowed redirect URIs
-4. This configuration is done in Firebase Console → Authentication → Microsoft provider, or directly in Azure Portal
+3. You need to add all 5 redirect URIs with the `/callback` path to **both** Google and Microsoft providers in Firebase Console
+4. Format: `http://localhost:8085/callback`, `http://localhost:8086/callback`, etc.
+5. This configuration is done in Firebase Console → Authentication → (Google or Microsoft) provider
+6. For Microsoft, you may also need to add them in Azure Portal
 
 ### Token expired
 The CLI automatically refreshes expired tokens. If refresh fails, re-authenticate with `limacharlie login --oauth`
@@ -258,33 +263,34 @@ The OAuth feature is implemented in:
 
 ### OAuth Redirect URIs
 
-The implementation uses localhost redirect URIs with ports 8085-8089 (5 ports total):
-- `http://localhost:8085`
-- `http://localhost:8086`
-- `http://localhost:8087`
-- `http://localhost:8088`
-- `http://localhost:8089`
+The implementation uses localhost redirect URIs with ports 8085-8089 (5 ports total) and the `/callback` path:
+- `http://localhost:8085/callback`
+- `http://localhost:8086/callback`
+- `http://localhost:8087/callback`
+- `http://localhost:8088/callback`
+- `http://localhost:8089/callback`
 
 The CLI automatically finds an available port from this range. If all 5 ports are in use, it will provide an error with instructions on how to free up a port.
 
-**Microsoft OAuth Configuration:**
-Microsoft requires redirect URIs to be explicitly whitelisted. To enable Microsoft OAuth:
+**OAuth Provider Configuration:**
+
+Both Google and Microsoft OAuth providers in Firebase need these redirect URIs configured:
 
 1. Go to [Firebase Console](https://console.firebase.google.com/)
 2. Select your project
 3. Navigate to **Authentication** → **Sign-in method**
-4. Click on **Microsoft** provider
-5. In the Microsoft OAuth app settings, add these **5 redirect URIs**:
-   ```
-   http://localhost:8085
-   http://localhost:8086
-   http://localhost:8087
-   http://localhost:8088
-   http://localhost:8089
-   ```
-6. Save the configuration
+4. For **each provider** (Google and Microsoft):
+   - Click on the provider
+   - Ensure these **5 redirect URIs** are registered:
+     ```
+     http://localhost:8085/callback
+     http://localhost:8086/callback
+     http://localhost:8087/callback
+     http://localhost:8088/callback
+     http://localhost:8089/callback
+     ```
+   - Save the configuration
 
-Alternatively, you can add these redirect URIs directly in the [Azure Portal](https://portal.azure.com/) under your app's **Authentication** settings if you have direct access to the Microsoft OAuth app.
+**Microsoft-specific:** You may also need to add these URIs directly in the [Azure Portal](https://portal.azure.com/) under your app's **Authentication** settings if you have direct access to the Microsoft OAuth app.
 
-**Google OAuth:**
-Google is more lenient and automatically allows `http://localhost` with any port for testing purposes, so no additional configuration is needed.
+**Note:** Google OAuth apps configured through Firebase typically auto-allow localhost URIs, but if you're experiencing redirect_uri_mismatch errors, you need to explicitly add these URIs in the Firebase Console.

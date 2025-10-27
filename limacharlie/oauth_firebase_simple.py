@@ -75,7 +75,7 @@ class SimpleFirebaseAuth:
         port = self.callback_server.start()
         
         try:
-            redirect_uri = f'http://localhost:{port}'
+            redirect_uri = f'http://localhost:{port}/callback'
 
             print(f"OAuth callback server started on port {port}")
             print(f"Using OAuth provider: {provider_id}")
