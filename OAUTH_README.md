@@ -19,30 +19,37 @@ The LimaCharlie CLI supports OAuth authentication as an alternative to API keys.
 ### OAuth Login
 
 ```bash
-# Default (Google)
 limacharlie login --oauth
-
-# Microsoft
-limacharlie login --oauth --provider microsoft
 ```
 
 This will:
-1. Open your browser to the selected provider's OAuth page
-2. After you authenticate, redirect back to localhost  
-3. Exchange the authorization code for tokens
-4. Store the tokens securely in `~/.limacharlie`
+1. Prompt you to select your OAuth provider (Google or Microsoft)
+2. Open your browser to the selected provider's OAuth page
+3. After you authenticate, redirect back to localhost
+4. Exchange the authorization code for tokens
+5. Store the tokens securely in `~/.limacharlie`
+
+Example:
+```
+$ limacharlie login --oauth
+
+Select OAuth provider:
+  1. Google (default)
+  2. Microsoft
+
+Enter your choice [1]: 1
+Selected: Google
+```
 
 ### OAuth Login Without Browser
 
 ```bash
-# Google
 limacharlie login --oauth --no-browser
-
-# Microsoft
-limacharlie login --oauth --provider microsoft --no-browser
 ```
 
-This will print the URL for you to manually open instead of launching the browser.
+This will:
+1. Prompt you to select your OAuth provider
+2. Print the URL for you to manually open instead of launching the browser
 
 ### OAuth Login with Organization ID
 
