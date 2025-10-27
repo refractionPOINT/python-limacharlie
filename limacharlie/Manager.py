@@ -54,7 +54,7 @@ from typing import Any, Optional, Callable
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
 
-API_TO_JWT_URL = 'https://jwt.limacharlie.io'
+API_TO_JWT_URL = 'https://us-central1-lc-api.cloudfunctions.net/get-jwt-exp'
 
 HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
@@ -233,8 +233,25 @@ class Manager( object ):
             u = urlopen( request )
             self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
             u.close()
+        except HTTPError as e:
+            # Handle HTTP errors from JWT generation service
+            code = e.code
+            error_body = e.read().decode() if hasattr(e, 'read') else str(e)
+            self._jwt = None
+
+            # Check for MFA-related errors
+            if 'multi-factor authentication' in error_body.lower() or 'mfa' in error_body.lower():
+                error_msg = (
+                    'Multi-factor authentication is required but was not performed.\n'
+                    'Your account has 2FA enabled. Please re-authenticate using:\n'
+                    '  limacharlie login --oauth\n'
+                    'This will prompt you for your second factor during login.'
+                )
+                raise LcApiException(error_msg, code=code)
+
+            raise LcApiException( 'Failed to get JWT: %s' % ( error_body, ), code=code)
         except Exception as e:
-            # TODO: Catch more specific exception
+            # Handle other exceptions
             code = e.__dict__.get("code", None)
             self._jwt = None
             raise LcApiException( 'Failed to get JWT: %s' % ( e, ), code=code)

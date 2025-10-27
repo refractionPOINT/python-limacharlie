@@ -510,15 +510,12 @@ class OAuthCallbackServer:
     
     def find_free_port(self) -> int:
         """Find a free port for the local server."""
-        # Try preferred ports first (these should be whitelisted in Google OAuth)
-        # Extended range to provide better availability
+        # Try preferred ports - kept to minimal set for easier OAuth configuration
+        # These ports should be whitelisted in Microsoft OAuth app settings
         preferred_ports = [
-            8085, 8086, 8087, 8088, 8089,  # Original ports
-            8090, 8091, 8092, 8093, 8094,  # Extended range
-            8095, 8096, 8097, 8098, 8099,  # Additional ports
-            9085, 9086, 9087, 9088, 9089   # Alternative range
+            8085, 8086, 8087, 8088, 8089  # 5 ports only
         ]
-        
+
         for port in preferred_ports:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -528,17 +525,14 @@ class OAuthCallbackServer:
             except OSError:
                 # Port is in use, try next one
                 continue
-        
-        # If all preferred ports are taken, fall back to random port
-        # Note: This will likely fail OAuth as the random port won't be whitelisted,
-        # but at least provides a clear error message to the user
-        print("Warning: All preferred OAuth callback ports (8085-8099, 9085-9089) are in use.")
-        print("Attempting to use a random port, which may not be whitelisted in the OAuth configuration.")
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('localhost', 0))
-            s.listen(1)
-            port = s.getsockname()[1]
-        return port
+
+        # If all preferred ports are taken, provide helpful error
+        raise RuntimeError(
+            "All OAuth callback ports (8085-8089) are currently in use.\n"
+            "Please free up one of these ports or close applications using them:\n"
+            "  - Check with: lsof -i :8085-8089 (macOS/Linux) or netstat -ano | findstr \"808[5-9]\" (Windows)\n"
+            "  - Then try the OAuth login again."
+        )
     
     def start(self) -> int:
         """

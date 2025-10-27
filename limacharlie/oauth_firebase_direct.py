@@ -19,6 +19,7 @@ import base64
 
 from .oauth_server import OAuthCallbackServer
 from .constants import FIREBASE_API_KEY
+from .oauth_mfa import MFAHandler, FirebaseMFAError
 
 
 class FirebaseAuthError(Exception):
@@ -207,13 +208,13 @@ class FirebaseDirectAuth:
     def _exchange_with_firebase(self, google_id_token: str) -> Dict[str, str]:
         """
         Exchange Google ID token with Firebase.
-        
+
         Args:
             google_id_token: The Google ID token
-            
+
         Returns:
             Dictionary with Firebase tokens
-            
+
         Raises:
             FirebaseAuthError: If exchange fails
         """
@@ -223,40 +224,86 @@ class FirebaseDirectAuth:
             'providerId': 'google.com'
         }
         post_body = urllib.parse.urlencode(post_body_params)
-        
+
         payload = {
             'requestUri': 'http://localhost',
             'postBody': post_body,
             'returnSecureToken': True,
             'returnIdpCredential': True
         }
-        
+
         try:
             response = requests.post(
                 f"{self.SIGN_IN_WITH_IDP}?key={FIREBASE_API_KEY}",
                 json=payload,
                 headers={'Content-Type': 'application/json'}
             )
-            
+
             if response.status_code != 200:
                 error_data = response.json()
                 raise FirebaseAuthError(f"Firebase sign in failed: {error_data.get('error', {}).get('message', 'Unknown error')}")
-            
+
             data = response.json()
-            
+
+            # Check if MFA is required
+            mfa_pending_credential = data.get('mfaPendingCredential')
+            mfa_info = data.get('mfaInfo', [])
+
+            if mfa_pending_credential and mfa_info:
+                # MFA is required - handle it
+                print("\nInitial OAuth authentication successful.")
+                return self._handle_mfa_verification(
+                    mfa_pending_credential,
+                    mfa_info,
+                    data.get('localId')
+                )
+
+            # No MFA required - return tokens as normal
             # Calculate expiry timestamp
             expires_in = int(data.get('expiresIn', '3600'))
             expires_at = int(time.time()) + expires_in
-            
+
             return {
                 'id_token': data['idToken'],
                 'refresh_token': data['refreshToken'],
                 'expires_at': expires_at,
                 'provider': 'google'
             }
-            
+
         except requests.exceptions.RequestException as e:
             raise FirebaseAuthError(f"Failed to exchange with Firebase: {str(e)}")
+
+    def _handle_mfa_verification(self, mfa_pending_credential: str,
+                                mfa_info: list, firebase_uid: Optional[str]) -> Dict[str, str]:
+        """
+        Handle MFA verification flow after OAuth sign-in.
+
+        Args:
+            mfa_pending_credential: The pending credential from signInWithIdp
+            mfa_info: List of enrolled MFA factors
+            firebase_uid: Firebase user ID
+
+        Returns:
+            Dictionary with MFA-verified tokens
+
+        Raises:
+            FirebaseAuthError: If MFA verification fails
+        """
+        try:
+            # Use MFA handler to complete the verification flow
+            tokens = MFAHandler.handle_mfa_flow(mfa_pending_credential, mfa_info)
+
+            # Add provider (always google for this auth method)
+            tokens['provider'] = 'google'
+            if firebase_uid:
+                tokens['uid'] = firebase_uid
+
+            return tokens
+
+        except FirebaseMFAError as e:
+            raise FirebaseAuthError(f"MFA verification failed: {str(e)}")
+        except KeyboardInterrupt:
+            raise FirebaseAuthError("MFA verification cancelled by user")
 
 
 def perform_firebase_auth(oid: Optional[str] = None, 

@@ -28,6 +28,7 @@ from typing import Dict, Optional, Tuple
 
 from .oauth_server import OAuthCallbackServer
 from .constants import FIREBASE_API_KEY
+from .oauth_mfa import MFAHandler, FirebaseMFAError
 
 
 class FirebaseAuthError(Exception):
@@ -74,8 +75,8 @@ class SimpleFirebaseAuth:
         port = self.callback_server.start()
         
         try:
-            redirect_uri = f'http://localhost:{port}/callback'
-            
+            redirect_uri = f'http://localhost:{port}'
+
             print(f"OAuth callback server started on port {port}")
             print(f"Using OAuth provider: {provider_id}")
             
@@ -178,20 +179,20 @@ class SimpleFirebaseAuth:
         
         return query_string
     
-    def _sign_in_with_idp(self, request_uri: str, query_string: str, 
+    def _sign_in_with_idp(self, request_uri: str, query_string: str,
                          session_id: str, provider_id: str) -> Dict[str, str]:
         """
         Exchange provider response with Firebase.
-        
+
         Args:
             request_uri: The redirect URI used
             query_string: Full query string from provider
             session_id: Session ID from createAuthUri
             provider_id: OAuth provider ID
-            
+
         Returns:
             Dictionary with Firebase tokens
-            
+
         Raises:
             FirebaseAuthError: If exchange fails
         """
@@ -203,13 +204,28 @@ class SimpleFirebaseAuth:
             "returnSecureToken": True,
             "returnIdpCredential": True,
         }
-        
+
         try:
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
-            
+
             data = response.json()
-            
+
+            # Check if MFA is required
+            mfa_pending_credential = data.get('mfaPendingCredential')
+            mfa_info = data.get('mfaInfo', [])
+
+            if mfa_pending_credential and mfa_info:
+                # MFA is required - handle it
+                print("\nInitial OAuth authentication successful.")
+                return self._handle_mfa_verification(
+                    mfa_pending_credential,
+                    mfa_info,
+                    provider_id,
+                    data.get('localId')
+                )
+
+            # No MFA required - return tokens as normal
             # Calculate expiry timestamp
             expires_in = int(data.get('expiresIn', '3600'))
             expires_at = int(time.time()) + expires_in
@@ -229,10 +245,44 @@ class SimpleFirebaseAuth:
                 result['uid'] = firebase_uid
 
             return result
-            
+
         except requests.exceptions.RequestException as e:
             raise FirebaseAuthError(f"Failed to sign in with IdP: {str(e)}")
-    
+
+    def _handle_mfa_verification(self, mfa_pending_credential: str,
+                                mfa_info: list, provider_id: str,
+                                firebase_uid: Optional[str]) -> Dict[str, str]:
+        """
+        Handle MFA verification flow after OAuth sign-in.
+
+        Args:
+            mfa_pending_credential: The pending credential from signInWithIdp
+            mfa_info: List of enrolled MFA factors
+            provider_id: OAuth provider ID
+            firebase_uid: Firebase user ID
+
+        Returns:
+            Dictionary with MFA-verified tokens
+
+        Raises:
+            FirebaseAuthError: If MFA verification fails
+        """
+        try:
+            # Use MFA handler to complete the verification flow
+            tokens = MFAHandler.handle_mfa_flow(mfa_pending_credential, mfa_info)
+
+            # Add provider and UID to the result
+            tokens['provider'] = provider_id
+            if firebase_uid:
+                tokens['uid'] = firebase_uid
+
+            return tokens
+
+        except FirebaseMFAError as e:
+            raise FirebaseAuthError(f"MFA verification failed: {str(e)}")
+        except KeyboardInterrupt:
+            raise FirebaseAuthError("MFA verification cancelled by user")
+
     def refresh_id_token(self, refresh_token: str) -> Tuple[str, int]:
         """
         Refresh an expired Firebase ID token.
