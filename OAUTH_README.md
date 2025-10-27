@@ -239,7 +239,6 @@ The CLI automatically refreshes expired tokens. If refresh fails, re-authenticat
 
 The OAuth feature is implemented in:
 - `limacharlie/oauth_firebase_simple.py`: Simplified Firebase OAuth flow implementation with MFA detection
-- `limacharlie/oauth_firebase_direct.py`: Direct Google OAuth with PKCE (alternative method) with MFA support
 - `limacharlie/oauth_mfa.py`: Multi-factor authentication verification logic
 - `limacharlie/oauth_simple.py`: Token management utilities
 - `limacharlie/oauth_server.py`: Local callback server
