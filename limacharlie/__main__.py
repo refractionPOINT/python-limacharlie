@@ -20,6 +20,37 @@ def cli(args):
     import time
     import json
 
+    def prompt_for_oauth_provider():
+        """
+        Interactively prompt the user to select an OAuth provider.
+
+        Returns:
+            str: The selected provider ('google' or 'microsoft')
+        """
+        print("\nSelect OAuth provider:")
+        print("  1. Google (default)")
+        print("  2. Microsoft")
+
+        while True:
+            try:
+                choice = input("\nEnter your choice [1]: ").strip()
+
+                # Default to Google if empty
+                if choice == '' or choice == '1':
+                    print("Selected: Google")
+                    return 'google'
+                elif choice == '2':
+                    print("Selected: Microsoft")
+                    return 'microsoft'
+                else:
+                    print("Invalid choice. Please enter 1 or 2.")
+            except KeyboardInterrupt:
+                print("\n\nLogin cancelled by user.")
+                sys.exit(1)
+            except EOFError:
+                print("\n\nLogin cancelled (EOF).")
+                sys.exit(1)
+
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
@@ -52,11 +83,6 @@ def cli(args):
         parser.add_argument( '--no-browser',
                              action = 'store_true',
                              help = 'print URL instead of opening browser (OAuth only)' )
-        parser.add_argument( '--provider',
-                             type = str,
-                             choices = ['google', 'microsoft'],
-                             default = 'google',
-                             help = 'OAuth provider to use (default: google)' )
         parser.add_argument( '--oid',
                              type = str,
                              help = 'organization ID (non-interactive mode)' )
@@ -78,7 +104,7 @@ def cli(args):
             # This approach lets Firebase handle all OAuth provider complexity,
             # eliminating the need to manage OAuth client credentials in our code
             from .oauth_firebase_simple import perform_simple_firebase_auth
-            
+
             # Get OID if not provided
             oid = login_args.oid
             if not oid:
@@ -89,22 +115,25 @@ def cli(args):
                     except:
                         print( "Invalid OID" )
                         sys.exit( 1 )
-            
+
             # Get environment name
             environment = login_args.environment
             if not environment:
                 environment = input( 'Enter a name for this access (environment), or leave empty to set default: ' )
                 if '' == environment:
                     environment = 'default'
-            
+
+            # Prompt for OAuth provider selection
+            provider = prompt_for_oauth_provider()
+
             # Perform simplified Firebase auth
             success = perform_simple_firebase_auth(
                 oid=oid if oid else None,
                 environment=environment if environment != 'default' else None,
                 no_browser=login_args.no_browser,
-                provider=login_args.provider
+                provider=provider
             )
-            
+
             if not success:
                 sys.exit( 1 )
         else:
