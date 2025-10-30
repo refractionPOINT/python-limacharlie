@@ -10,10 +10,14 @@ __copyright__ = "Copyright (c) 2020 Refraction Point, Inc"
 import os
 import yaml
 
-from .constants import CONFIG_FILE_PATH
+from .constants import CONFIG_FILE_PATH, EPHEMERAL_CREDS_ENV_VAR
 
 
 def _getEnvironmentCreds( name ):
+    # If ephemeral credentials mode is enabled, skip disk operations entirely
+    if os.environ.get( EPHEMERAL_CREDS_ENV_VAR ):
+        return ( None, None, None, None )
+
     credsFile = os.environ.get( 'LC_CREDS_FILE', None )
     if credsFile is None:
         credsFile = CONFIG_FILE_PATH
