@@ -21,7 +21,7 @@ except NameError:
 import threading
 import time
 
-from .constants import CONFIG_FILE_PATH
+from .constants import CONFIG_FILE_PATH, EPHEMERAL_CREDS_ENV_VAR
 
 
 class LcApiException ( Exception ):
@@ -261,10 +261,14 @@ class Spinner:
 def loadCredentials():
     """
     Load credentials from config file.
-    
+
     Returns:
         dict: Loaded credentials or None if file doesn't exist
     """
+    # If ephemeral credentials mode is enabled, skip disk operations entirely
+    if os.environ.get( EPHEMERAL_CREDS_ENV_VAR ):
+        return None
+
     try:
         with open(CONFIG_FILE_PATH, 'rb') as f:
             return yaml.safe_load(f.read())
@@ -283,6 +287,11 @@ def writeCredentialsToConfig(alias, oid, secretApiKey, uid="", environment=None,
         environment (str): Environment name (replaces alias).
         oauth_creds (dict): OAuth credentials (id_token, refresh_token, etc).
     """
+    # If ephemeral credentials mode is enabled, skip disk operations entirely
+    if os.environ.get( EPHEMERAL_CREDS_ENV_VAR ):
+        print( "Ephemeral credentials mode enabled - credentials will not be persisted to disk" )
+        return
+
     conf = {}
 
     print(CONFIG_FILE_PATH)

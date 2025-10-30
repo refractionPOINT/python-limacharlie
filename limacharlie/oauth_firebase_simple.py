@@ -27,7 +27,7 @@ import os
 from typing import Dict, Optional, Tuple
 
 from .oauth_server import OAuthCallbackServer
-from .constants import FIREBASE_API_KEY
+from .constants import FIREBASE_API_KEY, EPHEMERAL_CREDS_ENV_VAR
 from .oauth_mfa import MFAHandler, FirebaseMFAError
 
 
@@ -368,18 +368,26 @@ def perform_simple_firebase_auth(oid: Optional[str] = None,
         uid = tokens.get('uid', '')
 
         # Save credentials using the same logic as other auth methods
+        is_ephemeral = os.environ.get(EPHEMERAL_CREDS_ENV_VAR)
+
         if environment and environment != 'default':
             # Save to named environment
             if 'env' not in config:
                 config['env'] = {}
             config['env'][environment] = oauth_data
-            print(f"\nOAuth credentials saved to environment: {environment}")
+            if is_ephemeral:
+                print(f"\nOAuth authentication successful (ephemeral mode - not persisted to disk)")
+            else:
+                print(f"\nOAuth credentials saved to environment: {environment}")
         else:
             # Save to default
             config.update(oauth_data)
-            print("\nOAuth credentials saved as default")
+            if is_ephemeral:
+                print("\nOAuth authentication successful (ephemeral mode - not persisted to disk)")
+            else:
+                print("\nOAuth credentials saved as default")
 
-        # Write config
+        # Write config (will be skipped in ephemeral mode)
         utils.writeCredentialsToConfig(
             environment if environment else 'default',
             oauth_data.get('oid'),
