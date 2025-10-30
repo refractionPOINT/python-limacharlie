@@ -7,7 +7,11 @@ CONFIG_FILE_PATH = os.path.expanduser( '~/.limacharlie' )
 OAUTH_CALLBACK_TIMEOUT = 300  # 5 minutes
 OAUTH_TOKEN_REFRESH_BUFFER = 300  # 5 minutes before expiry
 
-# Ephemeral credentials mode - when set, disables all credential persistence to disk
+# Ephemeral credentials mode - when set, disables all credential persistence to disk.
+# This also ignores environment-based credentials (named environments in ~/.limacharlie).
+# Targeted to support dynamic multitenant environments where credentials are managed
+# entirely through environment variables (LC_OID, LC_API_KEY, LC_UID) or OAuth flows
+# without any disk persistence.
 EPHEMERAL_CREDS_ENV_VAR = 'LC_EPHEMERAL_CREDS'
 
 # Firebase configuration
