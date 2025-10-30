@@ -1,6 +1,6 @@
 import sys
 import traceback
-from .constants import CONFIG_FILE_PATH
+from .constants import CONFIG_FILE_PATH, EPHEMERAL_CREDS_ENV_VAR
 
 
 def cli(args):
@@ -228,13 +228,20 @@ def cli(args):
             print( "Invalid OID format. Must be a valid UUID." )
             sys.exit( 1 )
         
+        # Check for ephemeral mode
+        if os.environ.get( EPHEMERAL_CREDS_ENV_VAR ):
+            print( "Cannot use 'set-oid' command in ephemeral credentials mode (LC_EPHEMERAL_CREDS is set)." )
+            print( "In ephemeral mode, credentials are not persisted to disk." )
+            print( "Use the LC_OID environment variable instead to set the organization ID." )
+            sys.exit( 1 )
+
         # Load existing config
         from .utils import loadCredentials
         config = loadCredentials()
         if config is None:
             print( "No existing configuration found. Please run 'limacharlie login' first." )
             sys.exit( 1 )
-        
+
         # Update OID based on environment
         if args.environment == 'default':
             if 'oid' not in config and 'api_key' not in config and 'oauth' not in config:
@@ -251,14 +258,14 @@ def cli(args):
             old_oid = config['env'][args.environment].get( 'oid', 'not set' )
             config['env'][args.environment]['oid'] = args.oid
             print( f"Updated OID for environment '{args.environment}' from {old_oid} to {args.oid}" )
-        
+
         # Save updated config
         with open( CONFIG_FILE_PATH, 'w' ) as f:
             yaml.safe_dump( config, f )
-        
+
         # Set file permissions to 600 (read/write for owner only)
         os.chmod( CONFIG_FILE_PATH, stat.S_IRUSR | stat.S_IWUSR )
-        
+
         print( "Configuration updated successfully." )
     elif args.action.lower() == 'dr':
         from .DRCli import main as cmdMain
