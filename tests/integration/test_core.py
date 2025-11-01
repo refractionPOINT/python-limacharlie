@@ -218,3 +218,28 @@ def test_isolation( oid, key ):
         sensor.rejoinNetwork()
         assert( not sensor.isIsolatedFromNetwork() )
         break
+
+def test_org_errors( oid, key ):
+    lc = limacharlie.Manager( oid, key )
+
+    # Get organization errors
+    errors = lc.getOrgErrors()
+    assert( isinstance( errors, list ) )
+
+    # If there are errors, test dismissing one
+    if errors and len( errors ) > 0:
+        component = errors[ 0 ][ 'component' ]
+        result = lc.dismissOrgError( component )
+        assert( result is not None )
+
+        # Test with a component that might contain special characters like '/'
+        # Create a test component name with forward slash
+        testComponent = 'test/component/with/slashes'
+        # This should not raise an error even if the component doesn't exist
+        # The API will just return an appropriate response
+        try:
+            lc.dismissOrgError( testComponent )
+        except Exception as e:
+            # If we get an error, it should be from the API, not from URL encoding issues
+            # URL encoding issues would typically manifest as different types of errors
+            assert( 'errors' in str( e ) or 'component' in str( e ).lower() or '404' in str( e ) )

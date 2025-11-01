@@ -1734,7 +1734,27 @@ class Manager( object ):
         '''
         data = self._apiCall( 'mitre/%s' % ( self._oid, ), GET, {} )
         return data
-    
+
+    def getOrgErrors( self ):
+        '''Get the error log for the organization.
+
+        Returns:
+            a list of error objects with component, error, oid, and ts fields.
+        '''
+        data = self._apiCall( 'errors/%s' % ( self._oid, ), GET, {} )
+        return data.get( 'errors', None )
+
+    def dismissOrgError( self, component ):
+        '''Dismiss a specific error for the organization.
+
+        Args:
+            component (str): component name of the error to dismiss.
+
+        Returns:
+            the REST API response (JSON).
+        '''
+        return self._apiCall( 'errors/%s/%s' % ( self._oid, urlescape( component ) ), DELETE, {} )
+
     def inviteUser( self, email ):
         '''
         Invite a user to LimaCharlie.
