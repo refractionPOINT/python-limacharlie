@@ -588,7 +588,7 @@ class Manager( object ):
             a list of Sensor objects.
         '''
 
-        resp = self._apiCall( 'tags/%s/%s' % ( self._oid, urlescape( tag, '' ) ), GET, queryParams = {} )
+        resp = self._apiCall( 'tags/%s/%s' % ( self._oid, urlescape( tag, safe = '' ) ), GET, queryParams = {} )
         return [ Sensor( self, sid ) for sid in resp.keys() ]
 
     def getAllTags( self ):
@@ -1551,7 +1551,7 @@ class Manager( object ):
         Returns:
             a dict containing the schema definition.
         '''
-        return self._apiCall( 'orgs/%s/schema/%s' % ( self._oid, urlescape( name ) ), GET )
+        return self._apiCall( 'orgs/%s/schema/%s' % ( self._oid, urlescape( name, safe = '' ) ), GET )
 
     def resetSchemas( self ):
         '''Reset the Schema Definition for all Schemas in an Organization.
@@ -1753,7 +1753,7 @@ class Manager( object ):
         Returns:
             the REST API response (JSON).
         '''
-        return self._apiCall( 'errors/%s/%s' % ( self._oid, urlescape( component ) ), DELETE, {} )
+        return self._apiCall( 'errors/%s/%s' % ( self._oid, urlescape( component, safe = '' ) ), DELETE, {} )
 
     def inviteUser( self, email ):
         '''
@@ -1782,7 +1782,7 @@ class Manager( object ):
         Returns:
             the list of CVEs.
         '''
-        return self._apiCall( 'cves/%s/%s' % ( urlescape( product ), urlescape( version ) ), GET, queryParams = {
+        return self._apiCall( 'cves/%s/%s' % ( urlescape( product, safe = '' ), urlescape( version, safe = '' ) ), GET, queryParams = {
             'include_details' : 'true' if include_details else 'false',
         }, altRoot = 'https://vulnerability-db-service-usa-1-532932106819.us-central1.run.app/' )
 
