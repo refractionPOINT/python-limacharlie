@@ -229,6 +229,30 @@ def test_org_errors( oid, key ):
     # If there are errors, test dismissing them
     # This properly tests URL escaping since real component names may contain special characters like '/'
     if errors and len( errors ) > 0:
-        component = errors[ 0 ][ 'component' ]
+        # Record the component and timestamp of the first error
+        first_error = errors[ 0 ]
+        component = first_error[ 'component' ]
+        original_timestamp = first_error.get( 'ts' )
+
+        # Dismiss the error
         result = lc.dismissOrgError( component )
         assert( result is not None )
+
+        # Get errors again to verify the dismissal worked
+        errors_after_dismiss = lc.getOrgErrors()
+        assert( isinstance( errors_after_dismiss, list ) )
+
+        # Find if the dismissed error still exists
+        matching_error = None
+        for error in errors_after_dismiss:
+            if error[ 'component' ] == component:
+                matching_error = error
+                break
+
+        # Verify dismissal worked:
+        # Either error is gone, OR it has a different timestamp (new occurrence)
+        if matching_error is not None:
+            new_timestamp = matching_error.get( 'ts' )
+            assert( new_timestamp != original_timestamp ), \
+                f"Error with component '{component}' still has the same timestamp after dismissal. " \
+                f"Expected timestamp to change from {original_timestamp} but got {new_timestamp}"
