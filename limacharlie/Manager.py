@@ -3,6 +3,7 @@
 import sys
 import os
 import shlex
+import ssl
 _IS_PYTHON_2 = False
 if sys.version_info[ 0 ] < 3:
     _IS_PYTHON_2 = True
@@ -73,6 +74,38 @@ def set_default_print_debug_fn( fn: Optional[Callable[[str], None]] = None ):
     """
     global DEFAULT_PRINT_DEBUG_FN
     DEFAULT_PRINT_DEBUG_FN = fn
+
+
+def _create_ssl_context():
+    """
+    Create an SSL context with SSL_OP_IGNORE_UNEXPECTED_EOF flag set.
+
+    This flag is needed for compatibility with servers that don't send proper
+    close_notify alerts during SSL shutdown. OpenSSL 3.0+ treats this as a
+    protocol violation by default, but setting this flag restores the more
+    lenient behavior from OpenSSL 1.1.1.
+
+    Returns:
+        ssl.SSLContext: An SSL context configured for urllib, or None for Python 2
+    """
+    if _IS_PYTHON_2:
+        # Python 2 doesn't support custom SSL contexts with urlopen
+        return None
+
+    try:
+        # Create default SSL context
+        ctx = ssl.create_default_context()
+
+        # Set SSL_OP_IGNORE_UNEXPECTED_EOF if available (Python 3.10+, OpenSSL 3.0+)
+        # This flag tells OpenSSL to treat unexpected EOFs as graceful shutdowns
+        # instead of protocol violations
+        if hasattr(ssl, 'OP_IGNORE_UNEXPECTED_EOF'):
+            ctx.options |= ssl.OP_IGNORE_UNEXPECTED_EOF
+
+        return ctx
+    except Exception:
+        # If SSL context creation fails, return None to fall back to default behavior
+        return None
 
 
 class Manager( object ):
@@ -208,7 +241,13 @@ class Manager( object ):
                                       urlencode( authData ).encode(),
                                       headers = { "Content-Type": "application/x-www-form-urlencoded" } )
                 request.get_method = lambda: "POST"
-                u = urlopen( request )
+
+                # Use custom SSL context to handle OpenSSL 3.0+ stricter EOF handling
+                ssl_context = _create_ssl_context()
+                if not _IS_PYTHON_2 and ssl_context is not None:
+                    u = urlopen( request, context = ssl_context )
+                else:
+                    u = urlopen( request )
                 self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
                 u.close()
                 
@@ -230,7 +269,13 @@ class Manager( object ):
                                   urlencode( authData ).encode(),
                                   headers = { "Content-Type": "application/x-www-form-urlencoded" } )
             request.get_method = lambda: "POST"
-            u = urlopen( request )
+
+            # Use custom SSL context to handle OpenSSL 3.0+ stricter EOF handling
+            ssl_context = _create_ssl_context()
+            if not _IS_PYTHON_2 and ssl_context is not None:
+                u = urlopen( request, context = ssl_context )
+            else:
+                u = urlopen( request )
             self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
             u.close()
         except HTTPError as e:
@@ -282,7 +327,13 @@ class Manager( object ):
             request.add_header( 'User-Agent', 'lc-py-api/%s' % (__version__) )
             if contentType is not None:
                 request.add_header( 'Content-Type', contentType )
-            u = urlopen( request, timeout = timeout )
+
+            # Use custom SSL context to handle OpenSSL 3.0+ stricter EOF handling
+            ssl_context = _create_ssl_context()
+            if not _IS_PYTHON_2 and ssl_context is not None and url.startswith('https'):
+                u = urlopen( request, timeout = timeout, context = ssl_context )
+            else:
+                u = urlopen( request, timeout = timeout )
             try:
                 data = u.read()
                 if 0 != len( data ):
@@ -313,6 +364,12 @@ class Manager( object ):
                 ret = ( e.getcode(), json.loads( errorBody.decode() ) )
             except:
                 ret = ( e.getcode(), errorBody )
+        except ssl.SSLError as e:
+            # Handle SSL errors (including SSLEOFError from OpenSSL 3.0+)
+            # Treat as a transient error similar to gateway timeout so retry logic kicks in
+            error_msg = f"SSL error occurred: {str(e)}"
+            self._printDebug(error_msg)
+            ret = ( HTTP_GATEWAY_TIMEOUT, { "error": error_msg } )
 
         if rawBody:
             body = rawBody.decode("utf-8")
