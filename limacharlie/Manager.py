@@ -104,8 +104,12 @@ def _create_ssl_context():
 
         return ctx
     except Exception:
-        # If SSL context creation fails, return None to fall back to default behavior
-        return None
+        # If SSL context creation fails, fall back to secure defaults
+        # Never return None as older Python versions may use insecure defaults
+        try:
+            return ssl.create_default_context()
+        except Exception:
+            return None
 
 
 class Manager( object ):
