@@ -1173,6 +1173,39 @@ class Manager( object ):
         } )
         return data
 
+    def validateUSP( self, platform, hostname = None, mapping = None, mappings = None, indexing = None, text_input = None, json_input = None ):
+        '''Validate a USP (Universal Sensor Parser) configuration.
+
+        Args:
+            platform (str): parser platform type (e.g., 'text', 'json', 'cef', 'gcp', 'aws').
+            hostname (str): optional default hostname for sensors (defaults to 'validation-test').
+            mapping (dict): optional single mapping descriptor (mutually exclusive with mappings).
+            mappings (list): optional list of mapping descriptors (mutually exclusive with mapping).
+            indexing (list): optional list of indexing rules.
+            text_input (str): optional newline-separated text input (mutually exclusive with json_input).
+            json_input (list): optional pre-parsed JSON input array (mutually exclusive with text_input).
+
+        Returns:
+            Dictionary with 'results' (list of parsed events) and 'errors' (list of error strings).
+        '''
+        req = {
+            'platform' : platform,
+        }
+        if hostname is not None:
+            req[ 'hostname' ] = hostname
+        if mapping is not None:
+            req[ 'mapping' ] = mapping
+        if mappings is not None:
+            req[ 'mappings' ] = mappings
+        if indexing is not None:
+            req[ 'indexing' ] = indexing
+        if text_input is not None:
+            req[ 'text_input' ] = text_input
+        if json_input is not None:
+            req[ 'json_input' ] = json_input
+        data = self._apiCall( 'usp/validate/%s' % ( self._oid, ), POST, {}, rawBody = json.dumps( req ).encode(), contentType = 'application/json' )
+        return data
+
     def setOrgQuota( self, quota ):
         '''Set a new sensor quota for the organization.
 
