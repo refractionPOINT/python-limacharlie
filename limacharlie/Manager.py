@@ -180,6 +180,7 @@ class Manager( object ):
         self._is_interactive: bool = is_interactive
         self._extra_params: dict[str, Any] = extra_params
         self._isRetryQuotaErrors: bool = isRetryQuotaErrors
+        self._search_url: Optional[str] = None  # Cache for search API URL
         if self._is_interactive:
             if not self._inv_id:
                 raise LcApiException( 'Investigation ID must be set for interactive mode to be enabled.' )
@@ -1101,6 +1102,405 @@ class Manager( object ):
             'end' : int( end ),
         } )
         return data.get( 'sid', None )
+
+    def _getSearchUrl( self ):
+        '''Get the Search API URL for this organization.
+
+        The Search API uses a different base URL than the standard API,
+        which is retrieved from the organization's URLs endpoint.
+
+        Parameters:
+            None
+
+        Return:
+            str: The base URL for the Search API (includes /v1 prefix).
+        '''
+        # Return cached URL if available
+        if self._search_url is not None:
+            return self._search_url
+
+        # Fetch org URLs
+        urls = self.getOrgURLs()
+        if urls is None or 'search' not in urls:
+            raise LcApiException( 'Search API URL not available for this organization' )
+
+        # Get the search URL and add https:// if needed
+        search_url = urls['search']
+        if not search_url.startswith('http://') and not search_url.startswith('https://'):
+            search_url = 'https://' + search_url
+
+        # Add /v1 API version prefix
+        search_url = search_url.rstrip('/') + '/v1'
+
+        # Cache and return the search URL
+        self._search_url = search_url
+        return self._search_url
+
+    def validateSearch( self, query, start_time, end_time, stream = None ):
+        '''Validate a search query and get estimated pricing.
+
+        Args:
+            query (str): the search query to validate.
+            start_time (int): the start time (epoch seconds) for the search.
+            end_time (int): the end time (epoch seconds) for the search.
+            stream (str): optional stream name to search (e.g., "event", "detect", "audit").
+
+        Returns:
+            Dict with validation results including query, startTime, endTime, error (if any), and estimatedPrice.
+        '''
+        req = {
+            'oid': self._oid,
+            'query': query,
+            'startTime': str( start_time ),
+            'endTime': str( end_time ),
+        }
+        if stream is not None:
+            req['stream'] = stream
+
+        # Use the Search API URL
+        search_url = self._getSearchUrl()
+        data = self._apiCall( 'search/validate', POST, rawBody = json.dumps( req ).encode(), contentType = 'application/json', altRoot = search_url )
+        return data
+
+    def initiateSearch( self, query, start_time, end_time, paginated = True, stream = None ):
+        '''Initiate a new search query.
+
+        Args:
+            query (str): the search query to execute.
+            start_time (int): the start time (epoch seconds) for the search.
+            end_time (int): the end time (epoch seconds) for the search.
+            paginated (bool): whether to enable pagination for the search results (default: True).
+            stream (str): optional stream name to search (e.g., "event", "detect", "audit").
+
+        Returns:
+            Dict with queryId for the initiated search.
+        '''
+        req = {
+            'oid': self._oid,
+            'query': query,
+            'startTime': str( start_time ),
+            'endTime': str( end_time ),
+            'paginated': paginated,
+        }
+        if stream is not None:
+            req['stream'] = stream
+
+        # Use the Search API URL
+        search_url = self._getSearchUrl()
+        data = self._apiCall( 'search', POST, rawBody = json.dumps( req ).encode(), contentType = 'application/json', altRoot = search_url )
+        return data
+
+    def cancelSearch( self, query_id ):
+        '''Cancel a running search query.
+
+        Sends a DELETE request to cancel an in-progress search. Useful for
+        stopping long-running queries or implementing timeout mechanisms.
+
+        Parameters:
+            query_id (str): the query ID returned from initiateSearch.
+
+        Return:
+            Dict with the API response containing cancellation status.
+
+        Usage Examples:
+            # Example 1: Basic cancellation
+            >>> manager = Manager()
+            >>> init_response = manager.initiateSearch("event_type = NEW_PROCESS", start_time, end_time)
+            >>> query_id = init_response['queryId']
+            >>> # Cancel the search
+            >>> result = manager.cancelSearch(query_id)
+
+            # Example 2: Timeout mechanism
+            >>> import signal
+            >>> query_id = None
+            >>> def timeout_handler(signum, frame):
+            ...     if query_id:
+            ...         manager.cancelSearch(query_id)
+            ...     raise TimeoutError("Search exceeded timeout")
+            >>> signal.signal(signal.SIGALRM, timeout_handler)
+            >>> signal.alarm(300)  # 5 minute timeout
+            >>> try:
+            ...     for result in manager.executeSearch(query, start, end, on_query_initiated=lambda qid: globals().update(query_id=qid)):
+            ...         process(result)
+            ... finally:
+            ...     signal.alarm(0)  # Cancel alarm
+
+            # Example 3: User cancellation in interactive application
+            >>> def run_search_with_cancellation(manager, query, start, end):
+            ...     query_id = None
+            ...     def on_initiated(qid):
+            ...         nonlocal query_id
+            ...         query_id = qid
+            ...         print(f"Search started: {qid}")
+            ...         print("Press Ctrl+C to cancel")
+            ...     try:
+            ...         for result in manager.executeSearch(query, start, end, on_query_initiated=on_initiated):
+            ...             yield result
+            ...     except KeyboardInterrupt:
+            ...         if query_id:
+            ...             print(f"Canceling search {query_id}...")
+            ...             manager.cancelSearch(query_id)
+            ...         raise
+        '''
+        # Get the Search API URL
+        search_url = self._getSearchUrl()
+
+        # Send DELETE request to cancel the search
+        return self._apiCall( 'search/%s' % ( query_id, ), DELETE, altRoot = search_url )
+
+    def pollSearchResults( self, query_id, token = None, max_attempts = 300, poll_interval = 2, progress_callback = None ):
+        '''Poll for search results.
+
+        Args:
+            query_id (str): the query ID returned from initiateSearch.
+            token (str): optional pagination token to get next page of results.
+            max_attempts (int): maximum number of polling attempts (default: 300).
+            poll_interval (int): seconds to wait between poll attempts (default: 2).
+            progress_callback (function): optional callback function called on each poll attempt.
+
+        Returns:
+            Dict with completed (bool), nextPollInMs (int), results (list), nextToken (str), and error (str, if any).
+        '''
+        # Get the Search API URL
+        search_url = self._getSearchUrl()
+
+        attempts = 0
+        while attempts < max_attempts:
+            attempts += 1
+
+            # Build the query parameters
+            queryParams = {}
+            if token is not None and token != '':
+                queryParams['token'] = token
+
+            # Poll the search endpoint
+            data = self._apiCall( 'search/%s' % ( query_id, ), GET, queryParams = queryParams, altRoot = search_url )
+
+            # Check if the search is completed
+            if data.get( 'completed', False ):
+                return data
+
+            # Check for error
+            if data.get( 'error', None ) is not None:
+                return data
+
+            # Call progress callback if provided
+            if progress_callback is not None:
+                progress_callback()
+
+            # Wait before next poll
+            next_poll_ms = data.get( 'nextPollInMs', poll_interval * 1000 )
+            wait_time = max( next_poll_ms / 1000.0, poll_interval )
+            time.sleep( wait_time )
+
+        # Max attempts exceeded
+        raise LcApiException( 'Max polling attempts exceeded for query %s' % ( query_id, ) )
+
+    def executeSearch( self, query, start_time, end_time, stream = None, query_id = None, resume_token = None, max_poll_attempts = 300, poll_interval = 2, progress_callback = None, on_query_initiated = None, on_page_completed = None ):
+        '''Execute a complete search operation with automatic pagination.
+
+        This is a convenience method that initiates a search, polls for completion,
+        and automatically handles pagination to retrieve all results. Supports
+        resumption from checkpoints and progress tracking via callbacks.
+
+        Parameters:
+            query (str): the search query to execute (e.g., "event_type = NEW_PROCESS").
+            start_time (int): the start time in epoch seconds for the search.
+            end_time (int): the end time in epoch seconds for the search.
+            stream (str, optional): stream name to search (e.g., "event", "detect", "audit").
+            query_id (str, optional): existing query_id to resume (skips initiation if provided).
+            resume_token (str, optional): pagination token to resume from a specific page.
+            max_poll_attempts (int): maximum polling attempts per page (default: 300).
+            poll_interval (int): seconds to wait between poll attempts (default: 2).
+            progress_callback (function, optional): callback called on each poll attempt.
+                                                   Signature: progress_callback()
+            on_query_initiated (function, optional): callback called with query_id when search starts.
+                                                     Signature: on_query_initiated(query_id: str)
+            on_page_completed (function, optional): callback called after each page.
+                                                    Signature: on_page_completed(page_number: int, next_token: str|None)
+                                                    Use this to persist pagination state for resumption on failure.
+
+        Return:
+            Generator yielding result objects from all pages.
+
+            Each result object contains:
+                - type (str): Result type ("events", "facets", or "timeline")
+                - rows/facets/timeseries (list): Data based on type
+                - _page_number (int): Page number this result came from
+                - _first_of_type_in_page (bool): True if first of this type in page
+                - _billing_stats (dict): Billing statistics if available
+                - nextToken (str, optional): Token for next page (in last result only)
+
+        Usage Examples:
+            # Example 1: Basic search
+            >>> from limacharlie import Manager
+            >>> manager = Manager()
+            >>> for result in manager.executeSearch(
+            ...     "event_type = NEW_PROCESS",
+            ...     start_time=1733990000,
+            ...     end_time=1734076400
+            ... ):
+            ...     if result['type'] == 'events':
+            ...         for event in result['rows']:
+            ...             print(event)
+
+            # Example 2: Search with progress tracking
+            >>> def show_progress():
+            ...     print(".", end="", flush=True)
+            >>> for result in manager.executeSearch(
+            ...     "* | * | *",
+            ...     start_time,
+            ...     end_time,
+            ...     progress_callback=show_progress
+            ... ):
+            ...     process(result)
+
+            # Example 3: Pagination persistence for resumption
+            >>> import json
+            >>> state = {'query_id': None, 'page': 0, 'token': None}
+            >>>
+            >>> def on_initiated(qid):
+            ...     state['query_id'] = qid
+            ...     with open('state.json', 'w') as f:
+            ...         json.dump(state, f)
+            >>>
+            >>> def on_page(page_num, next_token):
+            ...     state['page'] = page_num
+            ...     state['token'] = next_token
+            ...     with open('state.json', 'w') as f:
+            ...         json.dump(state, f)
+            ...     print(f"✓ Saved page {page_num}")
+            >>>
+            >>> try:
+            ...     for result in manager.executeSearch(
+            ...         "event_type = DETECTION",
+            ...         start_time,
+            ...         end_time,
+            ...         on_query_initiated=on_initiated,
+            ...         on_page_completed=on_page
+            ...     ):
+            ...         process(result)
+            ... except KeyboardInterrupt:
+            ...     print("Interrupted! Run again to resume from page", state['page'])
+
+            # Example 4: Resume from saved state
+            >>> with open('state.json') as f:
+            ...     state = json.load(f)
+            >>> print(f"Resuming from page {state['page']}...")
+            >>> for result in manager.executeSearch(
+            ...     "event_type = DETECTION",  # Same query
+            ...     start_time,                 # Same time range
+            ...     end_time,
+            ...     query_id=state['query_id'], # Resume with saved query_id
+            ...     resume_token=state['token'] # Resume from saved token
+            ... ):
+            ...     process(result)
+
+            # Example 5: Extract billing stats
+            >>> total_bytes = 0
+            >>> total_events = 0
+            >>> for result in manager.executeSearch(query, start, end):
+            ...     stats = result.get('_billing_stats', {})
+            ...     if stats:
+            ...         total_bytes = stats.get('bytesScanned', total_bytes)
+            ...         total_events = stats.get('eventsScanned', total_events)
+            >>> print(f"Scanned {total_bytes} bytes, {total_events} events")
+
+            # Example 6: Stream-specific search
+            >>> for result in manager.executeSearch(
+            ...     "mtd.event_type = DETECTION",
+            ...     start_time,
+            ...     end_time,
+            ...     stream="detect"  # Only search detection stream
+            ... ):
+            ...     process(result)
+
+            # Example 7: Handle different result types
+            >>> for result in manager.executeSearch(query, start, end):
+            ...     result_type = result['type']
+            ...     if result_type == 'events':
+            ...         events = result['rows']
+            ...         print(f"Got {len(events)} events")
+            ...     elif result_type == 'facets':
+            ...         facets = result['facets']
+            ...         print(f"Got {len(facets)} facets")
+            ...     elif result_type == 'timeline':
+            ...         timeline = result['timeseries']
+            ...         print(f"Got {len(timeline)} timeline entries")
+
+        Notes:
+            - Results are yielded as they become available (streaming)
+            - Pagination is handled automatically
+            - The generator maintains connection and polls until completion
+            - Use query_id + resume_token to resume interrupted searches
+            - Progress callbacks enable UI updates and monitoring
+            - Billing stats are cumulative and updated with each page
+            - Results are sorted by type within each page: timeline → facets → events
+        '''
+        # Initiate the search if query_id not provided
+        if query_id is None:
+            init_response = self.initiateSearch( query, start_time, end_time, paginated = True, stream = stream )
+            query_id = init_response.get( 'queryId', None )
+            if query_id is None:
+                raise LcApiException( 'Failed to initiate search: missing queryId in response' )
+
+            # Call the on_query_initiated callback if provided
+            if on_query_initiated is not None:
+                on_query_initiated( query_id )
+
+        # Poll for results and handle pagination
+        token = resume_token  # Start from resume_token if provided
+        page_number = 0
+        while True:
+            # Poll for this page
+            poll_response = self.pollSearchResults( query_id, token = token, max_attempts = max_poll_attempts, poll_interval = poll_interval, progress_callback = progress_callback )
+
+            # Check for error
+            if poll_response.get( 'error', None ) is not None:
+                raise LcApiException( 'Search query failed: %s' % ( poll_response['error'], ) )
+
+            # Increment page number
+            page_number += 1
+
+            # Get results and sort by type (timeline, facets, events)
+            results = poll_response.get( 'results', [] )
+
+            # Define type ordering (timeline first, then facets, then events)
+            type_order = { 'timeline': 0, 'facets': 1, 'events': 2 }
+            results.sort( key = lambda r: type_order.get( r.get( 'type', 'events' ), 3 ) )
+
+            # Track which types we've seen in this page for first-marker
+            seen_types = set()
+
+            # Extract nextToken from the LAST result object (not from top-level response)
+            next_token = None
+            if len( results ) > 0:
+                last_result = results[-1]
+                next_token = last_result.get( 'nextToken', None )
+
+            # Yield all results from this page with metadata
+            for result in results:
+                result_type = result.get( 'type', 'events' )
+
+                # Add metadata for page tracking, section separators, and billing stats
+                result['_page_number'] = page_number
+                result['_first_of_type_in_page'] = result_type not in seen_types
+                result['_billing_stats'] = poll_response.get( 'stats', {} )  # Include billing stats if available
+                seen_types.add( result_type )
+
+                yield result
+
+            # Call on_page_completed callback after processing this page
+            # This allows users to persist nextToken for resumption on failure
+            if on_page_completed is not None:
+                on_page_completed( page_number, next_token if next_token else None )
+
+            # Check if we have more pages - nextToken must be non-empty string
+            if next_token and isinstance( next_token, str ) and len( next_token ) > 0:
+                token = next_token
+            else:
+                # No more pages
+                break
 
     def serviceRequest( self, serviceName, data, isAsynchronous = False, isImpersonate = False ):
         '''Issue a request to a Service.
