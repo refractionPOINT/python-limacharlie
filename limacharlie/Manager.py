@@ -52,6 +52,31 @@ from limacharlie import _getEnvironmentCreds
 
 from typing import Any, Optional, Callable
 
+from .user_agent_utils import build_user_agent
+
+def _build_user_agent():
+    """
+    Build a comprehensive User-Agent string with environment information.
+
+    Inspired by the Scalyr Agent implementation (Apache 2.0 licensed):
+    https://github.com/scalyr/scalyr-agent-2/blob/97c7405d4a8a7c2d376826779831e6be2753e2ce/scalyr_agent/scalyr_client.py#L881
+
+    The User-Agent includes:
+    - Library version
+    - Python version
+    - Operating system
+    - SSL/TLS version
+
+    Returns:
+        str: Formatted User-Agent string.
+
+    Example User-Agent strings:
+        - Linux: "lc-py-api/4.10.3;python-3.11.2;debian-12;openssl-3.0.0"
+        - macOS: "lc-py-api/4.10.3;python-3.11.2;macos-14.0;openssl-3.0.0"
+        - Windows: "lc-py-api/4.10.3;python-3.11.2;windows-10;openssl-3.0.0"
+    """
+    return build_user_agent('lc-py-api', __version__)
+
 ROOT_URL = 'https://api.limacharlie.io'
 API_VERSION = 'v1'
 
@@ -328,7 +353,7 @@ class Manager( object ):
                                   rawBody if rawBody is not None else urlencode( params, doseq = True ).encode(),
                                   headers = headers )
             request.get_method = lambda: verb
-            request.add_header( 'User-Agent', 'lc-py-api/%s' % (__version__) )
+            request.add_header( 'User-Agent', _build_user_agent() )
             if contentType is not None:
                 request.add_header( 'Content-Type', contentType )
 
