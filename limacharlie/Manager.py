@@ -76,6 +76,52 @@ def set_default_print_debug_fn( fn: Optional[Callable[[str], None]] = None ):
     DEFAULT_PRINT_DEBUG_FN = fn
 
 
+def _is_running_in_tests():
+    """
+    Check if the code is running under pytest or unittest.
+
+    Parameters:
+        None
+
+    Return:
+        bool: True if running under a test framework.
+    """
+    return 'pytest' in sys.modules or 'unittest' in sys.modules
+
+
+def _is_running_on_ci():
+    """
+    Check if the code is running on a CI environment (Cloud Build, GitHub Actions, etc.).
+
+    Parameters:
+        None
+
+    Return:
+        bool: True if running on CI.
+    """
+    # Cloud Build sets BUILD_ID, most CI systems set CI=true
+    return os.environ.get( 'CI' ) is not None or os.environ.get( 'BUILD_ID' ) is not None
+
+
+def _mask_secret( value, visible_chars = 4 ):
+    """
+    Mask a secret value, showing only the first few characters.
+
+    Parameters:
+        value (str): The secret value to mask.
+        visible_chars (int): Number of characters to show at the start.
+
+    Return:
+        str: Masked string like "abcd****" or "<not set>" if empty.
+    """
+    if not value:
+        return '<not set>'
+    value_str = str( value )
+    if len( value_str ) <= visible_chars:
+        return '*' * len( value_str )
+    return value_str[:visible_chars] + '*' * ( len( value_str ) - visible_chars )
+
+
 def _create_ssl_context():
     """
     Create an SSL context with SSL_OP_IGNORE_UNEXPECTED_EOF flag set.
@@ -212,17 +258,17 @@ class Manager( object ):
                 # Use simplified OAuth manager
                 from .oauth_simple import SimpleOAuthManager
                 oauth_manager = SimpleOAuthManager()
-                
+
                 # Ensure we have a valid token (handles refresh if needed)
                 updated_creds = oauth_manager.ensure_valid_token(self._oauth_creds)
-                
+
                 if updated_creds is None:
                     raise LcApiException('Failed to refresh OAuth token')
-                
+
                 # Update our credentials if they were refreshed
                 if updated_creds != self._oauth_creds:
                     self._oauth_creds = updated_creds
-                    
+
                     # Update the credentials file with new tokens
                     from . import utils
                     # Determine environment from current config
@@ -234,14 +280,14 @@ class Manager( object ):
                         uid=self._uid,
                         oauth_creds=self._oauth_creds
                     )
-                
+
                 # Exchange Firebase JWT for LimaCharlie JWT
                 authData = { "fb_auth" : self._oauth_creds['id_token'] }
                 if self._oid is not None:
                     authData[ 'oid' ] = self._oid
                 if expiry is not None:
                     authData[ 'expiry' ] = int( expiry )
-                
+
                 request = URLRequest( API_TO_JWT_URL,
                                       urlencode( authData ).encode(),
                                       headers = { "Content-Type": "application/x-www-form-urlencoded" } )
@@ -255,11 +301,11 @@ class Manager( object ):
                     u = urlopen( request )
                 self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
                 u.close()
-                
+
                 if self._onRefreshAuth is not None:
                     self._onRefreshAuth()
                 return
-            
+
             # Traditional API key flow
             if self._secret_api_key is None:
                 raise Exception( 'No API key or OAuth credentials set' )
@@ -419,7 +465,8 @@ class Manager( object ):
                             # This is a case where we likely initialized the manager with a JWT,
                             # but no API key. In this case, we can't refresh the JWT, so we'll
                             # just fail.
-                            raise LcApiException( 'Auth error and no API key available: oid=%s uid=%s: %s' % ( self._oid, self._uid, data, ), code=code)
+                            # Mask sensitive values in error message
+                            raise LcApiException( 'Auth error and no API key available: oid=%s uid=%s: %s' % ( _mask_secret( self._oid ), _mask_secret( self._uid ), data, ), code=code)
                         self._refreshJWT()
                     continue
                 else:
@@ -472,6 +519,24 @@ class Manager( object ):
         Returns:
             a boolean indicating whether authentication succeeded.
         '''
+        # Helper to print user-friendly errors during tests (but not on CI to avoid leaking secrets)
+        is_local_test = _is_running_in_tests() and not _is_running_on_ci()
+
+        def _print_auth_error( message, include_context = True ):
+            if _is_running_on_ci():
+                # On CI, only print minimal error without any context to avoid secret leakage
+                print( "Auth Error: %s" % message, file = sys.stderr )
+            elif is_local_test and include_context:
+                # Provide more context during local tests with masked secrets
+                context = "Auth Error [oid=%s, key=%s]: %s" % (
+                    _mask_secret( self._oid ),
+                    _mask_secret( self._secret_api_key ),
+                    message
+                )
+                print( context, file = sys.stderr )
+            else:
+                print( message, file = sys.stderr )
+
         try:
             perms = None
 
@@ -483,13 +548,23 @@ class Manager( object ):
                     else:
                         self._refreshJWT()
                 except:
+                    err_msg = str( sys.exc_info()[1] )
+                    _print_auth_error( "Failed to refresh JWT using API key: %s" % err_msg )
+                    if is_local_test:
+                        print( "  Hint: Check that the API key is valid and has not expired.", file = sys.stderr )
                     return False
             elif self._jwt is not None:
                 try:
                     perms = self.whoAmI()
                 except:
+                    _print_auth_error( "Failed to validate JWT token." )
+                    if is_local_test:
+                        print( traceback.format_exc(), file = sys.stderr )
                     return False
             else:
+                _print_auth_error( "Neither API key nor JWT present for authentication." )
+                if is_local_test:
+                    print( "  Hint: Ensure --oid and --key are passed to pytest, or set LC_OID and LC_API_KEY environment variables.", file = sys.stderr )
                 return False
 
             # If there are no permissions to check, we're good since
@@ -513,11 +588,22 @@ class Manager( object ):
                     effective = []
 
             # Now just check if we have them all.
-            for p in permissions:
-                if p not in effective:
-                    return False
+            missing_perms = [ p for p in permissions if p not in effective ]
+            if missing_perms:
+                _print_auth_error( "Missing required permissions." )
+                if is_local_test:
+                    print( "  Required permissions: %s" % str( permissions ), file = sys.stderr )
+                    print( "  Effective permissions: %s" % str( effective ), file = sys.stderr )
+                    print( "  Missing permissions: %s" % str( missing_perms ), file = sys.stderr )
+                    print( "  Hint: Update the API key to include the missing permissions.", file = sys.stderr )
+                elif not _is_running_on_ci():
+                    print( "Expected %s permissions, got %s" % ( str( permissions ), str( effective ) ), file = sys.stderr )
+                return False
             return True
         except:
+            _print_auth_error( "Unexpected error during authentication." )
+            if not _is_running_on_ci():
+                print( traceback.format_exc(), file = sys.stderr )
             return False
 
     def whoAmI( self ):
@@ -2269,7 +2355,7 @@ class Manager( object ):
         return self._apiCall( 'invite/user', POST, {
             'user_email' : email,
         } )
-    
+
     def get_cve_list( self, product, version, include_details = False ):
         '''Get the list of CVEs.
 
