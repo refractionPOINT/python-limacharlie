@@ -229,24 +229,35 @@ class Manager( object ):
             time_string = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
             self._debug( f"{time_string}: {msg}" )
 
-    def _refreshJWT( self, expiry = None ):
+    def _refreshJWT( self, expiry = None, oid_override = None ):
+        '''Refresh or generate a new JWT.
+
+        Args:
+            expiry: Optional expiry time for the JWT.
+            oid_override: Optional OID to use instead of self._oid. Pass "-" to get a
+                          minimal JWT with only UID claim (no org permissions). This is
+                          useful for endpoints like /user/orgs that only need the UID.
+        '''
         try:
+            # Determine which OID to use for JWT generation
+            effective_oid = oid_override if oid_override is not None else self._oid
+
             # Check if we're using OAuth
             if self._oauth_creds is not None:
                 # Use simplified OAuth manager
                 from .oauth_simple import SimpleOAuthManager
                 oauth_manager = SimpleOAuthManager()
-                
+
                 # Ensure we have a valid token (handles refresh if needed)
                 updated_creds = oauth_manager.ensure_valid_token(self._oauth_creds)
-                
+
                 if updated_creds is None:
                     raise LcApiException('Failed to refresh OAuth token')
-                
+
                 # Update our credentials if they were refreshed
                 if updated_creds != self._oauth_creds:
                     self._oauth_creds = updated_creds
-                    
+
                     # Update the credentials file with new tokens
                     from . import utils
                     # Determine environment from current config
@@ -258,14 +269,14 @@ class Manager( object ):
                         uid=self._uid,
                         oauth_creds=self._oauth_creds
                     )
-                
+
                 # Exchange Firebase JWT for LimaCharlie JWT
                 authData = { "fb_auth" : self._oauth_creds['id_token'] }
-                if self._oid is not None:
-                    authData[ 'oid' ] = self._oid
+                if effective_oid is not None:
+                    authData[ 'oid' ] = effective_oid
                 if expiry is not None:
                     authData[ 'expiry' ] = int( expiry )
-                
+
                 request = URLRequest( API_TO_JWT_URL,
                                       urlencode( authData ).encode(),
                                       headers = { "Content-Type": "application/x-www-form-urlencoded" } )
@@ -279,19 +290,19 @@ class Manager( object ):
                     u = urlopen( request )
                 self._jwt = json.loads( u.read().decode() )[ 'jwt' ]
                 u.close()
-                
+
                 if self._onRefreshAuth is not None:
                     self._onRefreshAuth()
                 return
-            
+
             # Traditional API key flow
             if self._secret_api_key is None:
                 raise Exception( 'No API key or OAuth credentials set' )
             authData = { "secret" : self._secret_api_key }
             if self._uid is not None:
                 authData[ 'uid' ] = self._uid
-            if self._oid is not None:
-                authData[ 'oid' ] = self._oid
+            if effective_oid is not None:
+                authData[ 'oid' ] = effective_oid
             if expiry is not None:
                 authData[ 'expiry' ] = int( expiry )
             request = URLRequest( API_TO_JWT_URL,
@@ -579,7 +590,17 @@ class Manager( object ):
         if sort_order is not None:
             queryParams['sort_order'] = sort_order
 
-        resp = self._apiCall( 'user/orgs', GET, queryParams = queryParams )
+        # Use a minimal JWT for this endpoint to avoid 413 errors when users have many orgs.
+        # The /user/orgs endpoint only needs the UID claim - it queries Firebase directly
+        # for org permissions. Using a minimal JWT (oid="-") prevents the Authorization header
+        # from exceeding HTTP header size limits (typically ~8KB) which can happen when the JWT
+        # contains permissions for hundreds of organizations.
+        original_jwt = self._jwt
+        try:
+            self._refreshJWT( oid_override = "-" )
+            resp = self._apiCall( 'user/orgs', GET, queryParams = queryParams )
+        finally:
+            self._jwt = original_jwt
 
         # Transform response to match old format
         orgs_list = resp.get('orgs', [])
