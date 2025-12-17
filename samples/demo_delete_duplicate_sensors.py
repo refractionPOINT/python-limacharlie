@@ -1,5 +1,5 @@
 # Sometimes a sensor can be installed on the same host a few times by mistake.
-# This script looks for sensors with the same host name. When found, detelete
+# This script looks for sensors with the same host name. When found, delete
 # the oldest sensor.
 
 import limacharlie
