@@ -57,22 +57,24 @@ def parse_time_input(time_str):
     relative_match = re.match(r'^now\s*-\s*(\d+)\s*([smhdwMy])$', time_str, re.IGNORECASE)
     if relative_match:
         amount = int(relative_match.group(1))
-        unit = relative_match.group(2).lower()
+        # Keep original case for 'M' vs 'm' distinction (months vs minutes)
+        unit = relative_match.group(2)
 
         # Calculate the timedelta
-        if unit == 's':
+        # Note: 'm' (lowercase) = minutes, 'M' (uppercase) = months
+        if unit.lower() == 's':
             delta = timedelta(seconds=amount)
-        elif unit == 'm':
+        elif unit == 'm':  # Lowercase only = minutes
             delta = timedelta(minutes=amount)
-        elif unit == 'h':
+        elif unit.lower() == 'h':
             delta = timedelta(hours=amount)
-        elif unit == 'd':
+        elif unit.lower() == 'd':
             delta = timedelta(days=amount)
-        elif unit == 'w':
+        elif unit.lower() == 'w':
             delta = timedelta(weeks=amount)
-        elif unit == 'M':  # Months (approximate as 30 days)
+        elif unit == 'M':  # Uppercase only = months (approximate as 30 days)
             delta = timedelta(days=amount * 30)
-        elif unit == 'y':  # Years (approximate as 365 days)
+        elif unit.lower() == 'y':  # Years (approximate as 365 days)
             delta = timedelta(days=amount * 365)
         else:
             raise ValueError(f"Unknown time unit: {unit}")

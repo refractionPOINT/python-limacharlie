@@ -257,11 +257,10 @@ class TestEdgeCases:
 
     def test_relative_months_approximate(self):
         """
-        Test that months notation.
+        Test that months are approximated as 30 days.
 
-        NOTE: The 'M' unit for months does not work currently due to a bug
-        where the unit is lowercased before checking, so 'M' becomes 'm' (minutes).
-        This test is marked to skip until the implementation is fixed.
+        The 'M' (uppercase) unit represents months, while 'm' (lowercase) represents minutes.
+        This test verifies that months parsing works correctly.
 
         Parameters:
             None
@@ -269,10 +268,36 @@ class TestEdgeCases:
         Return:
             None
         """
-        # SKIP: Bug in implementation - uppercase M is lowercased to m before checking
-        # So "now-1M" is treated as "now-1m" (1 minute, not 1 month)
-        # To fix: Remove .lower() call or check before lowercasing
-        pytest.skip("Bug: 'M' for months not working - gets converted to 'm' for minutes")
+        result = parse_time_input("now-1M")
+        expected = int(time.time()) - (30 * 86400)  # 30 days in seconds
+
+        # Should be within 1 second
+        assert abs(result - expected) <= 1
+
+    def test_relative_months_vs_minutes_distinction(self):
+        """
+        Test that uppercase 'M' (months) is distinct from lowercase 'm' (minutes).
+
+        Parameters:
+            None
+
+        Return:
+            None
+        """
+        result_minutes = parse_time_input("now-1m")
+        result_months = parse_time_input("now-1M")
+
+        expected_minutes = int(time.time()) - 60  # 1 minute in seconds
+        expected_months = int(time.time()) - (30 * 86400)  # 30 days in seconds
+
+        # Verify minutes
+        assert abs(result_minutes - expected_minutes) <= 1
+
+        # Verify months
+        assert abs(result_months - expected_months) <= 1
+
+        # Verify they are significantly different (at least 29 days apart)
+        assert result_minutes - result_months > 29 * 86400
 
     def test_relative_years_approximate(self):
         """Test that years are approximated as 365 days."""
