@@ -2,6 +2,72 @@
 
 ## 4.9.17 - TBD
 
+- Add SDK methods and CLI commands for the new Search API.
+
+  The Search API allows executing powerful queries against your organization's
+  telemetry data (events, detections, audit logs) with automatic pagination
+  support.
+
+  **New SDK methods on Manager class:**
+
+  - `validateSearch()` - Validate a query and get estimated pricing before
+    execution.
+  - `initiateSearch()` - Start a search query and get a query ID.
+  - `pollSearchResults()` - Poll for results with pagination token support.
+  - `executeSearch()` - High-level method that returns a generator yielding
+    results with automatic pagination handling.
+  - `cancelSearch()` - Cancel a running search query.
+
+  **Example SDK usage:**
+
+  ```python
+  from limacharlie import Manager
+  import time
+
+  man = Manager()
+
+  # Define time range
+  end_time = int(time.time())
+  start_time = end_time - 3600  # 1 hour ago
+
+  # Execute search - returns a generator that automatically handles pagination
+  for result in man.executeSearch(
+      query="event_type = NETWORK_CONNECTIONS",
+      start_time=start_time,
+      end_time=end_time,
+      stream='event'
+  ):
+      print(result)
+  ```
+
+  **New CLI commands:**
+
+  - `limacharlie search-api validate` - Validate a query and see estimated cost.
+  - `limacharlie search-api execute` - Execute a search with automatic pagination.
+
+  The CLI supports flexible time formats including relative times (`now-1h`,
+  `now-7d`), ISO dates, and Unix timestamps. Output can be written to JSONL
+  or CSV files.
+
+  **Example CLI usage:**
+
+  ```bash
+  # Validate a query
+  limacharlie search-api validate \
+    --query "event_type = NEW_PROCESS" \
+    --start "now-1h" \
+    --end "now"
+
+  # Execute search and export to CSV
+  limacharlie search-api execute \
+    --query "event_type = DETECTION" \
+    --start "now-24h" \
+    --end "now" \
+    --output-file detections.csv
+  ```
+
+  For more details, see the [Search API documentation](docs/SEARCH_API.md).
+
 - Add support for Hive record validation API endpoint.
 
   The new `validate()` method on both `Hive` and `HiveRecord` classes allows
