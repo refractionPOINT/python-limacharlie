@@ -70,6 +70,8 @@ def test_hosts( oid, key ):
     assert( isinstance( hosts, list ) )
 
 def test_rules( oid, key ):
+    from limacharlie.utils import LcApiException
+
     lc = limacharlie.Manager( oid, key )
 
     testRuleName = 'test-lc-python-sdk-rule'
@@ -90,7 +92,15 @@ def test_rules( oid, key ):
         rules = lc.rules()
         assert( testRuleName in rules )
     finally:
-        assert( {} == lc.del_rule( testRuleName ) )
+        # Clean up: delete the rule if it exists
+        # Use try/except to handle race conditions where rule might be deleted elsewhere
+        try:
+            if testRuleName in lc.rules():
+                assert( {} == lc.del_rule( testRuleName ) )
+        except LcApiException as e:
+            # Ignore RECORD_NOT_FOUND errors during cleanup
+            if 'RECORD_NOT_FOUND' not in str(e):
+                raise
 
     assert( testRuleName not in lc.rules() )
 

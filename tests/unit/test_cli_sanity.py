@@ -18,6 +18,7 @@ AVAILABLE_ACTIONS_WITH_ARGUMENTS = [
     "use",
     "dr",
     "search",
+    "search-api",
     "replay",
     "sync",
     "configs",
