@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.9.17 - TBD
+## 4.11.0 - December 18th, 2025
 
 - Add SDK methods and CLI commands for the new Search API.
 
