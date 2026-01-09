@@ -1,5 +1,50 @@
 # Changelog
 
+## 4.11.1 - January 9th, 2026
+
+- Add support for `external_adapter` hive in the SDK and CLI.
+
+  The `external_adapter` hive stores configurations for external adapters that
+  ingest non-endpoint telemetry data (Windows Event Logs, syslog, cloud service
+  logs, etc.) into LimaCharlie.
+
+  **New CLI flag:**
+
+  - `--hive-external-adapter` - Sync external adapter configurations
+
+  **Example CLI usage:**
+
+  ```bash
+  # Fetch external adapter configs
+  limacharlie configs fetch --hive-external-adapter
+
+  # Push external adapter configs
+  limacharlie configs push --hive-external-adapter
+
+  # Sync all hives including external_adapter
+  limacharlie configs push --all
+  ```
+
+  **Example YAML configuration:**
+
+  ```yaml
+  hives:
+    external_adapter:
+      wel_dhcp:
+        data:
+          sensor_type: wel
+          wel:
+            client_options:
+              platform: windows
+              sensor_seed_key: wel-dhcp
+              hostname: dhcp-server-01
+              identity:
+                oid: <org-id>
+                installation_key: <installation-key>
+            write_timeout_sec: 30
+            evt_sources: "DhcpAdminEvents:'*'"
+  ```
+
 ## 4.11.0 - December 18th, 2025
 
 - Add SDK methods and CLI commands for the new Search API.

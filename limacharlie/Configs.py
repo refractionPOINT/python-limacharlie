@@ -987,6 +987,12 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isHivePlaybook',
                          help = 'if specified, apply playbooks in hive from operations' )
+    parser.add_argument( '--hive-external-adapter',
+                         required = False,
+                         default = False,
+                         action = 'store_true',
+                         dest = 'isHiveExternalAdapter',
+                         help = 'if specified, apply external adapters in hive from operations' )
     parser.add_argument( '--all',
                          required = False,
                          default = False,
@@ -1049,6 +1055,7 @@ def main( sourceArgs = None ):
         'isHiveSecret',
         'isHiveQuery',
         'isHivePlaybook',
+        'isHiveExternalAdapter',
     ]
 
     allHives = {
@@ -1063,6 +1070,7 @@ def main( sourceArgs = None ):
         'secret': True,
         'query': True,
         'playbook': True,
+        'external_adapter': True,
     }
 
     # If All is enabled, enable all types.
@@ -1103,6 +1111,8 @@ def main( sourceArgs = None ):
         hives['query'] = True
     if args.isHivePlaybook:
         hives['playbook'] = True
+    if args.isHiveExternalAdapter:
+        hives['external_adapter'] = True
 
     s = Configs( oid = args.oid, env = args.environment, isDontUseInfraService = args.isDontUseInfraService, isUseExtension = args.isUseExtension )
 
