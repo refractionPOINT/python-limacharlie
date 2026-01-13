@@ -124,7 +124,7 @@ class TestConfigsAllFlag:
             assert call_kwargs['isHives'].get('external_adapter') is True
 
     def test_all_flag_includes_all_expected_hives(self):
-        """Test that --all flag includes all 12 expected hives."""
+        """Test that --all flag includes all 14 expected hives."""
         from limacharlie.Configs import main
 
         expected_hives = {
@@ -139,6 +139,8 @@ class TestConfigsAllFlag:
             'secret',
             'query',
             'playbook',
+            'model',
+            'ai_agent',
             'external_adapter',
         }
 
