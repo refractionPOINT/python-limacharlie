@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.11.1 - January 9th, 2026
+## 4.11.1 - January 13th, 2026
 
 - Add support for `external_adapter` hive in the SDK and CLI.
 
