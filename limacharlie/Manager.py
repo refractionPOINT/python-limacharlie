@@ -388,6 +388,47 @@ class Manager( object ):
             self._jwt = None
             raise LcApiException( 'Failed to get JWT: %s' % ( e, ), code=code)
 
+    def getJWT( self, expiry_seconds: Optional[int] = None ) -> str:
+        '''Generate or retrieve a JWT token with optional custom expiry.
+
+        This method is useful for obtaining tokens for long-running operations like
+        search download jobs that may run for several hours. By default, JWTs expire
+        after approximately 1 hour. For operations that take longer, you can specify
+        a custom expiry time.
+
+        Parameters:
+            expiry_seconds: Optional unix timestamp (seconds since epoch) for when
+                the token should expire. If None, uses the default expiry (~1 hour).
+                For long-running operations, calculate as: int(time.time()) + duration_in_seconds
+
+        Returns:
+            str: The JWT token string suitable for API authentication.
+
+        Raises:
+            LcApiException: If token generation fails or expiry is in the past.
+
+        Example:
+            # Get a token valid for 8 hours (for search download jobs)
+            import time
+            manager = Manager(oid='...', secret_api_key='...')
+            eight_hours = 8 * 60 * 60
+            token = manager.getJWT(expiry_seconds=int(time.time()) + eight_hours)
+        '''
+        import time as time_module
+
+        # Validate expiry is in the future if provided
+        if expiry_seconds is not None:
+            if expiry_seconds <= int(time_module.time()):
+                raise LcApiException('Token expiry must be in the future')
+
+        # Generate new JWT with specified expiry
+        self._refreshJWT(expiry=expiry_seconds)
+
+        if self._jwt is None:
+            raise LcApiException('Failed to generate JWT token')
+
+        return self._jwt
+
     def _restCall( self, url: str, verb: str, params: dict[str, Any] = {}, altRoot: Optional[str] = None, queryParams: Optional[dict[str, Any]] = None, rawBody: Optional[str] = None, contentType: Optional[str] = None, isNoAuth: bool = False, timeout: Optional[int] = None ) -> tuple[int, dict[str, Any]]:
         try:
             resp = None
