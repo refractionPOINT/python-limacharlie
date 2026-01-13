@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.11.1 - January 13th, 2026
+## 4.11.2 - January 13th, 2026
 
 - Add support for `external_adapter` hive in the SDK and CLI.
 
@@ -43,6 +43,25 @@
                 installation_key: <installation-key>
             write_timeout_sec: 30
             evt_sources: "DhcpAdminEvents:'*'"
+  ```
+
+## 4.11.1 - January 12th, 2026
+
+- Add support for `model` and `ai_agent` hives in the SDK and CLI.
+
+  **New CLI flags:**
+
+  - `--hive-model` - Sync model configurations
+  - `--hive-ai-agent` - Sync AI agent configurations
+
+  **Example CLI usage:**
+
+  ```bash
+  # Fetch model and AI agent configs
+  limacharlie configs fetch --hive-model --hive-ai-agent
+
+  # Push model and AI agent configs
+  limacharlie configs push --hive-model --hive-ai-agent
   ```
 
 ## 4.11.0 - December 18th, 2025
