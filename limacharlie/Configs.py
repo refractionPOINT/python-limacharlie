@@ -987,12 +987,6 @@ def main( sourceArgs = None ):
                          action = 'store_true',
                          dest = 'isHivePlaybook',
                          help = 'if specified, apply playbooks in hive from operations' )
-    parser.add_argument( '--hive-model',
-                         required = False,
-                         default = False,
-                         action = 'store_true',
-                         dest = 'isHiveModel',
-                         help = 'if specified, apply models in hive from operations' )
     parser.add_argument( '--hive-ai-agent',
                          required = False,
                          default = False,
@@ -1067,7 +1061,6 @@ def main( sourceArgs = None ):
         'isHiveSecret',
         'isHiveQuery',
         'isHivePlaybook',
-        'isHiveModel',
         'isHiveAiAgent',
         'isHiveExternalAdapter',
     ]
@@ -1084,7 +1077,6 @@ def main( sourceArgs = None ):
         'secret': True,
         'query': True,
         'playbook': True,
-        'model': True,
         'ai_agent': True,
         'external_adapter': True,
     }
@@ -1127,8 +1119,6 @@ def main( sourceArgs = None ):
         hives['query'] = True
     if args.isHivePlaybook:
         hives['playbook'] = True
-    if args.isHiveModel:
-        hives['model'] = True
     if args.isHiveAiAgent:
         hives['ai_agent'] = True
     if args.isHiveExternalAdapter:
