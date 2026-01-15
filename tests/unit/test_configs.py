@@ -139,7 +139,6 @@ class TestConfigsAllFlag:
             'secret',
             'query',
             'playbook',
-            'model',
             'ai_agent',
             'external_adapter',
         }
