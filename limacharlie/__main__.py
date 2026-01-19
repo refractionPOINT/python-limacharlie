@@ -54,7 +54,7 @@ def cli(args):
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "search-api" (execute Search API queries), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-token" (generate JWT with custom expiry for long-running operations), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "search-api" (execute Search API queries), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -319,6 +319,64 @@ def cli(args):
             print( "AUTH: API Key" )
             print( "KEY: %s..." % ( tmpManager._secret_api_key[ : 4 ], ) )
         print( "PERMISSIONS:\n%s" % ( yaml.safe_dump( tmpManager.whoAmI() ), ) )
+    elif args.action.lower() == 'get-token':
+        # Generate a JWT token with optional custom expiry for long-running operations
+        from . import Manager
+        parser = argparse.ArgumentParser(
+            prog='limacharlie get-token',
+            description='Generate a JWT token with optional custom expiry. Useful for long-running '
+                        'operations like search download jobs that may run for several hours.'
+        )
+        parser.add_argument( '--hours',
+                             type=float,
+                             default=1.0,
+                             help='Token validity duration in hours (default: 1, recommended max: 24). '
+                                  'For search download jobs, use 8 or more hours.' )
+        parser.add_argument( '--format',
+                             choices=['raw', 'json'],
+                             default='raw',
+                             help='Output format: "raw" prints just the token, "json" includes metadata.' )
+        parser.add_argument( '--environment', '--env',
+                             type=str,
+                             default=None,
+                             help='Environment name to use (default: current environment).' )
+        token_args = parser.parse_args( actionArgs )
+
+        # Validate hours parameter
+        if token_args.hours <= 0:
+            print( "Error: --hours must be a positive number", file=sys.stderr )
+            sys.exit( 1 )
+        if token_args.hours > 24:
+            print( "Warning: Tokens longer than 24 hours are not recommended for security reasons.",
+                   file=sys.stderr )
+
+        # Calculate expiry timestamp
+        expiry_timestamp = int( time.time() + ( token_args.hours * 3600 ) )
+
+        # Create manager and generate token
+        try:
+            if token_args.environment:
+                tmpManager = Manager( environment=token_args.environment )
+            else:
+                tmpManager = Manager()
+
+            token = tmpManager.getJWT( expiry_seconds=expiry_timestamp )
+
+            if token_args.format == 'json':
+                from datetime import datetime
+                output = {
+                    'token': token,
+                    'expiry': expiry_timestamp,
+                    'expiry_iso': datetime.utcfromtimestamp( expiry_timestamp ).isoformat() + 'Z',
+                    'valid_hours': token_args.hours,
+                    'oid': tmpManager._oid,
+                }
+                print( json.dumps( output, indent=2 ) )
+            else:
+                print( token )
+        except Exception as e:
+            print( "Error generating token: %s" % ( e, ), file=sys.stderr )
+            sys.exit( 1 )
     elif args.action.lower() == 'logs' or args.action.lower() == 'artifacts':
         from .Logs import main as cmdMain
         cmdMain( actionArgs )
