@@ -388,6 +388,34 @@ class Manager( object ):
             self._jwt = None
             raise LcApiException( 'Failed to get JWT: %s' % ( e, ), code=code)
 
+    def getJWT( self, expiry_seconds: Optional[int] = None ) -> str:
+        """Generate or refresh a JWT token with optional custom expiry.
+
+        This method is useful when you need a token with a specific expiry time,
+        such as for long-running operations like search downloads that can take
+        up to 6 hours to complete.
+
+        Parameters:
+            expiry_seconds (int, optional): Unix timestamp for when the token
+                should expire. If not provided, uses the default expiry (typically
+                1 hour). For long-running jobs, set this to current time plus the
+                expected job duration plus buffer (e.g., 8 hours for 6-hour jobs).
+
+        Returns:
+            str: The JWT token string.
+
+        Raises:
+            LcApiException: If token generation fails.
+
+        Example:
+            >>> import time
+            >>> # Generate token valid for 8 hours
+            >>> expiry = int(time.time()) + 8 * 3600
+            >>> token = manager.getJWT(expiry_seconds=expiry)
+        """
+        self._refreshJWT( expiry = expiry_seconds )
+        return self._jwt
+
     def _restCall( self, url: str, verb: str, params: dict[str, Any] = {}, altRoot: Optional[str] = None, queryParams: Optional[dict[str, Any]] = None, rawBody: Optional[str] = None, contentType: Optional[str] = None, isNoAuth: bool = False, timeout: Optional[int] = None ) -> tuple[int, dict[str, Any]]:
         try:
             resp = None
@@ -1633,6 +1661,265 @@ class Manager( object ):
             else:
                 # No more pages
                 break
+
+    # =========================================================================
+    # Search Download API Methods
+    # =========================================================================
+    # These methods allow creating and managing long-running background jobs
+    # that download complete search results to cloud storage.
+    # =========================================================================
+
+    def initiateSearchDownload( self, query: str, start_time: int, end_time: int, compression: str = 'zip', stream: Optional[str] = None, metadata: Optional[dict[str, str]] = None ) -> dict[str, Any]:
+        '''Initiate a search download job to download complete search results as a file.
+
+        This creates a long-running background job that executes the search query and
+        stores the complete results in cloud storage. The job may run for several hours
+        for large result sets.
+
+        IMPORTANT: The JWT token used for this request must have sufficient lifetime
+        for the job to complete. Jobs can run up to 6 hours. Use Manager.getJWT() with
+        a custom expiry to generate a long-lived token before calling this method.
+
+        Parameters:
+            query: The search query to execute.
+            start_time: Start time as Unix timestamp (seconds since epoch).
+            end_time: End time as Unix timestamp (seconds since epoch).
+            compression: Compression type for the result file ('zip' or 'none').
+            stream: Optional stream name ('event', 'detect', 'audit').
+            metadata: Optional key-value metadata to attach to the job for tracking.
+
+        Returns:
+            dict: Response containing:
+                - jobId: Unique identifier for the download job
+                - estimatedStats: Pre-flight cost estimates (eventsScanned, estimatedPrice, etc.)
+                - tokenExpiry: When the authentication token expires (ISO 8601 format)
+
+        Raises:
+            LcApiException: If job creation fails (e.g., rate limit, invalid query, token expiry too soon).
+
+        Example:
+            >>> import time
+            >>> manager = Manager(oid='...', secret_api_key='...')
+            >>> # Generate 8-hour token for long-running job
+            >>> token = manager.getJWT(expiry_seconds=int(time.time()) + 8*3600)
+            >>> result = manager.initiateSearchDownload(
+            ...     query='event_type = *',
+            ...     start_time=int(time.time()) - 86400,
+            ...     end_time=int(time.time()),
+            ...     compression='zip'
+            ... )
+            >>> print(f"Job ID: {result['jobId']}")
+        '''
+        search_url = self._getSearchUrl()
+
+        # Build request body
+        req_body = {
+            'query': query,
+            'start_time': str( start_time ),
+            'end_time': str( end_time ),
+            'compression': compression,
+        }
+
+        if stream is not None:
+            req_body['stream'] = stream
+
+        if metadata is not None:
+            req_body['metadata'] = metadata
+
+        # Make the API call
+        code, response = self._restCall(
+            'download',
+            POST,
+            req_body,
+            altRoot = search_url,
+            contentType = 'application/json'
+        )
+
+        if code != 200:
+            error_msg = response.get( 'error', 'Unknown error' ) if isinstance( response, dict ) else str( response )
+            raise LcApiException( 'Failed to initiate search download: %s' % ( error_msg, ), code = code )
+
+        return response
+
+    def getSearchDownloadStatus( self, job_id: str ) -> dict[str, Any]:
+        '''Get the status and progress of a search download job.
+
+        Parameters:
+            job_id: The unique identifier of the download job.
+
+        Returns:
+            dict: Job status containing:
+                - jobId: The job identifier
+                - status: Current status ('queued', 'running', 'merging', 'completed', 'failed', 'cancelled')
+                - createdAt: Job creation timestamp (ISO 8601)
+                - startedAt: Job start timestamp (ISO 8601), if started
+                - completedAt: Job completion timestamp (ISO 8601), if completed
+                - progress: Progress details (pagesProcessed, eventsProcessed, bytesProcessed, etc.)
+                - error: Error message if job failed
+                - resultUrl: Pre-signed download URL when completed
+                - resultExpiry: URL expiration time (ISO 8601)
+                - metadata: User-provided metadata
+
+        Raises:
+            LcApiException: If job not found or access denied.
+
+        Example:
+            >>> status = manager.getSearchDownloadStatus('abc-123-def')
+            >>> print(f"Status: {status['status']}")
+            >>> if status['status'] == 'completed':
+            ...     print(f"Download URL: {status['resultUrl']}")
+        '''
+        search_url = self._getSearchUrl()
+
+        code, response = self._restCall(
+            'download/%s' % ( job_id, ),
+            GET,
+            {},
+            altRoot = search_url
+        )
+
+        if code == 404:
+            raise LcApiException( 'Download job not found: %s' % ( job_id, ), code = code )
+        if code != 200:
+            error_msg = response.get( 'error', 'Unknown error' ) if isinstance( response, dict ) else str( response )
+            raise LcApiException( 'Failed to get download status: %s' % ( error_msg, ), code = code )
+
+        return response
+
+    def listSearchDownloads( self, limit: int = 100, offset: int = 0 ) -> list[dict[str, Any]]:
+        '''List search download jobs for the current organization.
+
+        Parameters:
+            limit: Maximum number of jobs to return (default: 100, max: 1000).
+            offset: Number of jobs to skip for pagination (default: 0).
+
+        Returns:
+            list: List of job status objects (same structure as getSearchDownloadStatus).
+
+        Raises:
+            LcApiException: If listing fails.
+
+        Example:
+            >>> jobs = manager.listSearchDownloads(limit=10)
+            >>> for job in jobs:
+            ...     print(f"{job['jobId']}: {job['status']}")
+        '''
+        search_url = self._getSearchUrl()
+
+        query_params = {
+            'oid': self._oid,
+            'limit': str( limit ),
+            'offset': str( offset ),
+        }
+
+        code, response = self._restCall(
+            'download',
+            GET,
+            {},
+            altRoot = search_url,
+            queryParams = query_params
+        )
+
+        if code != 200:
+            error_msg = response.get( 'error', 'Unknown error' ) if isinstance( response, dict ) else str( response )
+            raise LcApiException( 'Failed to list download jobs: %s' % ( error_msg, ), code = code )
+
+        return response.get( 'jobs', [] )
+
+    def cancelSearchDownload( self, job_id: str ) -> bool:
+        '''Cancel a running search download job.
+
+        Parameters:
+            job_id: The unique identifier of the download job to cancel.
+
+        Returns:
+            bool: True if cancellation was successful.
+
+        Raises:
+            LcApiException: If job not found, already completed, or cancellation fails.
+
+        Example:
+            >>> manager.cancelSearchDownload('abc-123-def')
+            >>> print("Job cancelled")
+        '''
+        search_url = self._getSearchUrl()
+
+        code, response = self._restCall(
+            'download/%s' % ( job_id, ),
+            DELETE,
+            {},
+            altRoot = search_url
+        )
+
+        if code == 404:
+            raise LcApiException( 'Download job not found: %s' % ( job_id, ), code = code )
+        if code == 409:
+            error_msg = response.get( 'error', 'Job already in terminal state' ) if isinstance( response, dict ) else str( response )
+            raise LcApiException( 'Cannot cancel job: %s' % ( error_msg, ), code = code )
+        if code != 204 and code != 200:
+            error_msg = response.get( 'error', 'Unknown error' ) if isinstance( response, dict ) else str( response )
+            raise LcApiException( 'Failed to cancel download job: %s' % ( error_msg, ), code = code )
+
+        return True
+
+    def waitForSearchDownload( self, job_id: str, poll_interval: int = 5, timeout: Optional[int] = None, progress_callback: Optional[Callable[['dict[str, Any]'], None]] = None ) -> dict[str, Any]:
+        '''Wait for a search download job to complete, polling for status.
+
+        This is a convenience method that polls the job status until it reaches
+        a terminal state (completed, failed, or cancelled).
+
+        Parameters:
+            job_id: The unique identifier of the download job.
+            poll_interval: Seconds between status checks (default: 5).
+            timeout: Maximum seconds to wait before raising timeout error (default: None = no timeout).
+            progress_callback: Optional callback function called with status dict on each poll.
+
+        Returns:
+            dict: Final job status (same structure as getSearchDownloadStatus).
+
+        Raises:
+            LcApiException: If job fails, times out, or is cancelled.
+
+        Example:
+            >>> def show_progress(status):
+            ...     progress = status.get('progress', {})
+            ...     print(f"Events: {progress.get('eventsProcessed', 0)}")
+            >>> result = manager.waitForSearchDownload(
+            ...     'abc-123-def',
+            ...     poll_interval=10,
+            ...     progress_callback=show_progress
+            ... )
+            >>> print(f"Download URL: {result['resultUrl']}")
+        '''
+        import time as time_module
+
+        start_time = time_module.time()
+        terminal_statuses = { 'completed', 'failed', 'cancelled' }
+
+        while True:
+            status = self.getSearchDownloadStatus( job_id )
+
+            if progress_callback is not None:
+                progress_callback( status )
+
+            job_status = status.get( 'status', '' )
+
+            if job_status in terminal_statuses:
+                if job_status == 'failed':
+                    error_msg = status.get( 'error', 'Job failed without error message' )
+                    raise LcApiException( 'Download job failed: %s' % ( error_msg, ) )
+                if job_status == 'cancelled':
+                    raise LcApiException( 'Download job was cancelled' )
+                # completed
+                return status
+
+            # Check timeout
+            if timeout is not None:
+                elapsed = time_module.time() - start_time
+                if elapsed >= timeout:
+                    raise LcApiException( 'Timeout waiting for download job after %d seconds' % ( int( elapsed ), ) )
+
+            time_module.sleep( poll_interval )
 
     def serviceRequest( self, serviceName, data, isAsynchronous = False, isImpersonate = False ):
         '''Issue a request to a Service.

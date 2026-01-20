@@ -54,7 +54,7 @@ def cli(args):
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "search-api" (execute Search API queries), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-token" (generate JWT with custom expiry), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "search-api" (execute Search API queries), "search-download" (manage search download jobs), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -275,6 +275,9 @@ def cli(args):
         cmdMain( actionArgs )
     elif args.action.lower() == 'search-api':
         from .SearchAPI import main as cmdMain
+        cmdMain( actionArgs )
+    elif args.action.lower() == 'search-download':
+        from .SearchDownload import main as cmdMain
         cmdMain( actionArgs )
     elif args.action.lower() == 'replay':
         from .Replay import main as cmdMain
