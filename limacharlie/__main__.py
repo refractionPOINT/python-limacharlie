@@ -54,7 +54,7 @@ def cli(args):
     parser = argparse.ArgumentParser( prog = 'limacharlie' )
     parser.add_argument( 'action',
                          type = str,
-                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "search-api" (execute Search API queries), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users)' )
+                         help = 'management action, currently supported "login" (store credentials), "use" (use specific credentials), "set-oid" (change organization ID), "get-arl" (outputs data returned from ARLs), "dr" (manage Detection & Response rules), "search" (search for Indicators of Compromise), "search-api" (execute Search API queries), "replay" (replay D&R rules on data), "sync" (synchronize configurations from/to an org), "who" get current SDK authentication in effect, "detections" (download detections), "events" (download events), "artifacts" (get or upload artifacts), "users" (manage and invite users), "usp" (validate USP adapter configurations)' )
     parser.add_argument( 'opt_arg',
                          type = str,
                          nargs = "?",
@@ -557,6 +557,9 @@ def cli(args):
         print(json.dumps(Manager().getMITREReport(), indent = 2))
     elif args.action.lower() == 'users':
         from .User import main as cmdMain
+        cmdMain( actionArgs )
+    elif args.action.lower() == 'usp':
+        from .USP import main as cmdMain
         cmdMain( actionArgs )
     else:
         raise Exception( 'invalid action: %s' % (args.action.lower()) )

@@ -38,6 +38,7 @@ AVAILABLE_ACTIONS_WITH_ARGUMENTS = [
     "sensors_with_ip",
     "mitre-report",
     "users",
+    "usp",
 ]
 
 
