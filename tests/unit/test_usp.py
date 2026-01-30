@@ -284,15 +284,22 @@ class TestValidateAction:
 class TestValidateEmptyResults:
     """Tests for empty results handling in validation."""
 
-    def test_empty_results_exits_with_error(self, capsys, mocker):
+    def test_empty_results_exits_with_error(self, capsys, monkeypatch):
         """Test that empty parsing results cause exit with error code 1."""
-        # Mock the Manager.validateUSP to return empty results
-        mock_manager = mocker.patch('limacharlie.USP.Manager')
-        mock_instance = mock_manager.return_value
-        mock_instance.validateUSP.return_value = {
-            'errors': [],
-            'results': []  # Empty results
-        }
+        # Create a mock Manager class that returns empty results
+        class MockManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def validateUSP(self, **kwargs):
+                return {
+                    'errors': [],
+                    'results': []  # Empty results
+                }
+
+        # Patch the Manager class in the USP module
+        import limacharlie.USP as usp_module
+        monkeypatch.setattr(usp_module, 'Manager', MockManager)
 
         with pytest.raises(SystemExit) as exc_info:
             main([
@@ -302,14 +309,20 @@ class TestValidateEmptyResults:
             ])
         assert exc_info.value.code == 1
 
-    def test_empty_results_shows_warning_message(self, capsys, mocker):
+    def test_empty_results_shows_warning_message(self, capsys, monkeypatch):
         """Test that empty results display helpful warning message."""
-        mock_manager = mocker.patch('limacharlie.USP.Manager')
-        mock_instance = mock_manager.return_value
-        mock_instance.validateUSP.return_value = {
-            'errors': [],
-            'results': []
-        }
+        class MockManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def validateUSP(self, **kwargs):
+                return {
+                    'errors': [],
+                    'results': []
+                }
+
+        import limacharlie.USP as usp_module
+        monkeypatch.setattr(usp_module, 'Manager', MockManager)
 
         with pytest.raises(SystemExit):
             main([
@@ -323,14 +336,20 @@ class TestValidateEmptyResults:
         assert "No events were parsed" in captured.out
         assert "VALIDATION FAILED" in captured.out
 
-    def test_empty_results_shows_suggestions(self, capsys, mocker):
+    def test_empty_results_shows_suggestions(self, capsys, monkeypatch):
         """Test that empty results show troubleshooting suggestions."""
-        mock_manager = mocker.patch('limacharlie.USP.Manager')
-        mock_instance = mock_manager.return_value
-        mock_instance.validateUSP.return_value = {
-            'errors': [],
-            'results': []
-        }
+        class MockManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def validateUSP(self, **kwargs):
+                return {
+                    'errors': [],
+                    'results': []
+                }
+
+        import limacharlie.USP as usp_module
+        monkeypatch.setattr(usp_module, 'Manager', MockManager)
 
         with pytest.raises(SystemExit):
             main([
@@ -344,14 +363,20 @@ class TestValidateEmptyResults:
         assert "parsing_re" in captured.out.lower() or "regex" in captured.out.lower()
         assert "platform" in captured.out.lower()
 
-    def test_non_empty_results_succeeds(self, capsys, mocker):
+    def test_non_empty_results_succeeds(self, capsys, monkeypatch):
         """Test that non-empty results succeed without error."""
-        mock_manager = mocker.patch('limacharlie.USP.Manager')
-        mock_instance = mock_manager.return_value
-        mock_instance.validateUSP.return_value = {
-            'errors': [],
-            'results': [{'event_type': 'test', 'data': 'parsed'}]
-        }
+        class MockManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def validateUSP(self, **kwargs):
+                return {
+                    'errors': [],
+                    'results': [{'event_type': 'test', 'data': 'parsed'}]
+                }
+
+        import limacharlie.USP as usp_module
+        monkeypatch.setattr(usp_module, 'Manager', MockManager)
 
         # Should not raise SystemExit
         main([
