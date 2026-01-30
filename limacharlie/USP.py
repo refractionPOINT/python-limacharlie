@@ -187,6 +187,20 @@ def do_validate(args):
         if results:
             print(f'Partially parsed {len(results)} event(s) before failure.')
         sys.exit(1)
+    elif len(results) == 0:
+        # No events parsed - this likely indicates misconfigured parsing rules
+        print('VALIDATION FAILED\n')
+        print('WARNING: No events were parsed from the sample data.\n')
+        print('This usually indicates one of the following issues:')
+        print('  - The parsing_re regex does not match the input format')
+        print('  - The platform type does not match the data format')
+        print('  - The sample data is empty or contains only whitespace')
+        print('')
+        print('Suggestions:')
+        print('  - Verify your parsing_re regex matches the sample data')
+        print('  - Check that the platform matches your data format (text, json, cef, etc.)')
+        print('  - Ensure the sample file contains valid log data')
+        sys.exit(1)
     else:
         print('VALIDATION SUCCESSFUL\n')
         print(f'Parsed {len(results)} event(s):\n')

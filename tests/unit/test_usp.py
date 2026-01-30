@@ -279,3 +279,87 @@ class TestValidateAction:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "array" in captured.err.lower()
+
+
+class TestValidateEmptyResults:
+    """Tests for empty results handling in validation."""
+
+    def test_empty_results_exits_with_error(self, capsys, mocker):
+        """Test that empty parsing results cause exit with error code 1."""
+        # Mock the Manager.validateUSP to return empty results
+        mock_manager = mocker.patch('limacharlie.USP.Manager')
+        mock_instance = mock_manager.return_value
+        mock_instance.validateUSP.return_value = {
+            'errors': [],
+            'results': []  # Empty results
+        }
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "validate",
+                "--platform", "cef",  # Built-in parser, no mapping needed
+                "--input", "test data"
+            ])
+        assert exc_info.value.code == 1
+
+    def test_empty_results_shows_warning_message(self, capsys, mocker):
+        """Test that empty results display helpful warning message."""
+        mock_manager = mocker.patch('limacharlie.USP.Manager')
+        mock_instance = mock_manager.return_value
+        mock_instance.validateUSP.return_value = {
+            'errors': [],
+            'results': []
+        }
+
+        with pytest.raises(SystemExit):
+            main([
+                "validate",
+                "--platform", "cef",
+                "--input", "test data"
+            ])
+
+        captured = capsys.readouterr()
+        # Check that warning message is displayed
+        assert "No events were parsed" in captured.out
+        assert "VALIDATION FAILED" in captured.out
+
+    def test_empty_results_shows_suggestions(self, capsys, mocker):
+        """Test that empty results show troubleshooting suggestions."""
+        mock_manager = mocker.patch('limacharlie.USP.Manager')
+        mock_instance = mock_manager.return_value
+        mock_instance.validateUSP.return_value = {
+            'errors': [],
+            'results': []
+        }
+
+        with pytest.raises(SystemExit):
+            main([
+                "validate",
+                "--platform", "cef",
+                "--input", "test data"
+            ])
+
+        captured = capsys.readouterr()
+        # Check that suggestions are displayed
+        assert "parsing_re" in captured.out.lower() or "regex" in captured.out.lower()
+        assert "platform" in captured.out.lower()
+
+    def test_non_empty_results_succeeds(self, capsys, mocker):
+        """Test that non-empty results succeed without error."""
+        mock_manager = mocker.patch('limacharlie.USP.Manager')
+        mock_instance = mock_manager.return_value
+        mock_instance.validateUSP.return_value = {
+            'errors': [],
+            'results': [{'event_type': 'test', 'data': 'parsed'}]
+        }
+
+        # Should not raise SystemExit
+        main([
+            "validate",
+            "--platform", "cef",
+            "--input", "test data"
+        ])
+
+        captured = capsys.readouterr()
+        assert "VALIDATION SUCCESSFUL" in captured.out
+        assert "Parsed 1 event(s)" in captured.out
