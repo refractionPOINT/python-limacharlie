@@ -1,0 +1,188 @@
+"""Installation key commands for LimaCharlie CLI v2.
+
+Commands for listing, creating, and deleting installation keys.
+Installation keys are used to enroll new sensors into an organization.
+"""
+
+import click
+
+from ..cli import pass_context
+from ..config import resolve_credentials
+from ..client import Client
+from ..sdk.organization import Organization
+from ..sdk.installation_keys import InstallationKeys
+from ..output import format_output, detect_output_format
+from ..discovery import register_explain
+
+
+# ---------------------------------------------------------------------------
+# Explain texts
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_LIST = """\
+List all installation keys for the organization.  Installation keys
+are used to enroll new sensors.  Each key has a description, optional
+tags (applied to sensors at enrollment), and a unique installation
+key ID (IID).
+
+The output includes the key ID, description, tags, and creation date.
+"""
+
+_EXPLAIN_CREATE = """\
+Create a new installation key.  The --description is required and
+should identify the purpose of the key (e.g., 'production-linux',
+'staging-windows').
+
+Use --tags to apply tags to sensors enrolled with this key.  Multiple
+tags can be comma-separated.
+
+Examples:
+  limacharlie installation-key create --description "production linux"
+  limacharlie installation-key create --description "staging" --tags "env:staging,os:windows"
+"""
+
+_EXPLAIN_DELETE = """\
+Delete an installation key by its IID.  Sensors already enrolled
+with this key will not be affected, but no new sensors can enroll
+using it.  The --confirm flag is required to prevent accidental
+deletion.
+
+Example:
+  limacharlie installation-key delete --iid <IID> --confirm
+"""
+
+register_explain("installation-key.list", _EXPLAIN_LIST)
+register_explain("installation-key.create", _EXPLAIN_CREATE)
+register_explain("installation-key.delete", _EXPLAIN_DELETE)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_explain_callback(text):
+    def callback(ctx, param, value):
+        if value:
+            click.echo(text.strip())
+            ctx.exit()
+    return callback
+
+
+def _output(ctx, data):
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx):
+    creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
+    return Organization(client)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("installation-key")
+def group():
+    """Manage installation keys.
+
+    Installation keys are used to enroll new sensors into the
+    organization.  Each key can have tags that are automatically
+    applied to sensors at enrollment time.
+    """
+
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+
+@group.command("list")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_LIST),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def list_keys(ctx):
+    """List installation keys.
+
+    Example:
+        limacharlie installation-key list
+    """
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.list()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--description", required=True, help="Key description.")
+@click.option("--tags", default=None, help="Comma-separated tags to apply to enrolled sensors.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_CREATE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def create(ctx, description, tags):
+    """Create a new installation key.
+
+    Examples:
+        limacharlie installation-key create --description "production linux"
+        limacharlie installation-key create --description "staging" \\
+            --tags "env:staging,os:windows"
+    """
+    tag_list = None
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.create(description, tags=tag_list)
+    if not ctx.obj.quiet:
+        click.echo("Installation key created.")
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# delete
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--iid", required=True, help="Installation key ID to delete.")
+@click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_DELETE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def delete(ctx, iid, confirm):
+    """Delete an installation key.
+
+    This is a destructive operation.  Pass --confirm to proceed.
+
+    Example:
+        limacharlie installation-key delete --iid <IID> --confirm
+    """
+    if not confirm:
+        click.echo(
+            "Error: Destructive operation requires --confirm flag.\n"
+            "Suggestion: Re-run with --confirm to delete the installation key.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.delete(iid)
+    if not ctx.obj.quiet:
+        click.echo(f"Installation key '{iid}' deleted.")
+    _output(ctx, data)

@@ -1,0 +1,212 @@
+"""Tag commands for LimaCharlie CLI v2.
+
+Commands for listing, adding, removing, and searching by sensor tags.
+Tags are lightweight labels attached to sensors for grouping, filtering,
+and targeting D&R rules or tasks.
+"""
+
+import click
+
+from ..cli import pass_context
+from ..config import resolve_credentials
+from ..client import Client
+from ..sdk.organization import Organization
+from ..sdk.sensor import Sensor
+from ..output import format_output, detect_output_format
+from ..discovery import register_explain
+
+
+# ---------------------------------------------------------------------------
+# Explain texts
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_LIST = """\
+List tags.  When --sid is provided, lists the tags applied to that
+specific sensor.  Without --sid, lists all unique tags in use across the
+entire organization.
+
+Tags are case-sensitive strings.  They are commonly used to group
+sensors by role (e.g. 'web-server', 'database'), environment
+(e.g. 'production', 'staging'), or business unit.  D&R rules can
+target sensors by tag using the sensor selector expression
+'`tag-name` in tags'.
+"""
+
+_EXPLAIN_ADD = """\
+Add a tag to a sensor.  Tags take effect immediately and are visible
+to D&R rules, sensor selectors, and the web console.  Optionally
+set a TTL (time-to-live) in seconds so the tag is automatically
+removed after the specified duration.
+
+Temporary tags with TTL are useful for time-limited operations such
+as enabling extra logging on a sensor during an investigation.
+"""
+
+_EXPLAIN_REMOVE = """\
+Remove a tag from a sensor.  The tag is removed immediately.  If the
+sensor does not have the specified tag, the operation succeeds silently.
+"""
+
+_EXPLAIN_FIND = """\
+Find all sensors that have a specific tag.  Returns the SID and basic
+info for each matching sensor.  This is a fast index lookup (not a
+full fleet scan) and is the recommended way to locate sensors by tag.
+
+Related: 'limacharlie sensor list --tag <tag>' performs a similar
+lookup but returns full sensor details.
+"""
+
+register_explain("tag.list", _EXPLAIN_LIST)
+register_explain("tag.add", _EXPLAIN_ADD)
+register_explain("tag.remove", _EXPLAIN_REMOVE)
+register_explain("tag.find", _EXPLAIN_FIND)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_explain_callback(text):
+    def callback(ctx, param, value):
+        if value:
+            click.echo(text.strip())
+            ctx.exit()
+    return callback
+
+
+def _output(ctx, data):
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx):
+    creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
+    return Organization(client)
+
+
+def _get_sensor(ctx, sid):
+    org = _get_org(ctx)
+    return Sensor(org, sid)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("tag")
+def group():
+    """Manage sensor tags.
+
+    Tags are lightweight labels attached to sensors.  They enable
+    grouping, filtering, and targeting of D&R rules and tasks across
+    the fleet.
+    """
+
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+
+@group.command("list")
+@click.option("--sid", default=None, help="Sensor ID (UUID).  If omitted, lists all org tags.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_LIST),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def list_tags(ctx, sid):
+    """List tags for a sensor or all tags in the organization.
+
+    Examples:
+        limacharlie tag list
+        limacharlie tag list --sid <SID>
+    """
+    if sid:
+        sensor = _get_sensor(ctx, sid)
+        tags = sensor.get_tags()
+    else:
+        org = _get_org(ctx)
+        tags = org.get_all_tags()
+
+    _output(ctx, tags)
+
+
+# ---------------------------------------------------------------------------
+# add
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID (UUID).")
+@click.option("--tag", required=True, help="Tag string to add.")
+@click.option("--ttl", default=None, type=int, help="Time-to-live in seconds (tag auto-removed after).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_ADD),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def add(ctx, sid, tag, ttl):
+    """Add a tag to a sensor.
+
+    Examples:
+        limacharlie tag add --sid <SID> --tag production
+        limacharlie tag add --sid <SID> --tag investigate --ttl 3600
+    """
+    sensor = _get_sensor(ctx, sid)
+    data = sensor.add_tag(tag, ttl=ttl)
+    if not ctx.obj.quiet:
+        msg = f"Tag '{tag}' added to sensor {sid}."
+        if ttl:
+            msg += f" (TTL: {ttl}s)"
+        click.echo(msg)
+
+
+# ---------------------------------------------------------------------------
+# remove
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID (UUID).")
+@click.option("--tag", required=True, help="Tag string to remove.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_REMOVE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def remove(ctx, sid, tag):
+    """Remove a tag from a sensor.
+
+    Example:
+        limacharlie tag remove --sid <SID> --tag staging
+    """
+    sensor = _get_sensor(ctx, sid)
+    sensor.remove_tag(tag)
+    if not ctx.obj.quiet:
+        click.echo(f"Tag '{tag}' removed from sensor {sid}.")
+
+
+# ---------------------------------------------------------------------------
+# find
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--tag", required=True, help="Tag to search for.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_FIND),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def find(ctx, tag):
+    """Find all sensors with a specific tag.
+
+    Example:
+        limacharlie tag find --tag production
+    """
+    org = _get_org(ctx)
+    data = org.find_sensors_by_tag(tag)
+    _output(ctx, data)

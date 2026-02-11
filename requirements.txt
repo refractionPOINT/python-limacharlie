@@ -6,3 +6,5 @@ termcolor
 pygments
 rich
 cryptography>=44.0.1
+click>=8.0
+jmespath

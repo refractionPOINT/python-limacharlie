@@ -1,0 +1,996 @@
+"""Organization SDK class for LimaCharlie v2.
+
+Wraps all org-scoped API operations. This is the main entry point
+for interacting with a LimaCharlie organization.
+"""
+
+import json
+from urllib.parse import quote as urlescape
+
+from ..client import Client
+
+
+class Organization:
+    """Represents a LimaCharlie organization.
+
+    Provides access to all organization-level operations including
+    sensors, rules, hives, outputs, users, and more.
+
+    Usage:
+        client = Client(oid="...", api_key="...")
+        org = Organization(client)
+        info = org.get_info()
+    """
+
+    def __init__(self, client):
+        """Initialize with an authenticated Client.
+
+        Args:
+            client: An authenticated Client instance.
+        """
+        self._client = client
+
+    @property
+    def oid(self):
+        return self._client.oid
+
+    @property
+    def client(self):
+        return self._client
+
+    def get_info(self):
+        """Get organization details (sensor count, version, quotas, name).
+
+        Returns:
+            dict: Organization information.
+        """
+        return self._client.request("GET", f"orgs/{self.oid}")
+
+    def get_urls(self):
+        """Get service URLs for the organization.
+
+        Returns:
+            dict: URL mappings for various services.
+        """
+        return self._client.request("GET", f"orgs/{self.oid}/url", is_no_auth=True)
+
+    def get_config(self, config_name):
+        """Get an organization configuration value.
+
+        Args:
+            config_name: Configuration key name.
+
+        Returns:
+            str: Configuration value.
+        """
+        return self._client.request("GET", f"configs/{self.oid}/{config_name}")
+
+    def set_config(self, config_name, value):
+        """Set an organization configuration value.
+
+        Args:
+            config_name: Configuration key name.
+            value: Configuration value.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("POST", f"configs/{self.oid}/{config_name}", params={"value": value})
+
+    def get_stats(self):
+        """Get usage statistics for the organization.
+
+        Returns:
+            dict: Usage statistics.
+        """
+        return self._client.request("GET", f"usage/{self.oid}")
+
+    def get_errors(self):
+        """Get organization errors.
+
+        Returns:
+            dict: List of errors.
+        """
+        return self._client.request("GET", f"errors/{self.oid}")
+
+    def dismiss_error(self, component):
+        """Dismiss an organization error.
+
+        Args:
+            component: Error component name.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"errors/{self.oid}/{urlescape(component, safe='')}")
+
+    def get_mitre_report(self):
+        """Get MITRE ATT&CK coverage report.
+
+        Returns:
+            dict: MITRE report data.
+        """
+        return self._client.request("GET", f"mitre/{self.oid}")
+
+    def get_schemas(self, platform=None):
+        """Get event schemas/ontology.
+
+        Args:
+            platform: Optional platform filter.
+
+        Returns:
+            dict: Schema definitions.
+        """
+        qp = {}
+        if platform:
+            qp["platform"] = platform
+        return self._client.request("GET", f"orgs/{self.oid}/schema", query_params=qp or None)
+
+    def get_schema(self, name):
+        """Get a specific event schema.
+
+        Args:
+            name: Schema/event type name.
+
+        Returns:
+            dict: Schema definition.
+        """
+        return self._client.request("GET", f"orgs/{self.oid}/schema/{urlescape(name, safe='')}")
+
+    def get_runtime_metadata(self, entity_type=None, entity_name=None):
+        """Get runtime metadata.
+
+        Args:
+            entity_type: Optional entity type filter.
+            entity_name: Optional entity name filter.
+
+        Returns:
+            dict: Runtime metadata.
+        """
+        qp = {}
+        if entity_type:
+            qp["entity_type"] = entity_type
+        if entity_name:
+            qp["entity_name"] = entity_name
+        return self._client.request("GET", f"runtime_mtd/{self.oid}", query_params=qp or None)
+
+    def set_quota(self, quota):
+        """Set the sensor quota for the organization.
+
+        Args:
+            quota: Number of sensors allowed.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("POST", f"orgs/{self.oid}/quota", params={"quota": quota})
+
+    def rename(self, new_name):
+        """Rename the organization.
+
+        Args:
+            new_name: New organization name.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("POST", f"orgs/{self.oid}/name", query_params={"newName": new_name})
+
+    def get_ontology(self):
+        """Get the LimaCharlie ontology (event type definitions).
+
+        Returns:
+            dict: Ontology data.
+        """
+        return self._client.request("GET", "ontology")
+
+    def get_event_types(self):
+        """List available event types.
+
+        Returns:
+            dict: Event type mappings.
+        """
+        return self._client.request("GET", "events")
+
+    def who_am_i(self):
+        """Query the API to see current identity and permissions.
+
+        Returns:
+            dict: Identity and permission information.
+        """
+        return self._client.request("GET", "who")
+
+    def test_auth(self, permissions=None):
+        """Test authentication and optionally verify specific permissions.
+
+        Args:
+            permissions: Optional list of permission strings to verify.
+
+        Returns:
+            bool: True if authentication (and permissions) are valid.
+        """
+        try:
+            self._client.refresh_jwt()
+        except Exception:
+            return False
+
+        if not permissions:
+            return True
+
+        perms = self.who_am_i()
+        if "user_perms" in perms:
+            effective = perms["user_perms"].get(self.oid, [])
+        else:
+            if self.oid in perms.get("orgs", []):
+                effective = perms.get("perms", [])
+            else:
+                effective = []
+
+        return all(p in effective for p in permissions)
+
+    # --- Static/class methods for org management ---
+
+    def list_accessible_orgs(self, offset=None, limit=None, filter_text=None):
+        """List organizations accessible to the current user.
+
+        Args:
+            offset: Pagination offset.
+            limit: Maximum number of results.
+            filter_text: Case-insensitive substring filter.
+
+        Returns:
+            dict: Organization list with 'orgs' and 'names' keys.
+        """
+        qp = {}
+        if offset is not None:
+            qp["offset"] = str(offset)
+        if limit is not None:
+            qp["limit"] = str(limit)
+        if filter_text:
+            qp["filter"] = filter_text
+
+        # Use minimal JWT to avoid header size issues
+        original_jwt = self._client._jwt
+        try:
+            self._client.refresh_jwt(oid_override="-")
+            resp = self._client.request("GET", "user/orgs", query_params=qp or None)
+        finally:
+            self._client._jwt = original_jwt
+
+        orgs_list = resp.get("orgs", [])
+        oids = [org.get("oid") for org in orgs_list if org.get("oid")]
+        names = {org.get("oid"): org.get("name") for org in orgs_list if org.get("oid")}
+        return {"orgs": oids, "names": names}
+
+    @staticmethod
+    def create_org(client, name, location=None, template=None):
+        """Create a new organization.
+
+        Args:
+            client: Authenticated Client instance.
+            name: Organization name.
+            location: Data center location.
+            template: Optional template name.
+
+        Returns:
+            dict: New organization details.
+        """
+        params = {"name": name}
+        if location:
+            params["loc"] = location
+        if template:
+            params["template"] = template
+        return client.request("POST", "orgs/new", params=params)
+
+    @staticmethod
+    def check_name(client, name):
+        """Check if an organization name is available.
+
+        Args:
+            client: Authenticated Client instance.
+            name: Name to check.
+
+        Returns:
+            dict: Availability information.
+        """
+        return client.request("GET", "orgs/new", query_params={"name": name})
+
+    def delete_org(self, confirm_token=None):
+        """Delete the organization (two-step process).
+
+        Without confirm_token: returns a confirmation token.
+        With confirm_token: performs the deletion.
+
+        Args:
+            confirm_token: Confirmation token from first call.
+
+        Returns:
+            dict: Confirmation token or deletion result.
+        """
+        if confirm_token is None:
+            return self._client.request("GET", f"orgs/{self.oid}/delete")
+        return self._client.request("DELETE", f"orgs/{self.oid}/delete", params={"confirmation": confirm_token})
+
+    # --- Users ---
+
+    def get_users(self):
+        """List organization users.
+
+        Returns:
+            dict: User list.
+        """
+        return self._client.request("GET", f"orgs/{self.oid}/users")
+
+    def add_user(self, email):
+        """Invite a user to the organization.
+
+        Args:
+            email: User email address.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("POST", f"orgs/{self.oid}/users", params={"email": email})
+
+    def remove_user(self, email):
+        """Remove a user from the organization.
+
+        Args:
+            email: User email address.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"orgs/{self.oid}/users", params={"email": email})
+
+    def get_user_permissions(self):
+        """List user permissions.
+
+        Returns:
+            dict: User permission mappings.
+        """
+        return self._client.request("GET", f"orgs/{self.oid}/users/permissions")
+
+    def add_user_permission(self, email, permission):
+        """Grant a permission to a user.
+
+        Args:
+            email: User email address.
+            permission: Permission string (e.g., 'dr.set').
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("POST", f"orgs/{self.oid}/users/permissions",
+                                    params={"email": email, "permission": permission})
+
+    def remove_user_permission(self, email, permission):
+        """Revoke a permission from a user.
+
+        Args:
+            email: User email address.
+            permission: Permission string.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"orgs/{self.oid}/users/permissions",
+                                    params={"email": email, "permission": permission})
+
+    # --- API Keys ---
+
+    def get_api_keys(self):
+        """List API keys.
+
+        Returns:
+            dict: API key list.
+        """
+        return self._client.request("GET", f"orgs/{self.oid}/keys")
+
+    def add_api_key(self, name, permissions, ip_range=None):
+        """Create a new API key.
+
+        Args:
+            name: Key name.
+            permissions: List of permission strings.
+            ip_range: Optional CIDR IP range restriction.
+
+        Returns:
+            dict: New key details (includes the key value).
+        """
+        params = {"key_name": name, "permissions": json.dumps(permissions)}
+        if ip_range:
+            params["allowed_ip_range"] = ip_range
+        return self._client.request("POST", f"orgs/{self.oid}/keys", params=params)
+
+    def remove_api_key(self, key_hash):
+        """Delete an API key.
+
+        Args:
+            key_hash: Key hash identifier.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"orgs/{self.oid}/keys", params={"key_hash": key_hash})
+
+    # --- Installation Keys ---
+
+    def get_installation_keys(self):
+        """List installation keys.
+
+        Returns:
+            dict: Installation key list.
+        """
+        return self._client.request("GET", f"installationkeys/{self.oid}")
+
+    def get_installation_key(self, iid):
+        """Get a specific installation key.
+
+        Args:
+            iid: Installation key ID.
+
+        Returns:
+            dict: Key details.
+        """
+        return self._client.request("GET", f"installationkeys/{self.oid}/{iid}")
+
+    def create_installation_key(self, description, tags=None, use_public_ca=False):
+        """Create a new installation key.
+
+        Args:
+            description: Key description.
+            tags: Optional list of tags.
+            use_public_ca: Use public root CA.
+
+        Returns:
+            dict: New key details.
+        """
+        params = {"desc": description, "use_public_root_ca": "true" if use_public_ca else "false"}
+        if tags:
+            params["tags"] = tags if isinstance(tags, str) else ",".join(tags)
+        return self._client.request("POST", f"installationkeys/{self.oid}", params=params)
+
+    def delete_installation_key(self, iid):
+        """Delete an installation key.
+
+        Args:
+            iid: Installation key ID.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"installationkeys/{self.oid}", params={"iid": iid})
+
+    # --- Ingestion Keys ---
+
+    def get_ingestion_keys(self):
+        """List ingestion keys.
+
+        Returns:
+            dict: Ingestion key list.
+        """
+        return self._client.request("GET", f"insight/{self.oid}/ingestion_keys")
+
+    def create_ingestion_key(self, name):
+        """Create a new ingestion key.
+
+        Args:
+            name: Key name.
+
+        Returns:
+            dict: New key details.
+        """
+        return self._client.request("POST", f"insight/{self.oid}/ingestion_keys", params={"name": name})
+
+    def delete_ingestion_key(self, name):
+        """Delete an ingestion key.
+
+        Args:
+            name: Key name.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"insight/{self.oid}/ingestion_keys",
+                                    query_params={"name": name})
+
+    def configure_usp_key(self, name, parse_hint=None, format_re=None):
+        """Configure USP on an ingestion key.
+
+        Args:
+            name: Ingestion key name.
+            parse_hint: Parse hint for USP.
+            format_re: Format regex for USP.
+
+        Returns:
+            dict: API response.
+        """
+        params = {"name": name}
+        if parse_hint:
+            params["parse_hint"] = parse_hint
+        if format_re:
+            params["format_re"] = format_re
+        return self._client.request("POST", f"insight/{self.oid}/ingestion_keys/usp", params=params)
+
+    # --- Outputs ---
+
+    def get_outputs(self):
+        """List configured outputs.
+
+        Returns:
+            dict: Output configurations.
+        """
+        resp = self._client.request("GET", f"outputs/{self.oid}")
+        return resp.get(self.oid, resp)
+
+    def add_output(self, name, module, data_type, **kwargs):
+        """Create a new output.
+
+        Args:
+            name: Output name.
+            module: Output module type (e.g., 'syslog', 's3').
+            data_type: Data type (e.g., 'event', 'detect').
+            **kwargs: Module-specific parameters.
+
+        Returns:
+            dict: API response.
+        """
+        params = {"name": name, "module": module, "type": data_type}
+        params.update(kwargs)
+        return self._client.request("POST", f"outputs/{self.oid}", params=params)
+
+    def delete_output(self, name):
+        """Delete an output.
+
+        Args:
+            name: Output name.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"outputs/{self.oid}", params={"name": name})
+
+    # --- D&R Rules ---
+
+    def get_rules(self, namespace=None):
+        """List D&R rules.
+
+        Args:
+            namespace: Rule namespace ('general', 'managed', 'service').
+
+        Returns:
+            dict: Rule list.
+        """
+        qp = {}
+        if namespace:
+            qp["namespace"] = namespace
+        return self._client.request("GET", f"rules/{self.oid}", query_params=qp or None)
+
+    def add_rule(self, name, detection, response, is_replace=False, namespace=None, is_enabled=True, ttl=None):
+        """Create or replace a D&R rule.
+
+        Args:
+            name: Rule name.
+            detection: Detection component (dict).
+            response: Response component (list).
+            is_replace: Replace existing rule with same name.
+            namespace: Rule namespace.
+            is_enabled: Whether the rule is enabled.
+            ttl: Auto-delete after this many seconds.
+
+        Returns:
+            dict: API response.
+        """
+        import time as _time
+        params = {
+            "name": name,
+            "is_replace": "true" if is_replace else "false",
+            "detection": json.dumps(detection),
+            "response": json.dumps(response),
+            "is_enabled": "true" if is_enabled else "false",
+        }
+        if ttl is not None:
+            params["expire_on"] = str(int(_time.time()) + int(ttl))
+        if namespace:
+            params["namespace"] = namespace
+        return self._client.request("POST", f"rules/{self.oid}", params=params)
+
+    def delete_rule(self, name, namespace=None):
+        """Delete a D&R rule.
+
+        Args:
+            name: Rule name.
+            namespace: Rule namespace.
+
+        Returns:
+            dict: API response.
+        """
+        params = {"name": name}
+        if namespace:
+            params["namespace"] = namespace
+        return self._client.request("DELETE", f"rules/{self.oid}", params=params)
+
+    # --- False Positives ---
+
+    def get_fps(self):
+        """List false positive rules.
+
+        Returns:
+            dict: FP rule list.
+        """
+        return self._client.request("GET", f"fp/{self.oid}")
+
+    def add_fp(self, name, rule, is_replace=False, ttl=None):
+        """Create a false positive rule.
+
+        Args:
+            name: Rule name.
+            rule: FP rule definition (dict).
+            is_replace: Replace existing.
+            ttl: Auto-delete after this many seconds.
+
+        Returns:
+            dict: API response.
+        """
+        import time as _time
+        params = {
+            "name": name,
+            "is_replace": "true" if is_replace else "false",
+            "rule": json.dumps(rule),
+        }
+        if ttl is not None:
+            params["expire_on"] = str(int(_time.time()) + int(ttl))
+        return self._client.request("POST", f"fp/{self.oid}", params=params)
+
+    def delete_fp(self, name):
+        """Delete a false positive rule.
+
+        Args:
+            name: Rule name.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"fp/{self.oid}", params={"name": name})
+
+    # --- Tags ---
+
+    def get_all_tags(self):
+        """Get all tags used by sensors in the org.
+
+        Returns:
+            list: Tag strings.
+        """
+        return self._client.request("GET", f"tags/{self.oid}")["tags"]
+
+    def find_sensors_by_tag(self, tag):
+        """Find all sensors with a specific tag.
+
+        Args:
+            tag: Tag to search for.
+
+        Returns:
+            dict: SID to info mapping.
+        """
+        return self._client.request("GET", f"tags/{self.oid}/{urlescape(tag, safe='')}")
+
+    # --- Online Sensors ---
+
+    def get_online_sensors(self, sids=None):
+        """Get list of online sensors.
+
+        Args:
+            sids: Optional list of SIDs to check.
+
+        Returns:
+            list: Online SID strings.
+        """
+        params = {}
+        if sids:
+            params["sids"] = sids
+        resp = self._client.request("POST", f"online/{self.oid}", params=params)
+        return [k for k, v in resp.items() if v]
+
+    # --- Sensors ---
+
+    def list_sensors(self, selector=None, limit=None, with_ip=None, with_hostname_prefix=None):
+        """List sensors in the organization.
+
+        Args:
+            selector: Sensor selector expression (bexpr).
+            limit: Max number per page.
+            with_ip: Filter by IP address.
+            with_hostname_prefix: Filter by hostname prefix.
+
+        Yields:
+            dict: Sensor information dicts.
+        """
+        continuation_token = None
+        while True:
+            qp = {}
+            if continuation_token:
+                qp["continuation_token"] = continuation_token
+            if selector:
+                qp["selector"] = selector
+            if limit:
+                qp["limit"] = str(limit)
+            if with_ip:
+                qp["with_ip"] = with_ip
+            if with_hostname_prefix:
+                qp["with_hostname_prefix"] = with_hostname_prefix
+
+            resp = self._client.request("GET", f"sensors/{self.oid}", query_params=qp or None)
+            for s in resp.get("sensors", []):
+                yield s
+
+            continuation_token = resp.get("continuation_token")
+            if not continuation_token:
+                break
+
+    def find_sensors_by_hostname(self, hostname):
+        """Find sensors by hostname prefix.
+
+        Args:
+            hostname: Hostname prefix.
+
+        Returns:
+            dict: Matching sensors.
+        """
+        return self._client.request("GET", f"hostnames/{self.oid}",
+                                    query_params={"hostname": hostname})
+
+    def find_sensors_by_ip(self, ip, start=None, end=None):
+        """Find sensors by IP address.
+
+        Args:
+            ip: IP address to search.
+            start: Start time (unix seconds).
+            end: End time (unix seconds).
+
+        Returns:
+            dict: Matching sensors.
+        """
+        qp = {"ip": ip}
+        if start is not None:
+            qp["start"] = str(start)
+        if end is not None:
+            qp["end"] = str(end)
+        return self._client.request("GET", f"ips/{self.oid}", query_params=qp)
+
+    def export_sensors(self):
+        """Export full sensor manifest.
+
+        Returns:
+            dict: Sensor export data.
+        """
+        return self._client.request("POST", f"export/{self.oid}/sensors")
+
+    def set_sensor_version(self, version=None, is_fallback=False, is_sleep=False):
+        """Set sensor version/branch for the organization.
+
+        Args:
+            version: Specific version string.
+            is_fallback: Use fallback version.
+            is_sleep: Put sensors to sleep.
+
+        Returns:
+            dict: API response.
+        """
+        qp = {}
+        if version:
+            qp["specific_version"] = version
+        if is_fallback:
+            qp["is_fallback"] = "true"
+        if is_sleep:
+            qp["is_sleep"] = "true"
+        return self._client.request("POST", f"modules/{self.oid}", query_params=qp or None)
+
+    # --- Services ---
+
+    def service_request(self, service_name, data, is_async=False):
+        """Send a request to a service/replicant.
+
+        Args:
+            service_name: Service name.
+            data: Request data dict.
+            is_async: Whether to run asynchronously.
+
+        Returns:
+            dict: Service response.
+        """
+        params = data.copy() if data else {}
+        if is_async:
+            params["is_async"] = "true"
+        return self._client.request("POST", f"service/{self.oid}/{service_name}", params=params)
+
+    def get_available_services(self):
+        """List available services/replicants.
+
+        Returns:
+            list: Service names.
+        """
+        return self._client.request("GET", f"service/{self.oid}")
+
+    # --- Groups ---
+
+    def get_groups(self):
+        """List organization groups.
+
+        Returns:
+            dict: Group list.
+        """
+        return self._client.request("GET", "groups")
+
+    def create_group(self, name):
+        """Create a new group.
+
+        Args:
+            name: Group name.
+
+        Returns:
+            dict: New group info.
+        """
+        return self._client.request("POST", "groups", params={"name": name})
+
+    def get_group(self, group_id):
+        """Get group details.
+
+        Args:
+            group_id: Group ID.
+
+        Returns:
+            dict: Group details.
+        """
+        return self._client.request("GET", f"groups/{group_id}")
+
+    def delete_group(self, group_id):
+        """Delete a group.
+
+        Args:
+            group_id: Group ID.
+
+        Returns:
+            dict: API response.
+        """
+        return self._client.request("DELETE", f"groups/{group_id}")
+
+    def add_group_owner(self, group_id, email):
+        return self._client.request("POST", f"groups/{group_id}/owners", params={"email": email})
+
+    def remove_group_owner(self, group_id, email):
+        return self._client.request("DELETE", f"groups/{group_id}/owners", params={"email": email})
+
+    def add_group_member(self, group_id, email):
+        return self._client.request("POST", f"groups/{group_id}/users", params={"email": email})
+
+    def remove_group_member(self, group_id, email):
+        return self._client.request("DELETE", f"groups/{group_id}/users", params={"email": email})
+
+    def set_group_permissions(self, group_id, permissions):
+        return self._client.request("POST", f"groups/{group_id}/permissions",
+                                    params={"permissions": json.dumps(permissions)})
+
+    def get_group_logs(self, group_id):
+        return self._client.request("GET", f"groups/{group_id}/logs")
+
+    def add_group_org(self, group_id, oid):
+        return self._client.request("POST", f"groups/{group_id}/orgs", params={"oid": oid})
+
+    def remove_group_org(self, group_id, oid):
+        return self._client.request("DELETE", f"groups/{group_id}/orgs", params={"oid": oid})
+
+    # --- Extensions ---
+
+    def get_subscriptions(self):
+        """List subscribed extensions.
+
+        Returns:
+            dict: Subscription list.
+        """
+        return self._client.request("GET", f"orgs/{self.oid}/resources")
+
+    def subscribe_to_extension(self, name):
+        return self._client.request("POST", f"orgs/{self.oid}/resources", params={"name": name})
+
+    def unsubscribe_from_extension(self, name):
+        return self._client.request("DELETE", f"orgs/{self.oid}/resources", params={"name": name})
+
+    # --- Detections ---
+
+    def get_detections(self, start, end, limit=None, category=None):
+        """Get historical detections.
+
+        Args:
+            start: Start time (unix seconds).
+            end: End time (unix seconds).
+            limit: Maximum number of detections.
+            category: Filter by detection category.
+
+        Yields:
+            dict: Detection records.
+        """
+        cursor = "-"
+        while cursor:
+            qp = {"start": str(start), "end": str(end), "cursor": cursor, "is_compressed": "true"}
+            if limit:
+                qp["limit"] = str(limit)
+            if category:
+                qp["cat"] = category
+
+            resp = self._client.request("GET", f"insight/{self.oid}/detections", query_params=qp)
+            for d in resp.get("detections", resp.get("detect", [])):
+                yield d
+
+            cursor = resp.get("cursor")
+            if cursor == "-" or not cursor:
+                break
+
+    def get_detection_by_id(self, detect_id):
+        """Get a detection by ID.
+
+        Args:
+            detect_id: Detection ID.
+
+        Returns:
+            dict: Detection details.
+        """
+        return self._client.request("GET", f"insight/{self.oid}/detections/{detect_id}")
+
+    # --- Audit ---
+
+    def get_audit_logs(self, start, end, limit=None, event_type=None, sid=None):
+        """Get audit logs.
+
+        Args:
+            start: Start time (unix seconds).
+            end: End time (unix seconds).
+            limit: Maximum number of results.
+            event_type: Filter by event type.
+            sid: Filter by sensor ID.
+
+        Yields:
+            dict: Audit log entries.
+        """
+        cursor = "-"
+        while cursor:
+            qp = {"start": str(start), "end": str(end), "cursor": cursor, "is_compressed": "true"}
+            if limit:
+                qp["limit"] = str(limit)
+            if event_type:
+                qp["event_type"] = event_type
+            if sid:
+                qp["sid"] = str(sid)
+
+            resp = self._client.request("GET", f"insight/{self.oid}/audit", query_params=qp)
+            for entry in resp.get("audit", []):
+                yield entry
+
+            cursor = resp.get("cursor")
+            if cursor == "-" or not cursor:
+                break
+
+    # --- Jobs ---
+
+    def get_jobs(self, start_time=None, end_time=None, limit=None, sid=None):
+        """List service jobs.
+
+        Args:
+            start_time: Start time filter.
+            end_time: End time filter.
+            limit: Max results.
+            sid: Filter by sensor ID.
+
+        Returns:
+            list: Job records.
+        """
+        qp = {"is_compressed": "true", "with_data": "false"}
+        if start_time:
+            qp["start"] = str(start_time)
+        if end_time:
+            qp["end"] = str(end_time)
+        if limit:
+            qp["limit"] = str(limit)
+        if sid:
+            qp["sid"] = str(sid)
+        return self._client.request("GET", f"job/{self.oid}", query_params=qp)
