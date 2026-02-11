@@ -47,26 +47,46 @@ class TestSensorPlatformConstants:
 
 class TestSensorInfo:
     def test_get_info_fetches_on_first_call(self, sensor, mock_org):
-        mock_org.client.request.return_value = {"hostname": "box1", "plat": 0x10000002}
+        mock_org.client.request.return_value = {"info": {"hostname": "box1", "plat": 0x10000002}}
         result = sensor.get_info()
         mock_org.client.request.assert_called_once_with("GET", "aaaa-bbbb-cccc-dddd")
         assert result["hostname"] == "box1"
 
+    def test_get_info_caches(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"info": {"hostname": "box1"}}
+        sensor.get_info()
+        sensor.get_info()
+        # Should only call API once due to caching
+        assert mock_org.client.request.call_count == 1
+
     def test_is_online(self, sensor, mock_org):
-        mock_org.client.request.return_value = {"is_online": True}
+        mock_org.client.request.return_value = {"online": {"component_id": "abc123"}}
         assert sensor.is_online() is True
 
-    def test_is_online_fallback_alive(self, sensor, mock_org):
-        mock_org.client.request.return_value = {"alive": True}
-        assert sensor.is_online() is True
+    def test_is_online_empty(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"online": {}}
+        assert sensor.is_online() is False
+
+    def test_is_online_error(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"online": {"error": "not found"}}
+        assert sensor.is_online() is False
 
 
 class TestSensorTags:
     def test_get_tags(self, sensor, mock_org):
-        mock_org.client.request.return_value = {"tags": ["web", "prod"]}
+        # V1 returns {"tags": {"<sid>": {"tag1": null, "tag2": null}}}
+        mock_org.client.request.return_value = {
+            "tags": {"aaaa-bbbb-cccc-dddd": {"web": None, "prod": None}}
+        }
         result = sensor.get_tags()
         mock_org.client.request.assert_called_once_with("GET", "aaaa-bbbb-cccc-dddd/tags")
-        assert result == ["web", "prod"]
+        assert sorted(result) == ["prod", "web"]
+
+    def test_get_tags_list_format(self, sensor, mock_org):
+        # Also handles a plain list format
+        mock_org.client.request.return_value = {"tags": ["web", "prod"]}
+        result = sensor.get_tags()
+        assert sorted(result) == ["prod", "web"]
 
     def test_add_tag(self, sensor, mock_org):
         sensor.add_tag("new-tag")

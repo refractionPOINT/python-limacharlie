@@ -4,11 +4,13 @@ Handles JWT generation/refresh, retry with exponential backoff,
 rate limit awareness, and request debugging.
 """
 
+import base64
 import json
 import ssl
 import sys
 import time
 import uuid
+import zlib
 from typing import Any, Callable, Optional
 from urllib.error import HTTPError
 from urllib.parse import quote as urlescape
@@ -141,6 +143,25 @@ class Client:
 
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
             self._debug_fn(f"{ts}: {msg}")
+
+    @staticmethod
+    def unwrap(data, is_raw=False):
+        """Decompress gzip+base64 encoded data from the API.
+
+        Used when is_compressed=true is set on requests. The API returns
+        data as base64-encoded gzip-compressed JSON.
+
+        Args:
+            data: Base64-encoded gzip-compressed string.
+            is_raw: If True, return raw bytes instead of parsed JSON.
+
+        Returns:
+            Parsed JSON object or raw bytes.
+        """
+        if is_raw:
+            return zlib.decompress(base64.b64decode(data), 16 + zlib.MAX_WBITS)
+        else:
+            return json.loads(zlib.decompress(base64.b64decode(data), 16 + zlib.MAX_WBITS).decode())
 
     def refresh_jwt(self, expiry=None, oid_override=None):
         """Generate or refresh a JWT token.

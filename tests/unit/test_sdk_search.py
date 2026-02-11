@@ -13,7 +13,7 @@ def mock_org():
     org = MagicMock()
     org.oid = "test-oid"
     org.client = MagicMock()
-    org.get_urls.return_value = {"search_api": "https://search.lc.io/"}
+    org.get_urls.return_value = {"search": "search.lc.io"}
     return org
 
 
@@ -42,8 +42,9 @@ class TestSearchValidate:
     def test_validate_with_times(self, search, mock_org):
         search.validate("event", start_time=1000, end_time=2000)
         body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
-        assert body["startTime"] == 1000
-        assert body["endTime"] == 2000
+        assert body["startTime"] == "1000"
+        assert body["endTime"] == "2000"
+        assert body["oid"] == "test-oid"
 
 
 class TestSearchExecute:

@@ -35,10 +35,11 @@ class TestOrganizationInfo:
         assert result["name"] == "TestOrg"
 
     def test_get_urls(self, org, mock_client):
-        mock_client.request.return_value = {"search_api": "https://search.lc.io"}
+        mock_client.request.return_value = {"url": {"search": "search.lc.io", "logs": "logs.lc.io"}}
         result = org.get_urls()
         mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/url", is_no_auth=True)
-        assert "search_api" in result
+        assert "search" in result
+        assert result["logs"] == "logs.lc.io"
 
     def test_get_stats(self, org, mock_client):
         mock_client.request.return_value = {"quota_used": 100}
@@ -143,10 +144,17 @@ class TestOrganizationSensors:
         mock_client.request.assert_called_once()
 
     def test_service_request(self, org, mock_client):
+        import base64
+        import json
         mock_client.request.return_value = {"result": "ok"}
         org.service_request("yara", {"action": "list_rules"})
         call_args = mock_client.request.call_args
         assert call_args[0][0] == "POST"
+        assert "service/test-oid-123/yara" in call_args[0][1]
+        # Verify request_data is base64-encoded JSON
+        params = call_args[1]["params"]
+        decoded = json.loads(base64.b64decode(params["request_data"]))
+        assert decoded["action"] == "list_rules"
 
 
 class TestOrganizationFPs:

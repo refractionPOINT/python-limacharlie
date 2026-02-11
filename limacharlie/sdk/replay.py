@@ -57,4 +57,4 @@ class Replay:
         if limit_evals:
             params["limit_evals"] = str(limit_evals)
 
-        return self._org.service_request("replay", params)
+        return self._org.service_request("replay", params, is_async=True)

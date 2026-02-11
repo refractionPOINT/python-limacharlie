@@ -87,22 +87,41 @@ class TestExtensions:
     def test_list_subscribed(self, mock_org):
         from limacharlie.sdk.extensions import Extensions
         ext = Extensions(mock_org)
-        mock_org.get_subscriptions.return_value = {"ext1": True}
+        mock_org.client.request.return_value = {"ext1": True}
         result = ext.list_subscribed()
-        mock_org.get_subscriptions.assert_called_once()
-        assert "ext1" in result
+        mock_org.client.request.assert_called_once()
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "subscriptions" in call_args[0][1]
 
     def test_subscribe(self, mock_org):
         from limacharlie.sdk.extensions import Extensions
         ext = Extensions(mock_org)
         ext.subscribe("ext1")
-        mock_org.subscribe_to_extension.assert_called_once_with("ext1")
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "ext1" in call_args[0][1]
 
     def test_unsubscribe(self, mock_org):
         from limacharlie.sdk.extensions import Extensions
         ext = Extensions(mock_org)
         ext.unsubscribe("ext1")
-        mock_org.unsubscribe_from_extension.assert_called_once_with("ext1")
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "DELETE"
+        assert "ext1" in call_args[0][1]
+
+    def test_request(self, mock_org):
+        from limacharlie.sdk.extensions import Extensions
+        ext = Extensions(mock_org)
+        mock_org.client._jwt = "test-jwt"
+        mock_org.client.request.return_value = {"result": "ok"}
+        result = ext.request("ext-test", "do_thing", {"key": "val"})
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "extension/request/ext-test" in call_args[0][1]
+        params = call_args[1]["params"]
+        assert "gzdata" in params
+        assert params["action"] == "do_thing"
 
 
 # --- Installation Keys ---

@@ -80,8 +80,11 @@ def _auto_discover_commands():
                 attr = getattr(mod, attr_name)
                 if isinstance(attr, click.Command) and attr_name in ("group", "cmd"):
                     cli.add_command(attr)
-        except Exception:
-            pass  # Skip modules that fail to import
+        except Exception as e:
+            if os.environ.get("LC_DEBUG"):
+                import traceback
+                click.echo(f"Warning: failed to load command module '{modname}': {e}", err=True)
+                traceback.print_exc()
 
 
 # Auto-discover commands on import

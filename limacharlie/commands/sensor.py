@@ -148,11 +148,18 @@ def list_sensors(ctx, tag, hostname, ip, limit, offset):
     if tag:
         selector = f"`{tag}` in tags"
 
+    # When offset is used, we need to fetch offset+limit from the API
+    api_limit = None
+    if limit and offset:
+        api_limit = limit + offset
+    elif limit:
+        api_limit = limit
+
     sensors = []
     count = 0
     for s in org.list_sensors(
         selector=selector,
-        limit=limit,
+        limit=api_limit,
         with_ip=ip,
         with_hostname_prefix=hostname,
     ):

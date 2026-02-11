@@ -65,7 +65,9 @@ class Configs:
             sync_hives = {}
 
         if self._use_extension:
-            data = self._org.extension_request("ext-infrastructure", "fetch", {
+            from .extensions import Extensions
+            ext = Extensions(self._org)
+            data = ext.request("ext-infrastructure", "fetch", {
                 "options": {
                     "sync_dr": sync_rules,
                     "sync_outputs": sync_outputs,
@@ -80,7 +82,7 @@ class Configs:
                     "sync_installation_keys": sync_installation_keys,
                     "sync_yara": sync_yara,
                 },
-            }, is_impersonate=True)
+            }, is_impersonated=True)
             return data.get("data", {}).get("org", {})
         else:
             data = self._org.service_request("infrastructure-service", {
@@ -142,7 +144,9 @@ class Configs:
         final_config = yaml.safe_dump(config, version=(1, 1))
 
         if self._use_extension:
-            data = self._org.extension_request("ext-infrastructure", "push", {
+            from .extensions import Extensions
+            ext = Extensions(self._org)
+            data = ext.request("ext-infrastructure", "push", {
                 "config": final_config,
                 "options": {
                     "is_dry_run": is_dry_run,
@@ -161,7 +165,7 @@ class Configs:
                     "sync_installation_keys": sync_installation_keys,
                     "sync_yara": sync_yara,
                 },
-            }, is_impersonate=True)
+            }, is_impersonated=True)
             data = data.get("data", {})
         else:
             data = self._org.service_request("infrastructure-service", {

@@ -37,13 +37,15 @@ class Sensor:
     def get_info(self):
         """Get full sensor details."""
         if self._info is None:
-            self._info = self.client.request("GET", self.sid)
+            data = self.client.request("GET", self.sid)
+            self._info = data.get("info", data)
         return self._info
 
     def is_online(self):
         """Check if the sensor is currently online."""
-        info = self.client.request("GET", self.sid)
-        return info.get("is_online", info.get("alive", False))
+        data = self.client.request("GET", self.sid)
+        online = data.get("online", {})
+        return len(online) > 0 and "error" not in online
 
     def wait_online(self, timeout):
         """Wait for sensor to come online.
@@ -125,7 +127,14 @@ class Sensor:
             list: Tag strings.
         """
         resp = self.client.request("GET", f"{self.sid}/tags")
-        return resp.get("tags", [])
+        tags_data = resp.get("tags", {})
+        if isinstance(tags_data, dict):
+            # V1 format: {"tags": {"<sid>": {"tag1": ..., "tag2": ...}}}
+            sid_tags = tags_data.get(self.sid, {})
+            if isinstance(sid_tags, dict):
+                return list(sid_tags.keys())
+            return list(sid_tags) if sid_tags else []
+        return list(tags_data) if tags_data else []
 
     def add_tag(self, tag, ttl=None):
         """Add a tag to this sensor.
@@ -161,8 +170,10 @@ class Sensor:
 
     def is_isolated(self):
         """Check if sensor is isolated from the network."""
-        info = self.client.request("GET", self.sid)
-        return info.get("is_isolated", False)
+        # Network isolation is ephemeral, always refresh
+        self._info = None
+        info = self.get_info()
+        return info.get("should_isolate", False)
 
     def isolate(self):
         """Isolate sensor from the network.
@@ -184,8 +195,10 @@ class Sensor:
 
     def is_sealed(self):
         """Check if sensor is sealed."""
-        info = self.client.request("GET", self.sid)
-        return info.get("is_sealed", False)
+        # Seal is ephemeral, always refresh
+        self._info = None
+        info = self.get_info()
+        return info.get("should_seal", False)
 
     def seal(self):
         return self.client.request("POST", f"{self.sid}/seal")
@@ -205,7 +218,7 @@ class Sensor:
 
     # --- Events ---
 
-    def get_events(self, start, end, limit=None, event_type=None, is_forward=False):
+    def get_events(self, start, end, limit=None, event_type=None, is_forward=True):
         """Get historical events for this sensor.
 
         Args:
@@ -213,33 +226,35 @@ class Sensor:
             end: End time (unix seconds).
             limit: Max events.
             event_type: Filter by event type.
-            is_forward: Chronological order.
+            is_forward: Chronological order (default True).
 
         Yields:
             dict: Event records.
         """
         cursor = "-"
+        n_returned = 0
         while cursor:
             qp = {
-                "start": str(start),
-                "end": str(end),
+                "start": str(int(start)),
+                "end": str(int(end)),
                 "is_compressed": "true",
+                "is_forward": "true" if is_forward else "false",
                 "cursor": cursor,
             }
-            if limit:
+            if limit is not None:
                 qp["limit"] = str(limit)
             if event_type:
                 qp["event_type"] = event_type
-            if is_forward:
-                qp["is_forward"] = "true"
 
             resp = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}", query_params=qp)
-            for evt in resp.get("events", []):
+            cursor = resp.get("next_cursor")
+            for evt in self.client.unwrap(resp["events"]):
                 yield evt
-
-            cursor = resp.get("cursor")
-            if cursor == "-" or not cursor:
-                break
+                n_returned += 1
+                if limit is not None and n_returned >= limit:
+                    return
+            if limit is not None and n_returned >= limit:
+                return
 
     def get_overview(self, start, end):
         """Get event overview (timeline) for this sensor.
@@ -249,10 +264,11 @@ class Sensor:
             end: End time (unix seconds).
 
         Returns:
-            list: Overview data.
+            list: Overview timestamps.
         """
-        return self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/overview",
+        data = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/overview",
                                    query_params={"start": str(start), "end": str(end)})
+        return data.get("overview", data)
 
     def get_event_by_atom(self, atom):
         """Get an event by its atom.
@@ -272,9 +288,11 @@ class Sensor:
             atom: Parent event atom.
 
         Returns:
-            dict: Child events.
+            list: Child events.
         """
-        return self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/{atom}/children")
+        data = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/{atom}/children",
+                                   query_params={"is_compressed": "true"})
+        return self.client.unwrap(data["events"])
 
     def get_event_retention(self, start, end, is_detailed=False):
         """Get event retention statistics.

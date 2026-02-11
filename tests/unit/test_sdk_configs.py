@@ -42,11 +42,14 @@ class TestConfigsFetch:
 
     def test_fetch_via_extension(self, mock_org):
         ext_configs = Configs(mock_org, use_extension=True)
-        mock_org.extension_request.return_value = {
+        mock_org.client.request.return_value = {
             "data": {"org": {"rules": {"r1": {"detect": {}}}}}
         }
+        mock_org.client._jwt = "test-jwt"
         result = ext_configs.fetch(sync_rules=True)
-        mock_org.extension_request.assert_called_once()
+        mock_org.client.request.assert_called_once()
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][1] == "extension/request/ext-infrastructure"
         assert "rules" in result
 
 
@@ -81,9 +84,10 @@ class TestConfigsPush:
 
     def test_push_via_extension(self, mock_org):
         ext_configs = Configs(mock_org, use_extension=True)
-        mock_org.extension_request.return_value = {
+        mock_org.client.request.return_value = {
             "data": {"ops": [{"type": "fp", "name": "f1", "is_added": True, "is_removed": False}]}
         }
+        mock_org.client._jwt = "test-jwt"
         results = ext_configs.push({"version": 3}, sync_fps=True)
         assert len(results) == 1
         assert results[0] == ("+", "fp", "f1")

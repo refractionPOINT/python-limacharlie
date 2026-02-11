@@ -104,7 +104,17 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit):
     org = _get_org(ctx)
     artifacts = Artifacts(org)
     data = artifacts.list(sid=sid)
-    _output(ctx, data)
+    # Apply client-side filters for type, time range, and limit
+    results = data if isinstance(data, list) else data.get("artifacts", data.get("logs", [data]))
+    if artifact_type:
+        results = [a for a in results if a.get("type") == artifact_type]
+    if start:
+        results = [a for a in results if a.get("last_event", a.get("ts", 0)) >= start]
+    if end:
+        results = [a for a in results if a.get("last_event", a.get("ts", float("inf"))) <= end]
+    if limit:
+        results = results[:limit]
+    _output(ctx, results)
 
 
 # ---------------------------------------------------------------------------

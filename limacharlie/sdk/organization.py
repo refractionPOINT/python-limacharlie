@@ -4,6 +4,7 @@ Wraps all org-scoped API operations. This is the main entry point
 for interacting with a LimaCharlie organization.
 """
 
+import base64
 import json
 from urllib.parse import quote as urlescape
 
@@ -52,7 +53,8 @@ class Organization:
         Returns:
             dict: URL mappings for various services.
         """
-        return self._client.request("GET", f"orgs/{self.oid}/url", is_no_auth=True)
+        data = self._client.request("GET", f"orgs/{self.oid}/url", is_no_auth=True)
+        return data.get("url", data)
 
     def get_config(self, config_name):
         """Get an organization configuration value.
@@ -788,20 +790,25 @@ class Organization:
 
     # --- Services ---
 
-    def service_request(self, service_name, data, is_async=False):
+    def service_request(self, service_name, data, is_async=False, is_impersonate=False):
         """Send a request to a service/replicant.
 
         Args:
             service_name: Service name.
             data: Request data dict.
             is_async: Whether to run asynchronously.
+            is_impersonate: If True, include JWT for impersonation.
 
         Returns:
             dict: Service response.
         """
-        params = data.copy() if data else {}
-        if is_async:
-            params["is_async"] = "true"
+        params = {
+            "request_data": base64.b64encode(json.dumps(data).encode()),
+            "is_async": is_async,
+        }
+        if is_impersonate:
+            self._client.refresh_jwt()
+            params["jwt"] = self._client._jwt
         return self._client.request("POST", f"service/{self.oid}/{service_name}", params=params)
 
     def get_available_services(self):
@@ -810,7 +817,8 @@ class Organization:
         Returns:
             list: Service names.
         """
-        return self._client.request("GET", f"service/{self.oid}")
+        data = self._client.request("GET", f"service/{self.oid}")
+        return data.get("replicants", data)
 
     # --- Groups ---
 
@@ -911,20 +919,23 @@ class Organization:
             dict: Detection records.
         """
         cursor = "-"
+        n_returned = 0
         while cursor:
-            qp = {"start": str(start), "end": str(end), "cursor": cursor, "is_compressed": "true"}
-            if limit:
+            qp = {"start": str(int(start)), "end": str(int(end)), "cursor": cursor, "is_compressed": "true"}
+            if limit is not None:
                 qp["limit"] = str(limit)
             if category:
                 qp["cat"] = category
 
             resp = self._client.request("GET", f"insight/{self.oid}/detections", query_params=qp)
-            for d in resp.get("detections", resp.get("detect", [])):
+            cursor = resp.get("next_cursor")
+            for d in self._client.unwrap(resp["detects"]):
                 yield d
-
-            cursor = resp.get("cursor")
-            if cursor == "-" or not cursor:
-                break
+                n_returned += 1
+                if limit is not None and n_returned >= limit:
+                    return
+            if limit is not None and n_returned >= limit:
+                return
 
     def get_detection_by_id(self, detect_id):
         """Get a detection by ID.
@@ -953,9 +964,10 @@ class Organization:
             dict: Audit log entries.
         """
         cursor = "-"
+        n_returned = 0
         while cursor:
-            qp = {"start": str(start), "end": str(end), "cursor": cursor, "is_compressed": "true"}
-            if limit:
+            qp = {"start": str(int(start)), "end": str(int(end)), "cursor": cursor, "is_compressed": "true"}
+            if limit is not None:
                 qp["limit"] = str(limit)
             if event_type:
                 qp["event_type"] = event_type
@@ -963,12 +975,14 @@ class Organization:
                 qp["sid"] = str(sid)
 
             resp = self._client.request("GET", f"insight/{self.oid}/audit", query_params=qp)
-            for entry in resp.get("audit", []):
+            cursor = resp.get("next_cursor")
+            for entry in self._client.unwrap(resp["events"]):
                 yield entry
-
-            cursor = resp.get("cursor")
-            if cursor == "-" or not cursor:
-                break
+                n_returned += 1
+                if limit is not None and n_returned >= limit:
+                    return
+            if limit is not None and n_returned >= limit:
+                return
 
     # --- Jobs ---
 
@@ -982,15 +996,17 @@ class Organization:
             sid: Filter by sensor ID.
 
         Returns:
-            list: Job records.
+            list: Job dicts.
         """
         qp = {"is_compressed": "true", "with_data": "false"}
-        if start_time:
+        if start_time is not None:
             qp["start"] = str(start_time)
-        if end_time:
+        if end_time is not None:
             qp["end"] = str(end_time)
-        if limit:
+        if limit is not None:
             qp["limit"] = str(limit)
-        if sid:
+        if sid is not None:
             qp["sid"] = str(sid)
-        return self._client.request("GET", f"job/{self.oid}", query_params=qp)
+        resp = self._client.request("GET", f"job/{self.oid}", query_params=qp)
+        jobs = self._client.unwrap(resp["jobs"])
+        return [job for job_id, job in jobs.items()]

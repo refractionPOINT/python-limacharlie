@@ -98,12 +98,21 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
         else:
             raise click.UsageError("Provide data via --input-file or pipe to stdin.")
 
+        # Parse input as YAML first (YAML is a superset of JSON)
         try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
             data = yaml.safe_load(content)
+        except Exception:
+            data = json.loads(content)
 
-        record = HiveRecord(key, data=data)
+        # Support the same format as 'hive set': if the input has a
+        # "data" key, use it as the record data and extract usr_mtd.
+        if isinstance(data, dict) and "data" in data:
+            record_data = data["data"]
+            usr_mtd = data.get("usr_mtd", {})
+            etag = data.get("etag")
+            record = HiveRecord(key, data=record_data, usr_mtd=usr_mtd, etag=etag)
+        else:
+            record = HiveRecord(key, data=data)
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         result = hive.set(record)
@@ -111,11 +120,13 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
 
     @grp.command("delete")
     @click.option("--key", required=True, help="Record key name.")
-    @click.option("--confirm", is_flag=True, required=True, help="Confirm deletion.")
+    @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_delete))
     @pass_context
     def delete_cmd(ctx, key, confirm):
         """Delete a record."""
+        if not confirm:
+            raise click.UsageError("Destructive operation requires --confirm flag.")
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         result = hive.delete(key)

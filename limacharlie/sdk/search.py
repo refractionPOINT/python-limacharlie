@@ -14,7 +14,13 @@ class Search:
     def _get_search_url(self):
         if self._search_url is None:
             urls = self._org.get_urls()
-            self._search_url = urls.get("search_api", urls.get("search"))
+            search_url = urls.get("search", urls.get("search_api", ""))
+            # Add https:// prefix if needed
+            if search_url and not search_url.startswith("http://") and not search_url.startswith("https://"):
+                search_url = "https://" + search_url
+            # Add /v1 API version suffix
+            search_url = search_url.rstrip("/") + "/v1"
+            self._search_url = search_url
         return self._search_url
 
     def validate(self, query, start_time=None, end_time=None, stream=None):
@@ -30,11 +36,11 @@ class Search:
             dict: Validation result.
         """
         search_url = self._get_search_url()
-        body = {"query": query}
+        body = {"oid": self._org.oid, "query": query}
         if start_time is not None:
-            body["startTime"] = int(start_time)
+            body["startTime"] = str(int(start_time))
         if end_time is not None:
-            body["endTime"] = int(end_time)
+            body["endTime"] = str(int(end_time))
         if stream:
             body["stream"] = stream
         return self._org.client.request(
@@ -68,9 +74,10 @@ class Search:
         """
         search_url = self._get_search_url()
         body = {
+            "oid": self._org.oid,
             "query": query,
-            "startTime": int(start_time),
-            "endTime": int(end_time),
+            "startTime": str(int(start_time)),
+            "endTime": str(int(end_time)),
             "paginated": True,
         }
         if stream:
