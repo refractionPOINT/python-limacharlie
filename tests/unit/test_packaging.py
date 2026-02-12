@@ -44,7 +44,7 @@ class TestPyprojectToml:
     def test_version(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
-        assert data["project"]["version"] == "2.0.0"
+        assert data["project"]["version"] == "5.0.0"
 
     def test_dev_dependencies(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:

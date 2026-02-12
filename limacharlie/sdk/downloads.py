@@ -129,7 +129,7 @@ def download_binary(kind: str, platform: str, arch: str) -> bytes:
     ssl_context = _create_ssl_context()
 
     request = URLRequest(url)
-    request.add_header("User-Agent", "lc-cli/2.0.0")
+    request.add_header("User-Agent", "lc-cli/5.0.0")
     request.get_method = lambda: "GET"
 
     try:
