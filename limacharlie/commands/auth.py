@@ -112,6 +112,25 @@ Unlike 'limacharlie org list', this command does not require an OID
 to already be configured, making it useful for initial setup.
 """
 
+_EXPLAIN_SIGNUP = """\
+Create a brand new LimaCharlie account through OAuth, directly from
+the CLI.  This command performs the full onboarding flow:
+
+  1. Authenticate via browser-based OAuth (Google or Microsoft).
+  2. Create a LimaCharlie user profile.
+  3. Create a new organization.
+  4. Save credentials so the CLI is ready to use.
+
+If you already have an account, use 'limacharlie auth login --oauth'
+instead.
+
+Examples:
+  limacharlie auth signup
+  limacharlie auth signup --provider microsoft
+  limacharlie auth signup --org-name "My Company"
+  limacharlie auth signup --no-browser
+"""
+
 register_explain("auth.login", _EXPLAIN_LOGIN)
 register_explain("auth.logout", _EXPLAIN_LOGOUT)
 register_explain("auth.whoami", _EXPLAIN_WHOAMI)
@@ -120,6 +139,7 @@ register_explain("auth.test", _EXPLAIN_TEST)
 register_explain("auth.use-env", _EXPLAIN_USE_ENV)
 register_explain("auth.list-envs", _EXPLAIN_LIST_ENVS)
 register_explain("auth.list-orgs", _EXPLAIN_LIST_ORGS)
+register_explain("auth.signup", _EXPLAIN_SIGNUP)
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +273,7 @@ def _login_oauth(ctx, oid, env_name, provider, no_browser):
         )
 
         firebase_uid = tokens.pop("uid", None)
+        tokens.pop("email", None)  # Not needed for auth persistence
         write_credentials(
             env_name,
             oid=oid,
@@ -497,3 +518,149 @@ def list_orgs(ctx, filter_text):
     names = data.get("names", {})
     result = [{"oid": oid, "name": names.get(oid, "")} for oid in orgs]
     _output(ctx, result)
+
+
+# ---------------------------------------------------------------------------
+# signup
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option(
+    "--provider", type=click.Choice(["google", "microsoft"], case_sensitive=False),
+    default="google", help="OAuth provider (default: google).",
+)
+@click.option("--no-browser", is_flag=True, default=False, help="Print the OAuth URL instead of opening a browser.")
+@click.option("--org-name", default=None, help="Create a new organization with this name.")
+@click.option(
+    "--env", "environment", default=None,
+    help="Named environment to store credentials under (default: 'default').",
+)
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_SIGNUP),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def signup(ctx, provider, no_browser, org_name, environment):
+    """Create a new LimaCharlie account and set up an organization.
+
+    Performs the full onboarding flow: OAuth authentication, account
+    creation, and optional organization setup.
+
+    \b
+    Examples:
+        limacharlie auth signup
+        limacharlie auth signup --provider microsoft
+        limacharlie auth signup --org-name "My Company"
+    """
+    env_name = environment or ctx.obj.environment or "default"
+
+    # ------------------------------------------------------------------
+    # Step 1: OAuth authentication
+    # ------------------------------------------------------------------
+    try:
+        from ..oauth_firebase_simple import SimpleFirebaseAuth, FirebaseAuthError
+    except ImportError as e:
+        click.echo(
+            f"Error: OAuth dependencies not available: {e}\n"
+            "Suggestion: Install the 'requests' package: pip install requests",
+            err=True,
+        )
+        ctx.exit(1)
+        return
+
+    try:
+        auth = SimpleFirebaseAuth()
+        provider_map = {"google": "google.com", "microsoft": "microsoft.com"}
+
+        if not ctx.obj.quiet:
+            click.echo("Step 1/3: Authenticating via OAuth...")
+
+        tokens = auth.start_auth_flow(
+            provider_id=provider_map[provider],
+            no_browser=no_browser,
+        )
+    except FirebaseAuthError as e:
+        click.echo(f"OAuth authentication failed: {e}", err=True)
+        ctx.exit(2)
+        return
+    except KeyboardInterrupt:
+        click.echo("\nAuthentication cancelled.", err=True)
+        ctx.exit(1)
+        return
+
+    email = tokens.get("email")
+    if not email:
+        click.echo(
+            "Error: Could not retrieve email from OAuth provider.\n"
+            "The OAuth provider did not return an email address.",
+            err=True,
+        )
+        ctx.exit(3)
+        return
+
+    # ------------------------------------------------------------------
+    # Step 2: Create user profile (idempotent)
+    # ------------------------------------------------------------------
+    if not ctx.obj.quiet:
+        click.echo(f"Step 2/3: Setting up user profile for {email}...")
+
+    from ..signup import signup_user, SignupError
+    try:
+        signup_user(tokens["id_token"], email)
+    except SignupError as e:
+        click.echo(f"Warning: Account setup returned an error: {e}", err=True)
+        click.echo("Continuing -- the account may already exist.", err=True)
+
+    # ------------------------------------------------------------------
+    # Step 3: Save credentials and create organization
+    # ------------------------------------------------------------------
+    if not ctx.obj.quiet:
+        click.echo("Step 3/3: Creating organization...")
+
+    # Save OAuth credentials (no OID yet).
+    firebase_uid = tokens.pop("uid", None)
+    # Remove email from tokens before saving -- it's not needed for auth.
+    tokens.pop("email", None)
+    write_credentials(env_name, oid=None, api_key=None, uid=firebase_uid or "", oauth_creds=tokens)
+
+    # Prompt for org name if not provided.
+    if not org_name:
+        org_name = click.prompt("Enter a name for your new organization")
+
+    # Build a Client from the just-saved credentials so we can talk to
+    # the API.  Use oid="-" to get a minimal JWT (no org context).
+    try:
+        client = Client(environment=env_name if env_name != "default" else None)
+        client.refresh_jwt(oid_override="-")
+    except Exception as e:
+        click.echo(f"Error: Failed to obtain API token: {e}", err=True)
+        click.echo(
+            "Your OAuth credentials have been saved. You can create an org "
+            "later via the web UI and set it with 'limacharlie auth use-org --oid <OID>'.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    if not ctx.obj.quiet:
+        click.echo(f"Creating organization '{org_name}'...")
+
+    try:
+        resp = Organization.create_org(client, name=org_name, location="auto")
+        chosen_oid = resp.get("oid")
+    except Exception as e:
+        click.echo(f"Error creating organization: {e}", err=True)
+        click.echo(
+            "Your OAuth credentials have been saved. You can create an org "
+            "later via the web UI and set it with 'limacharlie auth use-org --oid <OID>'.",
+            err=True,
+        )
+        ctx.exit(5)
+        return
+
+    if chosen_oid:
+        write_credentials(env_name, oid=chosen_oid, api_key=None)
+        if not ctx.obj.quiet:
+            click.echo(f"Organization created: {chosen_oid}")
+            click.echo(f"\nAll set! Credentials saved for environment '{env_name}'.")

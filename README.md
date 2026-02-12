@@ -26,16 +26,19 @@ docker run -v ${HOME}/.limacharlie:/root/.limacharlie:ro refractionpoint/limacha
 ## Quick Start
 
 ```bash
-# 1. Store credentials (API key)
+# New to LimaCharlie? Create an account directly from the CLI:
+limacharlie auth signup
+
+# Already have an account? Store credentials (API key):
 limacharlie auth login --oid YOUR_ORG_ID --api-key YOUR_API_KEY
 
 # -- or authenticate via browser (OAuth) --
 limacharlie auth login --oauth --oid YOUR_ORG_ID
 
-# 2. Verify
+# Verify
 limacharlie auth whoami
 
-# 3. Explore
+# Explore
 limacharlie org info
 limacharlie sensor list
 limacharlie discover
@@ -43,7 +46,27 @@ limacharlie discover
 
 ## Authentication
 
-Two authentication methods are supported: **API keys** (for automation and CI/CD) and **OAuth** (for interactive use with your Google or Microsoft account).
+Two authentication methods are supported: **API keys** (for automation and CI/CD) and **OAuth** (for interactive use with your Google or Microsoft account). If you don't have an account yet, see [New Account Signup](#new-account-signup) below.
+
+### New Account Signup
+
+Create a brand new LimaCharlie account and organization directly from the CLI:
+
+```bash
+# Sign up with Google (default) -- opens browser for OAuth
+limacharlie auth signup
+
+# Sign up with Microsoft
+limacharlie auth signup --provider microsoft
+
+# Provide the organization name upfront (non-interactive)
+limacharlie auth signup --org-name "My Company"
+
+# Headless environments
+limacharlie auth signup --no-browser
+```
+
+This performs the full onboarding flow: OAuth authentication, account creation, and organization setup. After signup, the CLI is immediately ready to use.
 
 ### API Key Login
 
