@@ -1,8 +1,12 @@
 """Tests for pyproject.toml packaging migration."""
 
 import pathlib
+import sys
 
-import tomllib
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent

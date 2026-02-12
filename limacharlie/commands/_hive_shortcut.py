@@ -31,7 +31,7 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx, param, value):
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text)
             ctx.exit(0)

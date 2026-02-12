@@ -44,7 +44,7 @@ register_explain("arl.get", _EXPLAIN_GET)
 # ---------------------------------------------------------------------------
 
 def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx, param, value):
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
