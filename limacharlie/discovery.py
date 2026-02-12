@@ -61,9 +61,10 @@ PROFILES = {
         ],
     },
     "fleet_management": {
-        "description": "Installation keys, deployment, upgrades, and fleet-wide operations",
+        "description": "Installation keys, deployment, upgrades, downloads, and fleet-wide operations",
         "commands": [
             "installation-key list", "installation-key create", "installation-key delete",
+            "download sensor", "download adapter", "download list",
             "sensor upgrade", "sensor set-version", "sensor export",
             "tag mass-add", "tag mass-remove",
             "sync pull", "sync push", "sync diff",

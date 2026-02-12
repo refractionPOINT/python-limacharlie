@@ -364,6 +364,30 @@ limacharlie output create --name my-output --module syslog --type event --dest '
 limacharlie output delete --name my-output
 ```
 
+### Downloads (Sensor Installers & Adapter Binaries)
+
+```bash
+# List all available download targets
+limacharlie download list
+
+# Download sensor (EDR agent) installers
+limacharlie download sensor --list                                  # Show available targets
+limacharlie download sensor --platform linux --arch 64              # Linux x64
+limacharlie download sensor --platform windows --arch msi64 -o sensor.msi  # Windows MSI
+limacharlie download sensor --platform mac --arch arm64             # macOS Apple Silicon
+limacharlie download sensor --platform linux --arch deb64           # Debian package
+limacharlie download sensor --platform chrome                       # Chrome extension
+
+# Download adapter (USP) binaries
+limacharlie download adapter --list                                 # Show available targets
+limacharlie download adapter --platform linux --arch 64             # Linux x64
+limacharlie download adapter --platform mac --arch arm64            # macOS Apple Silicon
+limacharlie download adapter --platform windows --arch 64           # Windows x64
+
+# Pipe to stdout (for remote deployment scripts)
+limacharlie download sensor --platform linux --arch 64 -o - | ssh host 'cat > /tmp/lc_sensor && chmod +x /tmp/lc_sensor'
+```
+
 ### Installation & API Keys
 
 ```bash
@@ -765,6 +789,7 @@ configs.push(data)               # Apply changes
 | `Extensions` | `limacharlie.sdk.extensions` | Extension management and requests |
 | `Artifacts` | `limacharlie.sdk.artifacts` | Artifact upload, download, listing |
 | `Payloads` | `limacharlie.sdk.payloads` | Executable/script deployment |
+| `downloads` | `limacharlie.sdk.downloads` | Sensor installer & adapter binary downloads |
 | `Outputs` | `limacharlie.sdk.outputs` | Data routing outputs |
 | `Configurations` | `limacharlie.sdk.configs` | Infrastructure-as-code sync |
 | `Users` | `limacharlie.sdk.users` | User management |

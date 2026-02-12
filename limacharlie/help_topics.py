@@ -421,6 +421,54 @@ Managing adapters:
 Related commands: adapter, usp, cloud-sensor
 """
 
+HELP_TOPICS["downloads"] = """\
+Downloads - Sensor Installers & Adapter Binaries
+=================================================
+
+LimaCharlie provides pre-built binaries for sensors (EDR agents) and
+adapters (USP) across many platforms.  The CLI can download these
+directly from downloads.limacharlie.io.
+
+Sensors (EDR agents):
+  Sensors are lightweight agents installed on endpoints that collect
+  telemetry and execute commands.
+
+  Platforms:
+    windows   - 64, 32, arm64, msi64, msi32
+    linux     - 64, deb64, debarm64, alpine64
+    mac       - 64 (Intel), arm64 (Apple Silicon)
+    chrome    - browser extension redirect
+
+  Install a sensor:
+    ./lc_sensor_64 -i YOUR_INSTALLATION_KEY
+
+Adapters (USP binaries):
+  Adapters ingest data from sources beyond native sensor agents using
+  the Universal Sensor Protocol.
+
+  Platforms:
+    linux     - 64, arm, arm64
+    windows   - 64
+    mac       - 64, arm64
+    aix       - ppc64
+    freebsd   - 64
+    openbsd   - 64
+    netbsd    - 64
+    solaris   - 64
+
+  Docker image: refractionpoint/lc-adapter
+
+CLI usage:
+  limacharlie download list                           # Show all targets
+  limacharlie download sensor --list                  # Show sensor targets
+  limacharlie download sensor --platform linux --arch 64
+  limacharlie download sensor --platform windows --arch msi64 -o sensor.msi
+  limacharlie download adapter --platform linux --arch 64
+  limacharlie download adapter --list                 # Show adapter targets
+
+Related commands: download, installation-key, sensor, adapter
+"""
+
 HELP_TOPICS["platform-codes"] = """\
 Platform Codes
 ==============
@@ -681,9 +729,52 @@ limacharlie net-policy rejoin --sid <sid>
 limacharlie tag remove --sid <sid> --tag incident-2024-01
 """
 
+CHEATSHEETS["downloads"] = """\
+Downloads Cheatsheet
+=====================
+
+# List everything available
+limacharlie download list
+
+# --- Sensors (EDR agents) ---
+
+# List available sensor targets
+limacharlie download sensor --list
+
+# Download Linux sensor (x64)
+limacharlie download sensor --platform linux --arch 64
+
+# Download Windows MSI installer (x64)
+limacharlie download sensor --platform windows --arch msi64 -o ./sensor.msi
+
+# Download macOS sensor (Apple Silicon)
+limacharlie download sensor --platform mac --arch arm64
+
+# Download Linux Debian package
+limacharlie download sensor --platform linux --arch deb64
+
+# --- Adapters (USP binaries) ---
+
+# List available adapter targets
+limacharlie download adapter --list
+
+# Download Linux adapter (x64)
+limacharlie download adapter --platform linux --arch 64
+
+# Download macOS adapter (Apple Silicon)
+limacharlie download adapter --platform mac --arch arm64 -o ./lc_adapter
+
+# Pipe binary to stdout (useful for remote deploy)
+limacharlie download sensor --platform linux --arch 64 -o -
+"""
+
 CHEATSHEETS["fleet-management"] = """\
 Fleet Management Cheatsheet
 =============================
+
+# Download sensor installers
+limacharlie download sensor --platform linux --arch 64
+limacharlie download sensor --platform windows --arch msi64
 
 # List all sensors
 limacharlie sensor list
