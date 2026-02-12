@@ -1,29 +1,36 @@
 """Jobs SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import time
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 class Jobs:
     """Service/replicant job tracking."""
 
-    def __init__(self, org):
+    def __init__(self, org: Organization) -> None:
         self._org = org
 
     @property
-    def client(self):
+    def client(self) -> Any:
         return self._org.client
 
-    def list(self, start_time=None, end_time=None, limit=None, sid=None):
+    def list(self, start_time: int | None = None, end_time: int | None = None,
+             limit: int | None = None, sid: str | None = None) -> list[dict[str, Any]]:
         return self._org.get_jobs(start_time=start_time, end_time=end_time,
                                   limit=limit, sid=sid)
 
-    def get(self, job_id):
+    def get(self, job_id: str) -> dict[str, Any]:
         return self.client.request("GET", f"job/{self._org.oid}/{job_id}")
 
-    def delete(self, job_id):
+    def delete(self, job_id: str) -> dict[str, Any]:
         return self.client.request("DELETE", f"job/{self._org.oid}/{job_id}")
 
-    def wait(self, job_id, timeout=300, poll_interval=5):
+    def wait(self, job_id: str, timeout: int = 300, poll_interval: int = 5) -> dict[str, Any]:
         """Wait for a job to complete.
 
         Args:

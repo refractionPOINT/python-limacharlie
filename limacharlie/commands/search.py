@@ -4,6 +4,10 @@ Commands for running and validating LCQL queries against historical
 telemetry stored in LimaCharlie Insight.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -122,21 +126,21 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -147,7 +151,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("search")
-def group():
+def group() -> None:
     """Run and validate LCQL queries.
 
     LCQL (LimaCharlie Query Language) provides powerful search
@@ -171,7 +175,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def run(ctx, query, start, end, stream, limit):
+def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None, limit: int | None) -> None:
     """Execute an LCQL query.
 
     Examples:
@@ -199,7 +203,7 @@ def run(ctx, query, start, end, stream, limit):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def validate(ctx, query):
+def validate(ctx: click.Context, query: str) -> None:
     """Validate LCQL query syntax.
 
     Example:
@@ -226,7 +230,7 @@ def validate(ctx, query):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def estimate(ctx, query, start, end, stream):
+def estimate(ctx: click.Context, query: str, start: int, end: int, stream: str | None) -> None:
     """Estimate billing cost for an LCQL query.
 
     Example:
@@ -250,7 +254,7 @@ def estimate(ctx, query, start, end, stream):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def saved_list(ctx):
+def saved_list(ctx: click.Context) -> None:
     """List saved LCQL queries.
 
     Example:
@@ -275,7 +279,7 @@ def saved_list(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def saved_get(ctx, name):
+def saved_get(ctx: click.Context, name: str) -> None:
     """Get a saved query by name.
 
     Example:
@@ -303,7 +307,7 @@ def saved_get(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def saved_create(ctx, name, query, start, end, stream):
+def saved_create(ctx: click.Context, name: str, query: str, start: int | None, end: int | None, stream: str | None) -> None:
     """Create a saved query.
 
     Examples:
@@ -344,7 +348,7 @@ def saved_create(ctx, name, query, start, end, stream):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def saved_delete(ctx, name):
+def saved_delete(ctx: click.Context, name: str) -> None:
     """Delete a saved query.
 
     Example:
@@ -371,7 +375,7 @@ def saved_delete(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def saved_run(ctx, name, limit):
+def saved_run(ctx: click.Context, name: str, limit: int | None) -> None:
     """Execute a saved query.
 
     Retrieves the query from the 'query' hive and executes it.

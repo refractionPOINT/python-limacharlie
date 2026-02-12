@@ -1,26 +1,33 @@
 """Insight (IOC search, event queries) SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
+from typing import Any, TYPE_CHECKING
 from urllib.parse import quote as urlescape
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 class Insight:
     """IOC search, object information, and enrichment."""
 
-    def __init__(self, org):
+    def __init__(self, org: Organization) -> None:
         self._org = org
 
     @property
-    def client(self):
+    def client(self) -> Any:
         return self._org.client
 
-    def is_enabled(self):
+    def is_enabled(self) -> bool:
         """Check if Insight (retention) is enabled."""
         data = self.client.request("GET", f"insight/{self._org.oid}")
         return bool(data.get("insight_bucket"))
 
-    def search_ioc(self, obj_type, obj_name, info="summary", case_sensitive=True,
-                   wildcards=False, limit=None, per_object=None):
+    def search_ioc(self, obj_type: str, obj_name: str, info: str = "summary",
+                   case_sensitive: bool = True, wildcards: bool = False,
+                   limit: int | None = None, per_object: bool | None = None) -> dict[str, Any]:
         """Search for an IOC.
 
         Args:
@@ -40,7 +47,7 @@ class Insight:
         else:
             per_object_str = "true" if per_object else "false"
 
-        qp = {
+        qp: dict[str, str] = {
             "name": obj_name,
             "info": info,
             "case_sensitive": "true" if case_sensitive else "false",
@@ -56,7 +63,7 @@ class Insight:
             query_params=qp,
         )
 
-    def batch_search(self, objects, case_sensitive=True):
+    def batch_search(self, objects: dict[str, list[str]], case_sensitive: bool = True) -> dict[str, Any]:
         """Batch IOC search.
 
         Args:
@@ -77,7 +84,8 @@ class Insight:
             params=params,
         )
 
-    def get_object_timeline(self, start, end, objects, sid=None, bucketing="day"):
+    def get_object_timeline(self, start: int, end: int, objects: dict[str, list[str]],
+                            sid: str | None = None, bucketing: str = "day") -> dict[str, Any]:
         """Get object timeline data.
 
         Args:
@@ -90,7 +98,7 @@ class Insight:
         Returns:
             dict: Timeline data.
         """
-        params = {
+        params: dict[str, Any] = {
             "oid": self._org.oid,
             "start": str(int(start)),
             "end": str(int(end)),
@@ -113,8 +121,9 @@ class Insight:
                 return self.client.unwrap(resp[key])
         return resp
 
-    def get_object_information(self, obj_type, obj_name, info="summary",
-                               case_sensitive=True, wildcards=False, limit=None):
+    def get_object_information(self, obj_type: str, obj_name: str, info: str = "summary",
+                               case_sensitive: bool = True, wildcards: bool = False,
+                               limit: int | None = None) -> dict[str, Any]:
         """Get enrichment/object information for an indicator.
 
         This is an alias for search_ioc with a clearer name for enrichment
@@ -140,7 +149,7 @@ class Insight:
             limit=limit,
         )
 
-    def get_host_count_per_platform(self):
+    def get_host_count_per_platform(self) -> dict[str, Any]:
         """Get the number of hosts per platform with Insight data.
 
         Returns:

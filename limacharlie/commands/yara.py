@@ -5,6 +5,10 @@ YARA rules can be deployed to sensors for real-time scanning or
 used for ad-hoc scans against specific sensors.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -92,7 +96,7 @@ register_explain("yara.source-delete", _EXPLAIN_SOURCE_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -100,13 +104,13 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -117,7 +121,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("yara")
-def group():
+def group() -> None:
     """Manage YARA scanning, rules, and sources.
 
     YARA rules can be deployed for continuous scanning or used
@@ -142,7 +146,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def scan(ctx, sid, rule_file):
+def scan(ctx, sid, rule_file) -> None:
     """Run an ad-hoc YARA scan on a sensor.
 
     Example:
@@ -168,7 +172,7 @@ def scan(ctx, sid, rule_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def rules_list(ctx):
+def rules_list(ctx) -> None:
     """List deployed YARA rules.
 
     Example:
@@ -196,7 +200,7 @@ def rules_list(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def rule_add(ctx, name, sources_file):
+def rule_add(ctx, name, sources_file) -> None:
     """Add a YARA rule for deployment.
 
     Example:
@@ -232,7 +236,7 @@ def rule_add(ctx, name, sources_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def rule_delete(ctx, name):
+def rule_delete(ctx, name) -> None:
     """Delete a deployed YARA rule.
 
     Example:
@@ -257,7 +261,7 @@ def rule_delete(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def sources_list(ctx):
+def sources_list(ctx) -> None:
     """List YARA sources.
 
     Example:
@@ -281,7 +285,7 @@ def sources_list(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def source_get(ctx, name):
+def source_get(ctx, name) -> None:
     """Get a YARA source by name.
 
     Example:
@@ -309,7 +313,7 @@ def source_get(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def source_add(ctx, name, source_file):
+def source_add(ctx, name, source_file) -> None:
     """Add or update a YARA source.
 
     Example:
@@ -338,7 +342,7 @@ def source_add(ctx, name, source_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def source_delete(ctx, name):
+def source_delete(ctx, name) -> None:
     """Delete a YARA source.
 
     Example:

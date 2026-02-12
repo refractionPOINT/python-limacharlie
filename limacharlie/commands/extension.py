@@ -5,8 +5,11 @@ third-party or LimaCharlie-provided add-ons that provide extra
 detection rules, response actions, services, and integrations.
 """
 
+from __future__ import annotations
+
 import json
 import sys
+from typing import Any, Callable
 
 import click
 import yaml
@@ -142,21 +145,21 @@ register_explain("extension.convert-rules", _EXPLAIN_CONVERT_RULES)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -167,7 +170,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("extension")
-def group():
+def group() -> None:
     """Manage extension subscriptions.
 
     Extensions are add-ons that provide extra detection rules, response
@@ -186,7 +189,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_extensions(ctx):
+def list_extensions(ctx) -> None:
     """List subscribed extensions.
 
     Example:
@@ -210,7 +213,7 @@ def list_extensions(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def subscribe(ctx, name):
+def subscribe(ctx, name) -> None:
     """Subscribe to an extension.
 
     Example:
@@ -236,7 +239,7 @@ def subscribe(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def unsubscribe(ctx, name):
+def unsubscribe(ctx, name) -> None:
     """Unsubscribe from an extension.
 
     Example:
@@ -261,7 +264,7 @@ def unsubscribe(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_available(ctx):
+def list_available(ctx) -> None:
     """List all available extensions.
 
     Example:
@@ -285,7 +288,7 @@ def list_available(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def rekey(ctx, name):
+def rekey(ctx, name) -> None:
     """Rotate API key for an extension.
 
     Example:
@@ -311,7 +314,7 @@ def rekey(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def schema(ctx, name):
+def schema(ctx, name) -> None:
     """Get extension configuration schema.
 
     Example:
@@ -337,7 +340,7 @@ def schema(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def request(ctx, name, action, data):
+def request(ctx, name, action, data) -> None:
     """Call an extension action.
 
     Examples:
@@ -365,7 +368,7 @@ def request(ctx, name, action, data):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def config_list(ctx):
+def config_list(ctx) -> None:
     """List extension configurations.
 
     Example:
@@ -390,7 +393,7 @@ def config_list(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def config_get(ctx, name):
+def config_get(ctx, name) -> None:
     """Get an extension configuration.
 
     Example:
@@ -415,7 +418,7 @@ def config_get(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def config_set(ctx, name, input_file):
+def config_set(ctx, name, input_file) -> None:
     """Set an extension configuration.
 
     Example:
@@ -442,7 +445,7 @@ def config_set(ctx, name, input_file):
         }
         if data.get("etag"):
             raw["sys_mtd"]["etag"] = data["etag"]
-        record = HiveRecord(name, raw=raw)
+        record = HiveRecord.from_raw(name, raw)
     else:
         record = HiveRecord(name, data=data)
 
@@ -467,7 +470,7 @@ def config_set(ctx, name, input_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def config_delete(ctx, name, confirm):
+def config_delete(ctx, name, confirm) -> None:
     """Delete an extension configuration.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -505,7 +508,7 @@ def config_delete(ctx, name, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def convert_rules(ctx, name, dry_run):
+def convert_rules(ctx, name, dry_run) -> None:
     """Convert D&R rules for use with an extension.
 
     Examples:

@@ -6,8 +6,11 @@ Hive API.  D&R rules are stored in hives named dr-general, dr-managed,
 and dr-service.
 """
 
+from __future__ import annotations
+
 import json
 import sys
+from typing import Any, Callable
 
 import click
 import yaml
@@ -29,7 +32,7 @@ from ..discovery import register_explain
 _NS_CHOICES = click.Choice(["general", "managed", "service"], case_sensitive=False)
 
 
-def _hive_name(namespace):
+def _hive_name(namespace: str | None) -> str:
     """Map a user-facing namespace to the hive name."""
     return f"dr-{namespace or 'general'}"
 
@@ -163,7 +166,7 @@ register_explain("dr.import", _EXPLAIN_IMPORT)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -171,19 +174,19 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _load_file(path):
+def _load_file(path: str) -> Any:
     """Load a JSON or YAML file and return parsed content."""
     with open(path, "r") as f:
         content = f.read()
@@ -199,7 +202,7 @@ def _load_file(path):
 # ---------------------------------------------------------------------------
 
 @click.group("dr")
-def group():
+def group() -> None:
     """Manage Detection & Response rules.
 
     D&R rules are the core detection mechanism in LimaCharlie.  Each
@@ -224,7 +227,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_rules(ctx, namespace):
+def list_rules(ctx, namespace) -> None:
     """List D&R rules.
 
     Examples:
@@ -254,7 +257,7 @@ def list_rules(ctx, namespace):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, key, namespace):
+def get(ctx, key, namespace) -> None:
     """Get the full definition of a D&R rule.
 
     Example:
@@ -286,7 +289,7 @@ def get(ctx, key, namespace):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def set_cmd(ctx, key, input_file, namespace):
+def set_cmd(ctx, key, input_file, namespace) -> None:
     """Create or update a D&R rule.
 
     Examples:
@@ -316,7 +319,7 @@ def set_cmd(ctx, key, input_file, namespace):
         }
         if data.get("etag"):
             raw["sys_mtd"]["etag"] = data["etag"]
-        record = HiveRecord(key, raw=raw)
+        record = HiveRecord.from_raw(key, raw)
     else:
         record = HiveRecord(key, data=data)
 
@@ -343,7 +346,7 @@ def set_cmd(ctx, key, input_file, namespace):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, key, namespace, confirm):
+def delete(ctx, key, namespace, confirm) -> None:
     """Delete a D&R rule.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -364,7 +367,7 @@ def delete(ctx, key, namespace, confirm):
 # Helpers for loading events
 # ---------------------------------------------------------------------------
 
-def _load_events(events_path):
+def _load_events(events_path: str) -> list[dict[str, Any]]:
     """Load events from a JSON file.
 
     Supports:
@@ -412,7 +415,7 @@ def _load_events(events_path):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def test(ctx, name, events_path, input_file, trace, namespace):
+def test(ctx, name, events_path, input_file, trace, namespace) -> None:
     """Test a rule against sample events.
 
     Provide --name for an existing rule, or --input-file for a rule
@@ -474,7 +477,7 @@ def test(ctx, name, events_path, input_file, trace, namespace):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace):
+def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace) -> None:
     """Replay a rule against historical sensor data.
 
     Examples:
@@ -511,7 +514,7 @@ def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def validate(ctx, detect_path, respond_path):
+def validate(ctx, detect_path, respond_path) -> None:
     """Validate D&R rule components without deploying.
 
     Examples:
@@ -549,7 +552,7 @@ def validate(ctx, detect_path, respond_path):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def export_rules(ctx, namespace):
+def export_rules(ctx, namespace) -> None:
     """Export all D&R rules as YAML.
 
     Examples:
@@ -581,7 +584,7 @@ def export_rules(ctx, namespace):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def import_rules(ctx, input_file, namespace, dry_run):
+def import_rules(ctx, input_file, namespace, dry_run) -> None:
     """Import D&R rules from a YAML or JSON file.
 
     The file should contain a mapping of rule names to rule definitions,
@@ -626,7 +629,7 @@ def import_rules(ctx, input_file, namespace, dry_run):
                     "usr_mtd": rule_def.get("usr_mtd", {}),
                     "sys_mtd": {},
                 }
-                record = HiveRecord(rule_name, raw=raw)
+                record = HiveRecord.from_raw(rule_name, raw)
             else:
                 record = HiveRecord(rule_name, data=rule_def)
             hive.set(record)

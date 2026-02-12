@@ -4,6 +4,8 @@ Handles JWT generation/refresh, retry with exponential backoff,
 rate limit awareness, and request debugging.
 """
 
+from __future__ import annotations
+
 import base64
 import json
 import ssl
@@ -11,7 +13,7 @@ import sys
 import time
 import uuid
 import zlib
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 from urllib.error import HTTPError
 from urllib.parse import quote as urlescape
 from urllib.parse import urlencode
@@ -40,7 +42,7 @@ HTTP_TOO_MANY_REQUESTS = 429
 HTTP_GATEWAY_TIMEOUT = 504
 
 
-def _create_ssl_context():
+def _create_ssl_context() -> ssl.SSLContext | None:
     """Create an SSL context with OpenSSL 3.0+ compatibility."""
     try:
         ctx = ssl.create_default_context()
@@ -54,7 +56,7 @@ def _create_ssl_context():
             return None
 
 
-def _build_user_agent():
+def _build_user_agent() -> str:
     return build_user_agent("lc-cli", __version__)
 
 
@@ -78,17 +80,17 @@ class Client:
 
     def __init__(
         self,
-        oid=None,
-        api_key=None,
-        uid=None,
-        environment=None,
-        jwt=None,
-        is_retry_quota_errors=False,
-        print_debug_fn=None,
-        on_refresh_auth=None,
-        inv_id=None,
-        timeout=600,
-    ):
+        oid: str | None = None,
+        api_key: str | None = None,
+        uid: str | None = None,
+        environment: str | None = None,
+        jwt: str | None = None,
+        is_retry_quota_errors: bool = False,
+        print_debug_fn: Callable[[str], None] | None = None,
+        on_refresh_auth: Callable[[Client], None] | None = None,
+        inv_id: str | None = None,
+        timeout: int = 600,
+    ) -> None:
         """Initialize the client.
 
         Args:
@@ -125,20 +127,20 @@ class Client:
         self._user_agent = _build_user_agent()
 
     @property
-    def oid(self):
+    def oid(self) -> str | None:
         return self._oid
 
     @property
-    def uid(self):
+    def uid(self) -> str | None:
         return self._uid
 
-    def __enter__(self):
+    def __enter__(self) -> Client:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> bool:
         return False
 
-    def _debug(self, msg):
+    def _debug(self, msg: str) -> None:
         if self._debug_fn is not None:
             from datetime import datetime, timezone
 
@@ -146,7 +148,7 @@ class Client:
             self._debug_fn(f"{ts}: {msg}")
 
     @staticmethod
-    def unwrap(data, is_raw=False):
+    def unwrap(data: str, is_raw: bool = False) -> Any:
         """Decompress gzip+base64 encoded data from the API.
 
         Used when is_compressed=true is set on requests. The API returns
@@ -164,7 +166,7 @@ class Client:
         else:
             return json.loads(zlib.decompress(base64.b64decode(data), 16 + zlib.MAX_WBITS).decode())
 
-    def refresh_jwt(self, expiry=None, oid_override=None):
+    def refresh_jwt(self, expiry: int | None = None, oid_override: str | None = None) -> None:
         """Generate or refresh a JWT token.
 
         Args:
@@ -196,7 +198,7 @@ class Client:
         if self._on_refresh_auth is not None:
             self._on_refresh_auth(self)
 
-    def _refresh_jwt_oauth(self, effective_oid, expiry):
+    def _refresh_jwt_oauth(self, effective_oid: str | None, expiry: int | None) -> None:
         """Refresh JWT using OAuth credentials."""
         from .oauth_simple import SimpleOAuthManager
 
@@ -231,7 +233,7 @@ class Client:
         if self._on_refresh_auth is not None:
             self._on_refresh_auth(self)
 
-    def _call_jwt_endpoint(self, auth_data):
+    def _call_jwt_endpoint(self, auth_data: dict[str, Any]) -> str:
         """Call the JWT endpoint and return the JWT string."""
         try:
             request = URLRequest(
@@ -261,8 +263,8 @@ class Client:
         except Exception as e:
             raise AuthenticationError(f"Failed to get JWT: {e}")
 
-    def _rest_call(self, url, verb, params=None, alt_root=None, query_params=None,
-                   raw_body=None, content_type=None, is_no_auth=False, timeout=None):
+    def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, str] | None = None,
+                   raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None) -> tuple[int, Any]:
         """Make a single HTTP request to the API.
 
         Returns:
@@ -340,9 +342,9 @@ class Client:
             self._debug(f"SSL error: {e}")
             return (HTTP_GATEWAY_TIMEOUT, {"error": f"SSL error: {e}"})
 
-    def request(self, verb, url, params=None, alt_root=None, query_params=None,
-                raw_body=None, content_type=None, is_no_auth=False,
-                max_retries=3, timeout=None):
+    def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, str] | None = None,
+                raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
+                max_retries: int = 3, timeout: int | None = None) -> dict[str, Any]:
         """Make an API request with retry logic and JWT management.
 
         Args:

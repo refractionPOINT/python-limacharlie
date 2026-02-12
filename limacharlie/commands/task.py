@@ -5,6 +5,10 @@ the primary mechanism for interacting with endpoints: collecting data,
 killing processes, downloading files, running YARA scans, and more.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import time
 
 import click
@@ -111,27 +115,27 @@ register_explain("task.reliable-delete", _EXPLAIN_RELIABLE_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _get_sensor(ctx, sid):
+def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
     org = _get_org(ctx)
     return Sensor(org, sid)
 
@@ -141,7 +145,7 @@ def _get_sensor(ctx, sid):
 # ---------------------------------------------------------------------------
 
 @click.group("task")
-def group():
+def group() -> None:
     """Send tasks (commands) to sensors.
 
     Tasks are the primary mechanism for interacting with endpoints.
@@ -170,7 +174,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def send(ctx, sid, task, investigation_id):
+def send(ctx: click.Context, sid: str, task: str, investigation_id: str | None) -> None:
     """Send a task to a sensor (fire-and-forget).
 
     Examples:
@@ -205,7 +209,7 @@ def send(ctx, sid, task, investigation_id):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def request(ctx, sid, task_command, timeout):
+def request(ctx: click.Context, sid: str, task_command: str, timeout: int) -> None:
     """Send a task and wait for the response.
 
     Opens a temporary event stream, sends the task, collects events
@@ -264,7 +268,7 @@ def request(ctx, sid, task_command, timeout):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def reliable_send(ctx, sid, task_command, investigation_id, ttl):
+def reliable_send(ctx: click.Context, sid: str, task_command: str, investigation_id: str | None, ttl: int | None) -> None:
     """Send a task with guaranteed delivery.
 
     The task is persisted and will be delivered even if the sensor
@@ -302,7 +306,7 @@ def reliable_send(ctx, sid, task_command, investigation_id, ttl):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def reliable_list(ctx, sid):
+def reliable_list(ctx: click.Context, sid: str) -> None:
     """List pending reliable tasks for a sensor.
 
     Example:
@@ -330,7 +334,7 @@ def reliable_list(ctx, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def reliable_delete(ctx, sid, task_id):
+def reliable_delete(ctx: click.Context, sid: str, task_id: str) -> None:
     """Cancel a pending reliable task.
 
     Example:

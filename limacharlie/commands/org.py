@@ -4,6 +4,10 @@ Commands for viewing and managing organization settings, configuration,
 errors, usage statistics, and MITRE ATT&CK coverage.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -163,26 +167,26 @@ register_explain("org.check-name", _EXPLAIN_CHECK_NAME)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_client(ctx):
+def _get_client(ctx: click.Context) -> Client:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     return Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     client = _get_client(ctx)
     return Organization(client)
 
@@ -192,7 +196,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("org")
-def group():
+def group() -> None:
     """View and manage organization settings.
 
     Inspect organization details, configuration values, errors, usage
@@ -211,7 +215,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def info(ctx):
+def info(ctx: click.Context) -> None:
     """Show organization details (name, sensor count, version, quotas).
 
     Example:
@@ -236,7 +240,7 @@ def info(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_orgs(ctx, filter_text, limit, offset):
+def list_orgs(ctx: click.Context, filter_text: str | None, limit: int | None, offset: int | None) -> None:
     """List organizations accessible to the current credentials.
 
     Example:
@@ -265,7 +269,7 @@ def list_orgs(ctx, filter_text, limit, offset):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def config_get(ctx, name):
+def config_get(ctx: click.Context, name: str) -> None:
     """Get an organization configuration value.
 
     Example:
@@ -289,7 +293,7 @@ def config_get(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def config_set(ctx, name, value):
+def config_set(ctx: click.Context, name: str, value: str) -> None:
     """Set an organization configuration value.
 
     Example:
@@ -311,7 +315,7 @@ def config_set(ctx, name, value):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def errors(ctx):
+def errors(ctx: click.Context) -> None:
     """List current organization errors.
 
     Example:
@@ -334,7 +338,7 @@ def errors(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def dismiss_error(ctx, component):
+def dismiss_error(ctx: click.Context, component: str) -> None:
     """Dismiss an organization error by component name.
 
     Example:
@@ -356,7 +360,7 @@ def dismiss_error(ctx, component):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def stats(ctx):
+def stats(ctx: click.Context) -> None:
     """Show usage statistics for the organization.
 
     Example:
@@ -378,7 +382,7 @@ def stats(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def mitre(ctx):
+def mitre(ctx: click.Context) -> None:
     """Get MITRE ATT&CK coverage report.
 
     Analyzes deployed D&R rules and maps them to MITRE ATT&CK techniques.
@@ -402,7 +406,7 @@ def mitre(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def urls(ctx):
+def urls(ctx: click.Context) -> None:
     """Show service URLs for the organization.
 
     Example:
@@ -427,7 +431,7 @@ def urls(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create(ctx, name, location, template):
+def create(ctx: click.Context, name: str, location: str, template: str | None) -> None:
     """Create a new organization.
 
     Example:
@@ -451,7 +455,7 @@ def create(ctx, name, location, template):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, confirm_token):
+def delete(ctx: click.Context, confirm_token: str | None) -> None:
     """Delete an organization (two-step process).
 
     First call without --confirm-token to obtain a confirmation token.
@@ -478,7 +482,7 @@ def delete(ctx, confirm_token):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def rename(ctx, name):
+def rename(ctx: click.Context, name: str) -> None:
     """Rename the organization.
 
     Example:
@@ -501,7 +505,7 @@ def rename(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def quota(ctx, quota):
+def quota(ctx: click.Context, quota: int) -> None:
     """Set the sensor quota for the organization.
 
     Example:
@@ -526,7 +530,7 @@ def quota(ctx, quota):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def schema(ctx, event_type, platform):
+def schema(ctx: click.Context, event_type: str | None, platform: str | None) -> None:
     """Get event schemas for the organization.
 
     Without options, returns all schemas.  Use --event-type for a single
@@ -558,7 +562,7 @@ def schema(ctx, event_type, platform):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def runtime_metadata(ctx, entity_type, entity_name):
+def runtime_metadata(ctx: click.Context, entity_type: str | None, entity_name: str | None) -> None:
     """Get runtime metadata for the organization.
 
     Example:
@@ -583,7 +587,7 @@ def runtime_metadata(ctx, entity_type, entity_name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def check_name(ctx, name):
+def check_name(ctx: click.Context, name: str) -> None:
     """Check if an organization name is available.
 
     Example:

@@ -5,6 +5,10 @@ Tags are lightweight labels attached to sensors for grouping, filtering,
 and targeting D&R rules or tasks.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -91,27 +95,27 @@ register_explain("tag.mass-remove", _EXPLAIN_MASS_REMOVE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _get_sensor(ctx, sid):
+def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
     org = _get_org(ctx)
     return Sensor(org, sid)
 
@@ -121,7 +125,7 @@ def _get_sensor(ctx, sid):
 # ---------------------------------------------------------------------------
 
 @click.group("tag")
-def group():
+def group() -> None:
     """Manage sensor tags.
 
     Tags are lightweight labels attached to sensors.  They enable
@@ -142,7 +146,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_tags(ctx, sid):
+def list_tags(ctx: click.Context, sid: str | None) -> None:
     """List tags for a sensor or all tags in the organization.
 
     Examples:
@@ -173,7 +177,7 @@ def list_tags(ctx, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def add(ctx, sid, tag, ttl):
+def add(ctx: click.Context, sid: str, tag: str, ttl: int | None) -> None:
     """Add a tag to a sensor.
 
     Examples:
@@ -202,7 +206,7 @@ def add(ctx, sid, tag, ttl):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def remove(ctx, sid, tag):
+def remove(ctx: click.Context, sid: str, tag: str) -> None:
     """Remove a tag from a sensor.
 
     Example:
@@ -226,7 +230,7 @@ def remove(ctx, sid, tag):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def find(ctx, tag):
+def find(ctx: click.Context, tag: str) -> None:
     """Find all sensors with a specific tag.
 
     Example:
@@ -251,7 +255,7 @@ def find(ctx, tag):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def mass_add(ctx, selector, tag, ttl):
+def mass_add(ctx: click.Context, selector: str, tag: str, ttl: int | None) -> None:
     """Add a tag to all sensors matching a selector.
 
     Examples:
@@ -281,7 +285,7 @@ def mass_add(ctx, selector, tag, ttl):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def mass_remove(ctx, selector, tag):
+def mass_remove(ctx: click.Context, selector: str, tag: str) -> None:
     """Remove a tag from all sensors matching a selector.
 
     Example:

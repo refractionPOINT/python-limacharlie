@@ -5,6 +5,10 @@ the cloud.  This enables Infrastructure-as-Code workflows where
 the entire org configuration is stored in version-controlled YAML files.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 import yaml
 
@@ -66,21 +70,21 @@ register_explain("sync.push", _EXPLAIN_PUSH)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -103,15 +107,16 @@ _SYNC_FLAGS = [
 ]
 
 
-def _add_sync_flags(func):
+def _add_sync_flags(func: Callable[..., Any]) -> Callable[..., Any]:
     for decorator in reversed(_SYNC_FLAGS):
         func = decorator(func)
     return func
 
 
-def _resolve_sync_flags(sync_all, rules, fps, outputs, integrity, exfil,
-                         artifact, resources, extensions, org_values,
-                         installation_keys, yara_flag):
+def _resolve_sync_flags(sync_all: bool, rules: bool, fps: bool, outputs: bool,
+                         integrity: bool, exfil: bool, artifact: bool,
+                         resources: bool, extensions: bool, org_values: bool,
+                         installation_keys: bool, yara_flag: bool) -> dict[str, bool]:
     """Resolve sync flags, expanding --all into individual flags."""
     return {
         "sync_rules": sync_all or rules,
@@ -133,7 +138,7 @@ def _resolve_sync_flags(sync_all, rules, fps, outputs, integrity, exfil,
 # ---------------------------------------------------------------------------
 
 @click.group("sync")
-def group():
+def group() -> None:
     """Sync organization configuration (Infrastructure-as-Code).
 
     Pull configuration from the cloud into local YAML files, or
@@ -160,7 +165,7 @@ def group():
 @pass_context
 def pull(ctx, config_file, sync_all, rules, fps, outputs, integrity,
          exfil, artifact, resources, extensions, org_values,
-         installation_keys, yara):
+         installation_keys, yara) -> None:
     """Fetch configuration from the cloud.
 
     Examples:
@@ -210,7 +215,7 @@ def pull(ctx, config_file, sync_all, rules, fps, outputs, integrity,
 @pass_context
 def push(ctx, config_file, force, dry_run, sync_all, rules, fps, outputs,
          integrity, exfil, artifact, resources, extensions, org_values,
-         installation_keys, yara):
+         installation_keys, yara) -> None:
     """Push configuration to the cloud.
 
     Examples:

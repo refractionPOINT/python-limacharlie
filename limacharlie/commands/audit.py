@@ -4,7 +4,10 @@ Commands for listing audit logs that record all administrative
 actions performed on the organization.
 """
 
+from __future__ import annotations
+
 import time
+from typing import Any, Callable
 
 import click
 
@@ -43,21 +46,21 @@ register_explain("audit.list", _EXPLAIN_LIST)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -68,7 +71,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("audit")
-def group():
+def group() -> None:
     """View audit logs.
 
     Audit logs record all administrative actions performed on the
@@ -97,7 +100,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_audit(ctx, start, end, limit):
+def list_audit(ctx, start, end, limit) -> None:
     """List audit logs.
 
     Examples:

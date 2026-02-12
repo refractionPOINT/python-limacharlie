@@ -27,7 +27,7 @@ class TestHiveRecord:
             "usr_mtd": {"expiry": 0, "enabled": True, "tags": ["test"], "comment": "my rule"},
             "sys_mtd": {"etag": "abc123", "created_at": 1234567890, "guid": "g1"},
         }
-        rec = HiveRecord("my-rule", raw=raw)
+        rec = HiveRecord.from_raw("my-rule", raw)
         assert rec.name == "my-rule"
         assert rec.data == {"op": "is", "path": "event/FILE_PATH"}
         assert rec.enabled is True
@@ -52,7 +52,7 @@ class TestHiveRecord:
 
     def test_json_string_data_parsed(self):
         raw = {"data": '{"nested": true}', "usr_mtd": {}, "sys_mtd": {}}
-        rec = HiveRecord("r", raw=raw)
+        rec = HiveRecord.from_raw("r", raw)
         assert rec.data == {"nested": True}
 
 
@@ -68,7 +68,7 @@ class TestHiveRecordFromRawWithUsrMtd:
             "usr_mtd": {"enabled": True, "tags": ["prod"]},
             "sys_mtd": {"etag": "my-etag"},
         }
-        rec = HiveRecord("test-key", raw=raw)
+        rec = HiveRecord.from_raw("test-key", raw)
         assert rec.name == "test-key"
         assert rec.data == {"key": "value"}
         assert rec.enabled is True
@@ -81,7 +81,7 @@ class TestHiveRecordFromRawWithUsrMtd:
             "usr_mtd": {"comment": "hello"},
             "sys_mtd": {},
         }
-        rec = HiveRecord("test-key", raw=raw)
+        rec = HiveRecord.from_raw("test-key", raw)
         assert rec.comment == "hello"
         assert rec.etag is None
 

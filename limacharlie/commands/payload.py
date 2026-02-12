@@ -5,6 +5,10 @@ artifacts (executables, scripts, etc.) that can be deployed to
 sensors via D&R response actions.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -70,7 +74,7 @@ register_explain("payload.download", _EXPLAIN_DOWNLOAD)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -78,13 +82,13 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -95,7 +99,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("payload")
-def group():
+def group() -> None:
     """Manage payloads.
 
     Payloads are binary artifacts that can be deployed to sensors
@@ -114,7 +118,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_payloads(ctx):
+def list_payloads(ctx) -> None:
     """List payloads.
 
     Example:
@@ -139,7 +143,7 @@ def list_payloads(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, name, confirm):
+def delete(ctx, name, confirm) -> None:
     """Delete a payload.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -177,7 +181,7 @@ def delete(ctx, name, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def upload(ctx, name, file_path):
+def upload(ctx, name, file_path) -> None:
     """Upload a payload.
 
     Examples:
@@ -205,7 +209,7 @@ def upload(ctx, name, file_path):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def download(ctx, name, output_path):
+def download(ctx, name, output_path) -> None:
     """Download a payload.
 
     If --output-path is given, saves to that file.  Otherwise prints

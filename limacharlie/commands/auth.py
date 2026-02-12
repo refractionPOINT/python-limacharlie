@@ -4,6 +4,10 @@ Commands for managing credentials, testing authentication, and
 switching between organizations and environments.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -146,22 +150,22 @@ register_explain("auth.signup", _EXPLAIN_SIGNUP)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[..., None]:
     """Return a Click callback that prints explain text and exits."""
-    def callback(ctx, param, value):
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_client(ctx, oid_override=None):
+def _get_client(ctx: click.Context, oid_override: str | None = None) -> Client:
     creds = resolve_credentials(
         oid=oid_override or ctx.obj.oid,
         environment=ctx.obj.environment,
@@ -173,7 +177,7 @@ def _get_client(ctx, oid_override=None):
     )
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     client = _get_client(ctx)
     return Organization(client)
 
@@ -183,7 +187,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("auth")
-def group():
+def group() -> None:
     """Manage authentication credentials and identity.
 
     Store, test, and switch LimaCharlie credentials.  Credentials are
@@ -216,7 +220,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def login(ctx, oid, api_key, environment, uid, oauth, provider, no_browser):
+def login(ctx: click.Context, oid: str | None, api_key: str | None, environment: str | None, uid: str | None, oauth: bool, provider: str, no_browser: bool) -> None:
     """Store credentials in the local configuration file.
 
     Supports two authentication methods:
@@ -250,7 +254,7 @@ def login(ctx, oid, api_key, environment, uid, oauth, provider, no_browser):
             click.echo(f"Credentials saved for environment '{env_name}'.")
 
 
-def _login_oauth(ctx, oid, env_name, provider, no_browser):
+def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: str, no_browser: bool) -> None:
     """Perform OAuth login via browser."""
     try:
         from ..oauth_firebase_simple import SimpleFirebaseAuth, FirebaseAuthError
@@ -310,7 +314,7 @@ def _login_oauth(ctx, oid, env_name, provider, no_browser):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def logout(ctx, environment):
+def logout(ctx: click.Context, environment: str | None) -> None:
     """Remove stored credentials from the local configuration file.
 
     Example:
@@ -348,7 +352,7 @@ def logout(ctx, environment):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def whoami(ctx):
+def whoami(ctx: click.Context) -> None:
     """Show the current identity and permissions.
 
     Example:
@@ -371,7 +375,7 @@ def whoami(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def use_org(ctx, oid):
+def use_org(ctx: click.Context, oid: str) -> None:
     """Set the default organization for subsequent commands.
 
     Example:
@@ -403,7 +407,7 @@ def use_org(ctx, oid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def test(ctx):
+def test(ctx: click.Context) -> None:
     """Test whether the current credentials are valid.
 
     Attempts to generate a JWT.  Exits with code 0 on success, 2 on failure.
@@ -434,7 +438,7 @@ def test(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def use_env(ctx, name):
+def use_env(ctx: click.Context, name: str) -> None:
     """Switch the active named environment.
 
     Example:
@@ -470,7 +474,7 @@ def use_env(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_envs(ctx):
+def list_envs(ctx: click.Context) -> None:
     """List configured environments.
 
     Example:
@@ -504,7 +508,7 @@ def list_envs(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_orgs(ctx, filter_text):
+def list_orgs(ctx: click.Context, filter_text: str | None) -> None:
     """List organizations accessible to the current credentials.
 
     Example:
@@ -541,7 +545,7 @@ def list_orgs(ctx, filter_text):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def signup(ctx, provider, no_browser, org_name, environment):
+def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | None, environment: str | None) -> None:
     """Create a new LimaCharlie account and set up an organization.
 
     Performs the full onboarding flow: OAuth authentication, account

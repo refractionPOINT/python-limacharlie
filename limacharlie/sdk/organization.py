@@ -4,11 +4,16 @@ Wraps all org-scoped API operations. This is the main entry point
 for interacting with a LimaCharlie organization.
 """
 
+from __future__ import annotations
+
 import base64
 import json
+from collections.abc import Generator
+from typing import Any, TYPE_CHECKING
 from urllib.parse import quote as urlescape
 
-from ..client import Client
+if TYPE_CHECKING:
+    from ..client import Client
 
 
 class Organization:
@@ -23,7 +28,7 @@ class Organization:
         info = org.get_info()
     """
 
-    def __init__(self, client):
+    def __init__(self, client: Client) -> None:
         """Initialize with an authenticated Client.
 
         Args:
@@ -32,14 +37,14 @@ class Organization:
         self._client = client
 
     @property
-    def oid(self):
+    def oid(self) -> str:
         return self._client.oid
 
     @property
-    def client(self):
+    def client(self) -> Client:
         return self._client
 
-    def get_info(self):
+    def get_info(self) -> dict[str, Any]:
         """Get organization details (sensor count, version, quotas, name).
 
         Returns:
@@ -47,7 +52,7 @@ class Organization:
         """
         return self._client.request("GET", f"orgs/{self.oid}")
 
-    def get_urls(self):
+    def get_urls(self) -> dict[str, Any]:
         """Get service URLs for the organization.
 
         Returns:
@@ -56,7 +61,7 @@ class Organization:
         data = self._client.request("GET", f"orgs/{self.oid}/url", is_no_auth=True)
         return data.get("url", data)
 
-    def get_config(self, config_name):
+    def get_config(self, config_name: str) -> str | None:
         """Get an organization configuration value.
 
         Args:
@@ -68,7 +73,7 @@ class Organization:
         data = self._client.request("GET", f"configs/{self.oid}/{config_name}")
         return data.get("value", None)
 
-    def set_config(self, config_name, value):
+    def set_config(self, config_name: str, value: str) -> dict[str, Any]:
         """Set an organization configuration value.
 
         Args:
@@ -80,7 +85,7 @@ class Organization:
         """
         return self._client.request("POST", f"configs/{self.oid}/{config_name}", params={"value": value})
 
-    def get_stats(self):
+    def get_stats(self) -> dict[str, Any]:
         """Get usage statistics for the organization.
 
         Returns:
@@ -88,7 +93,7 @@ class Organization:
         """
         return self._client.request("GET", f"usage/{self.oid}")
 
-    def get_errors(self):
+    def get_errors(self) -> dict[str, Any]:
         """Get organization errors.
 
         Returns:
@@ -96,7 +101,7 @@ class Organization:
         """
         return self._client.request("GET", f"errors/{self.oid}")
 
-    def dismiss_error(self, component):
+    def dismiss_error(self, component: str) -> dict[str, Any]:
         """Dismiss an organization error.
 
         Args:
@@ -107,7 +112,7 @@ class Organization:
         """
         return self._client.request("DELETE", f"errors/{self.oid}/{urlescape(component, safe='')}")
 
-    def get_mitre_report(self):
+    def get_mitre_report(self) -> dict[str, Any]:
         """Get MITRE ATT&CK coverage report.
 
         Returns:
@@ -115,7 +120,7 @@ class Organization:
         """
         return self._client.request("GET", f"mitre/{self.oid}")
 
-    def get_schemas(self, platform=None):
+    def get_schemas(self, platform: str | None = None) -> dict[str, Any]:
         """Get event schemas/ontology.
 
         Args:
@@ -129,7 +134,7 @@ class Organization:
             qp["platform"] = platform
         return self._client.request("GET", f"orgs/{self.oid}/schema", query_params=qp or None)
 
-    def get_schema(self, name):
+    def get_schema(self, name: str) -> dict[str, Any]:
         """Get a specific event schema.
 
         Args:
@@ -140,7 +145,7 @@ class Organization:
         """
         return self._client.request("GET", f"orgs/{self.oid}/schema/{urlescape(name, safe='')}")
 
-    def get_runtime_metadata(self, entity_type=None, entity_name=None):
+    def get_runtime_metadata(self, entity_type: str | None = None, entity_name: str | None = None) -> dict[str, Any]:
         """Get runtime metadata.
 
         Args:
@@ -157,7 +162,7 @@ class Organization:
             qp["entity_name"] = entity_name
         return self._client.request("GET", f"runtime_mtd/{self.oid}", query_params=qp or None)
 
-    def set_quota(self, quota):
+    def set_quota(self, quota: int) -> dict[str, Any]:
         """Set the sensor quota for the organization.
 
         Args:
@@ -168,7 +173,7 @@ class Organization:
         """
         return self._client.request("POST", f"orgs/{self.oid}/quota", params={"quota": quota})
 
-    def rename(self, new_name):
+    def rename(self, new_name: str) -> dict[str, Any]:
         """Rename the organization.
 
         Args:
@@ -179,7 +184,7 @@ class Organization:
         """
         return self._client.request("POST", f"orgs/{self.oid}/name", query_params={"name": new_name})
 
-    def get_ontology(self):
+    def get_ontology(self) -> dict[str, Any]:
         """Get the LimaCharlie ontology (event type definitions).
 
         Returns:
@@ -187,7 +192,7 @@ class Organization:
         """
         return self._client.request("GET", "ontology")
 
-    def get_event_types(self):
+    def get_event_types(self) -> dict[str, Any]:
         """List available event types.
 
         Returns:
@@ -195,7 +200,7 @@ class Organization:
         """
         return self._client.request("GET", "events")
 
-    def who_am_i(self):
+    def who_am_i(self) -> dict[str, Any]:
         """Query the API to see current identity and permissions.
 
         Returns:
@@ -203,7 +208,7 @@ class Organization:
         """
         return self._client.request("GET", "who")
 
-    def test_auth(self, permissions=None):
+    def test_auth(self, permissions: list[str] | None = None) -> bool:
         """Test authentication and optionally verify specific permissions.
 
         Args:
@@ -233,7 +238,7 @@ class Organization:
 
     # --- Static/class methods for org management ---
 
-    def list_accessible_orgs(self, offset=None, limit=None, filter_text=None):
+    def list_accessible_orgs(self, offset: int | None = None, limit: int | None = None, filter_text: str | None = None) -> dict[str, Any]:
         """List organizations accessible to the current user.
 
         Args:
@@ -266,7 +271,7 @@ class Organization:
         return {"orgs": oids, "names": names}
 
     @staticmethod
-    def create_org(client, name, location=None, template=None):
+    def create_org(client: Client, name: str, location: str | None = None, template: str | None = None) -> dict[str, Any]:
         """Create a new organization.
 
         Args:
@@ -286,7 +291,7 @@ class Organization:
         return client.request("POST", "orgs/new", params=params)
 
     @staticmethod
-    def check_name(client, name):
+    def check_name(client: Client, name: str) -> dict[str, Any]:
         """Check if an organization name is available.
 
         Args:
@@ -298,7 +303,7 @@ class Organization:
         """
         return client.request("GET", "orgs/new", query_params={"name": name})
 
-    def delete_org(self, confirm_token=None):
+    def delete_org(self, confirm_token: str | None = None) -> dict[str, Any]:
         """Delete the organization (two-step process).
 
         Without confirm_token: returns a confirmation token.
@@ -316,7 +321,7 @@ class Organization:
 
     # --- Users ---
 
-    def get_users(self):
+    def get_users(self) -> dict[str, Any]:
         """List organization users.
 
         Returns:
@@ -324,7 +329,7 @@ class Organization:
         """
         return self._client.request("GET", f"orgs/{self.oid}/users")
 
-    def add_user(self, email):
+    def add_user(self, email: str) -> dict[str, Any]:
         """Invite a user to the organization.
 
         Args:
@@ -335,7 +340,7 @@ class Organization:
         """
         return self._client.request("POST", f"orgs/{self.oid}/users", params={"email": email})
 
-    def remove_user(self, email):
+    def remove_user(self, email: str) -> dict[str, Any]:
         """Remove a user from the organization.
 
         Args:
@@ -346,7 +351,7 @@ class Organization:
         """
         return self._client.request("DELETE", f"orgs/{self.oid}/users", params={"email": email})
 
-    def get_user_permissions(self):
+    def get_user_permissions(self) -> dict[str, Any]:
         """List user permissions.
 
         Returns:
@@ -354,7 +359,7 @@ class Organization:
         """
         return self._client.request("GET", f"orgs/{self.oid}/users/permissions")
 
-    def add_user_permission(self, email, permission):
+    def add_user_permission(self, email: str, permission: str) -> dict[str, Any]:
         """Grant a permission to a user.
 
         Args:
@@ -367,7 +372,7 @@ class Organization:
         return self._client.request("POST", f"orgs/{self.oid}/users/permissions",
                                     params={"email": email, "permission": permission})
 
-    def remove_user_permission(self, email, permission):
+    def remove_user_permission(self, email: str, permission: str) -> dict[str, Any]:
         """Revoke a permission from a user.
 
         Args:
@@ -380,7 +385,7 @@ class Organization:
         return self._client.request("DELETE", f"orgs/{self.oid}/users/permissions",
                                     params={"email": email, "permission": permission})
 
-    def set_user_role(self, email, role):
+    def set_user_role(self, email: str, role: str) -> dict[str, Any]:
         """Set a predefined role for a user, replacing all their permissions.
 
         Valid roles: Owner, Administrator, Operator, Viewer, Basic.
@@ -398,7 +403,7 @@ class Organization:
 
     # --- API Keys ---
 
-    def get_api_keys(self):
+    def get_api_keys(self) -> dict[str, Any]:
         """List API keys.
 
         Returns:
@@ -406,7 +411,7 @@ class Organization:
         """
         return self._client.request("GET", f"orgs/{self.oid}/keys")
 
-    def add_api_key(self, name, permissions, ip_range=None):
+    def add_api_key(self, name: str, permissions: list[str], ip_range: str | None = None) -> dict[str, Any]:
         """Create a new API key.
 
         Args:
@@ -422,7 +427,7 @@ class Organization:
             params["allowed_ip_range"] = ip_range
         return self._client.request("POST", f"orgs/{self.oid}/keys", params=params)
 
-    def remove_api_key(self, key_hash):
+    def remove_api_key(self, key_hash: str) -> dict[str, Any]:
         """Delete an API key.
 
         Args:
@@ -435,7 +440,7 @@ class Organization:
 
     # --- Installation Keys ---
 
-    def get_installation_keys(self):
+    def get_installation_keys(self) -> dict[str, Any]:
         """List installation keys.
 
         Returns:
@@ -443,7 +448,7 @@ class Organization:
         """
         return self._client.request("GET", f"installationkeys/{self.oid}")
 
-    def get_installation_key(self, iid):
+    def get_installation_key(self, iid: str) -> dict[str, Any]:
         """Get a specific installation key.
 
         Args:
@@ -454,7 +459,7 @@ class Organization:
         """
         return self._client.request("GET", f"installationkeys/{self.oid}/{iid}")
 
-    def create_installation_key(self, description, tags=None, use_public_ca=False):
+    def create_installation_key(self, description: str, tags: list[str] | str | None = None, use_public_ca: bool = False) -> dict[str, Any]:
         """Create a new installation key.
 
         Args:
@@ -470,7 +475,7 @@ class Organization:
             params["tags"] = tags if isinstance(tags, str) else ",".join(tags)
         return self._client.request("POST", f"installationkeys/{self.oid}", params=params)
 
-    def delete_installation_key(self, iid):
+    def delete_installation_key(self, iid: str) -> dict[str, Any]:
         """Delete an installation key.
 
         Args:
@@ -483,7 +488,7 @@ class Organization:
 
     # --- Ingestion Keys ---
 
-    def get_ingestion_keys(self):
+    def get_ingestion_keys(self) -> dict[str, Any] | None:
         """List ingestion keys.
 
         Returns:
@@ -492,7 +497,7 @@ class Organization:
         data = self._client.request("GET", f"insight/{self.oid}/ingestion_keys")
         return data.get("keys", None)
 
-    def create_ingestion_key(self, name):
+    def create_ingestion_key(self, name: str) -> dict[str, Any]:
         """Create a new ingestion key.
 
         Args:
@@ -503,7 +508,7 @@ class Organization:
         """
         return self._client.request("POST", f"insight/{self.oid}/ingestion_keys", params={"name": name})
 
-    def delete_ingestion_key(self, name):
+    def delete_ingestion_key(self, name: str) -> dict[str, Any]:
         """Delete an ingestion key.
 
         Args:
@@ -515,7 +520,7 @@ class Organization:
         return self._client.request("DELETE", f"insight/{self.oid}/ingestion_keys",
                                     query_params={"name": name})
 
-    def configure_usp_key(self, name, parse_hint=None, format_re=None):
+    def configure_usp_key(self, name: str, parse_hint: str | None = None, format_re: str | None = None) -> dict[str, Any]:
         """Configure USP on an ingestion key.
 
         Args:
@@ -535,7 +540,7 @@ class Organization:
 
     # --- Outputs ---
 
-    def get_outputs(self):
+    def get_outputs(self) -> dict[str, Any]:
         """List configured outputs.
 
         Returns:
@@ -544,7 +549,7 @@ class Organization:
         resp = self._client.request("GET", f"outputs/{self.oid}")
         return resp.get(self.oid, resp)
 
-    def add_output(self, name, module, data_type, **kwargs):
+    def add_output(self, name: str, module: str, data_type: str, **kwargs: Any) -> dict[str, Any]:
         """Create a new output.
 
         Args:
@@ -560,7 +565,7 @@ class Organization:
         params.update(kwargs)
         return self._client.request("POST", f"outputs/{self.oid}", params=params)
 
-    def delete_output(self, name):
+    def delete_output(self, name: str) -> dict[str, Any]:
         """Delete an output.
 
         Args:
@@ -573,7 +578,7 @@ class Organization:
 
     # --- Tags ---
 
-    def get_all_tags(self):
+    def get_all_tags(self) -> list[str]:
         """Get all tags used by sensors in the org.
 
         Returns:
@@ -582,7 +587,7 @@ class Organization:
         resp = self._client.request("GET", f"tags/{self.oid}")
         return resp.get("tags", [])
 
-    def find_sensors_by_tag(self, tag):
+    def find_sensors_by_tag(self, tag: str) -> dict[str, Any]:
         """Find all sensors with a specific tag.
 
         Args:
@@ -593,7 +598,7 @@ class Organization:
         """
         return self._client.request("GET", f"tags/{self.oid}/{urlescape(tag, safe='')}")
 
-    def mass_tag(self, selector, tag, ttl=None):
+    def mass_tag(self, selector: str, tag: str, ttl: int | None = None) -> dict[str, Any]:
         """Add a tag to all sensors matching a selector expression.
 
         Iterates over all sensors matching the selector and applies
@@ -617,7 +622,7 @@ class Organization:
                 count += 1
         return {"tagged": count, "tag": tag, "selector": selector}
 
-    def mass_untag(self, selector, tag):
+    def mass_untag(self, selector: str, tag: str) -> dict[str, Any]:
         """Remove a tag from all sensors matching a selector expression.
 
         Iterates over all sensors matching the selector and removes
@@ -642,7 +647,7 @@ class Organization:
 
     # --- Online Sensors ---
 
-    def get_online_sensors(self, sids=None):
+    def get_online_sensors(self, sids: list[str] | None = None) -> list[str]:
         """Get list of online sensors.
 
         Args:
@@ -659,7 +664,7 @@ class Organization:
 
     # --- Sensors ---
 
-    def list_sensors(self, selector=None, limit=None, with_ip=None, with_hostname_prefix=None):
+    def list_sensors(self, selector: str | None = None, limit: int | None = None, with_ip: str | None = None, with_hostname_prefix: str | None = None) -> Generator[dict[str, Any], None, None]:
         """List sensors in the organization.
 
         Args:
@@ -693,7 +698,7 @@ class Organization:
             if not continuation_token:
                 break
 
-    def find_sensors_by_hostname(self, hostname):
+    def find_sensors_by_hostname(self, hostname: str) -> dict[str, Any]:
         """Find sensors by hostname prefix.
 
         Args:
@@ -705,7 +710,7 @@ class Organization:
         return self._client.request("GET", f"hostnames/{self.oid}",
                                     query_params={"hostname": hostname})
 
-    def find_sensors_by_ip(self, ip, start=None, end=None):
+    def find_sensors_by_ip(self, ip: str, start: int | None = None, end: int | None = None) -> dict[str, Any]:
         """Find sensors by IP address.
 
         Args:
@@ -723,7 +728,7 @@ class Organization:
             qp["end"] = str(end)
         return self._client.request("GET", f"ips/{self.oid}", query_params=qp)
 
-    def export_sensors(self):
+    def export_sensors(self) -> dict[str, Any]:
         """Export full sensor manifest.
 
         Returns:
@@ -731,7 +736,7 @@ class Organization:
         """
         return self._client.request("POST", f"export/{self.oid}/sensors")
 
-    def set_sensor_version(self, version=None, is_fallback=False, is_sleep=False):
+    def set_sensor_version(self, version: str | None = None, is_fallback: bool = False, is_sleep: bool = False) -> dict[str, Any]:
         """Set sensor version/branch for the organization.
 
         Args:
@@ -753,7 +758,7 @@ class Organization:
 
     # --- Services ---
 
-    def service_request(self, service_name, data, is_async=False, is_impersonate=False):
+    def service_request(self, service_name: str, data: dict[str, Any], is_async: bool = False, is_impersonate: bool = False) -> dict[str, Any]:
         """Send a request to a service/replicant.
 
         Args:
@@ -774,7 +779,7 @@ class Organization:
             params["jwt"] = self._client._jwt
         return self._client.request("POST", f"service/{self.oid}/{service_name}", params=params)
 
-    def get_available_services(self):
+    def get_available_services(self) -> list[str] | dict[str, Any]:
         """List available services/replicants.
 
         Returns:
@@ -785,7 +790,7 @@ class Organization:
 
     # --- Groups ---
 
-    def get_groups(self):
+    def get_groups(self) -> dict[str, Any]:
         """List organization groups.
 
         Returns:
@@ -793,7 +798,7 @@ class Organization:
         """
         return self._client.request("GET", "groups")
 
-    def create_group(self, name):
+    def create_group(self, name: str) -> dict[str, Any]:
         """Create a new group.
 
         Args:
@@ -804,7 +809,7 @@ class Organization:
         """
         return self._client.request("POST", "groups", params={"name": name})
 
-    def get_group(self, group_id):
+    def get_group(self, group_id: str) -> dict[str, Any]:
         """Get group details.
 
         Args:
@@ -815,7 +820,7 @@ class Organization:
         """
         return self._client.request("GET", f"groups/{group_id}")
 
-    def delete_group(self, group_id):
+    def delete_group(self, group_id: str) -> dict[str, Any]:
         """Delete a group.
 
         Args:
@@ -826,34 +831,34 @@ class Organization:
         """
         return self._client.request("DELETE", f"groups/{group_id}")
 
-    def add_group_owner(self, group_id, email):
+    def add_group_owner(self, group_id: str, email: str) -> dict[str, Any]:
         return self._client.request("POST", f"groups/{group_id}/owners", params={"email": email})
 
-    def remove_group_owner(self, group_id, email):
+    def remove_group_owner(self, group_id: str, email: str) -> dict[str, Any]:
         return self._client.request("DELETE", f"groups/{group_id}/owners", params={"email": email})
 
-    def add_group_member(self, group_id, email):
+    def add_group_member(self, group_id: str, email: str) -> dict[str, Any]:
         return self._client.request("POST", f"groups/{group_id}/users", params={"email": email})
 
-    def remove_group_member(self, group_id, email):
+    def remove_group_member(self, group_id: str, email: str) -> dict[str, Any]:
         return self._client.request("DELETE", f"groups/{group_id}/users", params={"email": email})
 
-    def set_group_permissions(self, group_id, permissions):
+    def set_group_permissions(self, group_id: str, permissions: dict[str, Any]) -> dict[str, Any]:
         return self._client.request("POST", f"groups/{group_id}/permissions",
                                     params={"permissions": json.dumps(permissions)})
 
-    def get_group_logs(self, group_id):
+    def get_group_logs(self, group_id: str) -> dict[str, Any]:
         return self._client.request("GET", f"groups/{group_id}/logs")
 
-    def add_group_org(self, group_id, oid):
+    def add_group_org(self, group_id: str, oid: str) -> dict[str, Any]:
         return self._client.request("POST", f"groups/{group_id}/orgs", params={"oid": oid})
 
-    def remove_group_org(self, group_id, oid):
+    def remove_group_org(self, group_id: str, oid: str) -> dict[str, Any]:
         return self._client.request("DELETE", f"groups/{group_id}/orgs", params={"oid": oid})
 
     # --- Extensions ---
 
-    def get_subscriptions(self):
+    def get_subscriptions(self) -> dict[str, Any] | None:
         """List subscribed extensions.
 
         Returns:
@@ -862,19 +867,19 @@ class Organization:
         data = self._client.request("GET", f"orgs/{self.oid}/resources")
         return data.get("resources", None)
 
-    def subscribe_to_extension(self, name):
+    def subscribe_to_extension(self, name: str) -> dict[str, Any]:
         res_cat, res_name = name.split("/", 1)
         return self._client.request("POST", f"orgs/{self.oid}/resources",
                                     params={"res_cat": res_cat, "res_name": res_name})
 
-    def unsubscribe_from_extension(self, name):
+    def unsubscribe_from_extension(self, name: str) -> dict[str, Any]:
         res_cat, res_name = name.split("/", 1)
         return self._client.request("DELETE", f"orgs/{self.oid}/resources",
                                     params={"res_cat": res_cat, "res_name": res_name})
 
     # --- Extension Rule Conversion ---
 
-    def convert_extension_rules(self, extension_name, is_dry_run=False):
+    def convert_extension_rules(self, extension_name: str, is_dry_run: bool = False) -> dict[str, Any]:
         """Convert/migrate D&R rules for use with an extension.
 
         Args:
@@ -891,7 +896,7 @@ class Organization:
 
     # --- Detections ---
 
-    def get_detections(self, start, end, limit=None, category=None):
+    def get_detections(self, start: int, end: int, limit: int | None = None, category: str | None = None) -> Generator[dict[str, Any], None, None]:
         """Get historical detections.
 
         Args:
@@ -922,7 +927,7 @@ class Organization:
             if limit is not None and n_returned >= limit:
                 return
 
-    def get_detection_by_id(self, detect_id):
+    def get_detection_by_id(self, detect_id: str) -> dict[str, Any]:
         """Get a detection by ID.
 
         Args:
@@ -935,7 +940,7 @@ class Organization:
 
     # --- Audit ---
 
-    def get_audit_logs(self, start, end, limit=None, event_type=None, sid=None):
+    def get_audit_logs(self, start: int, end: int, limit: int | None = None, event_type: str | None = None, sid: str | None = None) -> Generator[dict[str, Any], None, None]:
         """Get audit logs.
 
         Args:
@@ -971,7 +976,7 @@ class Organization:
 
     # --- Jobs ---
 
-    def get_jobs(self, start_time=None, end_time=None, limit=None, sid=None):
+    def get_jobs(self, start_time: int | None = None, end_time: int | None = None, limit: int | None = None, sid: str | None = None) -> list[dict[str, Any]]:
         """List service jobs.
 
         Args:

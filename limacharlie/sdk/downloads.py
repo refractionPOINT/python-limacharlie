@@ -4,6 +4,8 @@ Handles downloading sensor (EDR) installers and adapter binaries
 from downloads.limacharlie.io.
 """
 
+from __future__ import annotations
+
 import ssl
 from urllib.request import Request as URLRequest
 from urllib.request import urlopen
@@ -15,7 +17,7 @@ DOWNLOADS_URL = "https://downloads.limacharlie.io"
 # Sensor installer matrix
 # -----------------------------------------------------------------------
 # Maps (platform, architecture) to the URL path segment.
-SENSOR_TARGETS = {
+SENSOR_TARGETS: dict[tuple[str, str], str] = {
     # Windows
     ("windows", "64"): "sensor/windows/64",
     ("windows", "32"): "sensor/windows/32",
@@ -37,7 +39,7 @@ SENSOR_TARGETS = {
 # -----------------------------------------------------------------------
 # Adapter binary matrix
 # -----------------------------------------------------------------------
-ADAPTER_TARGETS = {
+ADAPTER_TARGETS: dict[tuple[str, str], str] = {
     # Linux
     ("linux", "64"): "adapter/linux/64",
     ("linux", "arm"): "adapter/linux/arm",
@@ -56,7 +58,7 @@ ADAPTER_TARGETS = {
 }
 
 
-def _create_ssl_context():
+def _create_ssl_context() -> ssl.SSLContext | None:
     try:
         ctx = ssl.create_default_context()
         if hasattr(ssl, "OP_IGNORE_UNEXPECTED_EOF"):
@@ -66,7 +68,7 @@ def _create_ssl_context():
         return None
 
 
-def list_sensor_targets():
+def list_sensor_targets() -> list[dict[str, str]]:
     """Return a list of available sensor (platform, architecture) pairs.
 
     Returns:
@@ -82,7 +84,7 @@ def list_sensor_targets():
     return results
 
 
-def list_adapter_targets():
+def list_adapter_targets() -> list[dict[str, str]]:
     """Return a list of available adapter (platform, architecture) pairs.
 
     Returns:
@@ -98,7 +100,7 @@ def list_adapter_targets():
     return results
 
 
-def download_binary(kind, platform, arch):
+def download_binary(kind: str, platform: str, arch: str) -> bytes:
     """Download a sensor installer or adapter binary.
 
     Args:

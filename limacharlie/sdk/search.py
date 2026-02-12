@@ -1,17 +1,24 @@
 """Search/LCQL SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
 import time
+from collections.abc import Generator
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 class Search:
     """LCQL query execution and saved query management."""
 
-    def __init__(self, org):
+    def __init__(self, org: Organization) -> None:
         self._org = org
-        self._search_url = None
+        self._search_url: str | None = None
 
-    def _get_search_url(self):
+    def _get_search_url(self) -> str:
         if self._search_url is None:
             urls = self._org.get_urls()
             search_url = urls.get("search", urls.get("search_api", ""))
@@ -23,7 +30,8 @@ class Search:
             self._search_url = search_url
         return self._search_url
 
-    def validate(self, query, start_time=None, end_time=None, stream=None):
+    def validate(self, query: str, start_time: int | None = None, end_time: int | None = None,
+                 stream: str | None = None) -> dict[str, Any]:
         """Validate LCQL syntax.
 
         Args:
@@ -40,7 +48,7 @@ class Search:
             start_time = int(time.time()) - 86400
         if end_time is None:
             end_time = int(time.time())
-        body = {
+        body: dict[str, Any] = {
             "oid": self._org.oid,
             "query": query,
             "startTime": str(int(start_time)),
@@ -55,7 +63,8 @@ class Search:
             alt_root=search_url,
         )
 
-    def estimate(self, query, start_time, end_time, stream=None):
+    def estimate(self, query: str, start_time: int, end_time: int,
+                 stream: str | None = None) -> dict[str, Any]:
         """Estimate billing cost for a query.
 
         Returns:
@@ -64,7 +73,8 @@ class Search:
         # Estimate uses the validate endpoint with additional parameters
         return self.validate(query, start_time, end_time, stream)
 
-    def execute(self, query, start_time, end_time, stream=None, limit=None):
+    def execute(self, query: str, start_time: int, end_time: int,
+                stream: str | None = None, limit: int | None = None) -> Generator[dict[str, Any], None, None]:
         """Execute an LCQL query and return results.
 
         Args:
@@ -78,7 +88,7 @@ class Search:
             dict: Result records.
         """
         search_url = self._get_search_url()
-        body = {
+        body: dict[str, Any] = {
             "oid": self._org.oid,
             "query": query,
             "startTime": str(int(start_time)),
@@ -100,10 +110,10 @@ class Search:
             return
 
         count = 0
-        token = None
+        token: str | None = None
         try:
             while True:
-                qp = {}
+                qp: dict[str, str] = {}
                 if token:
                     qp["token"] = token
 

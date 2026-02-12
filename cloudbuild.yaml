@@ -6,8 +6,7 @@ steps:
     - "-c"
     - |
       pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install -r requirements-tests.txt
+      pip install ".[dev]"
 
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
 
@@ -18,8 +17,7 @@ steps:
     - "-c"
     - |
       pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install -r requirements-tests.txt
+      pip install ".[dev]"
 
       # We use rerun since tests are flaky
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 10 tests/integration/ --oid=${_OID} --key=${_KEY}
@@ -30,7 +28,7 @@ steps:
   args:
     - "-c"
     - |
-      _VERSION=$(python setup.py --version 2> /dev/null)
+      _VERSION=$(python -c "from limacharlie.client import __version__; print(__version__)" 2> /dev/null)
       [ -n "$$_VERSION" ] || { echo "ERROR: _VERSION is empty or not set"; exit 1; };
       echo $$_VERSION > version.txt
       echo "Using Docker tag version: $$_VERSION"

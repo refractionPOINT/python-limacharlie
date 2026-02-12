@@ -4,6 +4,10 @@ Provides inline help topics, command discovery by use-case profile,
 and quick-reference cheatsheets.
 """
 
+from __future__ import annotations
+
+from typing import Callable
+
 import click
 
 from ..cli import pass_context
@@ -60,8 +64,8 @@ register_explain("help.cheatsheet", _EXPLAIN_CHEATSHEET)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
@@ -74,7 +78,7 @@ def _make_explain_callback(text):
 
 @click.group("help", invoke_without_command=True)
 @click.pass_context
-def group(ctx):
+def group(ctx) -> None:
     """Inline help topics, command discovery, and cheatsheets.
 
     Use 'limacharlie help topic <name>' for concept guides.
@@ -96,7 +100,7 @@ def group(ctx):
     callback=_make_explain_callback(_EXPLAIN_TOPIC),
     help="Show detailed explanation of this command.",
 )
-def topic(name):
+def topic(name) -> None:
     """Show a help topic (or list all topics).
 
     Examples:
@@ -136,7 +140,7 @@ def topic(name):
     callback=_make_explain_callback(_EXPLAIN_DISCOVER),
     help="Show detailed explanation of this command.",
 )
-def discover(profile):
+def discover(profile) -> None:
     """Discover commands by use-case profile.
 
     Examples:
@@ -157,7 +161,7 @@ def discover(profile):
     callback=_make_explain_callback(_EXPLAIN_CHEATSHEET),
     help="Show detailed explanation of this command.",
 )
-def cheatsheet(name):
+def cheatsheet(name) -> None:
     """Show a cheatsheet (or list all cheatsheets).
 
     Examples:

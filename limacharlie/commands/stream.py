@@ -5,6 +5,10 @@ real-time from the LimaCharlie cloud using pull-mode spouts or
 push-mode firehose listeners.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import json
 import signal
 import sys
@@ -94,21 +98,21 @@ register_explain("stream.firehose", _EXPLAIN_FIREHOSE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _stream_loop(spout):
+def _stream_loop(spout: Spout) -> None:
     """Read from spout queue and print each message until interrupted."""
     try:
         while True:
@@ -126,7 +130,7 @@ def _stream_loop(spout):
 # ---------------------------------------------------------------------------
 
 @click.group("stream")
-def group():
+def group() -> None:
     """Stream events, detections, and audit logs in real-time.
 
     Opens a pull-mode connection to the LimaCharlie cloud and
@@ -148,7 +152,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def events(ctx, tag, sid, inv_id):
+def events(ctx: click.Context, tag: str | None, sid: str | None, inv_id: str | None) -> None:
     """Stream sensor events in real-time.
 
     Examples:
@@ -176,7 +180,7 @@ def events(ctx, tag, sid, inv_id):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def detections(ctx, cat, sid):
+def detections(ctx: click.Context, cat: str | None, sid: str | None) -> None:
     """Stream detections in real-time.
 
     Examples:
@@ -201,7 +205,7 @@ def detections(ctx, cat, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def audit(ctx):
+def audit(ctx: click.Context) -> None:
     """Stream audit logs in real-time.
 
     Example:
@@ -218,7 +222,7 @@ def audit(ctx):
 # firehose
 # ---------------------------------------------------------------------------
 
-def _firehose_loop(fh):
+def _firehose_loop(fh: Firehose) -> None:
     """Read from firehose queue and print each message until interrupted."""
     try:
         while True:
@@ -248,7 +252,7 @@ def _firehose_loop(fh):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def firehose(ctx, listen, tls_cert, tls_key, data_type, name, public_dest):
+def firehose(ctx: click.Context, listen: str, tls_cert: str | None, tls_key: str | None, data_type: str, name: str | None, public_dest: str | None) -> None:
     """Start a push-mode firehose listener.
 
     Creates a TLS server that LimaCharlie connects to and pushes

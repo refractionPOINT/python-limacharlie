@@ -4,6 +4,10 @@ Commands for listing, retrieving, uploading, and downloading artifacts
 (uploaded logs and files) stored in LimaCharlie Insight.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import os
 import sys
 
@@ -78,7 +82,7 @@ register_explain("artifact.download", _EXPLAIN_DOWNLOAD)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -86,13 +90,13 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -103,7 +107,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("artifact")
-def group():
+def group() -> None:
     """Manage artifacts and uploaded logs.
 
     Artifacts are log files and binary data stored in LimaCharlie
@@ -127,7 +131,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_artifacts(ctx, sid, artifact_type, start, end, limit):
+def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
     """List artifacts.
 
     Examples:
@@ -159,7 +163,7 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, artifact_id):
+def get(ctx, artifact_id) -> None:
     """Get artifact details by ID.
 
     Example:
@@ -187,7 +191,7 @@ def get(ctx, artifact_id):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def upload(ctx, file_path, source, hint, retention_days, original_path):
+def upload(ctx, file_path, source, hint, retention_days, original_path) -> None:
     """Upload an artifact/log file.
 
     Requires LC_LOGS_TOKEN environment variable to be set with an
@@ -224,7 +228,7 @@ def upload(ctx, file_path, source, hint, retention_days, original_path):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def download(ctx, artifact_id, output_path):
+def download(ctx, artifact_id, output_path) -> None:
     """Download an artifact by ID.
 
     If --output-path is given, saves to that file.  Otherwise prints

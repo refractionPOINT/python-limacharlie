@@ -4,6 +4,10 @@ Commands for downloading sensor (EDR) installers and adapter binaries
 for all supported platforms and architectures.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import os
 import sys
 
@@ -112,7 +116,7 @@ register_explain("download.list", _EXPLAIN_LIST)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -120,13 +124,13 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _download_and_save(ctx, kind, platform, arch, output_path):
+def _download_and_save(ctx: click.Context, kind: str, platform: str, arch: str, output_path: str | None) -> None:
     """Download a binary and write it to disk or stdout."""
     filenames = _SENSOR_FILENAMES if kind == "sensor" else _ADAPTER_FILENAMES
 
@@ -163,7 +167,7 @@ def _download_and_save(ctx, kind, platform, arch, output_path):
 # ---------------------------------------------------------------------------
 
 @click.group("download")
-def group():
+def group() -> None:
     """Download sensor installers and adapter binaries.
 
     Download pre-built binaries for deploying LimaCharlie sensors (EDR
@@ -202,7 +206,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def sensor(ctx, platform, arch, output_path, show_list):
+def sensor(ctx, platform, arch, output_path, show_list) -> None:
     """Download a sensor (EDR) installer.
 
     Downloads the sensor agent binary for a given platform and
@@ -281,7 +285,7 @@ def sensor(ctx, platform, arch, output_path, show_list):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def adapter(ctx, platform, arch, output_path, show_list):
+def adapter(ctx, platform, arch, output_path, show_list) -> None:
     """Download an adapter (USP) binary.
 
     Downloads the adapter binary for a given platform and architecture
@@ -336,7 +340,7 @@ def adapter(ctx, platform, arch, output_path, show_list):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_targets(ctx):
+def list_targets(ctx) -> None:
     """List all available download targets.
 
     Shows every supported (platform, architecture) combination for both

@@ -4,6 +4,10 @@ Commands for viewing billing status, details, invoice URLs, and
 available plans for the organization.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -62,21 +66,21 @@ register_explain("billing.skus", _EXPLAIN_SKUS)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -87,7 +91,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("billing")
-def group():
+def group() -> None:
     """View billing status, details, invoices, and plans.
 
     Billing commands provide visibility into the organization's
@@ -106,7 +110,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def status(ctx):
+def status(ctx) -> None:
     """Get billing status.
 
     Example:
@@ -129,7 +133,7 @@ def status(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def details(ctx):
+def details(ctx) -> None:
     """Get detailed billing information.
 
     Example:
@@ -154,7 +158,7 @@ def details(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def invoice(ctx, year, month):
+def invoice(ctx, year, month) -> None:
     """Get invoice URL for a specific month.
 
     Example:
@@ -177,7 +181,7 @@ def invoice(ctx, year, month):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def plans(ctx):
+def plans(ctx) -> None:
     """List available billing plans.
 
     Example:
@@ -200,7 +204,7 @@ def plans(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def skus(ctx):
+def skus(ctx) -> None:
     """List SKU definitions for the organization.
 
     Example:

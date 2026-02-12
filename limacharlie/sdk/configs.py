@@ -1,10 +1,16 @@
 """Configuration Sync (IaC) SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
 import os
 import glob as glob_module
+from typing import Any, TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 class ConfigException(Exception):
@@ -28,7 +34,7 @@ class Configs:
         "installation_keys", "yara",
     }
 
-    def __init__(self, org, use_extension=False):
+    def __init__(self, org: Organization, use_extension: bool = False) -> None:
         """Create a Configs instance.
 
         Args:
@@ -38,10 +44,11 @@ class Configs:
         self._org = org
         self._use_extension = use_extension
 
-    def fetch(self, sync_rules=False, sync_fps=False, sync_outputs=False,
-              sync_integrity=False, sync_artifact=False, sync_exfil=False,
-              sync_resources=False, sync_extensions=False, sync_org_values=False,
-              sync_hives=None, sync_installation_keys=False, sync_yara=False):
+    def fetch(self, sync_rules: bool = False, sync_fps: bool = False, sync_outputs: bool = False,
+              sync_integrity: bool = False, sync_artifact: bool = False, sync_exfil: bool = False,
+              sync_resources: bool = False, sync_extensions: bool = False, sync_org_values: bool = False,
+              sync_hives: dict[str, bool] | None = None, sync_installation_keys: bool = False,
+              sync_yara: bool = False) -> dict[str, Any]:
         """Fetch the current org configuration from the cloud.
 
         Args:
@@ -100,7 +107,7 @@ class Configs:
                 "sync_installation_keys": sync_installation_keys,
                 "sync_yara": sync_yara,
             }, is_impersonate=True)
-            result = {"version": self.CONF_VERSION}
+            result: dict[str, Any] = {"version": self.CONF_VERSION}
             org_yaml = data.get("org", "")
             if org_yaml:
                 parsed = yaml.safe_load(org_yaml)
@@ -108,12 +115,12 @@ class Configs:
                     result.update(parsed)
             return result
 
-    def push(self, config, is_force=False, is_dry_run=False,
-             ignore_inaccessible=False, sync_rules=False, sync_fps=False,
-             sync_outputs=False, sync_integrity=False, sync_artifact=False,
-             sync_exfil=False, sync_resources=False, sync_extensions=False,
-             sync_org_values=False, sync_hives=None,
-             sync_installation_keys=False, sync_yara=False):
+    def push(self, config: dict[str, Any], is_force: bool = False, is_dry_run: bool = False,
+             ignore_inaccessible: bool = False, sync_rules: bool = False, sync_fps: bool = False,
+             sync_outputs: bool = False, sync_integrity: bool = False, sync_artifact: bool = False,
+             sync_exfil: bool = False, sync_resources: bool = False, sync_extensions: bool = False,
+             sync_org_values: bool = False, sync_hives: dict[str, bool] | None = None,
+             sync_installation_keys: bool = False, sync_yara: bool = False) -> list[tuple[str, str, str]]:
         """Push configuration to the org in the cloud.
 
         Args:
@@ -188,7 +195,7 @@ class Configs:
                 "sync_yara": sync_yara,
             }, is_impersonate=True)
 
-        results = []
+        results: list[tuple[str, str, str]] = []
         for op in data.get("ops", []):
             if op.get("is_added"):
                 results.append(("+", op["type"], op["name"]))
@@ -198,7 +205,7 @@ class Configs:
                 results.append(("=", op["type"], op["name"]))
         return results
 
-    def fetch_to_file(self, file_path, **kwargs):
+    def fetch_to_file(self, file_path: str, **kwargs: Any) -> dict[str, Any]:
         """Fetch configuration and save to a YAML file.
 
         Args:
@@ -210,7 +217,7 @@ class Configs:
             f.write(yaml.safe_dump(config, default_flow_style=False, version=(1, 1)).encode())
         return config
 
-    def push_from_file(self, file_path, **kwargs):
+    def push_from_file(self, file_path: str, **kwargs: Any) -> list[tuple[str, str, str]]:
         """Load configuration from a YAML file and push it.
 
         Args:
@@ -224,7 +231,7 @@ class Configs:
         config, _ = self._load_effective_config(file_path)
         return self.push(config=config, **kwargs)
 
-    def _load_effective_config(self, config_file):
+    def _load_effective_config(self, config_file: str) -> tuple[dict[str, Any], list[str]]:
         """Load a config file and resolve any includes.
 
         Args:
@@ -251,7 +258,7 @@ class Configs:
             if isinstance(includes, str):
                 includes = [includes]
 
-            globbed_includes = set()
+            globbed_includes: set[str] = set()
             for pattern in includes:
                 found = False
                 for match in glob_module.iglob(pattern, recursive=True):

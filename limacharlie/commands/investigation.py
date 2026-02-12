@@ -5,6 +5,10 @@ Investigations group related events and detections for incident
 response and threat hunting workflows.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import json
 
 import click
@@ -85,7 +89,7 @@ register_explain("investigation.expand", _EXPLAIN_EXPAND)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -93,19 +97,19 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _load_file(path):
+def _load_file(path: str) -> Any:
     """Load a JSON or YAML file and return parsed content."""
     with open(path, "r") as f:
         content = f.read()
@@ -121,7 +125,7 @@ def _load_file(path):
 # ---------------------------------------------------------------------------
 
 @click.group("investigation")
-def group():
+def group() -> None:
     """Manage investigations.
 
     Investigations group related events and detections for incident
@@ -140,7 +144,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_investigations(ctx):
+def list_investigations(ctx) -> None:
     """List all investigations.
 
     Example:
@@ -164,7 +168,7 @@ def list_investigations(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, investigation_id):
+def get(ctx, investigation_id) -> None:
     """Get investigation details.
 
     Example:
@@ -191,7 +195,7 @@ def get(ctx, investigation_id):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create(ctx, input_file):
+def create(ctx, input_file) -> None:
     """Create a new investigation from a file.
 
     Example:
@@ -220,7 +224,7 @@ def create(ctx, input_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, investigation_id, confirm):
+def delete(ctx, investigation_id, confirm) -> None:
     """Delete an investigation.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -261,7 +265,7 @@ def delete(ctx, investigation_id, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def update(ctx, investigation_id, input_file):
+def update(ctx, investigation_id, input_file) -> None:
     """Update an existing investigation.
 
     Example:
@@ -303,7 +307,7 @@ def update(ctx, investigation_id, input_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def expand(ctx, investigation_id, sid, events):
+def expand(ctx, investigation_id, sid, events) -> None:
     """Expand an investigation timeline.
 
     Examples:

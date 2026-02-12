@@ -4,60 +4,71 @@ Hive is a key-value store for LimaCharlie configuration data.
 Supports records with data, metadata, etag-based transactions.
 """
 
+from __future__ import annotations
+
 import json
+from dataclasses import dataclass
+from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as urlescape
 
+if TYPE_CHECKING:
+    from ..client import Client
+    from .organization import Organization
 
+
+@dataclass
 class HiveRecord:
     """Represents a record in a Hive."""
 
-    def __init__(self, name, data=None, raw=None):
-        """Initialize a HiveRecord.
+    name: str
+    data: dict[str, Any] | None = None
+    arl: str | None = None
+    expiry: int | None = None
+    enabled: bool | None = None
+    tags: list[str] | None = None
+    comment: str | None = None
+    etag: str | None = None
+    created_at: int | None = None
+    created_by: str | None = None
+    guid: str | None = None
+    last_author: str | None = None
+    last_modified: int | None = None
+    last_error: str | None = None
+    last_error_ts: int | None = None
+
+    @classmethod
+    def from_raw(cls, name: str, raw: dict[str, Any]) -> HiveRecord:
+        """Create from API response format.
 
         Args:
             name: Record name/key.
-            data: Record data dict.
             raw: Raw API response dict (has 'data', 'usr_mtd', 'sys_mtd').
         """
-        self.name = name
-        self.arl = None
+        data = raw.get("data")
+        if data is not None and not isinstance(data, dict):
+            data = json.loads(data)
+        usr = raw.get("usr_mtd", {})
+        sys_mtd = raw.get("sys_mtd", {})
+        return cls(
+            name=name,
+            data=data,
+            expiry=usr.get("expiry"),
+            enabled=usr.get("enabled"),
+            tags=usr.get("tags"),
+            comment=usr.get("comment"),
+            etag=sys_mtd.get("etag"),
+            created_at=sys_mtd.get("created_at"),
+            created_by=sys_mtd.get("created_by"),
+            guid=sys_mtd.get("guid"),
+            last_author=sys_mtd.get("last_author"),
+            last_modified=sys_mtd.get("last_mod"),
+            last_error=sys_mtd.get("last_error"),
+            last_error_ts=sys_mtd.get("last_error_ts"),
+        )
 
-        if raw is not None:
-            self.data = raw.get("data")
-            if self.data is not None and not isinstance(self.data, dict):
-                self.data = json.loads(self.data)
-            usr = raw.get("usr_mtd", {})
-            self.expiry = usr.get("expiry")
-            self.enabled = usr.get("enabled")
-            self.tags = usr.get("tags")
-            self.comment = usr.get("comment")
-            sys_mtd = raw.get("sys_mtd", {})
-            self.etag = sys_mtd.get("etag")
-            self.created_at = sys_mtd.get("created_at")
-            self.created_by = sys_mtd.get("created_by")
-            self.guid = sys_mtd.get("guid")
-            self.last_author = sys_mtd.get("last_author")
-            self.last_modified = sys_mtd.get("last_mod")
-            self.last_error = sys_mtd.get("last_error")
-            self.last_error_ts = sys_mtd.get("last_error_ts")
-        else:
-            self.data = data
-            self.expiry = None
-            self.enabled = None
-            self.tags = None
-            self.comment = None
-            self.etag = None
-            self.created_at = None
-            self.created_by = None
-            self.guid = None
-            self.last_author = None
-            self.last_modified = None
-            self.last_error = None
-            self.last_error_ts = None
-
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict matching the API format."""
-        result = {"data": self.data, "usr_mtd": {}, "sys_mtd": {}}
+        result: dict[str, Any] = {"data": self.data, "usr_mtd": {}, "sys_mtd": {}}
         if self.expiry is not None:
             result["usr_mtd"]["expiry"] = self.expiry
         if self.enabled is not None:
@@ -80,7 +91,7 @@ class Hive:
         record = hive.get("my-rule")
     """
 
-    def __init__(self, org, hive_name, partition_key=None):
+    def __init__(self, org: Organization, hive_name: str, partition_key: str | None = None) -> None:
         """Initialize a Hive client.
 
         Args:
@@ -93,10 +104,10 @@ class Hive:
         self._partition_key = partition_key or org.oid
 
     @property
-    def client(self):
+    def client(self) -> Client:
         return self._org.client
 
-    def list(self):
+    def list(self) -> dict[str, HiveRecord]:
         """List all records in this hive.
 
         Returns:
@@ -104,11 +115,11 @@ class Hive:
         """
         resp = self.client.request("GET", f"hive/{self._hive_name}/{self._partition_key}")
         return {
-            name: HiveRecord(name, raw=record)
+            name: HiveRecord.from_raw(name, record)
             for name, record in resp.items()
         }
 
-    def get(self, record_name):
+    def get(self, record_name: str) -> HiveRecord:
         """Get a record by name.
 
         Args:
@@ -121,9 +132,9 @@ class Hive:
             "GET",
             f"hive/{self._hive_name}/{self._partition_key}/{urlescape(record_name, safe='')}/data",
         )
-        return HiveRecord(record_name, raw=resp)
+        return HiveRecord.from_raw(record_name, resp)
 
-    def get_metadata(self, record_name):
+    def get_metadata(self, record_name: str) -> HiveRecord:
         """Get only the metadata for a record.
 
         Args:
@@ -136,9 +147,9 @@ class Hive:
             "GET",
             f"hive/{self._hive_name}/{self._partition_key}/{urlescape(record_name, safe='')}/mtd",
         )
-        return HiveRecord(record_name, raw=resp)
+        return HiveRecord.from_raw(record_name, resp)
 
-    def set(self, record):
+    def set(self, record: HiveRecord) -> dict[str, Any]:
         """Create or update a record.
 
         Args:
@@ -177,7 +188,7 @@ class Hive:
             params=req,
         )
 
-    def delete(self, record_name):
+    def delete(self, record_name: str) -> dict[str, Any]:
         """Delete a record.
 
         Args:
@@ -191,7 +202,7 @@ class Hive:
             f"hive/{self._hive_name}/{self._partition_key}/{urlescape(record_name, safe='')}",
         )
 
-    def validate(self, record):
+    def validate(self, record: HiveRecord) -> dict[str, Any]:
         """Validate a record without saving it.
 
         Args:
@@ -226,7 +237,7 @@ class Hive:
             params=req,
         )
 
-    def rename(self, record_name, new_name):
+    def rename(self, record_name: str, new_name: str) -> dict[str, Any]:
         """Rename a record.
 
         Args:
@@ -242,7 +253,7 @@ class Hive:
             query_params={"new_name": new_name},
         )
 
-    def update_tx(self, record_name, callback, max_retries=5):
+    def update_tx(self, record_name: str, callback: Callable[[HiveRecord], None], max_retries: int = 5) -> dict[str, Any]:
         """Transactional update with automatic etag retry.
 
         Fetches the record, calls callback(record), then saves with etag.

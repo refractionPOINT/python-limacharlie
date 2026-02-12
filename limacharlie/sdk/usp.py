@@ -1,20 +1,28 @@
 """USP (Universal Sensor Protocol) SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 class USP:
     """USP adapter validation."""
 
-    def __init__(self, org):
+    def __init__(self, org: Organization) -> None:
         self._org = org
 
     @property
-    def client(self):
+    def client(self) -> Any:
         return self._org.client
 
-    def validate(self, platform, mapping=None, mappings=None, text_input=None,
-                 json_input=None, hostname=None, indexing=None):
+    def validate(self, platform: str, mapping: dict[str, Any] | None = None,
+                 mappings: list[dict[str, Any]] | None = None, text_input: str | None = None,
+                 json_input: dict[str, Any] | None = None, hostname: str | None = None,
+                 indexing: dict[str, Any] | None = None) -> dict[str, Any]:
         """Validate USP adapter configuration.
 
         Args:
@@ -29,7 +37,7 @@ class USP:
         Returns:
             dict: Validation results.
         """
-        body = {"platform": platform}
+        body: dict[str, Any] = {"platform": platform}
         if mapping:
             body["mapping"] = mapping
         if mappings:

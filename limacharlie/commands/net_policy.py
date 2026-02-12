@@ -6,6 +6,10 @@ communicating with anything other than the LimaCharlie cloud, cutting
 off lateral movement and data exfiltration.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -87,21 +91,21 @@ register_explain("net-policy.unseal", _EXPLAIN_UNSEAL)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_sensor(ctx, sid):
+def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     org = Organization(client)
@@ -113,7 +117,7 @@ def _get_sensor(ctx, sid):
 # ---------------------------------------------------------------------------
 
 @click.group("net-policy")
-def group():
+def group() -> None:
     """Manage sensor network isolation.
 
     Network isolation prevents an endpoint from communicating with
@@ -134,7 +138,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def isolate(ctx, sid):
+def isolate(ctx: click.Context, sid: str) -> None:
     """Network-isolate a sensor (block all non-LC traffic).
 
     Example:
@@ -159,7 +163,7 @@ def isolate(ctx, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def rejoin(ctx, sid):
+def rejoin(ctx: click.Context, sid: str) -> None:
     """Remove network isolation from a sensor.
 
     Example:
@@ -184,7 +188,7 @@ def rejoin(ctx, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def status(ctx, sid):
+def status(ctx: click.Context, sid: str) -> None:
     """Check the network isolation status of a sensor.
 
     Example:
@@ -208,7 +212,7 @@ def status(ctx, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def seal(ctx, sid, confirm):
+def seal(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Seal a sensor (lock its configuration).
 
     This is a disruptive operation.  Pass --confirm to proceed.
@@ -245,7 +249,7 @@ def seal(ctx, sid, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def unseal(ctx, sid, confirm):
+def unseal(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Remove the seal from a sensor (unlock its configuration).
 
     This is a disruptive operation.  Pass --confirm to proceed.

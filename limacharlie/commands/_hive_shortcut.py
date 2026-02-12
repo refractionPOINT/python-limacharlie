@@ -1,7 +1,10 @@
 """Shared factory for hive-shortcut CLI commands (secret, lookup, playbook, etc.)."""
 
+from __future__ import annotations
+
 import json
 import sys
+from typing import Any, Callable
 
 import click
 import yaml
@@ -15,19 +18,19 @@ from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text)
@@ -35,7 +38,7 @@ def _make_explain_callback(text):
     return callback
 
 
-def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
+def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None) -> click.Group:
     """Create a Click group for a specific hive type.
 
     Args:
@@ -56,7 +59,7 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
     explain_delete = f"Delete a {noun_singular} from the '{hive_name}' hive. Requires --confirm for safety."
 
     @click.group(group_name)
-    def grp():
+    def grp() -> None:
         pass
 
     grp.help = f"Manage {noun_plural} in the {hive_name} hive."
@@ -64,7 +67,7 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
     @grp.command("list")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_list))
     @pass_context
-    def list_cmd(ctx):
+    def list_cmd(ctx) -> None:
         """List all records."""
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
@@ -76,7 +79,7 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_get))
     @pass_context
-    def get_cmd(ctx, key):
+    def get_cmd(ctx, key) -> None:
         """Get a record by key."""
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
@@ -88,7 +91,7 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
     @click.option("--input-file", type=click.Path(exists=True), default=None, help="JSON or YAML file with record data.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_set))
     @pass_context
-    def set_cmd(ctx, key, input_file):
+    def set_cmd(ctx, key, input_file) -> None:
         """Create or update a record."""
         if input_file:
             with open(input_file, "r") as f:
@@ -116,7 +119,7 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
             }
             if data.get("etag"):
                 raw["sys_mtd"]["etag"] = data["etag"]
-            record = HiveRecord(key, raw=raw)
+            record = HiveRecord.from_raw(key, raw)
         else:
             record = HiveRecord(key, data=data)
         org = _get_org(ctx)
@@ -129,7 +132,7 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
     @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_delete))
     @pass_context
-    def delete_cmd(ctx, key, confirm):
+    def delete_cmd(ctx, key, confirm) -> None:
         """Delete a record."""
         if not confirm:
             raise click.UsageError("Destructive operation requires --confirm flag.")

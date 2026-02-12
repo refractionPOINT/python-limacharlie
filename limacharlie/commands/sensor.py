@@ -3,6 +3,10 @@
 Commands for listing, inspecting, and managing sensors in an organization.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import json
 
 import click
@@ -151,27 +155,27 @@ register_explain("sensor.sweep", _EXPLAIN_SWEEP)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _get_sensor(ctx, sid):
+def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
     org = _get_org(ctx)
     return Sensor(org, sid)
 
@@ -181,7 +185,7 @@ def _get_sensor(ctx, sid):
 # ---------------------------------------------------------------------------
 
 @click.group("sensor")
-def group():
+def group() -> None:
     """List, inspect, and manage sensors.
 
     Sensors are the agents installed on endpoints.  Use these commands
@@ -206,7 +210,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_sensors(ctx, tag, hostname, ip, limit, offset):
+def list_sensors(ctx: click.Context, tag: str | None, hostname: str | None, ip: str | None, limit: int | None, offset: int | None) -> None:
     """List sensors in the organization.
 
     Examples:
@@ -259,7 +263,7 @@ def list_sensors(ctx, tag, hostname, ip, limit, offset):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, sid):
+def get(ctx: click.Context, sid: str) -> None:
     """Get full details for a sensor.
 
     Example:
@@ -283,7 +287,7 @@ def get(ctx, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, sid, confirm):
+def delete(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Permanently delete a sensor.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -319,7 +323,7 @@ def delete(ctx, sid, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def online(ctx, sid):
+def online(ctx: click.Context, sid: str) -> None:
     """Check if a sensor is currently online.
 
     Example:
@@ -343,7 +347,7 @@ def online(ctx, sid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def wait_online(ctx, sid, timeout):
+def wait_online(ctx: click.Context, sid: str, timeout: int) -> None:
     """Wait for a sensor to come online.
 
     Blocks until the sensor is online or the timeout expires.
@@ -375,7 +379,7 @@ def wait_online(ctx, sid, timeout):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def upgrade(ctx):
+def upgrade(ctx: click.Context) -> None:
     """Upgrade sensors in the organization.
 
     Triggers all sensors to download and apply the currently configured version.
@@ -405,7 +409,7 @@ def upgrade(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def set_version(ctx, version_str, fallback, is_sleep):
+def set_version(ctx: click.Context, version_str: str | None, fallback: bool, is_sleep: bool) -> None:
     """Set the sensor version for the organization.
 
     Provide --version for a specific version, --fallback for the stable
@@ -452,7 +456,7 @@ def set_version(ctx, version_str, fallback, is_sleep):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def export_sensors(ctx, selector):
+def export_sensors(ctx: click.Context, selector: str | None) -> None:
     """Export full sensor data for the organization.
 
     Lists all sensors and outputs their complete data.  Use --selector
@@ -485,7 +489,7 @@ def export_sensors(ctx, selector):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def dump(ctx, sid, confirm):
+def dump(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Trigger a full memory dump on a sensor.
 
     This is a heavyweight operation.  Pass --confirm to proceed.
@@ -525,7 +529,7 @@ def dump(ctx, sid, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def sweep(ctx, sid, config_str):
+def sweep(ctx: click.Context, sid: str, config_str: str) -> None:
     """Run a sweep on a sensor with a custom configuration.
 
     The --config value can be a JSON string or a path to a JSON file.

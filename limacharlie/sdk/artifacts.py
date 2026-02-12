@@ -3,13 +3,19 @@
 Artifact/log upload and management. Uses v1 Logs.py API patterns.
 """
 
+from __future__ import annotations
+
 import base64
 import json
 import os
 import uuid
+from typing import Any, TYPE_CHECKING
 from urllib.error import HTTPError
 from urllib.request import Request as URLRequest
 from urllib.request import urlopen
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 MAX_UPLOAD_PART_SIZE = 1024 * 1024 * 15
@@ -18,7 +24,7 @@ MAX_UPLOAD_PART_SIZE = 1024 * 1024 * 15
 class Artifacts:
     """Artifact upload, download, and rule management."""
 
-    def __init__(self, org, access_token=None):
+    def __init__(self, org: Organization, access_token: str | None = None) -> None:
         """Initialize Artifacts.
 
         Args:
@@ -32,14 +38,15 @@ class Artifacts:
             self._access_token = os.environ.get("LC_LOGS_TOKEN")
         if self._access_token is not None:
             self._access_token = str(uuid.UUID(str(self._access_token)))
-        self._upload_url = None
+        self._upload_url: str | None = None
 
     @property
-    def client(self):
+    def client(self) -> Any:
         return self._org.client
 
-    def upload(self, file_path, source=None, hint=None, retention_days=30,
-               original_path=None, payload_id=None):
+    def upload(self, file_path: str, source: str | None = None, hint: str | None = None,
+               retention_days: int = 30, original_path: str | None = None,
+               payload_id: str | None = None) -> dict[str, Any]:
         """Upload an artifact/log file.
 
         Uses the ingestion endpoint with Basic auth (oid:access_token),
@@ -64,7 +71,7 @@ class Artifacts:
             urls = self._org.get_urls()
             self._upload_url = urls.get("logs", "")
 
-        headers = {
+        headers: dict[str, str] = {
             "Authorization": "Basic %s" % base64.b64encode(
                 ("%s:%s" % (self._org.oid, self._access_token)).encode()
             ).decode(),
@@ -107,7 +114,7 @@ class Artifacts:
                 if payload_id is None:
                     headers["lc-payload-id"] = str(uuid.uuid4())
 
-                response = {}
+                response: dict[str, Any] = {}
                 while True:
                     chunk = f.read(MAX_UPLOAD_PART_SIZE)
                     if not chunk:
@@ -135,7 +142,8 @@ class Artifacts:
 
         return response
 
-    def list(self, sid=None, start=None, end=None, cursor=None):
+    def list(self, sid: str | None = None, start: int | None = None, end: int | None = None,
+             cursor: str | None = None) -> dict[str, Any]:
         """List artifacts.
 
         Args:
@@ -148,7 +156,7 @@ class Artifacts:
             dict: Artifact list.
         """
         import time as _time
-        qp = {}
+        qp: dict[str, str] = {}
         if sid:
             qp["sid"] = str(sid)
         if cursor:
@@ -163,7 +171,7 @@ class Artifacts:
         return self.client.request("GET", f"insight/{self._org.oid}/artifacts",
                                    query_params=qp)
 
-    def get(self, artifact_id):
+    def get(self, artifact_id: str) -> dict[str, Any]:
         """Get artifact details.
 
         Args:
@@ -174,7 +182,7 @@ class Artifacts:
         """
         return self.client.request("GET", f"insight/{self._org.oid}/artifacts/{artifact_id}")
 
-    def get_url(self, artifact_id):
+    def get_url(self, artifact_id: str) -> dict[str, Any]:
         """Get download URL or inline data for an artifact.
 
         Requests the original artifact data.  For small artifacts the
@@ -191,7 +199,7 @@ class Artifacts:
             "POST", f"insight/{self._org.oid}/artifacts/originals/{artifact_id}",
         )
 
-    def get_rules(self):
+    def get_rules(self) -> dict[str, Any]:
         """List artifact collection rules.
 
         Returns:
@@ -199,8 +207,9 @@ class Artifacts:
         """
         return self.client.request("GET", f"insight/{self._org.oid}/artifacts/rules")
 
-    def set_rule(self, rule_name, platforms, patterns, is_delete_after=False,
-                 retention_days=30, tags=None):
+    def set_rule(self, rule_name: str, platforms: list[str], patterns: list[str],
+                 is_delete_after: bool = False, retention_days: int = 30,
+                 tags: list[str] | None = None) -> dict[str, Any]:
         """Create or update an artifact collection rule.
 
         Args:
@@ -214,7 +223,7 @@ class Artifacts:
         Returns:
             dict: API response.
         """
-        params = {
+        params: dict[str, Any] = {
             "name": rule_name,
             "platforms": platforms,
             "patterns": patterns,
@@ -229,7 +238,7 @@ class Artifacts:
             content_type="application/json",
         )
 
-    def delete_rule(self, rule_name):
+    def delete_rule(self, rule_name: str) -> dict[str, Any]:
         """Delete an artifact collection rule.
 
         Args:

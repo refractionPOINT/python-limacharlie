@@ -1,13 +1,19 @@
 """Spout (streaming pull) SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
 import threading
 import time
 from queue import Queue, Empty
+from typing import Any, TYPE_CHECKING
 
 import requests
 
 from ..errors import ValidationError, ApiError
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 _CLOUD_KEEP_ALIVES = 60
 _TIMEOUT_SEC = (_CLOUD_KEEP_ALIVES * 2) + 1
@@ -32,8 +38,10 @@ class Spout:
             spout.shutdown()
     """
 
-    def __init__(self, org, data_type, is_parse=True, max_buffer=1024,
-                 inv_id=None, tag=None, cat=None, sid=None, extra_params=None):
+    def __init__(self, org: Organization, data_type: str, is_parse: bool = True,
+                 max_buffer: int = 1024, inv_id: str | None = None, tag: str | None = None,
+                 cat: str | None = None, sid: str | None = None,
+                 extra_params: dict[str, str] | None = None) -> None:
         """Connect to limacharlie.io to start receiving streaming data.
 
         Args:
@@ -59,7 +67,7 @@ class Spout:
         self._is_stop = False
 
         # Build spout parameters.
-        self._spout_params = {"type": self._data_type}
+        self._spout_params: dict[str, str] = {"type": self._data_type}
         if hasattr(org, 'client') and org.client._api_key:
             self._spout_params["api_key"] = org.client._api_key
         elif hasattr(org, 'client') and org.client._jwt:
@@ -77,8 +85,8 @@ class Spout:
         if extra_params:
             self._spout_params.update(extra_params)
 
-        self.queue = Queue(maxsize=self._max_buffer)
-        self._threads = []
+        self.queue: Queue[Any] = Queue(maxsize=self._max_buffer)
+        self._threads: list[threading.Thread] = []
 
         # Connect to stream.
         self._conn = self._get_stream()
@@ -89,7 +97,7 @@ class Spout:
         self._threads.append(t)
         t.start()
 
-    def _get_stream(self):
+    def _get_stream(self) -> requests.Response:
         return requests.post(
             f"{_STREAM_URL}/{self._oid}",
             data=self._spout_params,
@@ -98,7 +106,7 @@ class Spout:
             timeout=_TIMEOUT_SEC,
         )
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Stop receiving data and clean up."""
         if self._is_stop:
             return
@@ -112,7 +120,7 @@ class Spout:
         for t in self._threads:
             t.join(timeout=2)
 
-    def get(self, timeout=1):
+    def get(self, timeout: int = 1) -> Any | None:
         """Get next message from the queue.
 
         Args:
@@ -127,20 +135,20 @@ class Spout:
             return None
 
     @property
-    def dropped(self):
+    def dropped(self) -> int:
         """Number of messages dropped because the queue was full."""
         return self._dropped
 
-    def reset_dropped(self):
+    def reset_dropped(self) -> None:
         """Reset the dropped message counter."""
         self._dropped = 0
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         """Whether the spout is still running."""
         return not self._is_stop
 
-    def _handle_connection(self):
+    def _handle_connection(self) -> None:
         while not self._is_stop:
             try:
                 for line in self._conn.iter_lines(chunk_size=1024 * 1024 * 10):

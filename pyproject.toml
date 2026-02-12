@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "limacharlie"
+version = "2.0.0"
+description = "Python API for LimaCharlie.io"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{name = "Maxime Lamothe-Brassard", email = "maxime@refractionpoint.com"}]
+requires-python = ">=3.9"
+dependencies = [
+    "requests",
+    "passlib",
+    "pyyaml",
+    "tabulate",
+    "termcolor",
+    "pygments",
+    "rich",
+    "cryptography>=44.0.1",
+    "click>=8.0",
+    "jmespath",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-rerunfailures==15.0",
+]
+
+[project.scripts]
+limacharlie = "limacharlie.cli:main"
+
+[project.urls]
+Homepage = "https://limacharlie.io"
+
+[tool.setuptools.packages.find]
+include = ["limacharlie*"]

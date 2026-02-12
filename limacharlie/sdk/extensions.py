@@ -1,50 +1,56 @@
 """Extensions SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import base64
 import gzip
 import json
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 class Extensions:
     """Extension subscription and request management."""
 
-    def __init__(self, org):
+    def __init__(self, org: Organization) -> None:
         self._org = org
 
-    def list_subscribed(self):
+    def list_subscribed(self) -> dict[str, Any]:
         return self._org.client.request("GET", f"orgs/{self._org.oid}/subscriptions")
 
-    def subscribe(self, name):
+    def subscribe(self, name: str) -> dict[str, Any]:
         return self._org.client.request(
             "POST", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
         )
 
-    def unsubscribe(self, name):
+    def unsubscribe(self, name: str) -> dict[str, Any]:
         return self._org.client.request(
             "DELETE", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
         )
 
-    def rekey(self, name):
+    def rekey(self, name: str) -> dict[str, Any]:
         return self._org.client.request(
             "PATCH", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
         )
 
-    def get_all(self):
+    def get_all(self) -> dict[str, Any]:
         """List all available extensions."""
         return self._org.client.request("GET", "extension/definition", params={})
 
-    def get(self, name):
+    def get(self, name: str) -> dict[str, Any]:
         """Get extension details."""
         return self._org.client.request("GET", f"extension/definition/{name}")
 
-    def get_schema(self, name):
+    def get_schema(self, name: str) -> dict[str, Any]:
         """Get extension schema."""
         return self._org.client.request(
             "GET", f"extension/schema/{name}",
             query_params={"oid": self._org.oid},
         )
 
-    def create(self, ext_obj):
+    def create(self, ext_obj: dict[str, Any]) -> dict[str, Any]:
         """Create an extension."""
         return self._org.client.request(
             "POST", "extension/definition", params={},
@@ -52,7 +58,7 @@ class Extensions:
             content_type="application/json",
         )
 
-    def update(self, ext_obj):
+    def update(self, ext_obj: dict[str, Any]) -> dict[str, Any]:
         """Update an extension."""
         return self._org.client.request(
             "PUT", "extension/definition", params={},
@@ -60,11 +66,12 @@ class Extensions:
             content_type="application/json",
         )
 
-    def delete(self, name):
+    def delete(self, name: str) -> dict[str, Any]:
         """Delete an extension."""
         return self._org.client.request("DELETE", f"extension/definition/{name}")
 
-    def request(self, extension_name, action, data=None, is_impersonated=False):
+    def request(self, extension_name: str, action: str, data: dict[str, Any] | None = None,
+                is_impersonated: bool = False) -> dict[str, Any]:
         """Call an extension.
 
         Args:
@@ -78,7 +85,7 @@ class Extensions:
         """
         if data is None:
             data = {}
-        params = {
+        params: dict[str, Any] = {
             "oid": self._org.oid,
             "action": action,
             "gzdata": base64.b64encode(gzip.compress(json.dumps(data).encode())),

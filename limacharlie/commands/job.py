@@ -5,6 +5,10 @@ jobs.  Jobs track asynchronous operations performed by LimaCharlie
 services and replicants.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -64,7 +68,7 @@ register_explain("job.wait", _EXPLAIN_WAIT)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -72,13 +76,13 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -89,7 +93,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("job")
-def group():
+def group() -> None:
     """Manage service jobs.
 
     Jobs track asynchronous operations performed by LimaCharlie
@@ -109,7 +113,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_jobs(ctx):
+def list_jobs(ctx) -> None:
     """List service jobs.
 
     Example:
@@ -133,7 +137,7 @@ def list_jobs(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, job_id):
+def get(ctx, job_id) -> None:
     """Get job details.
 
     Example:
@@ -158,7 +162,7 @@ def get(ctx, job_id):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, job_id, confirm):
+def delete(ctx, job_id, confirm) -> None:
     """Delete a job.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -196,7 +200,7 @@ def delete(ctx, job_id, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def wait(ctx, job_id, timeout):
+def wait(ctx, job_id, timeout) -> None:
     """Wait for a job to complete.
 
     Polls the job status until it completes or the timeout expires.

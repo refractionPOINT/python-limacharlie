@@ -5,6 +5,10 @@ rules.  Integrity rules watch for file system changes on endpoints
 and generate events when monitored files or directories are modified.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -68,7 +72,7 @@ register_explain("integrity.get", _EXPLAIN_GET)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -76,13 +80,13 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -93,7 +97,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("integrity")
-def group():
+def group() -> None:
     """Manage integrity monitoring rules.
 
     Integrity monitoring watches for file system changes on
@@ -113,7 +117,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_rules(ctx):
+def list_rules(ctx) -> None:
     """List integrity monitoring rules.
 
     Example:
@@ -141,7 +145,7 @@ def list_rules(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create(ctx, name, patterns):
+def create(ctx, name, patterns) -> None:
     """Create an integrity monitoring rule.
 
     Examples:
@@ -178,7 +182,7 @@ def create(ctx, name, patterns):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, name, confirm):
+def delete(ctx, name, confirm) -> None:
     """Delete an integrity monitoring rule.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -215,7 +219,7 @@ def delete(ctx, name, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, name):
+def get(ctx, name) -> None:
     """Get a single integrity monitoring rule by name.
 
     Example:

@@ -4,6 +4,8 @@ Each help topic provides a concept guide available via `limacharlie help <topic>
 Cheatsheets provide quick-reference examples via `limacharlie cheatsheet <topic>`.
 """
 
+from __future__ import annotations
+
 # ---------------------------------------------------------------------------
 # Help topics registry
 # ---------------------------------------------------------------------------
@@ -849,7 +851,7 @@ limacharlie search run --query '...' --start -24h --end now --output json | jq '
 # Lookup functions
 # ---------------------------------------------------------------------------
 
-def get_help_topic(name):
+def get_help_topic(name: str) -> str | None:
     """Get help topic content by name.
 
     Args:
@@ -861,7 +863,7 @@ def get_help_topic(name):
     return HELP_TOPICS.get(name)
 
 
-def list_help_topics():
+def list_help_topics() -> list[str]:
     """List all available help topic names.
 
     Returns:
@@ -870,7 +872,7 @@ def list_help_topics():
     return sorted(HELP_TOPICS.keys())
 
 
-def get_cheatsheet(name):
+def get_cheatsheet(name: str) -> str | None:
     """Get cheatsheet content by name.
 
     Args:
@@ -882,7 +884,7 @@ def get_cheatsheet(name):
     return CHEATSHEETS.get(name)
 
 
-def list_cheatsheets():
+def list_cheatsheets() -> list[str]:
     """List all available cheatsheet names.
 
     Returns:

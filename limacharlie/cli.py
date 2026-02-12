@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Main CLI entry point for LimaCharlie v2.
 
 Uses Click for the CLI framework. Global options (--oid, --output, --debug, etc.)
@@ -8,22 +10,23 @@ import importlib
 import os
 import pkgutil
 import sys
+from dataclasses import dataclass
 
 import click
 
 from .client import __version__
 
 
+@dataclass
 class LimaCharlieContext:
     """Context object passed to all CLI commands via Click context."""
 
-    def __init__(self):
-        self.oid = None
-        self.output_format = None
-        self.debug = False
-        self.quiet = False
-        self.profile = None
-        self.environment = None
+    oid: str | None = None
+    output_format: str | None = None
+    debug: bool = False
+    quiet: bool = False
+    profile: str | None = None
+    environment: str | None = None
 
 
 pass_context = click.pass_context
@@ -43,7 +46,7 @@ pass_context = click.pass_context
 @click.option("--env", "environment", default=None, help="Named environment from config file.")
 @click.version_option(version=__version__, prog_name="limacharlie")
 @click.pass_context
-def cli(ctx, oid, output_format, debug, quiet, profile, environment):
+def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, quiet: bool, profile: str | None, environment: str | None) -> None:
     """LimaCharlie CLI - Endpoint Detection & Response platform.
 
     Manage sensors, detection rules, hive data, and more from the command line.
@@ -59,7 +62,7 @@ def cli(ctx, oid, output_format, debug, quiet, profile, environment):
     lc_ctx.environment = environment
 
 
-def _auto_discover_commands():
+def _auto_discover_commands() -> None:
     """Auto-discover and register command modules from limacharlie/commands/."""
     commands_package = "limacharlie.commands"
     try:
@@ -91,7 +94,7 @@ def _auto_discover_commands():
 _auto_discover_commands()
 
 
-def main():
+def main() -> None:
     """CLI entry point."""
     try:
         cli(standalone_mode=False)

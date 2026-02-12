@@ -4,6 +4,10 @@ Commands for listing and retrieving historical events from sensors
 via LimaCharlie Insight.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -120,21 +124,21 @@ register_explain("event.retention", _EXPLAIN_RETENTION)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -145,7 +149,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("event")
-def group():
+def group() -> None:
     """Query historical sensor events.
 
     Retrieve events stored in the Insight data lake for individual
@@ -170,7 +174,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_events(ctx, sid, start, end, limit, event_type):
+def list_events(ctx: click.Context, sid: str, start: int, end: int, limit: int | None, event_type: str | None) -> None:
     """List events for a sensor.
 
     Examples:
@@ -197,7 +201,7 @@ def list_events(ctx, sid, start, end, limit, event_type):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, sid, atom):
+def get(ctx: click.Context, sid: str, atom: str) -> None:
     """Get an event by atom.
 
     Example:
@@ -222,7 +226,7 @@ def get(ctx, sid, atom):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def children(ctx, sid, atom):
+def children(ctx: click.Context, sid: str, atom: str) -> None:
     """Get child events of an atom.
 
     Example:
@@ -248,7 +252,7 @@ def children(ctx, sid, atom):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def overview(ctx, sid, start, end):
+def overview(ctx: click.Context, sid: str, start: int, end: int) -> None:
     """Get event overview for a sensor.
 
     Example:
@@ -274,7 +278,7 @@ def overview(ctx, sid, start, end):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def timeline(ctx, sid, start, end):
+def timeline(ctx: click.Context, sid: str, start: int, end: int) -> None:
     """Get event timeline for a sensor (alias for overview).
 
     Example:
@@ -298,7 +302,7 @@ def timeline(ctx, sid, start, end):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def types(ctx, platform):
+def types(ctx: click.Context, platform: str | None) -> None:
     """List available event types.
 
     Examples:
@@ -322,7 +326,7 @@ def types(ctx, platform):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def schema(ctx, event_type):
+def schema(ctx: click.Context, event_type: str) -> None:
     """Get schema for a specific event type.
 
     Example:
@@ -348,7 +352,7 @@ def schema(ctx, event_type):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def retention(ctx, sid, start, end, detailed):
+def retention(ctx: click.Context, sid: str, start: int, end: int, detailed: bool) -> None:
     """Get event retention statistics for a sensor.
 
     Examples:

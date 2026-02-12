@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Output formatting for LimaCharlie CLI v2.
 
 Supports multiple output formats: json, yaml, csv, table, jsonl.
@@ -9,7 +11,7 @@ import csv
 import io
 import json
 import sys
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -24,7 +26,7 @@ except ImportError:
     tabulate = None
 
 
-def detect_output_format():
+def detect_output_format() -> str:
     """Auto-detect the output format based on whether stdout is a TTY.
 
     Returns:
@@ -36,13 +38,13 @@ def detect_output_format():
 
 
 def format_output(
-    data,
-    fmt=None,
-    fields=None,
-    filter_expr=None,
-    sort_by=None,
-    reverse=False,
-):
+    data: Any,
+    fmt: str | None = None,
+    fields: list[str] | None = None,
+    filter_expr: str | None = None,
+    sort_by: str | None = None,
+    reverse: bool = False,
+) -> str:
     """Format data for output.
 
     Args:
@@ -93,17 +95,17 @@ def format_output(
         return format_json(data)
 
 
-def format_json(data):
+def format_json(data: Any) -> str:
     """Format data as pretty-printed JSON."""
     return json.dumps(data, indent=2, default=str)
 
 
-def format_yaml(data):
+def format_yaml(data: Any) -> str:
     """Format data as YAML."""
     return yaml.dump(data, default_flow_style=False, allow_unicode=True).rstrip()
 
 
-def format_csv(data):
+def format_csv(data: Any) -> str:
     """Format data as CSV with headers."""
     if not data:
         return ""
@@ -134,7 +136,7 @@ def format_csv(data):
     return output.getvalue().rstrip()
 
 
-def format_table(data):
+def format_table(data: Any) -> str:
     """Format data as a table using tabulate."""
     if data is None:
         return "No data"
@@ -180,28 +182,28 @@ def format_table(data):
     return str(data)
 
 
-def format_jsonl(data):
+def format_jsonl(data: Any) -> str:
     """Format data as newline-delimited JSON."""
     if isinstance(data, list):
         return "\n".join(json.dumps(item, default=str) for item in data)
     return json.dumps(data, default=str)
 
 
-def _select_fields(item, fields):
+def _select_fields(item: Any, fields: list[str]) -> Any:
     """Select specific fields from a dict."""
     if not isinstance(item, dict):
         return item
     return {k: item[k] for k in fields if k in item}
 
 
-def _csv_value(v):
+def _csv_value(v: Any) -> Any:
     """Convert a value for CSV output."""
     if isinstance(v, (dict, list)):
         return json.dumps(v, default=str)
     return v
 
 
-def _table_value(v):
+def _table_value(v: Any) -> str:
     """Convert a value for table display."""
     if isinstance(v, dict):
         return json.dumps(v, default=str)
@@ -214,13 +216,13 @@ def _table_value(v):
     return str(v)
 
 
-def _is_list_of_dicts(data):
+def _is_list_of_dicts(data: Any) -> bool:
     """Check if data is a dict that looks like a list-of-dicts."""
     return False
 
 
-def print_output(data, fmt=None, fields=None, filter_expr=None,
-                 sort_by=None, reverse=False, file=None):
+def print_output(data: Any, fmt: str | None = None, fields: list[str] | None = None, filter_expr: str | None = None,
+                 sort_by: str | None = None, reverse: bool = False, file: Any = None) -> None:
     """Format and print data to stdout (or specified file).
 
     Convenience function that calls format_output and prints the result.

@@ -1,11 +1,17 @@
 """Payloads SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import ssl
+from typing import Any, TYPE_CHECKING
 from urllib.request import Request as URLRequest
 from urllib.request import urlopen
 
+if TYPE_CHECKING:
+    from .organization import Organization
 
-def _create_ssl_context():
+
+def _create_ssl_context() -> ssl.SSLContext | None:
     try:
         ctx = ssl.create_default_context()
         if hasattr(ssl, "OP_IGNORE_UNEXPECTED_EOF"):
@@ -18,18 +24,19 @@ def _create_ssl_context():
 class Payloads:
     """Payload management."""
 
-    def __init__(self, org):
+    def __init__(self, org: Organization) -> None:
         self._org = org
         self._ssl_context = _create_ssl_context()
 
     @property
-    def client(self):
+    def client(self) -> Any:
         return self._org.client
 
-    def list(self):
+    def list(self) -> dict[str, Any]:
         return self.client.request("GET", f"payload/{self._org.oid}")
 
-    def upload(self, name, file_path=None, payload_content=None):
+    def upload(self, name: str, file_path: str | None = None,
+               payload_content: bytes | None = None) -> bytes | None:
         """Upload a payload using the signed URL pattern.
 
         Args:
@@ -68,7 +75,7 @@ class Payloads:
         finally:
             u.close()
 
-    def download(self, name):
+    def download(self, name: str) -> bytes | None:
         """Download a payload using the signed URL pattern.
 
         Args:
@@ -95,5 +102,5 @@ class Payloads:
         finally:
             u.close()
 
-    def delete(self, name):
+    def delete(self, name: str) -> dict[str, Any]:
         return self.client.request("DELETE", f"payload/{self._org.oid}/{name}")

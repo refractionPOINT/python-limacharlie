@@ -4,6 +4,10 @@ Commands for searching Indicators of Compromise (IOCs) against
 historical telemetry stored in LimaCharlie Insight.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import json
 import sys
 
@@ -109,27 +113,27 @@ register_explain("ioc.batch-enrich", _EXPLAIN_BATCH_ENRICH)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _load_file(path):
+def _load_file(path: str) -> Any:
     """Load a JSON or YAML file and return parsed content."""
     with open(path, "r") as f:
         content = f.read()
@@ -140,7 +144,7 @@ def _load_file(path):
     return json.loads(content)
 
 
-def _load_input(input_file):
+def _load_input(input_file: str | None) -> Any:
     """Load data from a file or stdin."""
     if input_file:
         return _load_file(input_file)
@@ -159,7 +163,7 @@ def _load_input(input_file):
 # ---------------------------------------------------------------------------
 
 @click.group("ioc")
-def group():
+def group() -> None:
     """Search for Indicators of Compromise.
 
     Query the Insight data lake for IOCs (domains, IPs, file hashes,
@@ -180,7 +184,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def search(ctx, ioc_type, value):
+def search(ctx: click.Context, ioc_type: str, value: str) -> None:
     """Search for an IOC.
 
     Examples:
@@ -205,7 +209,7 @@ def search(ctx, ioc_type, value):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def batch_search(ctx, input_file):
+def batch_search(ctx: click.Context, input_file: str | None) -> None:
     """Batch IOC search from a JSON file.
 
     The input file should map IOC types to lists of values:
@@ -247,7 +251,7 @@ def batch_search(ctx, input_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def hosts(ctx, hostname):
+def hosts(ctx: click.Context, hostname: str) -> None:
     """Find sensors by hostname prefix.
 
     Examples:
@@ -272,7 +276,7 @@ def hosts(ctx, hostname):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def enrich(ctx, obj_type, value):
+def enrich(ctx: click.Context, obj_type: str, value: str) -> None:
     """Get enrichment info for an indicator.
 
     Examples:
@@ -297,7 +301,7 @@ def enrich(ctx, obj_type, value):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def batch_enrich(ctx, input_file):
+def batch_enrich(ctx: click.Context, input_file: str | None) -> None:
     """Batch enrichment lookup from a JSON file.
 
     The input file should map indicator types to lists of values:

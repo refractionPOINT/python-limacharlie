@@ -6,6 +6,10 @@ sensors.  There are two types: watch rules (field-level matching)
 and event rules (event-type matching).
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -79,7 +83,7 @@ register_explain("exfil.delete", _EXPLAIN_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -87,13 +91,13 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -104,7 +108,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("exfil")
-def group():
+def group() -> None:
     """Manage exfil prevention rules.
 
     Exfil rules control which events and data are allowed to leave
@@ -124,7 +128,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_rules(ctx):
+def list_rules(ctx) -> None:
     """List exfil prevention rules.
 
     Example:
@@ -152,7 +156,7 @@ def list_rules(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create_watch(ctx, name, event, operator, value, path):
+def create_watch(ctx, name, event, operator, value, path) -> None:
     """Create an exfil watch rule (field-level matching).
 
     Example:
@@ -184,7 +188,7 @@ def create_watch(ctx, name, event, operator, value, path):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create_event(ctx, name, events):
+def create_event(ctx, name, events) -> None:
     """Create an exfil event rule (event-type matching).
 
     Example:
@@ -223,7 +227,7 @@ def create_event(ctx, name, events):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, name, rule_type, confirm):
+def delete(ctx, name, rule_type, confirm) -> None:
     """Delete an exfil rule.
 
     This is a destructive operation.  Pass --confirm to proceed.

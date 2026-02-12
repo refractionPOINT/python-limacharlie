@@ -4,6 +4,10 @@ Commands for listing and retrieving historical detections from
 LimaCharlie Insight.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -49,21 +53,21 @@ register_explain("detection.get", _EXPLAIN_GET)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -74,7 +78,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("detection")
-def group():
+def group() -> None:
     """Query historical detections.
 
     Detections are generated when D&R rules match against telemetry
@@ -98,7 +102,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_detections(ctx, start, end, cat, limit):
+def list_detections(ctx: click.Context, start: int, end: int, cat: str | None, limit: int | None) -> None:
     """List detections.
 
     Examples:
@@ -123,7 +127,7 @@ def list_detections(ctx, start, end, cat, limit):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, detect_id):
+def get(ctx: click.Context, detect_id: str) -> None:
     """Get a detection by ID.
 
     Example:

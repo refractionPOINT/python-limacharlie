@@ -5,7 +5,10 @@ Replay lets you test detection logic against past events without
 waiting for new telemetry.
 """
 
+from __future__ import annotations
+
 import json
+from typing import Any, Callable
 
 import click
 import yaml
@@ -48,27 +51,27 @@ register_explain("replay.run", _EXPLAIN_RUN)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _load_file(path):
+def _load_file(path: str) -> Any:
     """Load a JSON or YAML file and return parsed content."""
     with open(path, "r") as f:
         content = f.read()
@@ -84,7 +87,7 @@ def _load_file(path):
 # ---------------------------------------------------------------------------
 
 @click.group("replay")
-def group():
+def group() -> None:
     """Replay D&R rules against historical data.
 
     Test detection logic by running rules against past sensor
@@ -115,7 +118,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def run(ctx, name, detect_file, respond_file, start, end):
+def run(ctx, name, detect_file, respond_file, start, end) -> None:
     """Replay a rule against historical data.
 
     Provide either --name for an existing rule, or --detect-file and

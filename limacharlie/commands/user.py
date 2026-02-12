@@ -3,6 +3,10 @@
 Commands for listing, inviting, and removing organization users.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -104,21 +108,21 @@ register_explain("user.permissions.set-role", _EXPLAIN_PERM_SET_ROLE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -129,7 +133,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("user")
-def group():
+def group() -> None:
     """Manage organization users.
 
     Invite, list, and remove users who have access to the organization.
@@ -147,7 +151,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_users(ctx):
+def list_users(ctx) -> None:
     """List organization users.
 
     Example:
@@ -171,7 +175,7 @@ def list_users(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def invite(ctx, email):
+def invite(ctx, email) -> None:
     """Invite a user to the organization.
 
     Example:
@@ -198,7 +202,7 @@ def invite(ctx, email):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def remove(ctx, email, confirm):
+def remove(ctx, email, confirm) -> None:
     """Remove a user from the organization.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -228,7 +232,7 @@ def remove(ctx, email, confirm):
 # ---------------------------------------------------------------------------
 
 @group.group("permissions")
-def permissions():
+def permissions() -> None:
     """Manage user permissions.
 
     Grant, revoke, and list fine-grained permissions for organization
@@ -248,7 +252,7 @@ def permissions():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def perm_list(ctx):
+def perm_list(ctx) -> None:
     """List user permissions.
 
     Example:
@@ -273,7 +277,7 @@ def perm_list(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def add(ctx, email, permission):
+def add(ctx, email, permission) -> None:
     """Grant a permission to a user.
 
     Example:
@@ -300,7 +304,7 @@ def add(ctx, email, permission):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def perm_remove(ctx, email, permission):
+def perm_remove(ctx, email, permission) -> None:
     """Revoke a permission from a user.
 
     Example:
@@ -331,7 +335,7 @@ def perm_remove(ctx, email, permission):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def set_role(ctx, email, role):
+def set_role(ctx, email, role) -> None:
     """Set a predefined role for a user.
 
     Replaces all existing permissions with those defined by the role.

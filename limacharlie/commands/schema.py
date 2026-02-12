@@ -5,6 +5,10 @@ define the structure and fields of events produced by sensors and
 the LimaCharlie platform.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -45,21 +49,21 @@ register_explain("schema.get", _EXPLAIN_GET)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -70,7 +74,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("schema")
-def group():
+def group() -> None:
     """View event schemas (ontology).
 
     Schemas define the structure and fields of events produced by
@@ -90,7 +94,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_schemas(ctx):
+def list_schemas(ctx) -> None:
     """List available event schemas.
 
     Example:
@@ -113,7 +117,7 @@ def list_schemas(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, name):
+def get(ctx, name) -> None:
     """Get the schema for a specific event type.
 
     Example:

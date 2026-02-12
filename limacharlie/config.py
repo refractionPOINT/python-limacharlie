@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Configuration management for LimaCharlie SDK & CLI v2.
 
 Handles credential resolution, environment/profile management, and config file I/O.
@@ -13,11 +15,21 @@ import os
 import stat
 import shutil
 import tempfile
-from typing import Optional
+from typing import Any, TypedDict
 
 import yaml
 
 from .errors import ConfigError
+
+
+class Credentials(TypedDict):
+    """Credential dict returned by resolve_credentials and get_environment_creds."""
+
+    oid: str | None
+    uid: str | None
+    api_key: str | None
+    oauth: dict[str, str] | None
+
 
 # Default config file path
 CONFIG_FILE_PATH = os.path.expanduser("~/.limacharlie")
@@ -31,17 +43,17 @@ ENV_CREDS_FILE = "LC_CREDS_FILE"
 ENV_EPHEMERAL_CREDS = "LC_EPHEMERAL_CREDS"
 
 
-def _get_config_path():
+def _get_config_path() -> str:
     """Return the config file path, respecting LC_CREDS_FILE override."""
     return os.environ.get(ENV_CREDS_FILE, CONFIG_FILE_PATH)
 
 
-def is_ephemeral():
+def is_ephemeral() -> bool:
     """Return True if ephemeral credentials mode is enabled."""
     return bool(os.environ.get(ENV_EPHEMERAL_CREDS))
 
 
-def load_config():
+def load_config() -> dict[str, Any] | None:
     """Load the config file as a dict.
 
     Returns:
@@ -57,7 +69,7 @@ def load_config():
     return data or {}
 
 
-def save_config(config):
+def save_config(config: dict[str, Any]) -> None:
     """Securely write the config dict to the config file.
 
     Uses atomic write (write to temp, chmod 600, then move) to prevent
@@ -92,7 +104,7 @@ def save_config(config):
             os.unlink(tmp_path)
 
 
-def get_environment_creds(name="default"):
+def get_environment_creds(name: str = "default") -> Credentials:
     """Load credentials for a named environment from the config file.
 
     Args:
@@ -126,11 +138,11 @@ def get_environment_creds(name="default"):
 
 
 def resolve_credentials(
-    oid=None,
-    api_key=None,
-    uid=None,
-    environment=None,
-):
+    oid: str | None = None,
+    api_key: str | None = None,
+    uid: str | None = None,
+    environment: str | None = None,
+) -> Credentials:
     """Resolve credentials from all sources in priority order.
 
     Priority: explicit params > env vars > config file.
@@ -191,7 +203,7 @@ def resolve_credentials(
     return result
 
 
-def write_credentials(environment, oid, api_key, uid="", oauth_creds=None):
+def write_credentials(environment: str | None, oid: str | None, api_key: str | None, uid: str = "", oauth_creds: dict[str, str] | None = None) -> None:
     """Write credentials to the config file for a named environment.
 
     Args:
@@ -232,7 +244,7 @@ def write_credentials(environment, oid, api_key, uid="", oauth_creds=None):
     save_config(config)
 
 
-def list_environments():
+def list_environments() -> list[str]:
     """List all configured environment names.
 
     Returns:

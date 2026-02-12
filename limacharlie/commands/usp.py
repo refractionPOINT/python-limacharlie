@@ -4,6 +4,10 @@ Commands for validating USP adapter configurations.  USP adapters
 allow ingesting data from third-party sources into LimaCharlie.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import json
 
 import click
@@ -45,7 +49,7 @@ register_explain("usp.validate", _EXPLAIN_VALIDATE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -53,19 +57,19 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _load_file(path):
+def _load_file(path: str) -> Any:
     """Load a JSON or YAML file and return parsed content."""
     with open(path, "r") as f:
         content = f.read()
@@ -81,7 +85,7 @@ def _load_file(path):
 # ---------------------------------------------------------------------------
 
 @click.group("usp")
-def group():
+def group() -> None:
     """Validate USP adapter configurations.
 
     USP (Universal Sensor Protocol) adapters allow ingesting data
@@ -106,7 +110,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def validate(ctx, platform, input_file):
+def validate(ctx, platform, input_file) -> None:
     """Validate a USP adapter configuration.
 
     Example:

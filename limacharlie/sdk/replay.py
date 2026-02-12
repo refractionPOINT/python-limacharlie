@@ -1,24 +1,32 @@
 """Replay SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 
 class Replay:
     """D&R rule replay against historical data."""
 
-    def __init__(self, org):
+    def __init__(self, org: Organization) -> None:
         self._org = org
-        self._replay_url = None
+        self._replay_url: str | None = None
 
-    def _get_replay_url(self):
+    def _get_replay_url(self) -> str:
         if self._replay_url is None:
             urls = self._org.get_urls()
             self._replay_url = urls.get("replay", "")
         return self._replay_url
 
-    def run(self, rule_name=None, detect=None, respond=None, start=None, end=None,
-            sid=None, selector=None, stream=None, trace=False, dry_run=False,
-            limit_events=None, limit_evals=None):
+    def run(self, rule_name: str | None = None, detect: dict[str, Any] | None = None,
+            respond: list[dict[str, Any]] | None = None, start: int | None = None,
+            end: int | None = None, sid: str | None = None, selector: str | None = None,
+            stream: str | None = None, trace: bool = False, dry_run: bool = False,
+            limit_events: int | None = None, limit_evals: int | None = None) -> dict[str, Any]:
         """Replay a rule against historical data.
 
         Args:
@@ -38,7 +46,7 @@ class Replay:
         Returns:
             dict: Replay results.
         """
-        params = {}
+        params: dict[str, Any] = {}
         if rule_name:
             params["rule_name"] = rule_name
         if detect:
@@ -66,9 +74,10 @@ class Replay:
 
         return self._org.service_request("replay", params, is_async=True)
 
-    def scan_events(self, events, rule_name=None, namespace=None, rule_content=None,
-                    trace=False, dry_run=False, limit_events=None, limit_evals=None,
-                    stream="event"):
+    def scan_events(self, events: list[dict[str, Any]], rule_name: str | None = None,
+                    namespace: str | None = None, rule_content: dict[str, Any] | None = None,
+                    trace: bool = False, dry_run: bool = False, limit_events: int | None = None,
+                    limit_evals: int | None = None, stream: str = "event") -> dict[str, Any]:
         """Test a rule against specific events.
 
         Args:
@@ -87,7 +96,7 @@ class Replay:
         """
         replay_url = self._get_replay_url()
 
-        req = {
+        req: dict[str, Any] = {
             "oid": self._org.oid,
             "rule_source": {
                 "rule_name": rule_name or "",
@@ -112,7 +121,7 @@ class Replay:
             content_type="application/json",
         )
 
-    def validate_rule(self, rule_content):
+    def validate_rule(self, rule_content: dict[str, Any]) -> dict[str, Any]:
         """Validate that a D&R rule compiles properly.
 
         Sends a minimal event through the replay engine to check that

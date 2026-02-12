@@ -5,6 +5,10 @@ Outputs forward telemetry data (events, detections, audit logs) to
 external systems such as S3, syslog, GCS, Slack, and more.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import json
 import sys
 
@@ -67,27 +71,27 @@ register_explain("output.delete", _EXPLAIN_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[..., None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _load_file(path):
+def _load_file(path: str) -> Any:
     """Load a JSON or YAML file and return parsed content."""
     with open(path, "r") as f:
         content = f.read()
@@ -103,7 +107,7 @@ def _load_file(path):
 # ---------------------------------------------------------------------------
 
 @click.group("output")
-def group():
+def group() -> None:
     """Manage output integrations.
 
     Outputs forward telemetry data (events, detections, audit logs) to
@@ -122,7 +126,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_outputs(ctx):
+def list_outputs(ctx: click.Context) -> None:
     """List configured outputs.
 
     Example:
@@ -149,7 +153,7 @@ def list_outputs(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create(ctx, name, module, data_type, input_file):
+def create(ctx: click.Context, name: str, module: str, data_type: str, input_file: str | None) -> None:
     """Create a new output integration.
 
     Examples:
@@ -188,7 +192,7 @@ def create(ctx, name, module, data_type, input_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, name, confirm):
+def delete(ctx: click.Context, name: str, confirm: bool) -> None:
     """Delete an output integration.
 
     This is a destructive operation.  Pass --confirm to proceed.

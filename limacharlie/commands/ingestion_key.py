@@ -6,6 +6,10 @@ data into LimaCharlie via the USP (Universal Sensor Protocol) or
 direct API ingestion.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -55,21 +59,21 @@ register_explain("ingestion-key.delete", _EXPLAIN_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -80,7 +84,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("ingestion-key")
-def group():
+def group() -> None:
     """Manage ingestion keys.
 
     Ingestion keys authenticate external data sources pushing
@@ -99,7 +103,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_keys(ctx):
+def list_keys(ctx) -> None:
     """List ingestion keys.
 
     Example:
@@ -123,7 +127,7 @@ def list_keys(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create(ctx, name):
+def create(ctx, name) -> None:
     """Create a new ingestion key.
 
     Example:
@@ -150,7 +154,7 @@ def create(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, name, confirm):
+def delete(ctx, name, confirm) -> None:
     """Delete an ingestion key.
 
     This is a destructive operation.  Pass --confirm to proceed.

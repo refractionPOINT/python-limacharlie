@@ -4,6 +4,10 @@ Provides profile-based command grouping, help topics, and the --explain
 flag system for AI/LLM discoverability.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 # Profile definitions mapping use-case profiles to their relevant command groups
 PROFILES = {
     "sensor_management": {
@@ -97,7 +101,7 @@ PROFILES = {
 _EXPLAIN_REGISTRY = {}
 
 
-def register_explain(command_path, text):
+def register_explain(command_path: str, text: str) -> None:
     """Register explain text for a command.
 
     Args:
@@ -107,7 +111,7 @@ def register_explain(command_path, text):
     _EXPLAIN_REGISTRY[command_path] = text
 
 
-def get_explain(command_path):
+def get_explain(command_path: str) -> str | None:
     """Get explain text for a command.
 
     Args:
@@ -119,7 +123,7 @@ def get_explain(command_path):
     return _EXPLAIN_REGISTRY.get(command_path)
 
 
-def get_profile(name):
+def get_profile(name: str) -> dict[str, Any] | None:
     """Get profile definition by name.
 
     Args:
@@ -131,7 +135,7 @@ def get_profile(name):
     return PROFILES.get(name)
 
 
-def list_profiles():
+def list_profiles() -> list[tuple[str, str]]:
     """List all available profile names and descriptions.
 
     Returns:
@@ -140,7 +144,7 @@ def list_profiles():
     return [(name, info["description"]) for name, info in PROFILES.items()]
 
 
-def format_discovery(profile_name=None):
+def format_discovery(profile_name: str | None = None) -> str:
     """Format the discovery output.
 
     Args:

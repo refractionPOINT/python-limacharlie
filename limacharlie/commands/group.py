@@ -5,6 +5,10 @@ Groups provide multi-tenancy and permission management across
 multiple LimaCharlie organizations.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -137,21 +141,21 @@ register_explain("group.logs", _EXPLAIN_LOGS)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -162,7 +166,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("group")
-def group():
+def group() -> None:
     """Manage organization groups.
 
     Groups provide multi-tenancy by grouping multiple LimaCharlie
@@ -182,7 +186,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_groups(ctx):
+def list_groups(ctx) -> None:
     """List all groups.
 
     Example:
@@ -205,7 +209,7 @@ def list_groups(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, group_id):
+def get(ctx, group_id) -> None:
     """Get details of a specific group.
 
     Example:
@@ -228,7 +232,7 @@ def get(ctx, group_id):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create(ctx, name):
+def create(ctx, name) -> None:
     """Create a new group.
 
     Example:
@@ -254,7 +258,7 @@ def create(ctx, name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, group_id, confirm):
+def delete(ctx, group_id, confirm) -> None:
     """Delete a group.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -291,7 +295,7 @@ def delete(ctx, group_id, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def member_add(ctx, gid, email):
+def member_add(ctx, gid, email) -> None:
     """Add a member to a group.
 
     Example:
@@ -317,7 +321,7 @@ def member_add(ctx, gid, email):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def member_remove(ctx, gid, email):
+def member_remove(ctx, gid, email) -> None:
     """Remove a member from a group.
 
     Example:
@@ -343,7 +347,7 @@ def member_remove(ctx, gid, email):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def owner_add(ctx, gid, email):
+def owner_add(ctx, gid, email) -> None:
     """Add an owner to a group.
 
     Example:
@@ -369,7 +373,7 @@ def owner_add(ctx, gid, email):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def owner_remove(ctx, gid, email):
+def owner_remove(ctx, gid, email) -> None:
     """Remove an owner from a group.
 
     Example:
@@ -395,7 +399,7 @@ def owner_remove(ctx, gid, email):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def permissions_set(ctx, gid, permissions):
+def permissions_set(ctx, gid, permissions) -> None:
     """Set permissions for a group.
 
     Replaces all existing group permissions with the specified list.
@@ -424,7 +428,7 @@ def permissions_set(ctx, gid, permissions):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def org_add(ctx, gid, oid):
+def org_add(ctx, gid, oid) -> None:
     """Add an organization to a group.
 
     Example:
@@ -450,7 +454,7 @@ def org_add(ctx, gid, oid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def org_remove(ctx, gid, oid):
+def org_remove(ctx, gid, oid) -> None:
     """Remove an organization from a group.
 
     Example:
@@ -475,7 +479,7 @@ def org_remove(ctx, gid, oid):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def logs(ctx, gid):
+def logs(ctx, gid) -> None:
     """Get audit logs for a group.
 
     Example:

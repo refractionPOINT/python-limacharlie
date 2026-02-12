@@ -1,5 +1,7 @@
 """Firehose (streaming push) SDK for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
 import os
 import socket
@@ -8,9 +10,13 @@ import tempfile
 import threading
 import traceback
 from queue import Queue, Empty
+from typing import Any, Callable, TYPE_CHECKING
 from urllib.request import urlopen
 
 from ..errors import ValidationError, ApiError
+
+if TYPE_CHECKING:
+    from .organization import Organization
 
 _VALID_DATA_TYPES = ("event", "detect", "audit")
 
@@ -32,10 +38,14 @@ class Firehose:
             fh.shutdown()
     """
 
-    def __init__(self, org, listen_on, data_type, public_dest=None, name=None,
-                 ssl_cert=None, ssl_key=None, is_parse=True, max_buffer=1024,
-                 inv_id=None, tag=None, cat=None, sid=None,
-                 is_delete_on_failure=False, on_dropped=None):
+    def __init__(self, org: Organization, listen_on: str, data_type: str,
+                 public_dest: str | None = None, name: str | None = None,
+                 ssl_cert: str | None = None, ssl_key: str | None = None,
+                 is_parse: bool = True, max_buffer: int = 1024,
+                 inv_id: str | None = None, tag: str | None = None,
+                 cat: str | None = None, sid: str | None = None,
+                 is_delete_on_failure: bool = False,
+                 on_dropped: Callable[[Any], None] | None = None) -> None:
         """Create a firehose listener.
 
         Args:
@@ -62,7 +72,7 @@ class Firehose:
         self._keep_running = True
         self._data_type = data_type
         self._name = name
-        self._output_name = None
+        self._output_name: str | None = None
         self._is_parse = is_parse
         self._max_buffer = max_buffer
         self._dropped = 0
@@ -88,7 +98,7 @@ class Firehose:
         if self._ssl_key and not os.path.isfile(self._ssl_key):
             raise ValidationError(f"No key file at path: {self._ssl_key}")
 
-        self.queue = Queue(maxsize=self._max_buffer)
+        self.queue: Queue[Any] = Queue(maxsize=self._max_buffer)
 
         # Generate self-signed certs if none provided.
         if self._ssl_cert is None or self._ssl_key is None:
@@ -131,7 +141,7 @@ class Firehose:
                 if effective_dest is None:
                     effective_dest = f"{self._get_public_ip()}:{self._listen_port}"
                 is_strict = "true" if (self._ssl_cert and self._ssl_key) else "false"
-                output_config = {
+                output_config: dict[str, str] = {
                     "dest_host": effective_dest,
                     "is_tls": "true",
                     "is_strict_tls": is_strict,
@@ -149,7 +159,7 @@ class Firehose:
                     output_config["is_delete_on_failure"] = "true"
                 outputs_sdk.create(self._output_name, "syslog", self._data_type, **output_config)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Stop receiving data and unregister the output if created."""
         if not self._keep_running:
             return
@@ -167,7 +177,7 @@ class Firehose:
             except Exception:
                 pass
 
-    def get(self, timeout=1):
+    def get(self, timeout: int = 1) -> Any | None:
         """Get next message from the queue.
 
         Args:
@@ -182,23 +192,23 @@ class Firehose:
             return None
 
     @property
-    def dropped(self):
+    def dropped(self) -> int:
         """Number of messages dropped because the queue was full."""
         return self._dropped
 
-    def reset_dropped(self):
+    def reset_dropped(self) -> None:
         """Reset the dropped message counter."""
         self._dropped = 0
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         """Whether the firehose is still running."""
         return self._keep_running
 
-    def _get_public_ip(self):
+    def _get_public_ip(self) -> str:
         return json.load(urlopen("http://jsonip.com"))["ip"]
 
-    def _server_loop(self):
+    def _server_loop(self) -> None:
         while self._keep_running:
             try:
                 conn, addr = self._server_sock.accept()
@@ -211,7 +221,7 @@ class Firehose:
                     continue
                 break
 
-    def _handle_client(self, sock, address):
+    def _handle_client(self, sock: socket.socket, address: tuple[str, int]) -> None:
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             sock = self._ssl_ctx.wrap_socket(
@@ -222,7 +232,7 @@ class Firehose:
         except Exception:
             return
 
-        cur_data = []
+        cur_data: list[bytes] = []
         while self._keep_running:
             try:
                 data = sock.recv(512 * 1024)

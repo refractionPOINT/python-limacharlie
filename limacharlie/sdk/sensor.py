@@ -1,8 +1,16 @@
 """Sensor SDK class for LimaCharlie v2."""
 
+from __future__ import annotations
+
 import json
 import time
 import uuid
+from collections.abc import Generator
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .organization import Organization
+    from ..client import Client
 
 
 class Sensor:
@@ -25,29 +33,29 @@ class Sensor:
     ARCH_ALPINE64 = 0x00000005
     ARCH_CHROME = 0x00000006
 
-    def __init__(self, org, sid, info=None):
+    def __init__(self, org: Organization, sid: str, info: dict[str, Any] | None = None) -> None:
         self._org = org
         self.sid = str(sid)
         self._info = info
 
     @property
-    def client(self):
+    def client(self) -> Client:
         return self._org.client
 
-    def get_info(self):
+    def get_info(self) -> dict[str, Any]:
         """Get full sensor details."""
         if self._info is None:
             data = self.client.request("GET", self.sid)
             self._info = data.get("info", data)
         return self._info
 
-    def is_online(self):
+    def is_online(self) -> bool:
         """Check if the sensor is currently online."""
         data = self.client.request("GET", self.sid)
         online = data.get("online", {})
         return len(online) > 0 and "error" not in online
 
-    def wait_online(self, timeout):
+    def wait_online(self, timeout: int) -> bool:
         """Wait for sensor to come online.
 
         Args:
@@ -65,14 +73,14 @@ class Sensor:
 
     # --- Platform helpers ---
 
-    def _get_platform(self):
+    def _get_platform(self) -> int:
         info = self.get_info()
         plat = info.get("plat", 0)
         if isinstance(plat, str):
             plat = int(plat, 16) if plat.startswith("0x") else int(plat)
         return plat & 0xF0000000
 
-    def _get_architecture(self):
+    def _get_architecture(self) -> int:
         info = self.get_info()
         arch = info.get("arch", 0)
         if isinstance(arch, str):
@@ -80,28 +88,28 @@ class Sensor:
         return arch & 0x0000000F
 
     @property
-    def is_windows(self):
+    def is_windows(self) -> bool:
         return self._get_platform() == self.PLATFORM_WINDOWS
 
     @property
-    def is_linux(self):
+    def is_linux(self) -> bool:
         return self._get_platform() == self.PLATFORM_LINUX
 
     @property
-    def is_macos(self):
+    def is_macos(self) -> bool:
         return self._get_platform() == self.PLATFORM_MACOS
 
     @property
-    def is_chrome(self):
+    def is_chrome(self) -> bool:
         return self._get_architecture() == self.ARCH_CHROME
 
     @property
-    def hostname(self):
+    def hostname(self) -> str:
         return self.get_info().get("hostname", "")
 
     # --- Tasking ---
 
-    def task(self, tasks, inv_id=None):
+    def task(self, tasks: str | list[str], inv_id: str | None = None) -> dict[str, Any]:
         """Send task(s) to the sensor (fire-and-forget).
 
         Args:
@@ -120,7 +128,7 @@ class Sensor:
 
     # --- Tags ---
 
-    def get_tags(self):
+    def get_tags(self) -> list[str]:
         """Get tags applied to this sensor.
 
         Returns:
@@ -136,7 +144,7 @@ class Sensor:
             return list(sid_tags) if sid_tags else []
         return list(tags_data) if tags_data else []
 
-    def add_tag(self, tag, ttl=None):
+    def add_tag(self, tag: str | list[str], ttl: int | None = None) -> dict[str, Any]:
         """Add a tag to this sensor.
 
         Args:
@@ -151,7 +159,7 @@ class Sensor:
             params["ttl"] = int(ttl)
         return self.client.request("POST", f"{self.sid}/tags", params=params)
 
-    def remove_tag(self, tag):
+    def remove_tag(self, tag: str | list[str]) -> dict[str, Any]:
         """Remove a tag from this sensor.
 
         Args:
@@ -168,14 +176,14 @@ class Sensor:
 
     # --- Network isolation ---
 
-    def is_isolated(self):
+    def is_isolated(self) -> bool:
         """Check if sensor is isolated from the network."""
         # Network isolation is ephemeral, always refresh
         self._info = None
         info = self.get_info()
         return info.get("should_isolate", False)
 
-    def isolate(self):
+    def isolate(self) -> dict[str, Any]:
         """Isolate sensor from the network.
 
         Returns:
@@ -183,7 +191,7 @@ class Sensor:
         """
         return self.client.request("POST", f"{self.sid}/isolation")
 
-    def rejoin(self):
+    def rejoin(self) -> dict[str, Any]:
         """Rejoin sensor to the network.
 
         Returns:
@@ -193,22 +201,22 @@ class Sensor:
 
     # --- Seal ---
 
-    def is_sealed(self):
+    def is_sealed(self) -> bool:
         """Check if sensor is sealed."""
         # Seal is ephemeral, always refresh
         self._info = None
         info = self.get_info()
         return info.get("should_seal", False)
 
-    def seal(self):
+    def seal(self) -> dict[str, Any]:
         return self.client.request("POST", f"{self.sid}/seal")
 
-    def unseal(self):
+    def unseal(self) -> dict[str, Any]:
         return self.client.request("DELETE", f"{self.sid}/seal")
 
     # --- Lifecycle ---
 
-    def delete(self):
+    def delete(self) -> dict[str, Any]:
         """Delete this sensor.
 
         Returns:
@@ -218,7 +226,7 @@ class Sensor:
 
     # --- Events ---
 
-    def get_events(self, start, end, limit=None, event_type=None, is_forward=True):
+    def get_events(self, start: int, end: int, limit: int | None = None, event_type: str | None = None, is_forward: bool = True) -> Generator[dict[str, Any], None, None]:
         """Get historical events for this sensor.
 
         Args:
@@ -256,7 +264,7 @@ class Sensor:
             if limit is not None and n_returned >= limit:
                 return
 
-    def get_overview(self, start, end):
+    def get_overview(self, start: int, end: int) -> list[Any]:
         """Get event overview (timeline) for this sensor.
 
         Args:
@@ -270,7 +278,7 @@ class Sensor:
                                    query_params={"start": str(start), "end": str(end)})
         return data.get("overview", data)
 
-    def get_event_by_atom(self, atom):
+    def get_event_by_atom(self, atom: str) -> dict[str, Any]:
         """Get an event by its atom.
 
         Args:
@@ -281,7 +289,7 @@ class Sensor:
         """
         return self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/{atom}")
 
-    def get_children_events(self, atom):
+    def get_children_events(self, atom: str) -> list[dict[str, Any]]:
         """Get child events of an atom.
 
         Args:
@@ -294,7 +302,7 @@ class Sensor:
                                    query_params={"is_compressed": "true"})
         return self.client.unwrap(data.get("events", ""))
 
-    def get_event_retention(self, start, end, is_detailed=False):
+    def get_event_retention(self, start: int, end: int, is_detailed: bool = False) -> dict[str, Any]:
         """Get event retention statistics.
 
         Args:

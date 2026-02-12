@@ -5,8 +5,11 @@ LimaCharlie Hives.  Hives are key-value stores that hold
 configuration data such as D&R rules, lookups, secrets, and more.
 """
 
+from __future__ import annotations
+
 import json
 import sys
+from typing import Any, Callable
 
 import click
 import yaml
@@ -129,7 +132,7 @@ register_explain("hive.import", _EXPLAIN_IMPORT)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
     def callback(ctx, param, value):
         if value:
             click.echo(text.strip())
@@ -137,19 +140,19 @@ def _make_explain_callback(text):
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
 
 
-def _load_file(path):
+def _load_file(path: str) -> Any:
     """Load a JSON or YAML file and return parsed content."""
     with open(path, "r") as f:
         content = f.read()
@@ -160,7 +163,7 @@ def _load_file(path):
     return json.loads(content)
 
 
-def _load_input(input_file):
+def _load_input(input_file: str | None) -> Any:
     """Load record data from a file or stdin."""
     if input_file:
         return _load_file(input_file)
@@ -174,7 +177,7 @@ def _load_input(input_file):
     return None
 
 
-def _record_from_input(key, data):
+def _record_from_input(key: str, data: Any) -> HiveRecord:
     """Build a HiveRecord from parsed input data."""
     if not isinstance(data, dict):
         # Treat the whole input as the record data payload.
@@ -217,7 +220,7 @@ _KNOWN_HIVE_TYPES = [
 # ---------------------------------------------------------------------------
 
 @click.group("hive")
-def group():
+def group() -> None:
     """Manage Hive key-value records.
 
     Hives are key-value stores for LimaCharlie configuration data
@@ -237,7 +240,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_records(ctx, hive_name):
+def list_records(ctx, hive_name) -> None:
     """List records in a hive.
 
     Examples:
@@ -264,7 +267,7 @@ def list_records(ctx, hive_name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, hive_name, key):
+def get(ctx, hive_name, key) -> None:
     """Get a hive record by key.
 
     Example:
@@ -290,7 +293,7 @@ def get(ctx, hive_name, key):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def set_record(ctx, hive_name, key, input_file):
+def set_record(ctx, hive_name, key, input_file) -> None:
     """Set (create or update) a hive record.
 
     Record data is read from --input-file or stdin.
@@ -335,7 +338,7 @@ def set_record(ctx, hive_name, key, input_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, hive_name, key, confirm):
+def delete(ctx, hive_name, key, confirm) -> None:
     """Delete a hive record.
 
     This is a destructive operation.  Pass --confirm to proceed.
@@ -374,7 +377,7 @@ def delete(ctx, hive_name, key, confirm):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def validate(ctx, hive_name, key, input_file):
+def validate(ctx, hive_name, key, input_file) -> None:
     """Validate a hive record without saving.
 
     Example:
@@ -412,7 +415,7 @@ def validate(ctx, hive_name, key, input_file):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def rename(ctx, hive_name, key, new_name):
+def rename(ctx, hive_name, key, new_name) -> None:
     """Rename a hive record.
 
     Example:
@@ -437,7 +440,7 @@ def rename(ctx, hive_name, key, new_name):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def list_types(ctx):
+def list_types(ctx) -> None:
     """List known hive type names.
 
     Outputs a static list of all known hive types that can be used
@@ -462,7 +465,7 @@ def list_types(ctx):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def export_records(ctx, name, partition_key):
+def export_records(ctx, name, partition_key) -> None:
     """Export all records from a hive as YAML.
 
     Examples:
@@ -499,7 +502,7 @@ def export_records(ctx, name, partition_key):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def import_records(ctx, name, input_file, partition_key, dry_run):
+def import_records(ctx, name, input_file, partition_key, dry_run) -> None:
     """Import records into a hive from a YAML or JSON file.
 
     Each top-level key in the file is a record name.  The value

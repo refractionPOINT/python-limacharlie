@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Custom exception hierarchy for LimaCharlie SDK & CLI v2.
 
 Every exception includes a suggestion message to guide users toward resolution.
@@ -10,13 +12,15 @@ Exit codes:
     5 = rate limit error
 """
 
+from typing import Any
+
 
 class LimaCharlieError(Exception):
     """Base exception for all LimaCharlie SDK errors."""
 
     exit_code = 1
 
-    def __init__(self, message, suggestion=None, code=None):
+    def __init__(self, message: str, suggestion: str | None = None, code: int | None = None) -> None:
         self.suggestion = suggestion
         self.status_code = code
         if suggestion:
@@ -26,7 +30,7 @@ class LimaCharlieError(Exception):
         super().__init__(full)
 
     @property
-    def raw_message(self):
+    def raw_message(self) -> str:
         msg = str(self)
         if self.suggestion and msg.endswith(f"\nSuggestion: {self.suggestion}"):
             return msg[: -len(f"\nSuggestion: {self.suggestion}")]
@@ -38,7 +42,7 @@ class AuthenticationError(LimaCharlieError):
 
     exit_code = 2
 
-    def __init__(self, message, suggestion=None, code=None):
+    def __init__(self, message: str, suggestion: str | None = None, code: int | None = None) -> None:
         if suggestion is None:
             suggestion = (
                 "Run 'limacharlie auth login' to configure credentials, "
@@ -52,7 +56,7 @@ class NotFoundError(LimaCharlieError):
 
     exit_code = 3
 
-    def __init__(self, message, suggestion=None, code=None):
+    def __init__(self, message: str, suggestion: str | None = None, code: int | None = None) -> None:
         if suggestion is None:
             suggestion = "Verify the resource name/ID is correct. Use the 'list' command to see available resources."
         super().__init__(message, suggestion=suggestion, code=code or 404)
@@ -63,7 +67,7 @@ class ValidationError(LimaCharlieError):
 
     exit_code = 4
 
-    def __init__(self, message, suggestion=None, code=None):
+    def __init__(self, message: str, suggestion: str | None = None, code: int | None = None) -> None:
         if suggestion is None:
             suggestion = "Check the command help with --help or --explain for parameter requirements."
         super().__init__(message, suggestion=suggestion, code=code)
@@ -74,7 +78,7 @@ class RateLimitError(LimaCharlieError):
 
     exit_code = 5
 
-    def __init__(self, message=None, retry_after=None, suggestion=None, code=None):
+    def __init__(self, message: str | None = None, retry_after: int | None = None, suggestion: str | None = None, code: int | None = None) -> None:
         self.retry_after = retry_after
         if message is None:
             message = "API rate limit exceeded."
@@ -91,7 +95,7 @@ class PermissionDeniedError(LimaCharlieError):
 
     exit_code = 2
 
-    def __init__(self, message, missing_permissions=None, suggestion=None, code=None):
+    def __init__(self, message: str, missing_permissions: list[str] | None = None, suggestion: str | None = None, code: int | None = None) -> None:
         self.missing_permissions = missing_permissions or []
         if suggestion is None:
             if missing_permissions:
@@ -108,7 +112,7 @@ class PermissionDeniedError(LimaCharlieError):
 class ApiError(LimaCharlieError):
     """Raised for general API errors not covered by more specific exceptions."""
 
-    def __init__(self, message, status_code=None, response_body=None, suggestion=None, code=None):
+    def __init__(self, message: str, status_code: int | None = None, response_body: Any = None, suggestion: str | None = None, code: int | None = None) -> None:
         self.response_body = response_body
         effective_code = code or status_code
         if suggestion is None:
@@ -119,13 +123,13 @@ class ApiError(LimaCharlieError):
 class ConfigError(LimaCharlieError):
     """Raised for configuration file errors."""
 
-    def __init__(self, message, suggestion=None, code=None):
+    def __init__(self, message: str, suggestion: str | None = None, code: int | None = None) -> None:
         if suggestion is None:
             suggestion = "Run 'limacharlie auth login' to set up credentials."
         super().__init__(message, suggestion=suggestion, code=code)
 
 
-def error_from_status_code(status_code, body=None):
+def error_from_status_code(status_code: int, body: Any = None) -> LimaCharlieError:
     """Create the appropriate exception from an HTTP status code.
 
     Args:

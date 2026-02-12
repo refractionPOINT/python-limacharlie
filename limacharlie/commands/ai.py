@@ -5,6 +5,10 @@ Detection & Response rules and LCQL queries from natural language
 descriptions.
 """
 
+from __future__ import annotations
+
+from typing import Any, Callable
+
 import click
 
 from ..cli import pass_context
@@ -105,21 +109,21 @@ register_explain("ai.summarize-detection", _EXPLAIN_SUMMARIZE_DETECTION)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text):
-    def callback(ctx, param, value):
+def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
+    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         if value:
             click.echo(text.strip())
             ctx.exit()
     return callback
 
 
-def _output(ctx, data):
+def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_org(ctx: click.Context) -> Organization:
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
     client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
     return Organization(client)
@@ -130,7 +134,7 @@ def _get_org(ctx):
 # ---------------------------------------------------------------------------
 
 @click.group("ai")
-def group():
+def group() -> None:
     """AI-powered generation of rules and queries.
 
     Use natural language descriptions to generate D&R rules and
@@ -150,7 +154,7 @@ def group():
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def generate_rule(ctx, prompt):
+def generate_rule(ctx, prompt) -> None:
     """Generate a D&R rule from a description.
 
     Example:
@@ -175,7 +179,7 @@ def generate_rule(ctx, prompt):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def generate_query(ctx, prompt):
+def generate_query(ctx, prompt) -> None:
     """Generate an LCQL query from a description.
 
     Example:
@@ -200,7 +204,7 @@ def generate_query(ctx, prompt):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def generate_detection(ctx, description):
+def generate_detection(ctx, description) -> None:
     """Generate a detection component from a description.
 
     Example:
@@ -225,7 +229,7 @@ def generate_detection(ctx, description):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def generate_response(ctx, description):
+def generate_response(ctx, description) -> None:
     """Generate a response component from a description.
 
     Example:
@@ -250,7 +254,7 @@ def generate_response(ctx, description):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def generate_selector(ctx, description):
+def generate_selector(ctx, description) -> None:
     """Generate a sensor selector expression from a description.
 
     Example:
@@ -275,7 +279,7 @@ def generate_selector(ctx, description):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def generate_playbook(ctx, description):
+def generate_playbook(ctx, description) -> None:
     """Generate a Python playbook from a description.
 
     Example:
@@ -300,7 +304,7 @@ def generate_playbook(ctx, description):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def summarize_detection(ctx, detection_id):
+def summarize_detection(ctx, detection_id) -> None:
     """Summarize a detection using AI.
 
     Example:
