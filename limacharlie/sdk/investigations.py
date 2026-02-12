@@ -31,3 +31,23 @@ class Investigations:
 
     def delete(self, investigation_id):
         return self.client.request("DELETE", f"insight/{self._org.oid}/investigations/{investigation_id}")
+
+    def expand(self, investigation_id, sid=None, events=None):
+        """Expand an investigation timeline.
+
+        Args:
+            investigation_id: Investigation ID.
+            sid: Optional sensor ID.
+            events: Optional list of events to add.
+
+        Returns:
+            dict: API response.
+        """
+        data = {}
+        if sid is not None:
+            data["sid"] = sid
+        if events is not None:
+            data["events"] = events
+        return self.client.request("POST", f"insight/{self._org.oid}/investigations/{investigation_id}/expand",
+                                   raw_body=json.dumps(data).encode(),
+                                   content_type="application/json")

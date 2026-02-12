@@ -5,6 +5,7 @@ import pytest
 
 from limacharlie.sdk.dr_rules import DRRules
 from limacharlie.sdk.hive import HiveRecord
+from limacharlie.errors import ApiError
 
 
 @pytest.fixture
@@ -47,9 +48,14 @@ class TestDRRulesGet:
         assert result["data"]["detect"]["op"] == "is"
 
     def test_get_missing_returns_none(self, rules, mock_org):
-        mock_org.client.request.side_effect = Exception("not found")
+        mock_org.client.request.side_effect = ApiError("not found", status_code=404)
         result = rules.get("nonexistent")
         assert result is None
+
+    def test_get_non_404_error_raises(self, rules, mock_org):
+        mock_org.client.request.side_effect = ApiError("server error", status_code=500)
+        with pytest.raises(ApiError):
+            rules.get("some-rule")
 
 
 class TestDRRulesCreate:

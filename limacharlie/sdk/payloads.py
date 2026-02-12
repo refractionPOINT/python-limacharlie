@@ -1,6 +1,18 @@
 """Payloads SDK for LimaCharlie v2."""
 
-import os
+import ssl
+from urllib.request import Request as URLRequest
+from urllib.request import urlopen
+
+
+def _create_ssl_context():
+    try:
+        ctx = ssl.create_default_context()
+        if hasattr(ssl, "OP_IGNORE_UNEXPECTED_EOF"):
+            ctx.options |= ssl.OP_IGNORE_UNEXPECTED_EOF
+        return ctx
+    except Exception:
+        return None
 
 
 class Payloads:
@@ -8,6 +20,7 @@ class Payloads:
 
     def __init__(self, org):
         self._org = org
+        self._ssl_context = _create_ssl_context()
 
     @property
     def client(self):
@@ -16,35 +29,71 @@ class Payloads:
     def list(self):
         return self.client.request("GET", f"payload/{self._org.oid}")
 
-    def upload(self, name, file_path):
-        """Upload a payload.
+    def upload(self, name, file_path=None, payload_content=None):
+        """Upload a payload using the signed URL pattern.
 
         Args:
             name: Payload name.
-            file_path: Local file path.
+            file_path: Local file path (mutually exclusive with payload_content).
+            payload_content: Raw bytes to upload.
 
         Returns:
-            dict: Upload response.
+            bytes: Response from the upload.
         """
-        with open(file_path, "rb") as f:
-            data = f.read()
-        return self.client.request(
-            "POST",
-            f"payload/{self._org.oid}/{name}",
-            raw_body=data,
-            content_type="application/octet-stream",
+        if file_path is None and payload_content is None:
+            raise ValueError("Either file_path or payload_content must be provided.")
+
+        # Step 1: POST to get the signed PUT URL.
+        data = self.client.request("POST", f"payload/{self._org.oid}/{name}")
+        put_url = data.get("put_url")
+        if put_url is None:
+            return None
+
+        if payload_content is None:
+            with open(file_path, "rb") as f:
+                payload_content = f.read()
+
+        # Step 2: PUT the payload content to the signed URL.
+        request = URLRequest(
+            str(put_url),
+            headers={"Content-Type": "application/octet-stream"},
         )
+        request.get_method = lambda: "PUT"
+        if self._ssl_context is not None:
+            u = urlopen(request, data=payload_content, context=self._ssl_context)
+        else:
+            u = urlopen(request, data=payload_content)
+        try:
+            return u.read()
+        finally:
+            u.close()
 
     def download(self, name):
-        """Download a payload.
+        """Download a payload using the signed URL pattern.
 
         Args:
             name: Payload name.
 
         Returns:
-            dict: Payload data/URL.
+            bytes: Raw payload content.
         """
-        return self.client.request("GET", f"payload/{self._org.oid}/{name}")
+        # Step 1: GET to retrieve the signed download URL.
+        data = self.client.request("GET", f"payload/{self._org.oid}/{name}")
+        get_url = data.get("get_url")
+        if get_url is None:
+            return None
+
+        # Step 2: GET the actual payload content from the signed URL.
+        request = URLRequest(str(get_url))
+        request.get_method = lambda: "GET"
+        if self._ssl_context is not None:
+            u = urlopen(request, context=self._ssl_context)
+        else:
+            u = urlopen(request)
+        try:
+            return u.read()
+        finally:
+            u.close()
 
     def delete(self, name):
         return self.client.request("DELETE", f"payload/{self._org.oid}/{name}")

@@ -1,7 +1,8 @@
 """Streaming commands for LimaCharlie CLI v2.
 
 Commands for streaming events, detections, and audit logs in
-real-time from the LimaCharlie cloud using pull-mode spouts.
+real-time from the LimaCharlie cloud using pull-mode spouts or
+push-mode firehose listeners.
 """
 
 import json
@@ -15,6 +16,7 @@ from ..config import resolve_credentials
 from ..client import Client
 from ..sdk.organization import Organization
 from ..sdk.spout import Spout
+from ..sdk.firehose import Firehose
 from ..discovery import register_explain
 
 
@@ -64,9 +66,28 @@ Example:
   limacharlie stream audit
 """
 
+_EXPLAIN_FIREHOSE = """\
+Start a push-mode firehose listener.  Creates a TLS server that
+LimaCharlie connects to and pushes data (events, detections, or
+audit logs) in real-time.
+
+The --listen parameter specifies the interface and port to bind to
+(e.g., "0.0.0.0:4444").  If no TLS certificate is provided, a
+self-signed certificate is generated automatically.
+
+The firehose auto-registers itself as an output in LimaCharlie.
+Press Ctrl+C to stop.
+
+Examples:
+  limacharlie stream firehose --listen 0.0.0.0:4444
+  limacharlie stream firehose --listen 0.0.0.0:443 --tls-cert cert.pem --tls-key key.pem
+  limacharlie stream firehose --listen 0.0.0.0:4444 --data-type detect
+"""
+
 register_explain("stream.events", _EXPLAIN_EVENTS)
 register_explain("stream.detections", _EXPLAIN_DETECTIONS)
 register_explain("stream.audit", _EXPLAIN_AUDIT)
+register_explain("stream.firehose", _EXPLAIN_FIREHOSE)
 
 
 # ---------------------------------------------------------------------------
@@ -191,3 +212,66 @@ def audit(ctx):
     if not ctx.obj.quiet:
         click.echo("Streaming audit logs (Ctrl+C to stop)...", err=True)
     _stream_loop(spout)
+
+
+# ---------------------------------------------------------------------------
+# firehose
+# ---------------------------------------------------------------------------
+
+def _firehose_loop(fh):
+    """Read from firehose queue and print each message until interrupted."""
+    try:
+        while True:
+            data = fh.get(timeout=5)
+            if data is not None:
+                click.echo(json.dumps(data, default=str))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        fh.shutdown()
+
+
+@group.command()
+@click.option("--listen", required=True, help="Interface and port to listen on (e.g., 0.0.0.0:4444).")
+@click.option("--tls-cert", default=None, type=click.Path(exists=True), help="Path to PEM TLS certificate file.")
+@click.option("--tls-key", default=None, type=click.Path(exists=True), help="Path to PEM TLS key file.")
+@click.option(
+    "--data-type", default="event",
+    type=click.Choice(["event", "detect", "audit"], case_sensitive=False),
+    help="Type of data to receive (default: event).",
+)
+@click.option("--name", default=None, help="Name to register as an Output in LimaCharlie (auto-generated if omitted).")
+@click.option("--public-dest", default=None, help="Public IP:port for LC to connect to (auto-detected if omitted).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_FIREHOSE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def firehose(ctx, listen, tls_cert, tls_key, data_type, name, public_dest):
+    """Start a push-mode firehose listener.
+
+    Creates a TLS server that LimaCharlie connects to and pushes
+    data in real-time.  Press Ctrl+C to stop.
+
+    Examples:
+        limacharlie stream firehose --listen 0.0.0.0:4444
+        limacharlie stream firehose --listen 0.0.0.0:443 \\
+            --tls-cert cert.pem --tls-key key.pem
+    """
+    org = _get_org(ctx)
+    # Use a default name based on CLI if not specified.
+    fh_name = name or "cli-firehose"
+    fh = Firehose(
+        org,
+        listen,
+        data_type,
+        public_dest=public_dest,
+        name=fh_name,
+        ssl_cert=tls_cert,
+        ssl_key=tls_key,
+        is_delete_on_failure=True,
+    )
+    if not ctx.obj.quiet:
+        click.echo(f"Firehose listening on {listen} for {data_type} data (Ctrl+C to stop)...", err=True)
+    _firehose_loop(fh)

@@ -3,6 +3,7 @@
 Uses the Hive API (dr-general, dr-managed, dr-service hives).
 """
 
+from ..errors import ApiError
 from .hive import Hive, HiveRecord
 
 
@@ -26,8 +27,10 @@ class DRRules:
         try:
             record = hive.get(name)
             return record.to_dict()
-        except Exception:
-            return None
+        except ApiError as e:
+            if e.status_code == 404:
+                return None
+            raise
 
     def create(self, name, data, namespace=None):
         hive = Hive(self._org, _hive_name(namespace))

@@ -114,6 +114,7 @@ class Client:
         self._uid = creds["uid"]
         self._api_key = creds["api_key"]
         self._oauth_creds = creds["oauth"]
+        self._environment = environment
         self._jwt = jwt
         self._is_retry_quota_errors = is_retry_quota_errors
         self._debug_fn = print_debug_fn
@@ -206,6 +207,18 @@ class Client:
 
         if updated_creds != self._oauth_creds:
             self._oauth_creds = updated_creds
+            # Persist updated OAuth tokens to config file.
+            try:
+                from .config import write_credentials, is_ephemeral
+                if not is_ephemeral():
+                    write_credentials(
+                        self._environment or "default",
+                        oid=None,
+                        api_key=None,
+                        oauth_creds=updated_creds,
+                    )
+            except Exception:
+                pass  # Best-effort persistence
 
         auth_data = {"fb_auth": self._oauth_creds["id_token"]}
         if effective_oid is not None:

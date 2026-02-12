@@ -101,10 +101,43 @@ class Insight:
         if sid:
             params["sid"] = str(sid)
 
-        return self.client.request(
+        resp = self.client.request(
             "POST",
             f"insight/{self._org.oid}/objects_timeline",
             params=params,
+        )
+        # The API returns compressed data when is_compressed=true.
+        if isinstance(resp, dict) and len(resp) == 1:
+            key = next(iter(resp))
+            if isinstance(resp[key], str):
+                return self.client.unwrap(resp[key])
+        return resp
+
+    def get_object_information(self, obj_type, obj_name, info="summary",
+                               case_sensitive=True, wildcards=False, limit=None):
+        """Get enrichment/object information for an indicator.
+
+        This is an alias for search_ioc with a clearer name for enrichment
+        use cases.  It queries the Insight data lake for detailed information
+        about an observed object (IOC).
+
+        Args:
+            obj_type: Object type (domain, ip, file_hash, file_path, file_name, user, service_name, package_name).
+            obj_name: Object value to look up.
+            info: Type of information ('summary' or 'locations').
+            case_sensitive: Case-sensitive matching (default True).
+            wildcards: Enable wildcard matching with '%'.
+            limit: Max results.
+
+        Returns:
+            dict: Object information/enrichment data.
+        """
+        return self.search_ioc(
+            obj_type, obj_name,
+            info=info,
+            case_sensitive=case_sensitive,
+            wildcards=wildcards,
+            limit=limit,
         )
 
     def get_host_count_per_platform(self):

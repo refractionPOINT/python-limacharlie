@@ -54,9 +54,33 @@ a boolean indicating the isolation state.  Use this to verify isolation
 was applied correctly, or to check status before taking further action.
 """
 
+_EXPLAIN_SEAL = """\
+Seal a sensor so that its configuration is locked and cannot be changed
+remotely.  This is a protective measure that prevents tampering with
+the sensor configuration on a compromised endpoint.
+
+While sealed, the sensor continues to operate normally but rejects any
+configuration changes.  Use 'limacharlie net-policy unseal --sid <SID>'
+to restore the ability to modify the sensor configuration.
+
+This is a disruptive operation: the endpoint will reject configuration
+changes.  The --confirm flag is required to proceed.
+"""
+
+_EXPLAIN_UNSEAL = """\
+Remove the seal from a sensor, restoring the ability to modify its
+configuration remotely.  This should be done only after the threat
+has been mitigated and the endpoint has been verified as clean.
+
+If the sensor is not currently sealed, this command has no effect.
+The --confirm flag is required to proceed.
+"""
+
 register_explain("net-policy.isolate", _EXPLAIN_ISOLATE)
 register_explain("net-policy.rejoin", _EXPLAIN_REJOIN)
 register_explain("net-policy.status", _EXPLAIN_STATUS)
+register_explain("net-policy.seal", _EXPLAIN_SEAL)
+register_explain("net-policy.unseal", _EXPLAIN_UNSEAL)
 
 
 # ---------------------------------------------------------------------------
@@ -169,3 +193,77 @@ def status(ctx, sid):
     sensor = _get_sensor(ctx, sid)
     is_isolated = sensor.is_isolated()
     _output(ctx, {"sid": sid, "is_isolated": is_isolated})
+
+
+# ---------------------------------------------------------------------------
+# seal
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID (UUID) to seal.")
+@click.option("--confirm", is_flag=True, default=False, help="Confirm seal operation (required).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_SEAL),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def seal(ctx, sid, confirm):
+    """Seal a sensor (lock its configuration).
+
+    This is a disruptive operation.  Pass --confirm to proceed.
+
+    Example:
+        limacharlie net-policy seal --sid <SID> --confirm
+    """
+    if not confirm:
+        click.echo(
+            "Error: Disruptive operation requires --confirm flag.\n"
+            "Suggestion: Re-run with --confirm to seal the sensor.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    sensor = _get_sensor(ctx, sid)
+    data = sensor.seal()
+    if not ctx.obj.quiet:
+        click.echo(f"Sensor {sid} is now sealed.")
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# unseal
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID (UUID) to unseal.")
+@click.option("--confirm", is_flag=True, default=False, help="Confirm unseal operation (required).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_UNSEAL),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def unseal(ctx, sid, confirm):
+    """Remove the seal from a sensor (unlock its configuration).
+
+    This is a disruptive operation.  Pass --confirm to proceed.
+
+    Example:
+        limacharlie net-policy unseal --sid <SID> --confirm
+    """
+    if not confirm:
+        click.echo(
+            "Error: Disruptive operation requires --confirm flag.\n"
+            "Suggestion: Re-run with --confirm to unseal the sensor.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    sensor = _get_sensor(ctx, sid)
+    data = sensor.unseal()
+    if not ctx.obj.quiet:
+        click.echo(f"Sensor {sid} seal removed.")
+    _output(ctx, data)

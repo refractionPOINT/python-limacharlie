@@ -45,7 +45,8 @@ PROFILES = {
         "commands": [
             "task send", "task request", "task reliable-send", "task reliable-list",
             "stream events", "stream detections", "stream audit",
-            "ioc search", "ioc batch-search", "ioc hosts", "ioc enrich",
+            "ioc search", "ioc batch-search", "ioc hosts", "ioc enrich", "ioc batch-enrich",
+            "stream firehose",
             "investigation list", "investigation get", "investigation create",
         ],
     },

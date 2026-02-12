@@ -270,7 +270,7 @@ def get(ctx, key, namespace):
 # set
 # ---------------------------------------------------------------------------
 
-@group.command()
+@group.command("set")
 @click.option("--key", required=True, help="Rule key name.")
 @click.option(
     "--input-file", type=click.Path(exists=True), default=None,

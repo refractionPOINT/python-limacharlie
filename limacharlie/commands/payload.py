@@ -35,8 +35,35 @@ when triggered.  The --confirm flag is required to prevent accidental
 deletion.
 """
 
+_EXPLAIN_UPLOAD = """\
+Upload a payload file to the organization.  Payloads are binary
+artifacts (executables, scripts, configuration files) that can be
+deployed to sensors via D&R response actions or tasking commands.
+
+The --name is the identifier used to reference the payload in D&R
+rules or tasking.  The --file is the local file to upload.
+
+Examples:
+  limacharlie payload upload --name my-script --file ./script.sh
+  limacharlie payload upload --name collector.exe --file /opt/tools/collector.exe
+"""
+
+_EXPLAIN_DOWNLOAD = """\
+Download a payload by name.  Returns the payload data or metadata
+from the organization.
+
+If --output-path is specified, the payload is saved to that file.
+Otherwise, the payload data/URL is printed to stdout.
+
+Examples:
+  limacharlie payload download --name my-script
+  limacharlie payload download --name my-script --output-path ./script.sh
+"""
+
 register_explain("payload.list", _EXPLAIN_LIST)
 register_explain("payload.delete", _EXPLAIN_DELETE)
+register_explain("payload.upload", _EXPLAIN_UPLOAD)
+register_explain("payload.download", _EXPLAIN_DOWNLOAD)
 
 
 # ---------------------------------------------------------------------------
@@ -135,3 +162,74 @@ def delete(ctx, name, confirm):
     if not ctx.obj.quiet:
         click.echo(f"Payload '{name}' deleted.")
     _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# upload
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--name", required=True, help="Payload name (identifier for D&R rules and tasking).")
+@click.option("--file", "file_path", required=True, type=click.Path(exists=True), help="Path to the file to upload.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_UPLOAD),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def upload(ctx, name, file_path):
+    """Upload a payload.
+
+    Examples:
+        limacharlie payload upload --name my-script --file ./script.sh
+        limacharlie payload upload --name collector.exe --file /opt/tools/collector.exe
+    """
+    org = _get_org(ctx)
+    payloads = Payloads(org)
+    data = payloads.upload(name, file_path=file_path)
+    if not ctx.obj.quiet:
+        click.echo(f"Payload '{name}' uploaded.")
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# download
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--name", required=True, help="Payload name to download.")
+@click.option("--output-path", default=None, type=click.Path(), help="Local path to save the payload to.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_DOWNLOAD),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def download(ctx, name, output_path):
+    """Download a payload.
+
+    If --output-path is given, saves to that file.  Otherwise prints
+    the payload data/URL.
+
+    Examples:
+        limacharlie payload download --name my-script
+        limacharlie payload download --name my-script --output-path ./script.sh
+    """
+    org = _get_org(ctx)
+    payloads = Payloads(org)
+    data = payloads.download(name)
+
+    if data is None:
+        click.echo(f"Error: Payload '{name}' not found.", err=True)
+        ctx.exit(1)
+        return
+
+    if output_path is not None:
+        with open(output_path, "wb") as f:
+            f.write(data)
+        if not ctx.obj.quiet:
+            click.echo(f"Payload '{name}' saved to '{output_path}'.")
+    else:
+        # Write raw bytes to stdout
+        import sys
+        sys.stdout.buffer.write(data)

@@ -56,10 +56,35 @@ Related: 'limacharlie sensor list --tag <tag>' performs a similar
 lookup but returns full sensor details.
 """
 
+_EXPLAIN_MASS_ADD = """\
+Add a tag to all sensors matching a sensor selector expression (bexpr).
+This iterates over every sensor that matches the selector and applies
+the tag to each one.  Optionally set a TTL so the tag is automatically
+removed after the specified duration.
+
+This is useful for bulk operations such as tagging all Windows sensors
+as 'windows-fleet', or temporarily tagging a subset of sensors for
+an investigation.
+
+The --selector flag uses the same bexpr syntax as 'limacharlie sensor
+list --selector'.  Examples: 'plat == `windows`', '`production` in tags'.
+"""
+
+_EXPLAIN_MASS_REMOVE = """\
+Remove a tag from all sensors matching a sensor selector expression (bexpr).
+This iterates over every sensor that matches the selector and removes
+the tag from each one.
+
+This is the inverse of 'limacharlie tag mass-add' and is useful for
+cleaning up temporary tags applied during investigations or operations.
+"""
+
 register_explain("tag.list", _EXPLAIN_LIST)
 register_explain("tag.add", _EXPLAIN_ADD)
 register_explain("tag.remove", _EXPLAIN_REMOVE)
 register_explain("tag.find", _EXPLAIN_FIND)
+register_explain("tag.mass-add", _EXPLAIN_MASS_ADD)
+register_explain("tag.mass-remove", _EXPLAIN_MASS_REMOVE)
 
 
 # ---------------------------------------------------------------------------
@@ -209,4 +234,61 @@ def find(ctx, tag):
     """
     org = _get_org(ctx)
     data = org.find_sensors_by_tag(tag)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# mass-add
+# ---------------------------------------------------------------------------
+
+@group.command("mass-add")
+@click.option("--selector", required=True, help="Sensor selector expression (bexpr) to match sensors.")
+@click.option("--tag", required=True, help="Tag string to add to all matching sensors.")
+@click.option("--ttl", default=None, type=int, help="Time-to-live in seconds (tag auto-removed after).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_MASS_ADD),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def mass_add(ctx, selector, tag, ttl):
+    """Add a tag to all sensors matching a selector.
+
+    Examples:
+        limacharlie tag mass-add --selector 'plat == `windows`' --tag windows-fleet
+        limacharlie tag mass-add --selector '`production` in tags' --tag investigate --ttl 3600
+    """
+    org = _get_org(ctx)
+    data = org.mass_tag(selector, tag, ttl=ttl)
+    if not ctx.obj.quiet:
+        msg = f"Tag '{tag}' added to {data['tagged']} sensor(s) matching '{selector}'."
+        if ttl:
+            msg += f" (TTL: {ttl}s)"
+        click.echo(msg)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# mass-remove
+# ---------------------------------------------------------------------------
+
+@group.command("mass-remove")
+@click.option("--selector", required=True, help="Sensor selector expression (bexpr) to match sensors.")
+@click.option("--tag", required=True, help="Tag string to remove from all matching sensors.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_MASS_REMOVE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def mass_remove(ctx, selector, tag):
+    """Remove a tag from all sensors matching a selector.
+
+    Example:
+        limacharlie tag mass-remove --selector 'plat == `windows`' --tag investigate
+    """
+    org = _get_org(ctx)
+    data = org.mass_untag(selector, tag)
+    if not ctx.obj.quiet:
+        click.echo(f"Tag '{tag}' removed from {data['untagged']} sensor(s) matching '{selector}'.")
     _output(ctx, data)

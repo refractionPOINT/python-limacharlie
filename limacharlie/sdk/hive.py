@@ -239,7 +239,7 @@ class Hive:
         return self.client.request(
             "POST",
             f"hive/{self._hive_name}/{self._partition_key}/{urlescape(record_name, safe='')}/rename",
-            query_params={"new_name": urlescape(new_name, safe="")},
+            query_params={"new_name": new_name},
         )
 
     def update_tx(self, record_name, callback, max_retries=5):
@@ -264,7 +264,7 @@ class Hive:
             try:
                 return self.set(record)
             except ApiError as e:
-                if e.status_code == 409:
+                if e.status_code == 409 or "ETAG_MISMATCH" in str(e):
                     continue  # etag mismatch, retry
                 raise
         raise ApiError("Transaction failed after max retries (etag conflict).", status_code=409)

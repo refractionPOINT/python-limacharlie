@@ -122,3 +122,25 @@ class TestSensorTask:
         sensor.delete()
         call_args = mock_org.client.request.call_args
         assert call_args[0][0] == "DELETE"
+
+
+class TestSensorEventRetention:
+    def test_get_event_retention_uses_correct_params(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"retention": {}}
+        sensor.get_event_retention(1000, 2000)
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "insight/event_count/" in call_args[0][1]
+        qp = call_args[1]["query_params"]
+        # v1 uses 'start'/'end', not 'startTime'/'endTime'
+        assert qp["start"] == "1000"
+        assert qp["end"] == "2000"
+        assert "startTime" not in qp
+        assert "endTime" not in qp
+
+    def test_get_event_retention_detailed(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"retention": {}}
+        sensor.get_event_retention(1000, 2000, is_detailed=True)
+        call_args = mock_org.client.request.call_args
+        qp = call_args[1]["query_params"]
+        assert qp["is_detailed"] == "true"

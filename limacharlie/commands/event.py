@@ -48,8 +48,72 @@ Example:
   limacharlie event get --sid <SID> --atom <ATOM>
 """
 
+_EXPLAIN_CHILDREN = """\
+Get child events of a specific parent event atom.  In the LimaCharlie
+event tree, every event has a parent atom and may have child events.
+Use this command to traverse the event tree downward from a given atom.
+
+You must provide --sid (sensor ID) and --atom (parent event atom).
+
+Example:
+  limacharlie event children --sid <SID> --atom <ATOM>
+"""
+
+_EXPLAIN_OVERVIEW = """\
+Get an event overview (timeline) for a sensor.  The overview provides
+a high-level summary of event activity within a time range, showing
+when events occurred without returning full event data.
+
+You must provide --sid (sensor ID) and a time range via --start and
+--end (unix epoch seconds).
+
+Example:
+  limacharlie event overview --sid <SID> --start 1700000000 --end 1700086400
+"""
+
+_EXPLAIN_TIMELINE = """\
+Alias for 'event overview'.  Get an event timeline for a sensor showing
+when events occurred within a time range.
+
+Example:
+  limacharlie event timeline --sid <SID> --start 1700000000 --end 1700086400
+"""
+
+_EXPLAIN_TYPES = """\
+List available event types and their schemas.  Optionally filter by
+platform (e.g., 'windows', 'linux', 'macos').
+
+Examples:
+  limacharlie event types
+  limacharlie event types --platform windows
+"""
+
+_EXPLAIN_SCHEMA = """\
+Get the schema definition for a specific event type.  The schema
+describes the fields and structure of events of this type.
+
+Example:
+  limacharlie event schema --event-type NEW_PROCESS
+"""
+
+_EXPLAIN_RETENTION = """\
+Get event retention statistics for a sensor.  Shows how many events
+are stored in the Insight data lake for the given time range.  Use
+--detailed to get a breakdown by event type.
+
+Example:
+  limacharlie event retention --sid <SID> --start 1700000000 --end 1700086400
+  limacharlie event retention --sid <SID> --start 1700000000 --end 1700086400 --detailed
+"""
+
 register_explain("event.list", _EXPLAIN_LIST)
 register_explain("event.get", _EXPLAIN_GET)
+register_explain("event.children", _EXPLAIN_CHILDREN)
+register_explain("event.overview", _EXPLAIN_OVERVIEW)
+register_explain("event.timeline", _EXPLAIN_TIMELINE)
+register_explain("event.types", _EXPLAIN_TYPES)
+register_explain("event.schema", _EXPLAIN_SCHEMA)
+register_explain("event.retention", _EXPLAIN_RETENTION)
 
 
 # ---------------------------------------------------------------------------
@@ -142,4 +206,156 @@ def get(ctx, sid, atom):
     org = _get_org(ctx)
     sensor = Sensor(org, sid)
     data = sensor.get_event_by_atom(atom)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# children
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID.")
+@click.option("--atom", required=True, help="Parent event atom identifier.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_CHILDREN),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def children(ctx, sid, atom):
+    """Get child events of an atom.
+
+    Example:
+        limacharlie event children --sid <SID> --atom <ATOM>
+    """
+    org = _get_org(ctx)
+    sensor = Sensor(org, sid)
+    data = sensor.get_children_events(atom)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# overview
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID.")
+@click.option("--start", required=True, type=int, help="Start time (unix seconds).")
+@click.option("--end", required=True, type=int, help="End time (unix seconds).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_OVERVIEW),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def overview(ctx, sid, start, end):
+    """Get event overview for a sensor.
+
+    Example:
+        limacharlie event overview --sid <SID> --start 1700000000 --end 1700086400
+    """
+    org = _get_org(ctx)
+    sensor = Sensor(org, sid)
+    data = sensor.get_overview(start, end)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# timeline (alias for overview)
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID.")
+@click.option("--start", required=True, type=int, help="Start time (unix seconds).")
+@click.option("--end", required=True, type=int, help="End time (unix seconds).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_TIMELINE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def timeline(ctx, sid, start, end):
+    """Get event timeline for a sensor (alias for overview).
+
+    Example:
+        limacharlie event timeline --sid <SID> --start 1700000000 --end 1700086400
+    """
+    org = _get_org(ctx)
+    sensor = Sensor(org, sid)
+    data = sensor.get_overview(start, end)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# types
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--platform", default=None, help="Filter by platform (e.g., windows, linux, macos).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_TYPES),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def types(ctx, platform):
+    """List available event types.
+
+    Examples:
+        limacharlie event types
+        limacharlie event types --platform windows
+    """
+    org = _get_org(ctx)
+    data = org.get_schemas(platform=platform)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# schema
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--event-type", required=True, help="Event type name (e.g., NEW_PROCESS).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_SCHEMA),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def schema(ctx, event_type):
+    """Get schema for a specific event type.
+
+    Example:
+        limacharlie event schema --event-type NEW_PROCESS
+    """
+    org = _get_org(ctx)
+    data = org.get_schema(event_type)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# retention
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID.")
+@click.option("--start", required=True, type=int, help="Start time (unix seconds).")
+@click.option("--end", required=True, type=int, help="End time (unix seconds).")
+@click.option("--detailed", is_flag=True, default=False, help="Include detailed breakdown by event type.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_RETENTION),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def retention(ctx, sid, start, end, detailed):
+    """Get event retention statistics for a sensor.
+
+    Examples:
+        limacharlie event retention --sid <SID> --start 1700000000 --end 1700086400
+        limacharlie event retention --sid <SID> --start 1700000000 --end 1700086400 --detailed
+    """
+    org = _get_org(ctx)
+    sensor = Sensor(org, sid)
+    data = sensor.get_event_retention(start, end, is_detailed=detailed)
     _output(ctx, data)

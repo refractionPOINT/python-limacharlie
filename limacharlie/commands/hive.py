@@ -76,12 +76,53 @@ Rename a record within a hive.  The record data and metadata are
 preserved; only the key name changes.
 """
 
+_EXPLAIN_LIST_TYPES = """\
+List all known hive type names that can be used with hive commands.
+
+Hives are key-value stores that hold different types of configuration
+data for a LimaCharlie organization.  Each hive type stores a specific
+kind of data (e.g., D&R rules, secrets, lookups, YARA rules).
+
+The output is a static list of known hive type names.  Use these
+names with --hive-name in other hive commands.
+"""
+
+_EXPLAIN_EXPORT = """\
+Export all records from a hive as YAML output.  This is useful for
+backup, migration, or version control of hive contents.
+
+Each record is exported with its full data and user metadata
+(expiry, enabled, tags, comment).  The output can be saved to a
+file and later imported with 'limacharlie hive import'.
+
+Related: 'limacharlie hive import' to restore records from a YAML file,
+'limacharlie sync pull' for full organization config export.
+"""
+
+_EXPLAIN_IMPORT = """\
+Import records into a hive from a YAML file.  Each top-level key in
+the YAML file is treated as a record name.  The value should be a
+dict with at minimum a 'data' key, and optionally 'usr_mtd' for
+user metadata (expiry, enabled, tags, comment).
+
+Use --dry-run to preview what would be imported without making changes.
+
+The YAML format matches the output of 'limacharlie hive export',
+so you can round-trip data between export and import.
+
+Related: 'limacharlie hive export' to export records,
+'limacharlie sync push' for full organization config push.
+"""
+
 register_explain("hive.list", _EXPLAIN_LIST)
 register_explain("hive.get", _EXPLAIN_GET)
 register_explain("hive.set", _EXPLAIN_SET)
 register_explain("hive.delete", _EXPLAIN_DELETE)
 register_explain("hive.validate", _EXPLAIN_VALIDATE)
 register_explain("hive.rename", _EXPLAIN_RENAME)
+register_explain("hive.list-types", _EXPLAIN_LIST_TYPES)
+register_explain("hive.export", _EXPLAIN_EXPORT)
+register_explain("hive.import", _EXPLAIN_IMPORT)
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +190,26 @@ def _record_from_input(key, data):
         record.comment = usr.get("comment")
     record.etag = data.get("etag") or data.get("sys_mtd", {}).get("etag")
     return record
+
+
+# Known hive types supported by LimaCharlie.
+_KNOWN_HIVE_TYPES = [
+    "dr-general",
+    "dr-managed",
+    "dr-service",
+    "fp",
+    "cloud_sensor",
+    "extension_config",
+    "yara",
+    "lookup",
+    "secret",
+    "query",
+    "playbook",
+    "ai_agent",
+    "external_adapter",
+    "sop",
+    "note",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +280,7 @@ def get(ctx, hive_name, key):
 # set
 # ---------------------------------------------------------------------------
 
-@group.command()
+@group.command("set")
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
@@ -363,3 +424,114 @@ def rename(ctx, hive_name, key, new_name):
     if not ctx.obj.quiet:
         click.echo(f"Record '{key}' renamed to '{new_name}' in hive '{hive_name}'.")
     _output(ctx, result)
+
+
+# ---------------------------------------------------------------------------
+# list-types
+# ---------------------------------------------------------------------------
+
+@group.command("list-types")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_LIST_TYPES),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def list_types(ctx):
+    """List known hive type names.
+
+    Outputs a static list of all known hive types that can be used
+    with the --hive-name option in other hive commands.
+
+    Example:
+        limacharlie hive list-types
+    """
+    _output(ctx, _KNOWN_HIVE_TYPES)
+
+
+# ---------------------------------------------------------------------------
+# export
+# ---------------------------------------------------------------------------
+
+@group.command("export")
+@click.option("--hive-name", "name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
+@click.option("--partition-key", default=None, help="Optional partition key (defaults to org OID).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_EXPORT),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def export_records(ctx, name, partition_key):
+    """Export all records from a hive as YAML.
+
+    Examples:
+        limacharlie hive export --hive-name dr-general
+        limacharlie hive export --hive-name lookup --output yaml > lookups.yaml
+        limacharlie hive export --hive-name secret --partition-key custom-key
+    """
+    org = _get_org(ctx)
+    hive = Hive(org, name, partition_key=partition_key)
+    records = hive.list()
+
+    # Build a dict with full record data for each key.
+    export_data = {}
+    for record_name, record in records.items():
+        # Fetch full data for each record (list only returns metadata).
+        full_record = hive.get(record_name)
+        export_data[record_name] = full_record.to_dict()
+
+    _output(ctx, export_data)
+
+
+# ---------------------------------------------------------------------------
+# import
+# ---------------------------------------------------------------------------
+
+@group.command("import")
+@click.option("--hive-name", "name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
+@click.option("--input-file", required=True, type=click.Path(exists=True), help="Path to YAML or JSON file to import.")
+@click.option("--partition-key", default=None, help="Optional partition key (defaults to org OID).")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview changes without applying them.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_IMPORT),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def import_records(ctx, name, input_file, partition_key, dry_run):
+    """Import records into a hive from a YAML or JSON file.
+
+    Each top-level key in the file is a record name.  The value
+    should have at minimum a 'data' key.
+
+    Examples:
+        limacharlie hive import --hive-name lookup --input-file lookups.yaml
+        limacharlie hive import --hive-name dr-general --input-file rules.yaml --dry-run
+    """
+    data = _load_file(input_file)
+    if not isinstance(data, dict):
+        click.echo(
+            "Error: Input file must contain a YAML/JSON mapping of record names to record data.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    org = _get_org(ctx)
+    hive = Hive(org, name, partition_key=partition_key)
+
+    results = {}
+    for record_name, record_data in data.items():
+        record = _record_from_input(record_name, record_data)
+        if dry_run:
+            results[record_name] = {"action": "would_set", "record": record.to_dict()}
+            if not ctx.obj.quiet:
+                click.echo(f"[dry-run] Would set record '{record_name}' in hive '{name}'.")
+        else:
+            result = hive.set(record)
+            results[record_name] = result
+            if not ctx.obj.quiet:
+                click.echo(f"Set record '{record_name}' in hive '{name}'.")
+
+    _output(ctx, results)

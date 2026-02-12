@@ -22,3 +22,6 @@ class Users:
 
     def remove_permission(self, email, permission):
         return self._org.remove_user_permission(email, permission)
+
+    def set_role(self, email, role):
+        return self._org.set_user_role(email, role)

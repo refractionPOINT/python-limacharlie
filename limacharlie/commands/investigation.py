@@ -54,10 +54,31 @@ investigation and all associated data.  The --confirm flag is
 required to prevent accidental deletion.
 """
 
+_EXPLAIN_UPDATE = """\
+Update an existing investigation.  Provide the investigation ID and
+updated data via --input-file (JSON/YAML) or stdin.
+
+Example:
+  limacharlie investigation update --id <investigation-id> \\
+      --input-file update.yaml
+"""
+
+_EXPLAIN_EXPAND = """\
+Expand an investigation timeline.  Optionally specify a sensor ID
+and/or events to add to the investigation.
+
+Examples:
+  limacharlie investigation expand --id <investigation-id> --sid <SID>
+  limacharlie investigation expand --id <investigation-id> \\
+      --events '[{"event_type": "NEW_PROCESS", "atom": "..."}]'
+"""
+
 register_explain("investigation.list", _EXPLAIN_LIST)
 register_explain("investigation.get", _EXPLAIN_GET)
 register_explain("investigation.create", _EXPLAIN_CREATE)
 register_explain("investigation.delete", _EXPLAIN_DELETE)
+register_explain("investigation.update", _EXPLAIN_UPDATE)
+register_explain("investigation.expand", _EXPLAIN_EXPAND)
 
 
 # ---------------------------------------------------------------------------
@@ -221,4 +242,79 @@ def delete(ctx, investigation_id, confirm):
     data = sdk.delete(investigation_id)
     if not ctx.obj.quiet:
         click.echo(f"Investigation '{investigation_id}' deleted.")
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# update
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--id", "investigation_id", required=True, help="Investigation ID to update.")
+@click.option(
+    "--input-file", default=None, type=click.Path(exists=True),
+    help="Path to update data file (JSON or YAML). Reads stdin if omitted.",
+)
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_UPDATE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def update(ctx, investigation_id, input_file):
+    """Update an existing investigation.
+
+    Example:
+        limacharlie investigation update --id <investigation-id> \\
+            --input-file update.yaml
+    """
+    import sys
+
+    if input_file:
+        data_in = _load_file(input_file)
+    elif not sys.stdin.isatty():
+        content = sys.stdin.read()
+        try:
+            data_in = yaml.safe_load(content)
+        except Exception:
+            data_in = json.loads(content)
+    else:
+        raise click.UsageError("Provide data via --input-file or pipe to stdin.")
+
+    org = _get_org(ctx)
+    sdk = InvestigationsSDK(org)
+    data = sdk.update(investigation_id, data_in)
+    if not ctx.obj.quiet:
+        click.echo(f"Investigation '{investigation_id}' updated.")
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# expand
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--id", "investigation_id", required=True, help="Investigation ID to expand.")
+@click.option("--sid", default=None, help="Sensor ID to add to the investigation.")
+@click.option("--events", default=None, help="JSON string of events to add.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_EXPAND),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def expand(ctx, investigation_id, sid, events):
+    """Expand an investigation timeline.
+
+    Examples:
+        limacharlie investigation expand --id <investigation-id> --sid <SID>
+        limacharlie investigation expand --id <investigation-id> \\
+            --events '[{"event_type": "NEW_PROCESS", "atom": "..."}]'
+    """
+    parsed_events = None
+    if events is not None:
+        parsed_events = json.loads(events)
+    org = _get_org(ctx)
+    sdk = InvestigationsSDK(org)
+    data = sdk.expand(investigation_id, sid=sid, events=parsed_events)
     _output(ctx, data)

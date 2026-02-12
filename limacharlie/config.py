@@ -162,7 +162,13 @@ def resolve_credentials(
             result["api_key"] = env_key
         else:
             # Fall back to config file (named env or default)
-            env_name = os.environ.get(ENV_CURRENT_ENV, "default") or "default"
+            env_name = os.environ.get(ENV_CURRENT_ENV) or None
+            if env_name is None:
+                # Check if a current_env is set in the config file
+                cfg = load_config()
+                if cfg is not None:
+                    env_name = cfg.get("current_env")
+            env_name = env_name or "default"
             result = get_environment_creds(env_name)
 
             # Even if we loaded from file, env vars for OID/UID override
