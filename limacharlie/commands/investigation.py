@@ -35,12 +35,12 @@ Use --output json to get the full investigation data for export.
 """
 
 _EXPLAIN_GET = """\
-Get the full details of a specific investigation by its ID.
+Get the full details of a specific investigation by its name.
 Returns the investigation metadata, associated events, detections,
 and any notes or status information.
 
 Example:
-  limacharlie investigation get --id <investigation-id>
+  limacharlie investigation get --name my-investigation
 """
 
 _EXPLAIN_CREATE = """\
@@ -49,32 +49,33 @@ input file should contain the investigation definition including
 any initial parameters.
 
 Example:
-  limacharlie investigation create --input-file investigation.yaml
+  limacharlie investigation create --name my-investigation --input-file investigation.yaml
 """
 
 _EXPLAIN_DELETE = """\
-Delete an investigation by its ID.  This permanently removes the
+Delete an investigation by its name.  This permanently removes the
 investigation and all associated data.  The --confirm flag is
 required to prevent accidental deletion.
 """
 
 _EXPLAIN_UPDATE = """\
-Update an existing investigation.  Provide the investigation ID and
+Update an existing investigation.  Provide the investigation name and
 updated data via --input-file (JSON/YAML) or stdin.
 
 Example:
-  limacharlie investigation update --id <investigation-id> \\
+  limacharlie investigation update --name my-investigation \\
       --input-file update.yaml
 """
 
 _EXPLAIN_EXPAND = """\
-Expand an investigation timeline.  Optionally specify a sensor ID
-and/or events to add to the investigation.
+Expand an investigation with full event and detection data.
+
+Fetches the investigation from Hive by name and enriches it with
+the full event and detection payloads referenced in the investigation.
 
 Examples:
-  limacharlie investigation expand --id <investigation-id> --sid <SID>
-  limacharlie investigation expand --id <investigation-id> \\
-      --events '[{"event_type": "NEW_PROCESS", "atom": "..."}]'
+  limacharlie investigation expand --name my-investigation
+  limacharlie investigation expand --name ignored --input-file investigation.yaml
 """
 
 register_explain("investigation.list", _EXPLAIN_LIST)

@@ -434,9 +434,11 @@ limacharlie extension config-list --name my-ext
 
 ```bash
 limacharlie investigation list
-limacharlie investigation get --id INV_ID
-limacharlie investigation create --name "Suspicious activity" --data '{}'
-limacharlie investigation expand --id INV_ID
+limacharlie investigation get --name my-investigation
+limacharlie investigation create --name my-investigation --input-file investigation.yaml
+limacharlie investigation update --name my-investigation --input-file update.yaml
+limacharlie investigation delete --name my-investigation --confirm
+limacharlie investigation expand --name my-investigation
 ```
 
 ### Artifacts & Payloads
