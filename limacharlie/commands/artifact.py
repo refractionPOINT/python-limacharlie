@@ -1,8 +1,11 @@
 """Artifact commands for LimaCharlie CLI v2.
 
-Commands for listing and retrieving artifacts (uploaded logs and
-files) stored in LimaCharlie Insight.
+Commands for listing, retrieving, uploading, and downloading artifacts
+(uploaded logs and files) stored in LimaCharlie Insight.
 """
+
+import os
+import sys
 
 import click
 
@@ -36,8 +39,39 @@ metadata for the artifact including source, upload time, retention,
 and download URL.
 """
 
+_EXPLAIN_UPLOAD = """\
+Upload an artifact/log file to Insight.  The file is uploaded using
+the ingestion endpoint and stored in the organization's Insight data
+lake.
+
+The upload requires an ingestion key, provided via the LC_LOGS_TOKEN
+environment variable or passed to the SDK.
+
+Optional parameters control the source label, parse hint, retention
+period, and original file path metadata.
+
+Examples:
+  limacharlie artifact upload --file /var/log/syslog --source my-server
+  limacharlie artifact upload --file data.pcap --hint pcap --retention-days 90
+"""
+
+_EXPLAIN_DOWNLOAD = """\
+Download an artifact by its ID.  Retrieves the original artifact data
+from Insight.  For small artifacts the data may be returned inline;
+for larger ones a signed download URL is returned.
+
+If --output-path is specified, the artifact is saved to that file.
+Otherwise, the download URL or inline data is printed to stdout.
+
+Examples:
+  limacharlie artifact download --id <ARTIFACT_ID>
+  limacharlie artifact download --id <ARTIFACT_ID> --output-path ./artifact.log
+"""
+
 register_explain("artifact.list", _EXPLAIN_LIST)
 register_explain("artifact.get", _EXPLAIN_GET)
+register_explain("artifact.upload", _EXPLAIN_UPLOAD)
+register_explain("artifact.download", _EXPLAIN_DOWNLOAD)
 
 
 # ---------------------------------------------------------------------------
@@ -103,15 +137,11 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit):
     """
     org = _get_org(ctx)
     artifacts = Artifacts(org)
-    data = artifacts.list(sid=sid)
-    # Apply client-side filters for type, time range, and limit
+    data = artifacts.list(sid=sid, start=start, end=end)
+    # Apply client-side filters for type and limit
     results = data if isinstance(data, list) else data.get("artifacts", data.get("logs", [data]))
     if artifact_type:
         results = [a for a in results if a.get("type") == artifact_type]
-    if start:
-        results = [a for a in results if a.get("last_event", a.get("ts", 0)) >= start]
-    if end:
-        results = [a for a in results if a.get("last_event", a.get("ts", float("inf"))) <= end]
     if limit:
         results = results[:limit]
     _output(ctx, results)
@@ -139,3 +169,102 @@ def get(ctx, artifact_id):
     artifacts = Artifacts(org)
     data = artifacts.get(artifact_id)
     _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# upload
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--file", "file_path", required=True, type=click.Path(exists=True), help="Path to the file to upload.")
+@click.option("--source", default=None, help="Source identifier label.")
+@click.option("--hint", default=None, help="Parse hint (e.g., pcap, json, wel, prefetch, txt).")
+@click.option("--retention-days", default=None, type=int, help="Retention period in days (default: 30).")
+@click.option("--original-path", default=None, help="Original file path on the source system.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_UPLOAD),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def upload(ctx, file_path, source, hint, retention_days, original_path):
+    """Upload an artifact/log file.
+
+    Requires LC_LOGS_TOKEN environment variable to be set with an
+    ingestion key.
+
+    Examples:
+        limacharlie artifact upload --file /var/log/syslog --source my-server
+        limacharlie artifact upload --file data.pcap --hint pcap --retention-days 90
+    """
+    org = _get_org(ctx)
+    artifacts = Artifacts(org)
+    data = artifacts.upload(
+        file_path,
+        source=source,
+        hint=hint,
+        retention_days=retention_days,
+        original_path=original_path,
+    )
+    if not ctx.obj.quiet:
+        click.echo(f"Artifact uploaded from '{file_path}'.")
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# download
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--id", "artifact_id", required=True, help="Artifact ID to download.")
+@click.option("--output-path", default=None, type=click.Path(), help="Local path to save the artifact to.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_DOWNLOAD),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def download(ctx, artifact_id, output_path):
+    """Download an artifact by ID.
+
+    If --output-path is given, saves to that file.  Otherwise prints
+    the download URL or inline data.
+
+    Examples:
+        limacharlie artifact download --id <ARTIFACT_ID>
+        limacharlie artifact download --id <ARTIFACT_ID> --output-path ./artifact.log
+    """
+    org = _get_org(ctx)
+    artifacts = Artifacts(org)
+    data = artifacts.get_url(artifact_id)
+
+    if output_path is not None:
+        # If the response has inline payload, write it directly.
+        if "payload" in data:
+            import base64
+            payload = data["payload"]
+            if isinstance(payload, str):
+                raw = base64.b64decode(payload)
+            else:
+                raw = payload
+            with open(output_path, "wb") as f:
+                f.write(raw)
+            if not ctx.obj.quiet:
+                click.echo(f"Artifact saved to '{output_path}'.")
+        elif "export" in data:
+            # Download from the signed URL.
+            from urllib.request import urlopen
+            url = data["export"]
+            with urlopen(url) as resp:
+                with open(output_path, "wb") as f:
+                    while True:
+                        chunk = resp.read(1024 * 1024 * 5)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            if not ctx.obj.quiet:
+                click.echo(f"Artifact saved to '{output_path}'.")
+        else:
+            _output(ctx, data)
+    else:
+        _output(ctx, data)

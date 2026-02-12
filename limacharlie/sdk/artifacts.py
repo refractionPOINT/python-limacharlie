@@ -135,20 +135,33 @@ class Artifacts:
 
         return response
 
-    def list(self, sid=None):
+    def list(self, sid=None, start=None, end=None, cursor=None):
         """List artifacts.
 
         Args:
             sid: Optional sensor ID filter.
+            start: Start time (unix seconds). Defaults to 24 hours ago.
+            end: End time (unix seconds). Defaults to now.
+            cursor: Pagination cursor.
 
         Returns:
             dict: Artifact list.
         """
+        import time as _time
         qp = {}
         if sid:
             qp["sid"] = str(sid)
+        if cursor:
+            qp["cursor"] = cursor
+        else:
+            if start is None:
+                start = int(_time.time()) - 86400
+            if end is None:
+                end = int(_time.time())
+            qp["start"] = str(int(start))
+            qp["end"] = str(int(end))
         return self.client.request("GET", f"insight/{self._org.oid}/artifacts",
-                                   query_params=qp or None)
+                                   query_params=qp)
 
     def get(self, artifact_id):
         """Get artifact details.
@@ -160,6 +173,23 @@ class Artifacts:
             dict: Artifact details.
         """
         return self.client.request("GET", f"insight/{self._org.oid}/artifacts/{artifact_id}")
+
+    def get_url(self, artifact_id):
+        """Get download URL or inline data for an artifact.
+
+        Requests the original artifact data.  For small artifacts the
+        payload may be returned inline; for larger ones a signed
+        download URL is returned in the 'export' field.
+
+        Args:
+            artifact_id: Artifact identifier.
+
+        Returns:
+            dict: Response with 'payload' (inline) or 'export' (URL).
+        """
+        return self.client.request(
+            "POST", f"insight/{self._org.oid}/artifacts/originals/{artifact_id}",
+        )
 
     def get_rules(self):
         """List artifact collection rules.

@@ -1,7 +1,5 @@
 """Integrity monitoring SDK for LimaCharlie v2."""
 
-import json
-
 
 class Integrity:
     """Integrity monitoring rule management (via replicant)."""
@@ -10,18 +8,23 @@ class Integrity:
         self._org = org
 
     def list(self):
-        return self._org.service_request("integrity", {"action": "list"})
+        return self._org.service_request("integrity", {"action": "list_rules"})
 
     def get(self, name):
-        return self._org.service_request("integrity", {"action": "get", "name": name})
+        rules = self.list()
+        if isinstance(rules, dict):
+            for rule_name, rule_data in rules.items():
+                if rule_name == name:
+                    return rule_data
+        return None
 
     def create(self, name, patterns, tags=None, platforms=None):
-        params = {"action": "add", "name": name, "patterns": json.dumps(patterns)}
+        params = {"action": "add_rule", "name": name, "patterns": patterns}
         if tags:
-            params["tags"] = json.dumps(tags)
+            params["tags"] = tags
         if platforms:
-            params["platforms"] = json.dumps(platforms)
+            params["platforms"] = platforms
         return self._org.service_request("integrity", params)
 
     def delete(self, name):
-        return self._org.service_request("integrity", {"action": "remove", "name": name})
+        return self._org.service_request("integrity", {"action": "remove_rule", "name": name})

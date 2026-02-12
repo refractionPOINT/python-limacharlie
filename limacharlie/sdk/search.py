@@ -36,11 +36,16 @@ class Search:
             dict: Validation result.
         """
         search_url = self._get_search_url()
-        body = {"oid": self._org.oid, "query": query}
-        if start_time is not None:
-            body["startTime"] = str(int(start_time))
-        if end_time is not None:
-            body["endTime"] = str(int(end_time))
+        if start_time is None:
+            start_time = int(time.time()) - 86400
+        if end_time is None:
+            end_time = int(time.time())
+        body = {
+            "oid": self._org.oid,
+            "query": query,
+            "startTime": str(int(start_time)),
+            "endTime": str(int(end_time)),
+        }
         if stream:
             body["stream"] = stream
         return self._org.client.request(

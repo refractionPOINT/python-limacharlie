@@ -211,6 +211,11 @@ def create_event(ctx, name, events):
 
 @group.command()
 @click.option("--name", required=True, help="Rule name to delete.")
+@click.option(
+    "--type", "rule_type", default="event",
+    type=click.Choice(["event", "watch"], case_sensitive=False),
+    help="Rule type: 'event' or 'watch' (default: event).",
+)
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @click.option(
     "--explain", is_flag=True, expose_value=False, is_eager=True,
@@ -218,13 +223,14 @@ def create_event(ctx, name, events):
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, name, confirm):
+def delete(ctx, name, rule_type, confirm):
     """Delete an exfil rule.
 
     This is a destructive operation.  Pass --confirm to proceed.
 
     Example:
         limacharlie exfil delete --name block-uploads --confirm
+        limacharlie exfil delete --name my-watch --type watch --confirm
     """
     if not confirm:
         click.echo(
@@ -237,7 +243,10 @@ def delete(ctx, name, confirm):
 
     org = _get_org(ctx)
     sdk = ExfilSDK(org)
-    data = sdk.delete(name)
+    if rule_type == "watch":
+        data = sdk.delete_watch(name)
+    else:
+        data = sdk.delete_event(name)
     if not ctx.obj.quiet:
         click.echo(f"Exfil rule '{name}' deleted.")
     _output(ctx, data)

@@ -26,7 +26,7 @@ class LimaCharlieContext:
         self.environment = None
 
 
-pass_context = click.make_pass_decorator(LimaCharlieContext, ensure=True)
+pass_context = click.pass_context
 
 
 @click.group()

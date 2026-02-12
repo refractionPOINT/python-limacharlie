@@ -48,9 +48,19 @@ the associated log paths.  The --confirm flag is required to
 prevent accidental deletion.
 """
 
+_EXPLAIN_GET = """\
+Get the details of a single log collection rule by name.
+Returns the rule definition including its log path patterns,
+tags, platform filters, and retention settings.
+
+Example:
+  limacharlie logging get --name system-logs
+"""
+
 register_explain("logging.list", _EXPLAIN_LIST)
 register_explain("logging.create", _EXPLAIN_CREATE)
 register_explain("logging.delete", _EXPLAIN_DELETE)
+register_explain("logging.get", _EXPLAIN_GET)
 
 
 # ---------------------------------------------------------------------------
@@ -189,4 +199,32 @@ def delete(ctx, name, confirm):
     data = sdk.delete(name)
     if not ctx.obj.quiet:
         click.echo(f"Logging rule '{name}' deleted.")
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# get
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--name", required=True, help="Rule name to retrieve.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_GET),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def get(ctx, name):
+    """Get a single log collection rule by name.
+
+    Example:
+        limacharlie logging get --name system-logs
+    """
+    org = _get_org(ctx)
+    sdk = LoggingRules(org)
+    data = sdk.get(name)
+    if data is None:
+        click.echo(f"Error: Logging rule '{name}' not found.", err=True)
+        ctx.exit(4)
+        return
     _output(ctx, data)

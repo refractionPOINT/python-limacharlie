@@ -417,7 +417,7 @@ class Organization:
         Returns:
             dict: New key details (includes the key value).
         """
-        params = {"key_name": name, "permissions": json.dumps(permissions)}
+        params = {"key_name": name, "perms": ",".join(permissions)}
         if ip_range:
             params["allowed_ip_range"] = ip_range
         return self._client.request("POST", f"orgs/{self.oid}/keys", params=params)
@@ -1086,11 +1086,14 @@ class Organization:
         Returns:
             list: Job dicts.
         """
+        import time as _time
         qp = {"is_compressed": "true", "with_data": "false"}
-        if start_time is not None:
-            qp["start"] = str(start_time)
-        if end_time is not None:
-            qp["end"] = str(end_time)
+        if start_time is None:
+            start_time = int(_time.time()) - 86400
+        if end_time is None:
+            end_time = int(_time.time())
+        qp["start"] = str(int(start_time))
+        qp["end"] = str(int(end_time))
         if limit is not None:
             qp["limit"] = str(limit)
         if sid is not None:
