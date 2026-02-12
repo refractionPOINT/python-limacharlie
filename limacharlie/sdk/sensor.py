@@ -248,7 +248,7 @@ class Sensor:
 
             resp = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}", query_params=qp)
             cursor = resp.get("next_cursor")
-            for evt in self.client.unwrap(resp["events"]):
+            for evt in self.client.unwrap(resp.get("events", "")):
                 yield evt
                 n_returned += 1
                 if limit is not None and n_returned >= limit:
@@ -292,7 +292,7 @@ class Sensor:
         """
         data = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/{atom}/children",
                                    query_params={"is_compressed": "true"})
-        return self.client.unwrap(data["events"])
+        return self.client.unwrap(data.get("events", ""))
 
     def get_event_retention(self, start, end, is_detailed=False):
         """Get event retention statistics.
@@ -305,7 +305,7 @@ class Sensor:
         Returns:
             dict: Retention statistics.
         """
-        qp = {"startTime": str(start), "endTime": str(end)}
+        qp = {"start": str(start), "end": str(end)}
         if is_detailed:
             qp["is_detailed"] = "true"
         return self.client.request("GET", f"insight/event_count/{self._org.oid}/{self.sid}",

@@ -65,7 +65,8 @@ class Organization:
         Returns:
             str: Configuration value.
         """
-        return self._client.request("GET", f"configs/{self.oid}/{config_name}")
+        data = self._client.request("GET", f"configs/{self.oid}/{config_name}")
+        return data.get("value", None)
 
     def set_config(self, config_name, value):
         """Set an organization configuration value.
@@ -176,7 +177,7 @@ class Organization:
         Returns:
             dict: API response.
         """
-        return self._client.request("POST", f"orgs/{self.oid}/name", query_params={"newName": new_name})
+        return self._client.request("POST", f"orgs/{self.oid}/name", query_params={"name": new_name})
 
     def get_ontology(self):
         """Get the LimaCharlie ontology (event type definitions).
@@ -379,6 +380,22 @@ class Organization:
         return self._client.request("DELETE", f"orgs/{self.oid}/users/permissions",
                                     params={"email": email, "permission": permission})
 
+    def set_user_role(self, email, role):
+        """Set a predefined role for a user, replacing all their permissions.
+
+        Valid roles: Owner, Administrator, Operator, Viewer, Basic.
+
+        Args:
+            email: User email address.
+            role: Role name (Owner, Administrator, Operator, Viewer, Basic).
+
+        Returns:
+            dict: API response with success, role, and permissions list.
+        """
+        return self._client.request("PUT", f"orgs/{self.oid}/users/role",
+                                    raw_body=json.dumps({"email": email, "role": role}).encode(),
+                                    content_type="application/json")
+
     # --- API Keys ---
 
     def get_api_keys(self):
@@ -472,7 +489,8 @@ class Organization:
         Returns:
             dict: Ingestion key list.
         """
-        return self._client.request("GET", f"insight/{self.oid}/ingestion_keys")
+        data = self._client.request("GET", f"insight/{self.oid}/ingestion_keys")
+        return data.get("keys", None)
 
     def create_ingestion_key(self, name):
         """Create a new ingestion key.
@@ -664,7 +682,8 @@ class Organization:
         Returns:
             list: Tag strings.
         """
-        return self._client.request("GET", f"tags/{self.oid}")["tags"]
+        resp = self._client.request("GET", f"tags/{self.oid}")
+        return resp.get("tags", [])
 
     def find_sensors_by_tag(self, tag):
         """Find all sensors with a specific tag.
@@ -676,6 +695,53 @@ class Organization:
             dict: SID to info mapping.
         """
         return self._client.request("GET", f"tags/{self.oid}/{urlescape(tag, safe='')}")
+
+    def mass_tag(self, selector, tag, ttl=None):
+        """Add a tag to all sensors matching a selector expression.
+
+        Iterates over all sensors matching the selector and applies
+        the tag to each one.
+
+        Args:
+            selector: Sensor selector expression (bexpr).
+            tag: Tag string to add.
+            ttl: Optional TTL in seconds.
+
+        Returns:
+            dict: Summary with count of sensors tagged.
+        """
+        from .sensor import Sensor
+        count = 0
+        for sensor_info in self.list_sensors(selector=selector):
+            sid = sensor_info.get("sid")
+            if sid:
+                sensor = Sensor(self, sid)
+                sensor.add_tag(tag, ttl=ttl)
+                count += 1
+        return {"tagged": count, "tag": tag, "selector": selector}
+
+    def mass_untag(self, selector, tag):
+        """Remove a tag from all sensors matching a selector expression.
+
+        Iterates over all sensors matching the selector and removes
+        the tag from each one.
+
+        Args:
+            selector: Sensor selector expression (bexpr).
+            tag: Tag string to remove.
+
+        Returns:
+            dict: Summary with count of sensors untagged.
+        """
+        from .sensor import Sensor
+        count = 0
+        for sensor_info in self.list_sensors(selector=selector):
+            sid = sensor_info.get("sid")
+            if sid:
+                sensor = Sensor(self, sid)
+                sensor.remove_tag(tag)
+                count += 1
+        return {"untagged": count, "tag": tag, "selector": selector}
 
     # --- Online Sensors ---
 
@@ -896,13 +962,35 @@ class Organization:
         Returns:
             dict: Subscription list.
         """
-        return self._client.request("GET", f"orgs/{self.oid}/resources")
+        data = self._client.request("GET", f"orgs/{self.oid}/resources")
+        return data.get("resources", None)
 
     def subscribe_to_extension(self, name):
-        return self._client.request("POST", f"orgs/{self.oid}/resources", params={"name": name})
+        res_cat, res_name = name.split("/", 1)
+        return self._client.request("POST", f"orgs/{self.oid}/resources",
+                                    params={"res_cat": res_cat, "res_name": res_name})
 
     def unsubscribe_from_extension(self, name):
-        return self._client.request("DELETE", f"orgs/{self.oid}/resources", params={"name": name})
+        res_cat, res_name = name.split("/", 1)
+        return self._client.request("DELETE", f"orgs/{self.oid}/resources",
+                                    params={"res_cat": res_cat, "res_name": res_name})
+
+    # --- Extension Rule Conversion ---
+
+    def convert_extension_rules(self, extension_name, is_dry_run=False):
+        """Convert/migrate D&R rules for use with an extension.
+
+        Args:
+            extension_name: Extension name.
+            is_dry_run: If True, simulate without making changes.
+
+        Returns:
+            dict: Conversion results.
+        """
+        params = {"extension_name": extension_name}
+        if is_dry_run:
+            params["is_dry_run"] = "true"
+        return self._client.request("POST", f"orgs/{self.oid}/extension/convert_rules", params=params)
 
     # --- Detections ---
 
@@ -929,7 +1017,7 @@ class Organization:
 
             resp = self._client.request("GET", f"insight/{self.oid}/detections", query_params=qp)
             cursor = resp.get("next_cursor")
-            for d in self._client.unwrap(resp["detects"]):
+            for d in self._client.unwrap(resp.get("detects", "")):
                 yield d
                 n_returned += 1
                 if limit is not None and n_returned >= limit:
@@ -976,7 +1064,7 @@ class Organization:
 
             resp = self._client.request("GET", f"insight/{self.oid}/audit", query_params=qp)
             cursor = resp.get("next_cursor")
-            for entry in self._client.unwrap(resp["events"]):
+            for entry in self._client.unwrap(resp.get("events", "")):
                 yield entry
                 n_returned += 1
                 if limit is not None and n_returned >= limit:
@@ -1008,5 +1096,8 @@ class Organization:
         if sid is not None:
             qp["sid"] = str(sid)
         resp = self._client.request("GET", f"job/{self.oid}", query_params=qp)
-        jobs = self._client.unwrap(resp["jobs"])
+        raw_jobs = resp.get("jobs", "")
+        if not raw_jobs:
+            return []
+        jobs = self._client.unwrap(raw_jobs)
         return [job for job_id, job in jobs.items()]

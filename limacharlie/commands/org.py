@@ -86,6 +86,61 @@ reporting, and identifying areas where additional detection rules
 should be created.
 """
 
+_EXPLAIN_URLS = """\
+Display the service URLs for the organization.  These URLs are used by
+sensors and integrations to communicate with the LimaCharlie platform.
+This is useful for network configuration, firewall rules, and verifying
+that sensors are pointed at the correct endpoints.
+"""
+
+_EXPLAIN_CREATE = """\
+Create a new organization.  You must provide a name and a data center
+location (e.g. 'us', 'ca', 'eu', 'uk', 'emea').  Optionally supply a
+template name to bootstrap the organization with preconfigured rules and
+outputs.
+
+The API returns the new organization's OID on success.
+"""
+
+_EXPLAIN_DELETE = """\
+Delete an organization.  This is a two-step process for safety.  First
+call without --confirm-token to obtain a confirmation token.  Then call
+again with --confirm-token <token> to perform the actual deletion.
+
+WARNING: This action is irreversible.  All sensors, rules, data, and
+configuration will be permanently destroyed.
+"""
+
+_EXPLAIN_RENAME = """\
+Rename an organization.  The new name must be unique across LimaCharlie.
+Use 'limacharlie org check-name' to verify availability before renaming.
+"""
+
+_EXPLAIN_QUOTA = """\
+Set the sensor quota for the organization.  The quota limits how many
+sensors can be enrolled simultaneously.  Set to 0 to remove the quota
+limit (billing still applies).
+"""
+
+_EXPLAIN_SCHEMA = """\
+Retrieve event schemas for the organization.  Without options, returns
+the full schema list.  Use --event-type to get the schema for a single
+event type, or --platform to filter schemas by platform.
+"""
+
+_EXPLAIN_RUNTIME_METADATA = """\
+Retrieve runtime metadata for the organization.  Runtime metadata
+describes the dynamic state of various platform entities such as
+services and extensions.  Optionally filter by --entity-type and
+--entity-name.
+"""
+
+_EXPLAIN_CHECK_NAME = """\
+Check whether an organization name is available.  Returns availability
+information for the given name.  Use this before creating or renaming
+an organization to avoid name conflicts.
+"""
+
 register_explain("org.info", _EXPLAIN_INFO)
 register_explain("org.list", _EXPLAIN_LIST)
 register_explain("org.config-get", _EXPLAIN_CONFIG_GET)
@@ -94,6 +149,14 @@ register_explain("org.errors", _EXPLAIN_ERRORS)
 register_explain("org.dismiss-error", _EXPLAIN_DISMISS_ERROR)
 register_explain("org.stats", _EXPLAIN_STATS)
 register_explain("org.mitre", _EXPLAIN_MITRE)
+register_explain("org.urls", _EXPLAIN_URLS)
+register_explain("org.create", _EXPLAIN_CREATE)
+register_explain("org.delete", _EXPLAIN_DELETE)
+register_explain("org.rename", _EXPLAIN_RENAME)
+register_explain("org.quota", _EXPLAIN_QUOTA)
+register_explain("org.schema", _EXPLAIN_SCHEMA)
+register_explain("org.runtime-metadata", _EXPLAIN_RUNTIME_METADATA)
+register_explain("org.check-name", _EXPLAIN_CHECK_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -114,9 +177,13 @@ def _output(ctx, data):
         click.echo(format_output(data, fmt))
 
 
-def _get_org(ctx):
+def _get_client(ctx):
     creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
-    client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
+    return Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
+
+
+def _get_org(ctx):
+    client = _get_client(ctx)
     return Organization(client)
 
 
@@ -321,4 +388,207 @@ def mitre(ctx):
     """
     org = _get_org(ctx)
     data = org.get_mitre_report()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# urls
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_URLS),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def urls(ctx):
+    """Show service URLs for the organization.
+
+    Example:
+        limacharlie org urls
+    """
+    org = _get_org(ctx)
+    data = org.get_urls()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--name", required=True, help="Name for the new organization.")
+@click.option("--location", required=True, help="Data center location (e.g. us, ca, eu, uk, emea).")
+@click.option("--template", default=None, help="Optional template name to bootstrap the organization.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_CREATE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def create(ctx, name, location, template):
+    """Create a new organization.
+
+    Example:
+        limacharlie org create --name my-org --location us
+        limacharlie org create --name my-org --location eu --template default
+    """
+    client = _get_client(ctx)
+    data = Organization.create_org(client, name, location, template)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# delete
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--confirm-token", default=None, help="Confirmation token from initial delete call.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_DELETE),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def delete(ctx, confirm_token):
+    """Delete an organization (two-step process).
+
+    First call without --confirm-token to obtain a confirmation token.
+    Then call again with --confirm-token <token> to perform the deletion.
+
+    Examples:
+        limacharlie org delete
+        limacharlie org delete --confirm-token <token>
+    """
+    org = _get_org(ctx)
+    data = org.delete_org(confirm_token)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# rename
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--name", required=True, help="New organization name.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_RENAME),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def rename(ctx, name):
+    """Rename the organization.
+
+    Example:
+        limacharlie org rename --name new-org-name
+    """
+    org = _get_org(ctx)
+    data = org.rename(name)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# quota
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--quota", required=True, type=int, help="Sensor quota (0 to remove limit).")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_QUOTA),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def quota(ctx, quota):
+    """Set the sensor quota for the organization.
+
+    Example:
+        limacharlie org quota --quota 1000
+        limacharlie org quota --quota 0
+    """
+    org = _get_org(ctx)
+    data = org.set_quota(quota)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# schema
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--event-type", default=None, help="Specific event type to retrieve schema for.")
+@click.option("--platform", default=None, help="Platform to filter schemas by.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_SCHEMA),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def schema(ctx, event_type, platform):
+    """Get event schemas for the organization.
+
+    Without options, returns all schemas.  Use --event-type for a single
+    event type or --platform to filter by platform.
+
+    Example:
+        limacharlie org schema
+        limacharlie org schema --event-type NEW_PROCESS
+        limacharlie org schema --platform windows
+    """
+    org = _get_org(ctx)
+    if event_type:
+        data = org.get_schema(event_type)
+    else:
+        data = org.get_schemas(platform)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# runtime-metadata
+# ---------------------------------------------------------------------------
+
+@group.command("runtime-metadata")
+@click.option("--entity-type", default=None, help="Entity type to filter by.")
+@click.option("--entity-name", default=None, help="Entity name to filter by.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_RUNTIME_METADATA),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def runtime_metadata(ctx, entity_type, entity_name):
+    """Get runtime metadata for the organization.
+
+    Example:
+        limacharlie org runtime-metadata
+        limacharlie org runtime-metadata --entity-type service
+        limacharlie org runtime-metadata --entity-type service --entity-name my-svc
+    """
+    org = _get_org(ctx)
+    data = org.get_runtime_metadata(entity_type, entity_name)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# check-name
+# ---------------------------------------------------------------------------
+
+@group.command("check-name")
+@click.option("--name", required=True, help="Organization name to check availability for.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_CHECK_NAME),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def check_name(ctx, name):
+    """Check if an organization name is available.
+
+    Example:
+        limacharlie org check-name --name my-org
+    """
+    client = _get_client(ctx)
+    data = Organization.check_name(client, name)
     _output(ctx, data)

@@ -56,6 +56,36 @@ class TestHiveRecord:
         assert rec.data == {"nested": True}
 
 
+class TestHiveRecordFromRawWithUsrMtd:
+    """Test creating HiveRecord with usr_mtd and etag via raw dict format.
+
+    This covers the pattern used by _hive_shortcut.py set_cmd which builds
+    a raw dict from user input containing 'data', 'usr_mtd', and 'etag'.
+    """
+    def test_from_raw_with_usr_mtd_and_etag(self):
+        raw = {
+            "data": {"key": "value"},
+            "usr_mtd": {"enabled": True, "tags": ["prod"]},
+            "sys_mtd": {"etag": "my-etag"},
+        }
+        rec = HiveRecord("test-key", raw=raw)
+        assert rec.name == "test-key"
+        assert rec.data == {"key": "value"}
+        assert rec.enabled is True
+        assert rec.tags == ["prod"]
+        assert rec.etag == "my-etag"
+
+    def test_from_raw_with_empty_sys_mtd(self):
+        raw = {
+            "data": {"key": "value"},
+            "usr_mtd": {"comment": "hello"},
+            "sys_mtd": {},
+        }
+        rec = HiveRecord("test-key", raw=raw)
+        assert rec.comment == "hello"
+        assert rec.etag is None
+
+
 class TestHiveInit:
     def test_default_partition(self, mock_org):
         h = Hive(mock_org, "secret")
@@ -168,6 +198,22 @@ class TestHiveUpdateTx:
         mock_org.client.request.side_effect = [
             {"data": {"v": 1}, "usr_mtd": {}, "sys_mtd": {"etag": "e1"}},  # first get
             ApiError("etag mismatch", status_code=409),  # first set fails
+            {"data": {"v": 1}, "usr_mtd": {}, "sys_mtd": {"etag": "e2"}},  # second get
+            {"ok": True},  # second set succeeds
+        ]
+
+        def update_fn(record):
+            record.data["v"] = 2
+
+        result = hive.update_tx("my-key", update_fn)
+        assert result == {"ok": True}
+
+    def test_transaction_retries_on_etag_mismatch_string(self, hive, mock_org):
+        from limacharlie.errors import ApiError
+
+        mock_org.client.request.side_effect = [
+            {"data": {"v": 1}, "usr_mtd": {}, "sys_mtd": {"etag": "e1"}},  # first get
+            ApiError("ETAG_MISMATCH", status_code=400),  # string match, not 409
             {"data": {"v": 1}, "usr_mtd": {}, "sys_mtd": {"etag": "e2"}},  # second get
             {"ok": True},  # second set succeeds
         ]

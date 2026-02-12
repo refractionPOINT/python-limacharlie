@@ -58,8 +58,51 @@ Example:
   limacharlie ioc batch-search --input-file iocs.json
 """
 
+_EXPLAIN_HOSTS = """\
+Find sensors by hostname prefix.  This searches the Insight data lake
+for sensors whose hostname matches the given prefix.
+
+This is equivalent to searching for IOC type "hostname".
+
+Example:
+  limacharlie ioc hosts --hostname workstation-01
+  limacharlie ioc hosts --hostname srv-
+"""
+
+_EXPLAIN_ENRICH = """\
+Get enrichment/object information for an indicator.  This queries the
+Insight data lake for detailed information about an observed object.
+
+Supported types: domain, ip, file_hash, file_path, file_name, user,
+service_name, package_name.
+
+Examples:
+  limacharlie ioc enrich --type domain --value evil.com
+  limacharlie ioc enrich --type ip --value 1.2.3.4
+  limacharlie ioc enrich --type file_hash --value abc123...
+"""
+
+_EXPLAIN_BATCH_ENRICH = """\
+Batch enrichment lookup from a JSON input file.  The file should be a
+JSON object mapping indicator types to lists of values, identical to
+the format used by batch-search:
+
+  {
+    "domain": ["evil.com", "bad.org"],
+    "ip": ["1.2.3.4"]
+  }
+
+Results include object information for each indicator in the batch.
+
+Example:
+  limacharlie ioc batch-enrich --input-file indicators.json
+"""
+
 register_explain("ioc.search", _EXPLAIN_SEARCH)
 register_explain("ioc.batch-search", _EXPLAIN_BATCH_SEARCH)
+register_explain("ioc.hosts", _EXPLAIN_HOSTS)
+register_explain("ioc.enrich", _EXPLAIN_ENRICH)
+register_explain("ioc.batch-enrich", _EXPLAIN_BATCH_ENRICH)
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +226,98 @@ def batch_search(ctx, input_file):
 
     if not isinstance(data, dict):
         click.echo("Error: Input must be a JSON object mapping IOC types to lists of values.", err=True)
+        ctx.exit(4)
+        return
+
+    org = _get_org(ctx)
+    insight = Insight(org)
+    result = insight.batch_search(data)
+    _output(ctx, result)
+
+
+# ---------------------------------------------------------------------------
+# hosts
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--hostname", required=True, help="Hostname prefix to search for.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_HOSTS),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def hosts(ctx, hostname):
+    """Find sensors by hostname prefix.
+
+    Examples:
+        limacharlie ioc hosts --hostname workstation-01
+        limacharlie ioc hosts --hostname srv-
+    """
+    org = _get_org(ctx)
+    data = org.find_sensors_by_hostname(hostname)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# enrich
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--type", "obj_type", required=True, help="Indicator type (domain, ip, file_hash, file_path, file_name, user, service_name, package_name).")
+@click.option("--value", required=True, help="Indicator value to look up.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_ENRICH),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def enrich(ctx, obj_type, value):
+    """Get enrichment info for an indicator.
+
+    Examples:
+        limacharlie ioc enrich --type domain --value evil.com
+        limacharlie ioc enrich --type ip --value 1.2.3.4
+    """
+    org = _get_org(ctx)
+    insight = Insight(org)
+    data = insight.get_object_information(obj_type, value)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# batch-enrich
+# ---------------------------------------------------------------------------
+
+@group.command("batch-enrich")
+@click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to JSON file with indicators ({type: [values]}). Reads stdin if omitted.")
+@click.option(
+    "--explain", is_flag=True, expose_value=False, is_eager=True,
+    callback=_make_explain_callback(_EXPLAIN_BATCH_ENRICH),
+    help="Show detailed explanation of this command.",
+)
+@pass_context
+def batch_enrich(ctx, input_file):
+    """Batch enrichment lookup from a JSON file.
+
+    The input file should map indicator types to lists of values:
+      {"domain": ["evil.com"], "ip": ["1.2.3.4"]}
+
+    Example:
+        limacharlie ioc batch-enrich --input-file indicators.json
+    """
+    data = _load_input(input_file)
+    if data is None:
+        click.echo(
+            "Error: No input data provided.\n"
+            "Suggestion: Use --input-file or pipe JSON to stdin.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    if not isinstance(data, dict):
+        click.echo("Error: Input must be a JSON object mapping indicator types to lists of values.", err=True)
         ctx.exit(4)
         return
 

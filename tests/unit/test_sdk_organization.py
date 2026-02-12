@@ -63,8 +63,14 @@ class TestOrganizationInfo:
 class TestOrganizationConfig:
     def test_get_config(self, org, mock_client):
         mock_client.request.return_value = {"value": "some-key"}
-        org.get_config("vt")
+        result = org.get_config("vt")
         mock_client.request.assert_called_once_with("GET", "configs/test-oid-123/vt")
+        assert result == "some-key"
+
+    def test_get_config_missing_returns_none(self, org, mock_client):
+        mock_client.request.return_value = {}
+        result = org.get_config("nonexistent")
+        assert result is None
 
     def test_set_config(self, org, mock_client):
         org.set_config("vt", "my-api-key")
@@ -173,3 +179,70 @@ class TestOrganizationFPs:
         assert call_args[0][0] == "DELETE"
         assert "fp/test-oid-123" in call_args[0][1]
         assert call_args[1]["params"]["name"] == "fp-rule"
+
+
+class TestOrganizationIngestionKeys:
+    def test_get_ingestion_keys_unwraps(self, org, mock_client):
+        mock_client.request.return_value = {"keys": {"key1": "val1"}}
+        result = org.get_ingestion_keys()
+        assert result == {"key1": "val1"}
+
+    def test_get_ingestion_keys_missing_returns_none(self, org, mock_client):
+        mock_client.request.return_value = {}
+        result = org.get_ingestion_keys()
+        assert result is None
+
+
+class TestOrganizationRename:
+    def test_rename_sends_correct_param(self, org, mock_client):
+        org.rename("new-org-name")
+        mock_client.request.assert_called_once_with(
+            "POST", "orgs/test-oid-123/name",
+            query_params={"name": "new-org-name"},
+        )
+
+
+class TestOrganizationSubscriptions:
+    def test_get_subscriptions_unwraps(self, org, mock_client):
+        mock_client.request.return_value = {"resources": ["ext1", "ext2"]}
+        result = org.get_subscriptions()
+        assert result == ["ext1", "ext2"]
+
+    def test_get_subscriptions_missing_returns_none(self, org, mock_client):
+        mock_client.request.return_value = {}
+        result = org.get_subscriptions()
+        assert result is None
+
+    def test_subscribe_splits_name(self, org, mock_client):
+        org.subscribe_to_extension("lookup/my-resource")
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert call_args[1]["params"]["res_cat"] == "lookup"
+        assert call_args[1]["params"]["res_name"] == "my-resource"
+
+    def test_unsubscribe_splits_name(self, org, mock_client):
+        org.unsubscribe_from_extension("lookup/my-resource")
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "DELETE"
+        assert call_args[1]["params"]["res_cat"] == "lookup"
+        assert call_args[1]["params"]["res_name"] == "my-resource"
+
+
+class TestOrganizationTags:
+    def test_get_all_tags_returns_list(self, org, mock_client):
+        mock_client.request.return_value = {"tags": ["tag1", "tag2"]}
+        result = org.get_all_tags()
+        assert result == ["tag1", "tag2"]
+
+    def test_get_all_tags_empty_response(self, org, mock_client):
+        mock_client.request.return_value = {}
+        result = org.get_all_tags()
+        assert result == []
+
+    def test_find_sensors_by_hostname(self, org, mock_client):
+        mock_client.request.return_value = {"sensors": []}
+        org.find_sensors_by_hostname("web-server")
+        mock_client.request.assert_called_once_with(
+            "GET", "hostnames/test-oid-123",
+            query_params={"hostname": "web-server"},
+        )

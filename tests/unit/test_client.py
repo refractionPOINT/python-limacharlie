@@ -211,6 +211,45 @@ class TestRequest:
         assert result == {"ok": True}
 
 
+class TestRefreshAuthCallback:
+    @patch("limacharlie.client.urlopen")
+    def test_refresh_jwt_calls_on_refresh_auth_with_self(self, mock_urlopen):
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": "new-jwt"}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        callback = MagicMock()
+        client = Client(oid="test-oid", api_key="test-key", on_refresh_auth=callback)
+        client.refresh_jwt()
+
+        callback.assert_called_once_with(client)
+
+    @patch("limacharlie.client.urlopen")
+    def test_request_primes_jwt_via_on_refresh_auth(self, mock_urlopen):
+        """When on_refresh_auth is set and no JWT exists, request() should call
+        on_refresh_auth(client) to let the callback generate/set the JWT."""
+        callback = MagicMock()
+
+        def set_jwt(c):
+            c._jwt = "callback-jwt"
+
+        callback.side_effect = set_jwt
+
+        # Mock API response
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+        mock_urlopen.return_value = api_response
+
+        client = Client(oid="test-oid", api_key="test-key", on_refresh_auth=callback)
+        result = client.request("GET", "test")
+
+        callback.assert_called_with(client)
+        assert result == {"ok": True}
+
+
 class TestBuildUserAgent:
     def test_user_agent_format(self):
         ua = _build_user_agent()

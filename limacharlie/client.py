@@ -193,7 +193,7 @@ class Client:
         self._jwt = self._call_jwt_endpoint(auth_data)
 
         if self._on_refresh_auth is not None:
-            self._on_refresh_auth()
+            self._on_refresh_auth(self)
 
     def _refresh_jwt_oauth(self, effective_oid, expiry):
         """Refresh JWT using OAuth credentials."""
@@ -216,7 +216,7 @@ class Client:
         self._jwt = self._call_jwt_endpoint(auth_data)
 
         if self._on_refresh_auth is not None:
-            self._on_refresh_auth()
+            self._on_refresh_auth(self)
 
     def _call_jwt_endpoint(self, auth_data):
         """Call the JWT endpoint and return the JWT string."""

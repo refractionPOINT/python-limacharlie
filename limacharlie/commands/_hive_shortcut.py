@@ -107,10 +107,16 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
         # Support the same format as 'hive set': if the input has a
         # "data" key, use it as the record data and extract usr_mtd.
         if isinstance(data, dict) and "data" in data:
-            record_data = data["data"]
-            usr_mtd = data.get("usr_mtd", {})
-            etag = data.get("etag")
-            record = HiveRecord(key, data=record_data, usr_mtd=usr_mtd, etag=etag)
+            # Build a raw dict matching the API format so HiveRecord
+            # picks up usr_mtd and etag correctly.
+            raw = {
+                "data": data["data"],
+                "usr_mtd": data.get("usr_mtd", {}),
+                "sys_mtd": {},
+            }
+            if data.get("etag"):
+                raw["sys_mtd"]["etag"] = data["etag"]
+            record = HiveRecord(key, raw=raw)
         else:
             record = HiveRecord(key, data=data)
         org = _get_org(ctx)
@@ -133,9 +139,9 @@ def make_hive_group(group_name, hive_name, noun_singular, noun_plural=None):
         _output(ctx, result)
 
     # Register explain texts.
-    register_explain(f"{group_name} list", explain_list)
-    register_explain(f"{group_name} get", explain_get)
-    register_explain(f"{group_name} set", explain_set)
-    register_explain(f"{group_name} delete", explain_delete)
+    register_explain(f"{group_name}.list", explain_list)
+    register_explain(f"{group_name}.get", explain_get)
+    register_explain(f"{group_name}.set", explain_set)
+    register_explain(f"{group_name}.delete", explain_delete)
 
     return grp

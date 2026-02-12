@@ -269,12 +269,22 @@ class TestReplay:
         assert params["rule_name"] == "my-rule"
         assert params["start"] == "1704067200"
 
-    def test_run_with_detect_respond(self, mock_org):
+    def test_run_with_detect_respond_not_double_serialized(self, mock_org):
         from limacharlie.sdk.replay import Replay
         r = Replay(mock_org)
         mock_org.service_request.return_value = {"job_id": "j1"}
-        r.run(detect={"op": "is"}, respond=[{"action": "report"}], start=1000, end=2000)
+        detect = {"op": "is"}
+        respond = [{"action": "report"}]
+        r.run(detect=detect, respond=respond, start=1000, end=2000)
         mock_org.service_request.assert_called_once()
+        call_args = mock_org.service_request.call_args
+        params = call_args[0][1]
+        # detect/respond should be native dicts, NOT json strings.
+        # service_request handles json serialization internally.
+        assert params["detect"] == {"op": "is"}
+        assert params["respond"] == [{"action": "report"}]
+        assert not isinstance(params["detect"], str)
+        assert not isinstance(params["respond"], str)
 
 
 # --- Integrity ---
