@@ -1,4 +1,9 @@
-"""False Positive Rules SDK for LimaCharlie v2."""
+"""False Positive Rules SDK for LimaCharlie v2.
+
+Uses the Hive API (fp hive).
+"""
+
+from .hive import Hive, HiveRecord
 
 
 class FPRules:
@@ -8,16 +13,23 @@ class FPRules:
         self._org = org
 
     def list(self):
-        return self._org.get_fps()
+        hive = Hive(self._org, "fp")
+        records = hive.list()
+        return {name: rec.to_dict() for name, rec in records.items()}
 
     def get(self, name):
-        fps = self.list()
-        if isinstance(fps, dict):
-            return fps.get(name)
-        return None
+        hive = Hive(self._org, "fp")
+        try:
+            record = hive.get(name)
+            return record.to_dict()
+        except Exception:
+            return None
 
-    def create(self, name, rule, is_replace=False, ttl=None):
-        return self._org.add_fp(name, rule, is_replace=is_replace, ttl=ttl)
+    def create(self, name, data):
+        hive = Hive(self._org, "fp")
+        record = HiveRecord(name, data=data)
+        return hive.set(record)
 
     def delete(self, name):
-        return self._org.delete_fp(name)
+        hive = Hive(self._org, "fp")
+        return hive.delete(name)

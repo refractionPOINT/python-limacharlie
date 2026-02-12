@@ -91,30 +91,6 @@ class TestOrganizationSchemas:
         mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/schema/NEW_PROCESS")
 
 
-class TestOrganizationRules:
-    def test_get_rules_default_namespace(self, org, mock_client):
-        mock_client.request.return_value = {"rule1": {"detect": {}}}
-        org.get_rules()
-        mock_client.request.assert_called_once_with("GET", "rules/test-oid-123", query_params=None)
-
-    def test_get_rules_managed_namespace(self, org, mock_client):
-        org.get_rules(namespace="managed")
-        mock_client.request.assert_called_once_with("GET", "rules/test-oid-123", query_params={"namespace": "managed"})
-
-    def test_add_rule(self, org, mock_client):
-        org.add_rule("test-rule", {"op": "is"}, [{"action": "report"}])
-        call_args = mock_client.request.call_args
-        assert call_args[0][0] == "POST"
-        assert "rules/test-oid-123" in call_args[0][1]
-
-    def test_delete_rule(self, org, mock_client):
-        org.delete_rule("test-rule")
-        call_args = mock_client.request.call_args
-        assert call_args[0][0] == "DELETE"
-        assert "rules/test-oid-123" in call_args[0][1]
-        assert call_args[1]["params"]["name"] == "test-rule"
-
-
 class TestOrganizationOutputs:
     def test_get_outputs(self, org, mock_client):
         org.get_outputs()
@@ -161,24 +137,6 @@ class TestOrganizationSensors:
         params = call_args[1]["params"]
         decoded = json.loads(base64.b64decode(params["request_data"]))
         assert decoded["action"] == "list_rules"
-
-
-class TestOrganizationFPs:
-    def test_get_fps(self, org, mock_client):
-        org.get_fps()
-        mock_client.request.assert_called_once_with("GET", "fp/test-oid-123")
-
-    def test_add_fp(self, org, mock_client):
-        org.add_fp("fp-rule", {"detect": {}})
-        call_args = mock_client.request.call_args
-        assert call_args[0][0] == "POST"
-
-    def test_delete_fp(self, org, mock_client):
-        org.delete_fp("fp-rule")
-        call_args = mock_client.request.call_args
-        assert call_args[0][0] == "DELETE"
-        assert "fp/test-oid-123" in call_args[0][1]
-        assert call_args[1]["params"]["name"] == "fp-rule"
 
 
 class TestOrganizationIngestionKeys:

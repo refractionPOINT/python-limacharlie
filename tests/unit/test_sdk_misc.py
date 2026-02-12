@@ -22,22 +22,30 @@ class TestFPRules:
     def test_list(self, mock_org):
         from limacharlie.sdk.fp_rules import FPRules
         fp = FPRules(mock_org)
-        mock_org.get_fps.return_value = {"fp1": {"data": {}}}
+        mock_org.client.request.return_value = {
+            "fp1": {"data": {}, "usr_mtd": {}, "sys_mtd": {}},
+        }
         result = fp.list()
-        mock_org.get_fps.assert_called_once()
+        mock_org.client.request.assert_called_once_with("GET", "hive/fp/test-oid")
         assert "fp1" in result
 
     def test_create(self, mock_org):
         from limacharlie.sdk.fp_rules import FPRules
         fp = FPRules(mock_org)
+        mock_org.client.request.return_value = {}
         fp.create("fp1", {"op": "is"})
-        mock_org.add_fp.assert_called_once()
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "hive/fp/test-oid/fp1/data" in call_args[0][1]
 
     def test_delete(self, mock_org):
         from limacharlie.sdk.fp_rules import FPRules
         fp = FPRules(mock_org)
+        mock_org.client.request.return_value = {}
         fp.delete("fp1")
-        mock_org.delete_fp.assert_called_once_with("fp1")
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "DELETE"
+        assert "hive/fp/test-oid/fp1" in call_args[0][1]
 
 
 # --- Outputs ---

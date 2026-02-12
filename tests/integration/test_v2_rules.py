@@ -1,4 +1,4 @@
-"""Integration tests for LimaCharlie v2 SDK D&R rules and false positives."""
+"""Integration tests for LimaCharlie v2 SDK D&R rules and false positives (Hive-backed)."""
 
 import sys
 import os
@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from limacharlie.client import Client
 from limacharlie.sdk.organization import Organization
+from limacharlie.sdk.hive import Hive, HiveRecord
 
 TEST_PREFIX = "test-cli-v2-"
 
@@ -17,87 +18,97 @@ def _unique_name(base=""):
 
 
 def test_v2_rules_crud(oid, key):
-    """Create a D&R rule, verify it appears in the list, delete it, verify it is gone."""
+    """Create a D&R rule via hive, verify it appears in the list, delete it, verify it is gone."""
     client = Client(oid=oid, api_key=key)
     org = Organization(client)
     rule_name = _unique_name("rule-")
+    hive = Hive(org, "dr-general")
 
-    detection = {"op": "is", "event": "NEW_PROCESS", "path": "event/FILE_PATH", "value": "test-never-match.exe"}
-    response = [{"action": "report", "name": rule_name}]
+    rule_data = {
+        "detect": {"op": "is", "event": "NEW_PROCESS", "path": "event/FILE_PATH", "value": "test-never-match.exe"},
+        "respond": [{"action": "report", "name": rule_name}],
+    }
 
     try:
         # Create
-        org.add_rule(rule_name, detection, response, is_replace=True)
+        record = HiveRecord(rule_name, data=rule_data)
+        hive.set(record)
 
         # Verify present
-        rules = org.get_rules()
+        rules = hive.list()
         assert rule_name in rules, f"Rule '{rule_name}' not found in rules list"
     finally:
         # Cleanup - always attempt deletion
         try:
-            org.delete_rule(rule_name)
+            hive.delete(rule_name)
         except Exception:
             pass
 
     # Verify gone after deletion
-    rules_after = org.get_rules()
+    rules_after = hive.list()
     assert rule_name not in rules_after, f"Rule '{rule_name}' still present after deletion"
 
 
 def test_v2_fps_crud(oid, key):
-    """Create a false-positive rule, verify it appears, delete it, verify it is gone."""
+    """Create a false-positive rule via hive, verify it appears, delete it, verify it is gone."""
     client = Client(oid=oid, api_key=key)
     org = Organization(client)
     fp_name = _unique_name("fp-")
+    hive = Hive(org, "fp")
 
     fp_rule = {"op": "is", "path": "detect/event/FILE_PATH", "value": "test-never-match.exe"}
 
     try:
         # Create
-        org.add_fp(fp_name, fp_rule, is_replace=True)
+        record = HiveRecord(fp_name, data=fp_rule)
+        hive.set(record)
 
         # Verify present
-        fps = org.get_fps()
+        fps = hive.list()
         assert fp_name in fps, f"FP rule '{fp_name}' not found in FP list"
     finally:
         # Cleanup
         try:
-            org.delete_fp(fp_name)
+            hive.delete(fp_name)
         except Exception:
             pass
 
     # Verify gone
-    fps_after = org.get_fps()
+    fps_after = hive.list()
     assert fp_name not in fps_after, f"FP rule '{fp_name}' still present after deletion"
 
 
 def test_v2_rules_namespace(oid, key):
-    """Create a D&R rule in the 'managed' namespace, verify, and delete."""
+    """Create a D&R rule in the 'managed' namespace via hive, verify, and delete."""
     client = Client(oid=oid, api_key=key)
     org = Organization(client)
     rule_name = _unique_name("ns-rule-")
+    hive = Hive(org, "dr-managed")
 
-    detection = {"op": "is", "event": "NEW_PROCESS", "path": "event/FILE_PATH", "value": "test-never-match.exe"}
-    response = [{"action": "report", "name": rule_name}]
+    rule_data = {
+        "detect": {"op": "is", "event": "NEW_PROCESS", "path": "event/FILE_PATH", "value": "test-never-match.exe"},
+        "respond": [{"action": "report", "name": rule_name}],
+    }
 
     try:
         # Create in managed namespace
-        org.add_rule(rule_name, detection, response, is_replace=True, namespace="managed")
+        record = HiveRecord(rule_name, data=rule_data)
+        hive.set(record)
 
         # Verify present when querying managed namespace
-        rules = org.get_rules(namespace="managed")
+        rules = hive.list()
         assert rule_name in rules, (
             f"Rule '{rule_name}' not found in managed namespace rules"
         )
     finally:
         # Cleanup
         try:
-            org.delete_rule(rule_name, namespace="managed")
+            hive.delete(rule_name)
         except Exception:
             pass
 
     # Verify gone
-    rules_after = org.get_rules(namespace="managed")
+    rules_after = hive.list()
     assert rule_name not in rules_after, (
         f"Rule '{rule_name}' still present in managed namespace after deletion"
     )

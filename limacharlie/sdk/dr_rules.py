@@ -1,11 +1,13 @@
 """D&R Rules SDK for LimaCharlie v2.
 
-Thin wrapper - actual API calls go through Organization.
-This module provides a dedicated class interface.
+Uses the Hive API (dr-general, dr-managed, dr-service hives).
 """
 
-import json
-import time
+from .hive import Hive, HiveRecord
+
+
+def _hive_name(namespace):
+    return f"dr-{namespace or 'general'}"
 
 
 class DRRules:
@@ -15,21 +17,26 @@ class DRRules:
         self._org = org
 
     def list(self, namespace=None):
-        return self._org.get_rules(namespace=namespace)
+        hive = Hive(self._org, _hive_name(namespace))
+        records = hive.list()
+        return {name: rec.to_dict() for name, rec in records.items()}
 
     def get(self, name, namespace=None):
-        rules = self.list(namespace=namespace)
-        # Rules are typically keyed by name
-        if isinstance(rules, dict):
-            return rules.get(name)
-        return None
+        hive = Hive(self._org, _hive_name(namespace))
+        try:
+            record = hive.get(name)
+            return record.to_dict()
+        except Exception:
+            return None
 
-    def create(self, name, detection, response, is_replace=False, namespace=None, is_enabled=True, ttl=None):
-        return self._org.add_rule(name, detection, response, is_replace=is_replace,
-                                  namespace=namespace, is_enabled=is_enabled, ttl=ttl)
+    def create(self, name, data, namespace=None):
+        hive = Hive(self._org, _hive_name(namespace))
+        record = HiveRecord(name, data=data)
+        return hive.set(record)
 
-    def update(self, name, detection, response, namespace=None):
-        return self.create(name, detection, response, is_replace=True, namespace=namespace)
+    def update(self, name, data, namespace=None):
+        return self.create(name, data, namespace=namespace)
 
     def delete(self, name, namespace=None):
-        return self._org.delete_rule(name, namespace=namespace)
+        hive = Hive(self._org, _hive_name(namespace))
+        return hive.delete(name)

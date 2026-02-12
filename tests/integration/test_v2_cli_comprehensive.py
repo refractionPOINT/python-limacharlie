@@ -153,9 +153,9 @@ class TestCliTag:
 # D&R Rule commands (CRUD)
 # ============================================================================
 
-class TestCliRule:
+class TestCliDR:
     def test_list(self, oid, key):
-        result, data = _invoke(oid, key, ["rule", "list"])
+        result, data = _invoke(oid, key, ["dr", "list"])
         assert data is not None
         assert isinstance(data, dict)
 
@@ -173,34 +173,34 @@ class TestCliRule:
         }))
 
         try:
-            # Create
+            # Create via hive set
             result, _ = _invoke(oid, key, [
-                "rule", "create", "--name", name,
-                "--input-file", str(rule_file), "--replace",
+                "dr", "set", "--key", name,
+                "--input-file", str(rule_file),
             ])
-            assert "created" in result.output.lower() or result.exit_code == 0
+            assert result.exit_code == 0
 
             # Get
-            result, data = _invoke(oid, key, ["rule", "get", "--name", name])
+            result, data = _invoke(oid, key, ["dr", "get", "--key", name])
             assert data is not None
 
             # List and verify present
-            result, data = _invoke(oid, key, ["rule", "list"])
+            result, data = _invoke(oid, key, ["dr", "list"])
             assert name in data
         finally:
             # Delete
-            _invoke(oid, key, ["rule", "delete", "--name", name, "--confirm"])
+            _invoke(oid, key, ["dr", "delete", "--key", name, "--confirm"])
 
         # Verify gone
-        result, data = _invoke(oid, key, ["rule", "list"])
+        result, data = _invoke(oid, key, ["dr", "list"])
         assert name not in data
 
-    def test_create_without_confirm_on_delete_fails(self, oid, key):
+    def test_delete_without_confirm_fails(self, oid, key):
         """Deleting without --confirm should fail."""
         runner = CliRunner(env={"LC_API_KEY": key})
         result = runner.invoke(
             cli,
-            ["--oid", oid, "rule", "delete", "--name", "nonexistent", ],
+            ["--oid", oid, "dr", "delete", "--key", "nonexistent"],
         )
         # Should fail because --confirm is missing
         assert result.exit_code != 0
@@ -226,21 +226,21 @@ class TestCliFP:
         }))
 
         try:
-            # Create
+            # Create via hive set
             result, _ = _invoke(oid, key, [
-                "fp", "create", "--name", name, "--input-file", str(fp_file),
+                "fp", "set", "--key", name, "--input-file", str(fp_file),
             ])
             assert result.exit_code == 0
 
             # Get
-            result, data = _invoke(oid, key, ["fp", "get", "--name", name])
+            result, data = _invoke(oid, key, ["fp", "get", "--key", name])
             assert data is not None
 
             # List and verify present
             result, data = _invoke(oid, key, ["fp", "list"])
             assert name in data
         finally:
-            _invoke(oid, key, ["fp", "delete", "--name", name, "--confirm"])
+            _invoke(oid, key, ["fp", "delete", "--key", name, "--confirm"])
 
         # Verify gone
         result, data = _invoke(oid, key, ["fp", "list"])
@@ -781,7 +781,7 @@ class TestCliGlobal:
         runner = CliRunner(env={"LC_API_KEY": key})
         result = runner.invoke(
             cli,
-            ["--oid", oid, "rule", "list", "--explain"],
+            ["--oid", oid, "dr", "list", "--explain"],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
