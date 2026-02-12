@@ -36,5 +36,3 @@ class Billing:
     def get_plans(self) -> dict[str, Any]:
         return self.client.request("GET", "user/self/plans", alt_root=BILLING_URL)
 
-    def get_sku_definitions(self) -> dict[str, Any]:
-        return self.client.request("GET", f"orgs/{self._org.oid}/sku-definitions", alt_root=BILLING_URL)

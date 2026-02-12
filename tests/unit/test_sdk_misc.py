@@ -346,21 +346,36 @@ class TestInvestigations:
     def test_list(self, mock_org):
         from limacharlie.sdk.investigations import Investigations
         inv = Investigations(mock_org)
-        mock_org.client.request.return_value = {"investigations": []}
+        mock_org.client.request.return_value = {}
         inv.list()
-        mock_org.client.request.assert_called_once()
+        call_args = mock_org.client.request.call_args
+        assert "hive/investigation/" in call_args[0][1]
 
     def test_create(self, mock_org):
         from limacharlie.sdk.investigations import Investigations
         inv = Investigations(mock_org)
-        inv.create({"title": "test"})
-        mock_org.client.request.assert_called_once()
+        inv.create("test-inv", {"title": "test"})
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "hive/investigation/" in call_args[0][1]
 
     def test_delete(self, mock_org):
         from limacharlie.sdk.investigations import Investigations
         inv = Investigations(mock_org)
         inv.delete("inv-123")
-        mock_org.client.request.assert_called_once()
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "DELETE"
+        assert "hive/investigation/" in call_args[0][1]
+
+    def test_expand(self, mock_org):
+        from limacharlie.sdk.investigations import Investigations
+        inv = Investigations(mock_org)
+        inv.expand(investigation_name="my-inv")
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "investigation/expand" in call_args[0][1]
+        body = json.loads(call_args[1]["raw_body"])
+        assert body["investigation_name"] == "my-inv"
 
 
 # --- USP ---

@@ -36,7 +36,7 @@ class Groups:
     def remove_owner(self, group_id: str, email: str) -> dict[str, Any]:
         return self._org.remove_group_owner(group_id, email)
 
-    def set_permissions(self, group_id: str, permissions: dict[str, Any]) -> dict[str, Any]:
+    def set_permissions(self, group_id: str, permissions: list[str]) -> dict[str, Any]:
         return self._org.set_group_permissions(group_id, permissions)
 
     def get_logs(self, group_id: str) -> dict[str, Any]:

@@ -171,17 +171,6 @@ class Artifacts:
         return self.client.request("GET", f"insight/{self._org.oid}/artifacts",
                                    query_params=qp)
 
-    def get(self, artifact_id: str) -> dict[str, Any]:
-        """Get artifact details.
-
-        Args:
-            artifact_id: Artifact identifier.
-
-        Returns:
-            dict: Artifact details.
-        """
-        return self.client.request("GET", f"insight/{self._org.oid}/artifacts/{artifact_id}")
-
     def get_url(self, artifact_id: str) -> dict[str, Any]:
         """Get download URL or inline data for an artifact.
 

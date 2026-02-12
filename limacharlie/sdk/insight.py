@@ -84,43 +84,6 @@ class Insight:
             params=params,
         )
 
-    def get_object_timeline(self, start: int, end: int, objects: dict[str, list[str]],
-                            sid: str | None = None, bucketing: str = "day") -> dict[str, Any]:
-        """Get object timeline data.
-
-        Args:
-            start: Start time (unix seconds).
-            end: End time (unix seconds).
-            objects: Dict of type -> list of values.
-            sid: Optional sensor filter.
-            bucketing: Time bucketing ('day' or 'hour').
-
-        Returns:
-            dict: Timeline data.
-        """
-        params: dict[str, Any] = {
-            "oid": self._org.oid,
-            "start": str(int(start)),
-            "end": str(int(end)),
-            "bucketing": bucketing,
-            "is_compressed": "true",
-            "objects": json.dumps({k: list(v) for k, v in objects.items()}),
-        }
-        if sid:
-            params["sid"] = str(sid)
-
-        resp = self.client.request(
-            "POST",
-            f"insight/{self._org.oid}/objects_timeline",
-            params=params,
-        )
-        # The API returns compressed data when is_compressed=true.
-        if isinstance(resp, dict) and len(resp) == 1:
-            key = next(iter(resp))
-            if isinstance(resp[key], str):
-                return self.client.unwrap(resp[key])
-        return resp
-
     def get_object_information(self, obj_type: str, obj_name: str, info: str = "summary",
                                case_sensitive: bool = True, wildcards: bool = False,
                                limit: int | None = None) -> dict[str, Any]:
@@ -149,10 +112,3 @@ class Insight:
             limit=limit,
         )
 
-    def get_host_count_per_platform(self) -> dict[str, Any]:
-        """Get the number of hosts per platform with Insight data.
-
-        Returns:
-            dict: Platform to count mapping.
-        """
-        return self.client.request("GET", f"insight/{self._org.oid}/host_count")

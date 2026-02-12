@@ -118,15 +118,6 @@ Example:
   limacharlie extension config-delete --name my-extension --confirm
 """
 
-_EXPLAIN_CONVERT_RULES = """\
-Convert/migrate D&R rules for use with an extension.  Use --dry-run
-to preview changes without applying them.
-
-Example:
-  limacharlie extension convert-rules --name ext-zeek --dry-run
-  limacharlie extension convert-rules --name ext-zeek
-"""
-
 register_explain("extension.list", _EXPLAIN_LIST)
 register_explain("extension.subscribe", _EXPLAIN_SUBSCRIBE)
 register_explain("extension.unsubscribe", _EXPLAIN_UNSUBSCRIBE)
@@ -138,7 +129,6 @@ register_explain("extension.config-list", _EXPLAIN_CONFIG_LIST)
 register_explain("extension.config-get", _EXPLAIN_CONFIG_GET)
 register_explain("extension.config-set", _EXPLAIN_CONFIG_SET)
 register_explain("extension.config-delete", _EXPLAIN_CONFIG_DELETE)
-register_explain("extension.convert-rules", _EXPLAIN_CONVERT_RULES)
 
 
 # ---------------------------------------------------------------------------
@@ -493,28 +483,3 @@ def config_delete(ctx, name, confirm) -> None:
     if not ctx.obj.quiet:
         click.echo(f"Extension config '{name}' deleted.")
     _output(ctx, result)
-
-
-# ---------------------------------------------------------------------------
-# convert-rules
-# ---------------------------------------------------------------------------
-
-@group.command("convert-rules")
-@click.option("--name", required=True, help="Extension name to convert rules for.")
-@click.option("--dry-run", is_flag=True, default=False, help="Simulate without making changes.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CONVERT_RULES),
-    help="Show detailed explanation of this command.",
-)
-@pass_context
-def convert_rules(ctx, name, dry_run) -> None:
-    """Convert D&R rules for use with an extension.
-
-    Examples:
-        limacharlie extension convert-rules --name ext-zeek --dry-run
-        limacharlie extension convert-rules --name ext-zeek
-    """
-    org = _get_org(ctx)
-    data = org.convert_extension_rules(name, is_dry_run=dry_run)
-    _output(ctx, data)

@@ -20,36 +20,36 @@ class AI:
         return self._org.client
 
     def generate_dr_rule(self, description: str) -> dict[str, Any]:
-        return self.client.request("POST", f"ai/{self._org.oid}/dr",
-                                   raw_body=json.dumps({"description": description}).encode(),
+        return self.client.request("POST", "ai/dr",
+                                   raw_body=json.dumps({"query": description}).encode(),
                                    content_type="application/json")
 
     def generate_detection(self, description: str) -> dict[str, Any]:
-        return self.client.request("POST", f"ai/{self._org.oid}/detection",
-                                   raw_body=json.dumps({"description": description}).encode(),
+        return self.client.request("POST", "ai/detection",
+                                   raw_body=json.dumps({"query": description}).encode(),
                                    content_type="application/json")
 
     def generate_response(self, description: str) -> dict[str, Any]:
-        return self.client.request("POST", f"ai/{self._org.oid}/response",
-                                   raw_body=json.dumps({"description": description}).encode(),
+        return self.client.request("POST", "ai/response",
+                                   raw_body=json.dumps({"query": description}).encode(),
                                    content_type="application/json")
 
     def generate_lcql(self, description: str) -> dict[str, Any]:
-        return self.client.request("POST", f"ai/{self._org.oid}/lcql",
-                                   raw_body=json.dumps({"description": description}).encode(),
+        return self.client.request("POST", "ai/lcql",
+                                   raw_body=json.dumps({"query": description}).encode(),
                                    content_type="application/json")
 
     def generate_sensor_selector(self, description: str) -> dict[str, Any]:
-        return self.client.request("POST", f"ai/{self._org.oid}/sensor_selector",
-                                   raw_body=json.dumps({"description": description}).encode(),
+        return self.client.request("POST", "ai/sensor_selector",
+                                   raw_body=json.dumps({"query": description}).encode(),
                                    content_type="application/json")
 
     def generate_playbook(self, description: str) -> dict[str, Any]:
-        return self.client.request("POST", f"ai/{self._org.oid}/playbook/python",
-                                   raw_body=json.dumps({"description": description}).encode(),
+        return self.client.request("POST", "ai/playbook/python",
+                                   raw_body=json.dumps({"query": description}).encode(),
                                    content_type="application/json")
 
     def summarize_detection(self, detection_data: dict[str, Any]) -> dict[str, Any]:
-        return self.client.request("POST", f"ai/{self._org.oid}/det_summary",
-                                   raw_body=json.dumps(detection_data).encode(),
+        return self.client.request("POST", "ai/det_summary",
+                                   raw_body=json.dumps({"query": json.dumps(detection_data)}).encode(),
                                    content_type="application/json")

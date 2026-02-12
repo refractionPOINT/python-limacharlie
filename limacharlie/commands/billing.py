@@ -47,19 +47,10 @@ List all available billing plans.  Shows plan names, pricing tiers,
 and included features for each plan level.
 """
 
-_EXPLAIN_SKUS = """\
-List all SKU definitions for the organization.  Shows the available
-SKUs with their names, descriptions, pricing, and usage metrics.
-
-This is useful for understanding what billable items exist in the
-organization and how they are metered.
-"""
-
 register_explain("billing.status", _EXPLAIN_STATUS)
 register_explain("billing.details", _EXPLAIN_DETAILS)
 register_explain("billing.invoice", _EXPLAIN_INVOICE)
 register_explain("billing.plans", _EXPLAIN_PLANS)
-register_explain("billing.skus", _EXPLAIN_SKUS)
 
 
 # ---------------------------------------------------------------------------
@@ -190,27 +181,4 @@ def plans(ctx) -> None:
     org = _get_org(ctx)
     billing = BillingSDK(org)
     data = billing.get_plans()
-    _output(ctx, data)
-
-
-# ---------------------------------------------------------------------------
-# skus
-# ---------------------------------------------------------------------------
-
-@group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SKUS),
-    help="Show detailed explanation of this command.",
-)
-@pass_context
-def skus(ctx) -> None:
-    """List SKU definitions for the organization.
-
-    Example:
-        limacharlie billing skus
-    """
-    org = _get_org(ctx)
-    billing = BillingSDK(org)
-    data = billing.get_sku_definitions()
     _output(ctx, data)

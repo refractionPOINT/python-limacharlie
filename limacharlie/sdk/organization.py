@@ -370,7 +370,7 @@ class Organization:
             dict: API response.
         """
         return self._client.request("POST", f"orgs/{self.oid}/users/permissions",
-                                    params={"email": email, "permission": permission})
+                                    params={"email": email, "perm": permission})
 
     def remove_user_permission(self, email: str, permission: str) -> dict[str, Any]:
         """Revoke a permission from a user.
@@ -383,7 +383,7 @@ class Organization:
             dict: API response.
         """
         return self._client.request("DELETE", f"orgs/{self.oid}/users/permissions",
-                                    params={"email": email, "permission": permission})
+                                    params={"email": email, "perm": permission})
 
     def set_user_role(self, email: str, role: str) -> dict[str, Any]:
         """Set a predefined role for a user, replacing all their permissions.
@@ -519,24 +519,6 @@ class Organization:
         """
         return self._client.request("DELETE", f"insight/{self.oid}/ingestion_keys",
                                     query_params={"name": name})
-
-    def configure_usp_key(self, name: str, parse_hint: str | None = None, format_re: str | None = None) -> dict[str, Any]:
-        """Configure USP on an ingestion key.
-
-        Args:
-            name: Ingestion key name.
-            parse_hint: Parse hint for USP.
-            format_re: Format regex for USP.
-
-        Returns:
-            dict: API response.
-        """
-        params = {"name": name}
-        if parse_hint:
-            params["parse_hint"] = parse_hint
-        if format_re:
-            params["format_re"] = format_re
-        return self._client.request("POST", f"insight/{self.oid}/ingestion_keys/usp", params=params)
 
     # --- Outputs ---
 
@@ -710,23 +692,6 @@ class Organization:
         return self._client.request("GET", f"hostnames/{self.oid}",
                                     query_params={"hostname": hostname})
 
-    def find_sensors_by_ip(self, ip: str, start: int | None = None, end: int | None = None) -> dict[str, Any]:
-        """Find sensors by IP address.
-
-        Args:
-            ip: IP address to search.
-            start: Start time (unix seconds).
-            end: End time (unix seconds).
-
-        Returns:
-            dict: Matching sensors.
-        """
-        qp = {"ip": ip}
-        if start is not None:
-            qp["start"] = str(start)
-        if end is not None:
-            qp["end"] = str(end)
-        return self._client.request("GET", f"ips/{self.oid}", query_params=qp)
 
     def export_sensors(self) -> dict[str, Any]:
         """Export full sensor manifest.
@@ -832,20 +797,20 @@ class Organization:
         return self._client.request("DELETE", f"groups/{group_id}")
 
     def add_group_owner(self, group_id: str, email: str) -> dict[str, Any]:
-        return self._client.request("POST", f"groups/{group_id}/owners", params={"email": email})
+        return self._client.request("POST", f"groups/{group_id}/owners", params={"member_email": email})
 
     def remove_group_owner(self, group_id: str, email: str) -> dict[str, Any]:
-        return self._client.request("DELETE", f"groups/{group_id}/owners", params={"email": email})
+        return self._client.request("DELETE", f"groups/{group_id}/owners", params={"member_email": email})
 
     def add_group_member(self, group_id: str, email: str) -> dict[str, Any]:
-        return self._client.request("POST", f"groups/{group_id}/users", params={"email": email})
+        return self._client.request("POST", f"groups/{group_id}/users", params={"member_email": email})
 
     def remove_group_member(self, group_id: str, email: str) -> dict[str, Any]:
-        return self._client.request("DELETE", f"groups/{group_id}/users", params={"email": email})
+        return self._client.request("DELETE", f"groups/{group_id}/users", params={"member_email": email})
 
-    def set_group_permissions(self, group_id: str, permissions: dict[str, Any]) -> dict[str, Any]:
+    def set_group_permissions(self, group_id: str, permissions: list[str]) -> dict[str, Any]:
         return self._client.request("POST", f"groups/{group_id}/permissions",
-                                    params={"permissions": json.dumps(permissions)})
+                                    params={"perm": permissions})
 
     def get_group_logs(self, group_id: str) -> dict[str, Any]:
         return self._client.request("GET", f"groups/{group_id}/logs")
@@ -876,23 +841,6 @@ class Organization:
         res_cat, res_name = name.split("/", 1)
         return self._client.request("DELETE", f"orgs/{self.oid}/resources",
                                     params={"res_cat": res_cat, "res_name": res_name})
-
-    # --- Extension Rule Conversion ---
-
-    def convert_extension_rules(self, extension_name: str, is_dry_run: bool = False) -> dict[str, Any]:
-        """Convert/migrate D&R rules for use with an extension.
-
-        Args:
-            extension_name: Extension name.
-            is_dry_run: If True, simulate without making changes.
-
-        Returns:
-            dict: Conversion results.
-        """
-        params = {"extension_name": extension_name}
-        if is_dry_run:
-            params["is_dry_run"] = "true"
-        return self._client.request("POST", f"orgs/{self.oid}/extension/convert_rules", params=params)
 
     # --- Detections ---
 

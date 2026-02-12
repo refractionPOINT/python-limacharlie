@@ -20,6 +20,3 @@ class IngestionKeys:
 
     def delete(self, name: str) -> dict[str, Any]:
         return self._org.delete_ingestion_key(name)
-
-    def configure_usp(self, name: str, parse_hint: str | None = None, format_re: str | None = None) -> dict[str, Any]:
-        return self._org.configure_usp_key(name, parse_hint=parse_hint, format_re=format_re)

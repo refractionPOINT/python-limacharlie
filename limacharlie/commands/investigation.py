@@ -161,23 +161,23 @@ def list_investigations(ctx) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "investigation_id", required=True, help="Investigation ID.")
+@click.option("--name", required=True, help="Investigation name.")
 @click.option(
     "--explain", is_flag=True, expose_value=False, is_eager=True,
     callback=_make_explain_callback(_EXPLAIN_GET),
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def get(ctx, investigation_id) -> None:
+def get(ctx, name) -> None:
     """Get investigation details.
 
     Example:
-        limacharlie investigation get --id <investigation-id>
+        limacharlie investigation get --name my-investigation
     """
     org = _get_org(ctx)
     sdk = InvestigationsSDK(org)
-    data = sdk.get(investigation_id)
-    _output(ctx, data)
+    data = sdk.get(name)
+    _output(ctx, data.to_dict())
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +185,7 @@ def get(ctx, investigation_id) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
+@click.option("--name", required=True, help="Investigation name.")
 @click.option(
     "--input-file", required=True, type=click.Path(exists=True),
     help="Path to investigation definition file (JSON or YAML).",
@@ -195,19 +196,19 @@ def get(ctx, investigation_id) -> None:
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def create(ctx, input_file) -> None:
+def create(ctx, name, input_file) -> None:
     """Create a new investigation from a file.
 
     Example:
-        limacharlie investigation create --input-file investigation.yaml
+        limacharlie investigation create --name my-investigation --input-file investigation.yaml
     """
     data_in = _load_file(input_file)
 
     org = _get_org(ctx)
     sdk = InvestigationsSDK(org)
-    data = sdk.create(data_in)
+    data = sdk.create(name, data_in)
     if not ctx.obj.quiet:
-        click.echo("Investigation created.")
+        click.echo(f"Investigation '{name}' created.")
     _output(ctx, data)
 
 
@@ -216,7 +217,7 @@ def create(ctx, input_file) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "investigation_id", required=True, help="Investigation ID to delete.")
+@click.option("--name", required=True, help="Investigation name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @click.option(
     "--explain", is_flag=True, expose_value=False, is_eager=True,
@@ -224,13 +225,13 @@ def create(ctx, input_file) -> None:
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def delete(ctx, investigation_id, confirm) -> None:
+def delete(ctx, name, confirm) -> None:
     """Delete an investigation.
 
     This is a destructive operation.  Pass --confirm to proceed.
 
     Example:
-        limacharlie investigation delete --id <investigation-id> --confirm
+        limacharlie investigation delete --name my-investigation --confirm
     """
     if not confirm:
         click.echo(
@@ -243,9 +244,9 @@ def delete(ctx, investigation_id, confirm) -> None:
 
     org = _get_org(ctx)
     sdk = InvestigationsSDK(org)
-    data = sdk.delete(investigation_id)
+    data = sdk.delete(name)
     if not ctx.obj.quiet:
-        click.echo(f"Investigation '{investigation_id}' deleted.")
+        click.echo(f"Investigation '{name}' deleted.")
     _output(ctx, data)
 
 
@@ -254,7 +255,7 @@ def delete(ctx, investigation_id, confirm) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "investigation_id", required=True, help="Investigation ID to update.")
+@click.option("--name", required=True, help="Investigation name to update.")
 @click.option(
     "--input-file", default=None, type=click.Path(exists=True),
     help="Path to update data file (JSON or YAML). Reads stdin if omitted.",
@@ -265,11 +266,11 @@ def delete(ctx, investigation_id, confirm) -> None:
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def update(ctx, investigation_id, input_file) -> None:
+def update(ctx, name, input_file) -> None:
     """Update an existing investigation.
 
     Example:
-        limacharlie investigation update --id <investigation-id> \\
+        limacharlie investigation update --name my-investigation \\
             --input-file update.yaml
     """
     import sys
@@ -287,9 +288,9 @@ def update(ctx, investigation_id, input_file) -> None:
 
     org = _get_org(ctx)
     sdk = InvestigationsSDK(org)
-    data = sdk.update(investigation_id, data_in)
+    data = sdk.update(name, data_in)
     if not ctx.obj.quiet:
-        click.echo(f"Investigation '{investigation_id}' updated.")
+        click.echo(f"Investigation '{name}' updated.")
     _output(ctx, data)
 
 
@@ -298,27 +299,32 @@ def update(ctx, investigation_id, input_file) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "investigation_id", required=True, help="Investigation ID to expand.")
-@click.option("--sid", default=None, help="Sensor ID to add to the investigation.")
-@click.option("--events", default=None, help="JSON string of events to add.")
+@click.option("--name", required=True, help="Investigation name to expand (fetched from Hive).")
+@click.option(
+    "--input-file", default=None, type=click.Path(exists=True),
+    help="Path to an inline investigation object (JSON/YAML) to expand instead of fetching by name.",
+)
 @click.option(
     "--explain", is_flag=True, expose_value=False, is_eager=True,
     callback=_make_explain_callback(_EXPLAIN_EXPAND),
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def expand(ctx, investigation_id, sid, events) -> None:
-    """Expand an investigation timeline.
+def expand(ctx, name, input_file) -> None:
+    """Expand an investigation with full event and detection data.
+
+    Fetches the investigation from Hive by name and enriches it with
+    the full event and detection payloads referenced in the investigation.
 
     Examples:
-        limacharlie investigation expand --id <investigation-id> --sid <SID>
-        limacharlie investigation expand --id <investigation-id> \\
-            --events '[{"event_type": "NEW_PROCESS", "atom": "..."}]'
+        limacharlie investigation expand --name my-investigation
+        limacharlie investigation expand --name ignored --input-file investigation.yaml
     """
-    parsed_events = None
-    if events is not None:
-        parsed_events = json.loads(events)
     org = _get_org(ctx)
     sdk = InvestigationsSDK(org)
-    data = sdk.expand(investigation_id, sid=sid, events=parsed_events)
+    if input_file:
+        investigation_obj = _load_file(input_file)
+        data = sdk.expand(investigation=investigation_obj)
+    else:
+        data = sdk.expand(investigation_name=name)
     _output(ctx, data)

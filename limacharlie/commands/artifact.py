@@ -34,11 +34,6 @@ all artifacts in the organization are listed.
 The output includes artifact IDs, source info, and timestamps.
 """
 
-_EXPLAIN_GET = """\
-Get details of a specific artifact by its ID.  Returns the full
-metadata for the artifact including source, upload time, retention,
-and download URL.
-"""
 
 _EXPLAIN_UPLOAD = """\
 Upload an artifact/log file to Insight.  The file is uploaded using
@@ -70,7 +65,6 @@ Examples:
 """
 
 register_explain("artifact.list", _EXPLAIN_LIST)
-register_explain("artifact.get", _EXPLAIN_GET)
 register_explain("artifact.upload", _EXPLAIN_UPLOAD)
 register_explain("artifact.download", _EXPLAIN_DOWNLOAD)
 
@@ -146,30 +140,6 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
     if limit:
         results = results[:limit]
     _output(ctx, results)
-
-
-# ---------------------------------------------------------------------------
-# get
-# ---------------------------------------------------------------------------
-
-@group.command()
-@click.option("--id", "artifact_id", required=True, help="Artifact ID.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
-@pass_context
-def get(ctx, artifact_id) -> None:
-    """Get artifact details by ID.
-
-    Example:
-        limacharlie artifact get --id <ARTIFACT_ID>
-    """
-    org = _get_org(ctx)
-    artifacts = Artifacts(org)
-    data = artifacts.get(artifact_id)
-    _output(ctx, data)
 
 
 # ---------------------------------------------------------------------------
