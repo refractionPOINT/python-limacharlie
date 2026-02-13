@@ -731,7 +731,7 @@ class TestCliSync:
     def test_pull(self, oid, key, tmp_path):
         config_file = tmp_path / "sync-config.yaml"
         result, _ = _invoke(oid, key, [
-            "sync", "pull", "--config-file", str(config_file), "--rules",
+            "sync", "pull", "--config-file", str(config_file), "--outputs",
         ])
         assert result.exit_code == 0
         assert config_file.exists()

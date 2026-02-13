@@ -525,12 +525,29 @@ limacharlie session profile delete --id PROFILE_ID
 
 ### Sync (Infrastructure as Code)
 
+Sync uses the `ext-infrastructure` extension to pull and push org configuration.
+D&R rules and FP rules are synced through their respective hives rather than the
+legacy `--rules` / `--fps` flags.
+
 ```bash
-limacharlie sync pull --config lc_conf.yaml    # Export org config
-limacharlie sync push --config lc_conf.yaml --dry-run  # Preview changes
-limacharlie sync push --config lc_conf.yaml --force     # Apply changes
-limacharlie sync diff --config lc_conf.yaml    # Show differences
+# Pull/push everything
+limacharlie sync pull --config-file lc_conf.yaml --all
+limacharlie sync push --config-file lc_conf.yaml --all --dry-run
+limacharlie sync push --config-file lc_conf.yaml --all --force
+
+# Sync specific resource types
+limacharlie sync pull --config-file outputs.yaml --outputs
+limacharlie sync push --config-file outputs.yaml --outputs
+
+# Sync D&R rules and FP rules via hives
+limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
+limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-run
 ```
+
+Available hive flags: `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
+`--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
+`--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
+`--hive-ai-agent`, `--hive-external-adapter`.
 
 ### Other Commands
 
@@ -860,13 +877,30 @@ artifact_list = artifacts.list()
 
 ### Configuration Sync
 
-```python
-from limacharlie.sdk.configs import Configurations
+Uses the `ext-infrastructure` extension. D&R rules and FP rules are synced
+via their hives (`dr-general`, `dr-managed`, `dr-service`, `fp`) rather
+than the legacy `sync_rules` / `sync_fps` flags.
 
-configs = Configurations(org)
-data = configs.fetch()           # Export org config
-configs.push(data, dry_run=True) # Preview changes
-configs.push(data)               # Apply changes
+```python
+from limacharlie.sdk.configs import Configs
+
+configs = Configs(org)
+
+# Fetch outputs and D&R rules (via hives)
+data = configs.fetch(
+    sync_outputs=True,
+    sync_hives={"dr-general": True, "fp": True},
+)
+
+# Push with dry run
+configs.push(data, is_dry_run=True, sync_outputs=True,
+             sync_hives={"dr-general": True, "fp": True})
+
+# Fetch/push to/from file
+configs.fetch_to_file("org.yaml", sync_outputs=True,
+                      sync_hives={"dr-general": True})
+configs.push_from_file("org.yaml", sync_outputs=True,
+                       sync_hives={"dr-general": True})
 ```
 
 ### All SDK Classes
@@ -889,7 +923,7 @@ configs.push(data)               # Apply changes
 | `Payloads` | `limacharlie.sdk.payloads` | Executable/script deployment |
 | `downloads` | `limacharlie.sdk.downloads` | Sensor installer & adapter binary downloads |
 | `Outputs` | `limacharlie.sdk.outputs` | Data routing outputs |
-| `Configurations` | `limacharlie.sdk.configs` | Infrastructure-as-code sync |
+| `Configs` | `limacharlie.sdk.configs` | Infrastructure-as-code sync (via ext-infrastructure) |
 | `Users` | `limacharlie.sdk.users` | User management |
 | `Investigations` | `limacharlie.sdk.investigations` | Investigation tracking |
 | `AI` | `limacharlie.sdk.ai` | AI-assisted rule/query generation |
@@ -921,7 +955,7 @@ sensors = man.sensors()
 | `sensor.tag(tag, ttl)` | `sensor.add_tag(tag, ttl=ttl)` |
 | `sensor.task(command)` | `sensor.task(command)` |
 | `limacharlie.Firehose(...)` | `Spout(org, data_type=...)` |
-| `limacharlie.Configs(man).fetch()` | `Configurations(org).fetch()` |
+| `limacharlie.Configs(man).fetch()` | `Configs(org).fetch()` |
 | `limacharlie login` | `limacharlie auth login` |
 | `limacharlie use` | `limacharlie auth use-env` |
 | `limacharlie whoami` | `limacharlie auth whoami` |

@@ -1,8 +1,13 @@
 """Configuration sync (Infrastructure-as-Code) commands for LimaCharlie CLI v2.
 
 Commands for pulling and pushing organization configuration to/from
-the cloud.  This enables Infrastructure-as-Code workflows where
-the entire org configuration is stored in version-controlled YAML files.
+the cloud via the ext-infrastructure extension.  This enables
+Infrastructure-as-Code workflows where the entire org configuration
+is stored in version-controlled YAML files.
+
+D&R rules and FP rules are synced through their respective hives
+(--hive-dr-general, --hive-dr-managed, --hive-dr-service, --hive-fp)
+rather than the legacy --rules / --fps flags.
 """
 
 from __future__ import annotations
@@ -31,21 +36,35 @@ save it to a local YAML file.  Use --all to fetch everything, or
 use specific flags to fetch only certain resource types.
 
 Resource type flags:
-  --rules              D&R rules
-  --fps                False positive rules
-  --outputs            Output configurations
-  --integrity          Integrity monitoring rules
-  --exfil              Exfil prevention rules
-  --artifact           Artifact/logging rules
-  --resources          Resource subscriptions
-  --extensions         Extension subscriptions
-  --org-values         Organization config values
-  --installation-keys  Installation keys
-  --yara               YARA rules and sources
+  --outputs              Output configurations
+  --integrity            Integrity monitoring rules
+  --exfil                Exfil prevention rules
+  --artifact             Artifact/logging rules
+  --resources            Resource subscriptions
+  --extensions           Extension subscriptions
+  --org-values           Organization config values
+  --installation-keys    Installation keys
+  --yara                 YARA rules and sources
+
+Hive flags (for syncing hive-based resources):
+  --hive-dr-general      D&R rules (general namespace)
+  --hive-dr-managed      D&R rules (managed namespace)
+  --hive-dr-service      D&R rules (service namespace)
+  --hive-fp              False positive rules
+  --hive-cloud-sensor    Cloud sensor configs
+  --hive-extension-config  Extension configs
+  --hive-yara            YARA rules (hive)
+  --hive-lookup          Lookups
+  --hive-secret          Secrets
+  --hive-query           Saved queries
+  --hive-playbook        Playbooks
+  --hive-ai-agent        AI agents
+  --hive-external-adapter  External adapters
 
 Examples:
   limacharlie sync pull --config-file org.yaml --all
-  limacharlie sync pull --config-file rules.yaml --rules --fps
+  limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
+  limacharlie sync pull --config-file outputs.yaml --outputs
 """
 
 _EXPLAIN_PUSH = """\
@@ -59,7 +78,7 @@ Use --force to remove cloud resources not present in the local file.
 Examples:
   limacharlie sync push --config-file org.yaml --all
   limacharlie sync push --config-file org.yaml --all --dry-run
-  limacharlie sync push --config-file org.yaml --rules --force
+  limacharlie sync push --config-file org.yaml --hive-dr-general --force
 """
 
 register_explain("sync.pull", _EXPLAIN_PULL)
@@ -93,8 +112,6 @@ def _get_org(ctx: click.Context) -> Organization:
 # Common sync flags used by both pull and push
 _SYNC_FLAGS = [
     click.option("--all", "sync_all", is_flag=True, default=False, help="Sync all resource types."),
-    click.option("--rules", is_flag=True, default=False, help="Sync D&R rules."),
-    click.option("--fps", is_flag=True, default=False, help="Sync false positive rules."),
     click.option("--outputs", is_flag=True, default=False, help="Sync output configurations."),
     click.option("--integrity", is_flag=True, default=False, help="Sync integrity rules."),
     click.option("--exfil", is_flag=True, default=False, help="Sync exfil rules."),
@@ -104,7 +121,38 @@ _SYNC_FLAGS = [
     click.option("--org-values", is_flag=True, default=False, help="Sync org config values."),
     click.option("--installation-keys", is_flag=True, default=False, help="Sync installation keys."),
     click.option("--yara", is_flag=True, default=False, help="Sync YARA rules and sources."),
+    # Hive flags
+    click.option("--hive-dr-general", is_flag=True, default=False, help="Sync D&R rules (general hive)."),
+    click.option("--hive-dr-managed", is_flag=True, default=False, help="Sync D&R rules (managed hive)."),
+    click.option("--hive-dr-service", is_flag=True, default=False, help="Sync D&R rules (service hive)."),
+    click.option("--hive-fp", is_flag=True, default=False, help="Sync false positive rules (hive)."),
+    click.option("--hive-cloud-sensor", is_flag=True, default=False, help="Sync cloud sensor configs (hive)."),
+    click.option("--hive-extension-config", is_flag=True, default=False, help="Sync extension configs (hive)."),
+    click.option("--hive-yara", is_flag=True, default=False, help="Sync YARA rules (hive)."),
+    click.option("--hive-lookup", is_flag=True, default=False, help="Sync lookups (hive)."),
+    click.option("--hive-secret", is_flag=True, default=False, help="Sync secrets (hive)."),
+    click.option("--hive-query", is_flag=True, default=False, help="Sync saved queries (hive)."),
+    click.option("--hive-playbook", is_flag=True, default=False, help="Sync playbooks (hive)."),
+    click.option("--hive-ai-agent", is_flag=True, default=False, help="Sync AI agents (hive)."),
+    click.option("--hive-external-adapter", is_flag=True, default=False, help="Sync external adapters (hive)."),
 ]
+
+# Maps CLI flag name -> hive name sent to the backend
+_HIVE_FLAG_MAP = {
+    "hive_dr_general": "dr-general",
+    "hive_dr_managed": "dr-managed",
+    "hive_dr_service": "dr-service",
+    "hive_fp": "fp",
+    "hive_cloud_sensor": "cloud_sensor",
+    "hive_extension_config": "extension_config",
+    "hive_yara": "yara",
+    "hive_lookup": "lookup",
+    "hive_secret": "secret",
+    "hive_query": "query",
+    "hive_playbook": "playbook",
+    "hive_ai_agent": "ai_agent",
+    "hive_external_adapter": "external_adapter",
+}
 
 
 def _add_sync_flags(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -113,14 +161,21 @@ def _add_sync_flags(func: Callable[..., Any]) -> Callable[..., Any]:
     return func
 
 
-def _resolve_sync_flags(sync_all: bool, rules: bool, fps: bool, outputs: bool,
+def _resolve_sync_flags(sync_all: bool, outputs: bool,
                          integrity: bool, exfil: bool, artifact: bool,
                          resources: bool, extensions: bool, org_values: bool,
-                         installation_keys: bool, yara_flag: bool) -> dict[str, bool]:
-    """Resolve sync flags, expanding --all into individual flags."""
+                         installation_keys: bool, yara_flag: bool,
+                         **hive_kwargs: bool) -> dict[str, Any]:
+    """Resolve sync flags, expanding --all into individual flags.
+
+    Returns a dict suitable for passing to Configs.fetch() / Configs.push().
+    """
+    sync_hives: dict[str, bool] = {}
+    for flag_name, hive_name in _HIVE_FLAG_MAP.items():
+        if sync_all or hive_kwargs.get(flag_name, False):
+            sync_hives[hive_name] = True
+
     return {
-        "sync_rules": sync_all or rules,
-        "sync_fps": sync_all or fps,
         "sync_outputs": sync_all or outputs,
         "sync_integrity": sync_all or integrity,
         "sync_exfil": sync_all or exfil,
@@ -130,6 +185,7 @@ def _resolve_sync_flags(sync_all: bool, rules: bool, fps: bool, outputs: bool,
         "sync_org_values": sync_all or org_values,
         "sync_installation_keys": sync_all or installation_keys,
         "sync_yara": sync_all or yara_flag,
+        "sync_hives": sync_hives,
     }
 
 
@@ -144,6 +200,10 @@ def group() -> None:
     Pull configuration from the cloud into local YAML files, or
     push local configuration to the cloud.  This enables version-
     controlled management of the entire org configuration.
+
+    Uses the ext-infrastructure extension for all operations.
+    D&R rules and FP rules are synced via hives (--hive-dr-general,
+    --hive-fp, etc.) rather than the legacy --rules / --fps flags.
     """
 
 
@@ -163,25 +223,42 @@ def group() -> None:
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def pull(ctx, config_file, sync_all, rules, fps, outputs, integrity,
+def pull(ctx, config_file, sync_all, outputs, integrity,
          exfil, artifact, resources, extensions, org_values,
-         installation_keys, yara) -> None:
+         installation_keys, yara,
+         hive_dr_general, hive_dr_managed, hive_dr_service,
+         hive_fp, hive_cloud_sensor, hive_extension_config,
+         hive_yara, hive_lookup, hive_secret, hive_query,
+         hive_playbook, hive_ai_agent, hive_external_adapter) -> None:
     """Fetch configuration from the cloud.
 
     Examples:
         limacharlie sync pull --config-file org.yaml --all
-        limacharlie sync pull --config-file rules.yaml --rules --fps
+        limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
     """
     flags = _resolve_sync_flags(
-        sync_all, rules, fps, outputs, integrity, exfil,
+        sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
+        hive_dr_general=hive_dr_general,
+        hive_dr_managed=hive_dr_managed,
+        hive_dr_service=hive_dr_service,
+        hive_fp=hive_fp,
+        hive_cloud_sensor=hive_cloud_sensor,
+        hive_extension_config=hive_extension_config,
+        hive_yara=hive_yara,
+        hive_lookup=hive_lookup,
+        hive_secret=hive_secret,
+        hive_query=hive_query,
+        hive_playbook=hive_playbook,
+        hive_ai_agent=hive_ai_agent,
+        hive_external_adapter=hive_external_adapter,
     )
 
     if not any(flags.values()):
         click.echo(
             "Error: Specify --all or at least one resource type flag.\n"
-            "Suggestion: Use --all to fetch everything, or specific flags like --rules.",
+            "Suggestion: Use --all to fetch everything, or specific flags like --outputs or --hive-dr-general.",
             err=True,
         )
         ctx.exit(4)
@@ -213,26 +290,43 @@ def pull(ctx, config_file, sync_all, rules, fps, outputs, integrity,
     help="Show detailed explanation of this command.",
 )
 @pass_context
-def push(ctx, config_file, force, dry_run, sync_all, rules, fps, outputs,
+def push(ctx, config_file, force, dry_run, sync_all, outputs,
          integrity, exfil, artifact, resources, extensions, org_values,
-         installation_keys, yara) -> None:
+         installation_keys, yara,
+         hive_dr_general, hive_dr_managed, hive_dr_service,
+         hive_fp, hive_cloud_sensor, hive_extension_config,
+         hive_yara, hive_lookup, hive_secret, hive_query,
+         hive_playbook, hive_ai_agent, hive_external_adapter) -> None:
     """Push configuration to the cloud.
 
     Examples:
         limacharlie sync push --config-file org.yaml --all
         limacharlie sync push --config-file org.yaml --all --dry-run
-        limacharlie sync push --config-file org.yaml --rules --force
+        limacharlie sync push --config-file org.yaml --hive-dr-general --force
     """
     flags = _resolve_sync_flags(
-        sync_all, rules, fps, outputs, integrity, exfil,
+        sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
+        hive_dr_general=hive_dr_general,
+        hive_dr_managed=hive_dr_managed,
+        hive_dr_service=hive_dr_service,
+        hive_fp=hive_fp,
+        hive_cloud_sensor=hive_cloud_sensor,
+        hive_extension_config=hive_extension_config,
+        hive_yara=hive_yara,
+        hive_lookup=hive_lookup,
+        hive_secret=hive_secret,
+        hive_query=hive_query,
+        hive_playbook=hive_playbook,
+        hive_ai_agent=hive_ai_agent,
+        hive_external_adapter=hive_external_adapter,
     )
 
     if not any(flags.values()):
         click.echo(
             "Error: Specify --all or at least one resource type flag.\n"
-            "Suggestion: Use --all to push everything, or specific flags like --rules.",
+            "Suggestion: Use --all to push everything, or specific flags like --outputs or --hive-dr-general.",
             err=True,
         )
         ctx.exit(4)
