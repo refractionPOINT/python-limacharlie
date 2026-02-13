@@ -274,7 +274,7 @@ class Client:
         headers = {}
 
         if not is_no_auth and self._jwt:
-            headers["Authorization"] = f"bearer {self._jwt}"
+            headers["Authorization"] = f"Bearer {self._jwt}"
 
         # Build URL
         if alt_root is None:
@@ -398,7 +398,7 @@ class Client:
                     if self._on_refresh_auth is not None:
                         self._on_refresh_auth(self)
                     else:
-                        if self._jwt is not None and self._api_key is None:
+                        if self._jwt is not None and self._api_key is None and self._oauth_creds is None:
                             raise AuthenticationError(
                                 "Auth error and no API key available to refresh JWT.",
                                 code=code,
