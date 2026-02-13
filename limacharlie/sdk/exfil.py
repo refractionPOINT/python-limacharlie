@@ -17,7 +17,7 @@ class Exfil:
     def list(self) -> dict[str, Any]:
         return self._org.service_request("exfil", {"action": "list_rules"})
 
-    def create_watch(self, name: str, event: str, value: str, operator: str, path: str,
+    def create_watch(self, name: str, event: str, value: str, operator: str, path: str | list[str],
                      tags: list[str] | None = None, platforms: list[str] | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {
             "action": "add_watch",
@@ -25,7 +25,7 @@ class Exfil:
             "event": event,
             "value": value,
             "operator": operator,
-            "path": path,
+            "path": path.split("/") if isinstance(path, str) else path,
         }
         if tags:
             params["tags"] = tags

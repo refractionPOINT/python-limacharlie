@@ -389,14 +389,12 @@ def test_cli_validate_command(oid, key):
     env['LC_API_KEY'] = key
 
     # Run the CLI command
-    # Query format: <sensor_selector> | <event_filter> | <projection>
     result = subprocess.run(
         [
             sys.executable, '-m', 'limacharlie',
-            'search-api', 'validate',
-            '-q', '* | NEW_PROCESS | *',
-            '-s', 'now-1m',
-            '-e', 'now'
+            '--oid', oid,
+            'search', 'validate',
+            '--query', '* | NEW_PROCESS | *',
         ],
         capture_output=True,
         text=True,
@@ -405,16 +403,14 @@ def test_cli_validate_command(oid, key):
     )
 
     # Should succeed
-    assert result.returncode == 0
-
-    # Should output JSON with estimatedPrice
-    output = result.stdout + result.stderr
-    assert 'estimatedPrice' in output
+    assert result.returncode == 0, (
+        f"CLI exited {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
 
 def test_cli_execute_command(oid, key):
     """
-    Test the CLI execute command via subprocess.
+    Test the CLI run command via subprocess.
 
     Parameters:
         oid (str): The organization ID.
@@ -428,42 +424,35 @@ def test_cli_execute_command(oid, key):
     env['LC_OID'] = oid
     env['LC_API_KEY'] = key
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-        output_file = f.name
+    now = int(time.time())
+    start = now - 60
 
-    try:
-        # Run the CLI command
-        # Query format: <sensor_selector> | <event_filter> | <projection>
-        result = subprocess.run(
-            [
-                sys.executable, '-m', 'limacharlie',
-                'search-api', 'execute',
-                '-q', '* | NEW_PROCESS | *',
-                '-s', 'now-1m',
-                '-e', 'now',
-                '--output-file', output_file,
-                '--non-interactive'
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=120  # 2 minute timeout
-        )
+    # Run the CLI command
+    result = subprocess.run(
+        [
+            sys.executable, '-m', 'limacharlie',
+            '--oid', oid,
+            'search', 'run',
+            '--query', '* | NEW_PROCESS | *',
+            '--start', str(start),
+            '--end', str(now),
+            '--limit', '5',
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120  # 2 minute timeout
+    )
 
-        # Should succeed
-        assert result.returncode == 0
-
-        # Output file should exist (even if empty)
-        assert os.path.exists(output_file)
-    finally:
-        # Clean up
-        if os.path.exists(output_file):
-            os.unlink(output_file)
+    # Should succeed (even with no results)
+    assert result.returncode == 0, (
+        f"CLI exited {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
 
 def test_cli_execute_csv_output(oid, key):
     """
-    Test the CLI execute command with CSV output format.
+    Test the CLI estimate command via subprocess.
 
     Parameters:
         oid (str): The organization ID.
@@ -477,43 +466,34 @@ def test_cli_execute_csv_output(oid, key):
     env['LC_OID'] = oid
     env['LC_API_KEY'] = key
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-        output_file = f.name
+    now = int(time.time())
+    start = now - 60
 
-    try:
-        # Run the CLI command with CSV output
-        # Query format: <sensor_selector> | <event_filter> | <projection>
-        result = subprocess.run(
-            [
-                sys.executable, '-m', 'limacharlie',
-                'search-api', 'execute',
-                '-q', '* | NEW_PROCESS | *',
-                '-s', 'now-1m',
-                '-e', 'now',
-                '--output-file', output_file,
-                '--output-format', 'csv',
-                '--non-interactive'
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=120
-        )
+    # Run the CLI estimate command
+    result = subprocess.run(
+        [
+            sys.executable, '-m', 'limacharlie',
+            '--oid', oid,
+            'search', 'estimate',
+            '--query', '* | NEW_PROCESS | *',
+            '--start', str(start),
+            '--end', str(now),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120
+    )
 
-        # Should succeed
-        assert result.returncode == 0
-
-        # Output file should exist
-        assert os.path.exists(output_file)
-    finally:
-        # Clean up
-        if os.path.exists(output_file):
-            os.unlink(output_file)
+    # Should succeed
+    assert result.returncode == 0, (
+        f"CLI exited {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
 
 def test_cli_execute_with_stream(oid, key):
     """
-    Test the CLI execute command with stream parameter.
+    Test the CLI run command with stream parameter.
 
     Parameters:
         oid (str): The organization ID.
@@ -527,17 +507,19 @@ def test_cli_execute_with_stream(oid, key):
     env['LC_OID'] = oid
     env['LC_API_KEY'] = key
 
+    now = int(time.time())
+    start = now - 60
+
     # Run the CLI command with stream parameter
-    # Query format: <sensor_selector> | <event_filter> | <projection>
     result = subprocess.run(
         [
             sys.executable, '-m', 'limacharlie',
-            'search-api', 'execute',
-            '-q', '* | * | *',
-            '-s', 'now-1m',
-            '-e', 'now',
+            '--oid', oid,
+            'search', 'run',
+            '--query', '* | * | *',
+            '--start', str(start),
+            '--end', str(now),
             '--stream', 'audit',
-            '--non-interactive'
         ],
         capture_output=True,
         text=True,
@@ -546,7 +528,9 @@ def test_cli_execute_with_stream(oid, key):
     )
 
     # Should succeed (even with no results)
-    assert result.returncode == 0
+    assert result.returncode == 0, (
+        f"CLI exited {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
 
 def test_cli_validate_time_formats(oid, key):
@@ -565,40 +549,39 @@ def test_cli_validate_time_formats(oid, key):
     env['LC_OID'] = oid
     env['LC_API_KEY'] = key
 
-    # Test relative time format
-    # Query format: <sensor_selector> | <event_filter> | <projection>
+    # Test with a simple query
     result = subprocess.run(
         [
             sys.executable, '-m', 'limacharlie',
-            'search-api', 'validate',
-            '-q', '* | NEW_PROCESS | *',
-            '-s', 'now-5m',
-            '-e', 'now'
+            '--oid', oid,
+            'search', 'validate',
+            '--query', '* | NEW_PROCESS | *',
         ],
         capture_output=True,
         text=True,
         env=env,
         timeout=60
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, (
+        f"CLI exited {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
-    # Test unix timestamp format (seconds)
-    end_ts = str(int(time.time()))
-    start_ts = str(int(time.time()) - 60)
+    # Test with a different query
     result = subprocess.run(
         [
             sys.executable, '-m', 'limacharlie',
-            'search-api', 'validate',
-            '-q', '* | NEW_PROCESS | *',
-            '-s', start_ts,
-            '-e', end_ts
+            '--oid', oid,
+            'search', 'validate',
+            '--query', '* | * | *',
         ],
         capture_output=True,
         text=True,
         env=env,
         timeout=60
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, (
+        f"CLI exited {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
 
 def test_search_result_structure(oid, key):

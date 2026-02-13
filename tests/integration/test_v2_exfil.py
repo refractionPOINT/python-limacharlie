@@ -32,7 +32,7 @@ def test_v2_exfil_watch_crud(oid, key):
             event="NEW_PROCESS",
             value="test-never-match.exe",
             operator="is",
-            path="event/FILE_PATH",
+            path="FILE_PATH",
         )
 
         # Allow eventual consistency
@@ -48,7 +48,7 @@ def test_v2_exfil_watch_crud(oid, key):
     finally:
         # Always clean up
         try:
-            exfil.delete(rule_name)
+            exfil.delete_watch(rule_name)
         except Exception:
             pass
 
@@ -87,7 +87,7 @@ def test_v2_exfil_event_crud(oid, key):
     finally:
         # Always clean up
         try:
-            exfil.delete(rule_name)
+            exfil.delete_event(rule_name)
         except Exception:
             pass
 

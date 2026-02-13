@@ -456,8 +456,8 @@ class TestCliBilling:
         assert result.exit_code in (0, 1)
 
     def test_skus(self, oid, key):
-        """billing skus may require user auth or not exist; verify no crash."""
-        result, _ = _invoke(oid, key, ["billing", "skus"], expect_success=False)
+        """billing details may require user auth; verify no crash."""
+        result, _ = _invoke(oid, key, ["billing", "details"], expect_success=False)
         assert result.exit_code in (0, 1)
 
 

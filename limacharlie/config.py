@@ -195,8 +195,11 @@ def resolve_credentials(
     if api_key is not None:
         result["api_key"] = api_key
         # If an explicit API key is provided, clear any OAuth creds
-        # from config file fallback since the API key takes precedence.
+        # and uid from config file fallback since the API key takes
+        # precedence. Including a stale uid with an API key causes
+        # the JWT endpoint to reject the request.
         result["oauth"] = None
+        result["uid"] = None
     if uid is not None:
         result["uid"] = uid
 

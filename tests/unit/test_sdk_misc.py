@@ -36,7 +36,7 @@ class TestUSP:
         u.validate("json", json_input={"event": "test"}, hostname="myhost")
         call_args = mock_org.client.request.call_args
         body = json.loads(call_args[1]["raw_body"])
-        assert body["json_input"] == {"event": "test"}
+        assert body["json_input"] == [{"event": "test"}]
         assert body["hostname"] == "myhost"
 
     def test_validate_with_text_input(self, mock_org):

@@ -19,11 +19,16 @@ def _make_org(oid, key):
 
 def test_v2_hive_crud(oid, key):
     org = _make_org(oid, key)
-    hive = Hive(org, "secret")
+    hive = Hive(org, "fp")
     unique_name = TEST_PREFIX + str(uuid.uuid4())
 
-    # Build the record using direct attributes as the v2 HiveRecord expects.
-    record = HiveRecord(unique_name, data={"value": "test123"})
+    # Build a valid FP rule — the "fp" hive validates data as FP rules.
+    record = HiveRecord(unique_name, data={
+        "op": "is",
+        "event": "NEW_PROCESS",
+        "path": "event/FILE_PATH",
+        "value": "test-cli-v2-nonexistent.exe",
+    })
     record.enabled = True
     record.expiry = 0
     record.tags = []
@@ -41,7 +46,7 @@ def test_v2_hive_crud(oid, key):
         fetched = hive.get(unique_name)
         assert fetched is not None
         assert isinstance(fetched.data, dict)
-        assert fetched.data.get("value") == "test123"
+        assert fetched.data.get("op") == "is"
 
         # List and verify presence
         records = hive.list()

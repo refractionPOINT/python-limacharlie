@@ -407,9 +407,10 @@ class Organization:
         """List API keys.
 
         Returns:
-            dict: API key list.
+            dict: API key list keyed by key hash.
         """
-        return self._client.request("GET", f"orgs/{self.oid}/keys")
+        resp = self._client.request("GET", f"orgs/{self.oid}/keys")
+        return resp.get("api_keys", resp)
 
     def add_api_key(self, name: str, permissions: list[str], ip_range: str | None = None) -> dict[str, Any]:
         """Create a new API key.
@@ -444,9 +445,10 @@ class Organization:
         """List installation keys.
 
         Returns:
-            dict: Installation key list.
+            dict: Installation key list keyed by iid.
         """
-        return self._client.request("GET", f"installationkeys/{self.oid}")
+        resp = self._client.request("GET", f"installationkeys/{self.oid}")
+        return resp.get(self.oid, resp)
 
     def get_installation_key(self, iid: str) -> dict[str, Any]:
         """Get a specific installation key.
@@ -567,7 +569,7 @@ class Organization:
             list: Tag strings.
         """
         resp = self._client.request("GET", f"tags/{self.oid}")
-        return resp.get("tags", [])
+        return resp.get("tags") or []
 
     def find_sensors_by_tag(self, tag: str) -> dict[str, Any]:
         """Find all sensors with a specific tag.

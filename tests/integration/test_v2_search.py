@@ -38,7 +38,7 @@ def test_v2_search_execute(oid, key):
     # Execute a query that is unlikely to match anything but is syntactically valid.
     # The generator may yield zero results, which is fine -- we just verify no errors.
     results = list(search.execute(
-        "event_type = 'NEW_PROCESS' AND routing/hostname = 'test-cli-v2-nonexistent-host'",
+        "* | NEW_PROCESS | *",
         start_time=one_hour_ago,
         end_time=now,
         limit=5,

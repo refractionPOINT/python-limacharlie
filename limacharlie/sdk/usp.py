@@ -45,7 +45,7 @@ class USP:
         if text_input:
             body["text_input"] = text_input
         if json_input:
-            body["json_input"] = json_input
+            body["json_input"] = json_input if isinstance(json_input, list) else [json_input]
         if hostname:
             body["hostname"] = hostname
         if indexing:

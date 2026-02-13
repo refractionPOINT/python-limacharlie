@@ -35,7 +35,7 @@ class TestExfilCreateWatch:
             "event": "DNS_REQUEST",
             "value": "evil.com",
             "operator": "ends with",
-            "path": "event/DOMAIN_NAME",
+            "path": ["event", "DOMAIN_NAME"],
         })
 
     def test_create_watch_with_tags_and_platforms(self, exfil, mock_org):
@@ -48,7 +48,7 @@ class TestExfilCreateWatch:
             "event": "DNS_REQUEST",
             "value": "evil.com",
             "operator": "ends with",
-            "path": "event/DOMAIN_NAME",
+            "path": ["event", "DOMAIN_NAME"],
             "tags": ["prod"],
             "platforms": ["windows"],
         })

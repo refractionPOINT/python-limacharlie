@@ -214,7 +214,11 @@ class Manager( object ):
             # Otherwise, try to take the values in parameter. But if
             # they are not present, use the GLOBAL values.
             if uid is None:
-                if GLOBAL_UID is not None:
+                # Only inherit GLOBAL_UID when the API key also comes
+                # from globals.  Including a config-file uid alongside
+                # an explicit API key causes the JWT endpoint to reject
+                # the request with "unknown api key".
+                if secret_api_key is None and GLOBAL_UID is not None:
                     uid = GLOBAL_UID
             if oid is None:
                 if GLOBAL_OID is None and uid is None:

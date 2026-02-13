@@ -43,8 +43,8 @@ def test_v2_outputs_crud(oid, key):
         assert output_entry.get("module") == "syslog", (
             f"Expected module 'syslog', got '{output_entry.get('module')}'"
         )
-        assert output_entry.get("type") == "event", (
-            f"Expected type 'event', got '{output_entry.get('type')}'"
+        assert output_entry.get("for") == "event", (
+            f"Expected for 'event', got '{output_entry.get('for')}'"
         )
     finally:
         # Cleanup
