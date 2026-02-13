@@ -189,6 +189,8 @@ The CLI follows a consistent `limacharlie <noun> <verb>` pattern. Every command 
 ```
 --oid TEXT          Organization ID (overrides env/config)
 --output FORMAT     Output format: json, yaml, csv, table, jsonl
+--filter EXPR       JMESPath expression to filter/transform output
+--wide / -W         Disable table value truncation (show full values)
 --debug             Print request details
 --quiet / -q        Suppress non-error output
 --env TEXT          Named environment from config file
@@ -480,6 +482,47 @@ limacharlie ai generate-playbook --prompt 'respond to ransomware detection'
 limacharlie ai summarize-detection --id DETECT_ID
 ```
 
+### AI Sessions (Interactive TUI)
+
+AI Sessions provide an interactive terminal interface for chatting with an AI agent connected to your organization. The `session open` command is the primary entry point -- it auto-selects or creates a session for you:
+
+```bash
+# Smart open: picks a running session or creates one automatically
+limacharlie session open
+
+# Always start a fresh session
+limacharlie session open --new
+
+# Connect to a specific session
+limacharlie session open --id SESSION_ID
+
+# List sessions (shows id, status, age, message count, cost)
+limacharlie session list
+limacharlie session list --status running
+
+# Create a session and immediately open the TUI
+limacharlie session create --open
+
+# Session lifecycle
+limacharlie session get --id SESSION_ID
+limacharlie session create
+limacharlie session terminate --id SESSION_ID
+limacharlie session delete --id SESSION_ID
+
+# Authentication for the AI Sessions service
+limacharlie session auth status
+limacharlie session auth claude-key
+limacharlie session auth claude-oauth
+limacharlie session auth lc --api-key KEY --uid UID --key-hash HASH
+limacharlie session auth remove --claude
+
+# Session profile management
+limacharlie session profile list
+limacharlie session profile create --name my-profile
+limacharlie session profile set-default --id PROFILE_ID
+limacharlie session profile delete --id PROFILE_ID
+```
+
 ### Sync (Infrastructure as Code)
 
 ```bash
@@ -516,9 +559,62 @@ limacharlie sensor list --output yaml     # YAML
 limacharlie sensor list --output csv      # CSV
 limacharlie sensor list --output table    # Rich table (default for TTY)
 limacharlie sensor list --output jsonl    # Newline-delimited JSON
+```
 
-# Filter with JMESPath
-limacharlie sensor list --output json --filter '[].hostname'
+### Filtering with JMESPath
+
+Use `--filter` with a [JMESPath](https://jmespath.org/) expression to extract or transform output. This works with every command and any output format.
+
+**Extracting fields:**
+
+```bash
+# Extract a single field from a dict
+limacharlie --filter 'user_perms' auth whoami
+
+# Get just the keys of a nested object
+limacharlie --filter 'keys(user_perms)' auth whoami
+
+# Get the values as an array
+limacharlie --filter 'values(user_perms)' auth whoami
+
+# Drill into nested data: permissions for the first org
+limacharlie --filter 'values(user_perms)[0]' auth whoami
+```
+
+**Working with lists:**
+
+```bash
+# Extract one field from each item in a list
+limacharlie --filter '[].hostname' sensor list
+
+# Pick specific fields (reshaping output)
+limacharlie --filter '[].{sid: sid, hostname: hostname, platform: platform}' sensor list
+
+# First 5 results
+limacharlie --filter '[0:5]' sensor list
+
+# Filter items by condition
+limacharlie --filter "[?platform=='windows']" sensor list
+```
+
+**Combining with other flags:**
+
+```bash
+# Filter + output format
+limacharlie --filter '[].hostname' --output json sensor list
+
+# Filter + wide mode (full values, no truncation)
+limacharlie --filter 'user_perms' --wide auth whoami
+```
+
+### Wide Mode
+
+Table output automatically truncates large values (dicts become `{N keys}`, long lists become `[N items]`) to fit the terminal. Use `--wide` / `-W` to disable truncation and show full values:
+
+```bash
+limacharlie auth whoami                # user_perms shown as "{8 keys}"
+limacharlie --wide auth whoami         # user_perms shown in full
+limacharlie -W sensor list             # All columns untruncated
 ```
 
 ### Discovery & Help
@@ -797,6 +893,7 @@ configs.push(data)               # Apply changes
 | `Users` | `limacharlie.sdk.users` | User management |
 | `Investigations` | `limacharlie.sdk.investigations` | Investigation tracking |
 | `AI` | `limacharlie.sdk.ai` | AI-assisted rule/query generation |
+| `AISessions` | `limacharlie.sdk.ai_sessions` | Interactive AI session lifecycle and WebSocket chat |
 | `Billing` | `limacharlie.sdk.billing` | Billing and usage details |
 
 ## Legacy v1 SDK

@@ -10,6 +10,7 @@ of output mode based on whether stdout is a TTY.
 import csv
 import io
 import json
+import shutil
 import sys
 from typing import Any
 
@@ -24,6 +25,22 @@ try:
     from tabulate import tabulate
 except ImportError:
     tabulate = None
+
+# Module-level flags set by the CLI before any command runs.
+_wide_mode: bool = False
+_filter_expr: str | None = None
+
+
+def set_wide_mode(enabled: bool) -> None:
+    """Enable or disable wide (no-truncation) mode for table output."""
+    global _wide_mode
+    _wide_mode = enabled
+
+
+def set_filter_expr(expr: str | None) -> None:
+    """Set a JMESPath filter expression applied to all output."""
+    global _filter_expr
+    _filter_expr = expr
 
 
 def detect_output_format() -> str:
@@ -61,6 +78,10 @@ def format_output(
     """
     if fmt is None:
         fmt = detect_output_format()
+
+    # Fall back to module-level filter if none passed explicitly.
+    if filter_expr is None:
+        filter_expr = _filter_expr
 
     # Apply jmespath filter
     if filter_expr and data is not None:
@@ -203,17 +224,47 @@ def _csv_value(v: Any) -> Any:
     return v
 
 
+def _max_value_width() -> int:
+    """Return the max width for a table value based on terminal size."""
+    try:
+        cols = shutil.get_terminal_size().columns
+    except Exception:
+        cols = 80
+    return max(40, cols - 20)
+
+
+def _truncate(s: str, width: int) -> str:
+    """Truncate a string to *width* characters, adding '...' if needed."""
+    if len(s) <= width:
+        return s
+    return s[:width - 3] + "..."
+
+
 def _table_value(v: Any) -> str:
     """Convert a value for table display."""
+    if _wide_mode:
+        if isinstance(v, dict):
+            return json.dumps(v, default=str)
+        if isinstance(v, list):
+            return ", ".join(str(x) for x in v)
+        if v is None:
+            return ""
+        return str(v)
+    width = _max_value_width()
     if isinstance(v, dict):
-        return json.dumps(v, default=str)
+        s = json.dumps(v, default=str)
+        if len(s) <= width:
+            return s
+        return f"{{{len(v)} keys}}"
     if isinstance(v, list):
         if len(v) <= 3:
-            return ", ".join(str(x) for x in v)
+            s = ", ".join(str(x) for x in v)
+            if len(s) <= width:
+                return s
         return f"[{len(v)} items]"
     if v is None:
         return ""
-    return str(v)
+    return _truncate(str(v), width)
 
 
 def _is_list_of_dicts(data: Any) -> bool:

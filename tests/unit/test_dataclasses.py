@@ -21,7 +21,7 @@ class TestLimaCharlieContext:
 
     def test_field_names(self):
         names = [f.name for f in fields(LimaCharlieContext)]
-        assert names == ["oid", "output_format", "debug", "quiet", "profile", "environment"]
+        assert names == ["oid", "output_format", "debug", "quiet", "wide", "filter_expr", "profile", "environment"]
 
     def test_custom_values(self):
         ctx = LimaCharlieContext(oid="abc", output_format="json", debug=True, quiet=True)

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import click
 
 from .client import __version__
+from .output import set_filter_expr, set_wide_mode
 
 
 @dataclass
@@ -25,6 +26,8 @@ class LimaCharlieContext:
     output_format: str | None = None
     debug: bool = False
     quiet: bool = False
+    wide: bool = False
+    filter_expr: str | None = None
     profile: str | None = None
     environment: str | None = None
 
@@ -42,11 +45,13 @@ pass_context = click.pass_context
 )
 @click.option("--debug", is_flag=True, default=False, help="Enable debug output (prints request details).")
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-error output.")
+@click.option("--wide", "-W", is_flag=True, default=False, help="Disable table value truncation (show full values).")
+@click.option("--filter", "filter_expr", default=None, help="JMESPath expression to filter/transform output (e.g. 'user_perms', 'keys(@)').")
 @click.option("--profile", default=None, help="Named credential profile to use.")
 @click.option("--env", "environment", default=None, help="Named environment from config file.")
 @click.version_option(version=__version__, prog_name="limacharlie")
 @click.pass_context
-def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, quiet: bool, profile: str | None, environment: str | None) -> None:
+def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, quiet: bool, wide: bool, filter_expr: str | None, profile: str | None, environment: str | None) -> None:
     """LimaCharlie CLI - Endpoint Detection & Response platform.
 
     Manage sensors, detection rules, hive data, and more from the command line.
@@ -58,8 +63,12 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     lc_ctx.output_format = output_format
     lc_ctx.debug = debug
     lc_ctx.quiet = quiet
+    lc_ctx.wide = wide
+    lc_ctx.filter_expr = filter_expr
     lc_ctx.profile = profile
     lc_ctx.environment = environment
+    set_wide_mode(wide)
+    set_filter_expr(filter_expr)
 
 
 def _auto_discover_commands() -> None:
