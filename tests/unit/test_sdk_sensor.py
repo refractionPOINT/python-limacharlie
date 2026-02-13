@@ -144,3 +144,130 @@ class TestSensorEventRetention:
         call_args = mock_org.client.request.call_args
         qp = call_args[1]["query_params"]
         assert qp["is_detailed"] == "true"
+
+
+class TestSensorTaskContract:
+    def test_task_string_wraps_in_list(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.task("os_processes")
+        mock_org.client.request.assert_called_once_with(
+            "POST", "aaaa-bbbb-cccc-dddd",
+            params={"tasks": ["os_processes"]},
+        )
+
+    def test_task_list_passed_directly(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.task(["os_processes", "os_services"])
+        mock_org.client.request.assert_called_once_with(
+            "POST", "aaaa-bbbb-cccc-dddd",
+            params={"tasks": ["os_processes", "os_services"]},
+        )
+
+    def test_task_with_investigation_id(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.task("os_processes", inv_id="inv-123")
+        mock_org.client.request.assert_called_once_with(
+            "POST", "aaaa-bbbb-cccc-dddd",
+            params={"tasks": ["os_processes"], "investigation_id": "inv-123"},
+        )
+
+
+class TestSensorAddTagContract:
+    def test_add_tag_params(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.add_tag("new-tag")
+        mock_org.client.request.assert_called_once_with(
+            "POST", "aaaa-bbbb-cccc-dddd/tags",
+            params={"tags": "new-tag"},
+        )
+
+    def test_add_tag_with_ttl(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.add_tag("temp-tag", ttl=3600)
+        mock_org.client.request.assert_called_once_with(
+            "POST", "aaaa-bbbb-cccc-dddd/tags",
+            params={"tags": "temp-tag", "ttl": 3600},
+        )
+
+
+class TestSensorRemoveTagContract:
+    def test_remove_single_tag(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.remove_tag("old-tag")
+        mock_org.client.request.assert_called_once_with(
+            "DELETE", "aaaa-bbbb-cccc-dddd/tags",
+            params={"tag": "old-tag"},
+        )
+
+    def test_remove_tag_list(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.remove_tag(["t1", "t2"])
+        mock_org.client.request.assert_called_once_with(
+            "DELETE", "aaaa-bbbb-cccc-dddd/tags",
+            params={"tags": "t1,t2"},
+        )
+
+
+class TestSensorIsolationContract:
+    def test_isolate_path(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.isolate()
+        mock_org.client.request.assert_called_once_with("POST", "aaaa-bbbb-cccc-dddd/isolation")
+
+    def test_rejoin_path(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.rejoin()
+        mock_org.client.request.assert_called_once_with("DELETE", "aaaa-bbbb-cccc-dddd/isolation")
+
+
+class TestSensorSealContract:
+    def test_seal(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.seal()
+        mock_org.client.request.assert_called_once_with("POST", "aaaa-bbbb-cccc-dddd/seal")
+
+    def test_unseal(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.unseal()
+        mock_org.client.request.assert_called_once_with("DELETE", "aaaa-bbbb-cccc-dddd/seal")
+
+
+class TestSensorDeleteContract:
+    def test_delete_uses_sid_path(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        sensor.delete()
+        mock_org.client.request.assert_called_once_with("DELETE", "aaaa-bbbb-cccc-dddd")
+
+
+class TestSensorGetOverviewContract:
+    def test_get_overview_params(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"overview": [1000, 1500, 2000]}
+        result = sensor.get_overview(1000, 2000)
+        mock_org.client.request.assert_called_once_with(
+            "GET", "insight/test-oid/aaaa-bbbb-cccc-dddd/overview",
+            query_params={"start": "1000", "end": "2000"},
+        )
+        assert result == [1000, 1500, 2000]
+
+
+class TestSensorGetEventByAtomContract:
+    def test_get_event_by_atom_path(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"event": {"type": "NEW_PROCESS"}}
+        result = sensor.get_event_by_atom("atom-xyz")
+        mock_org.client.request.assert_called_once_with(
+            "GET", "insight/test-oid/aaaa-bbbb-cccc-dddd/atom-xyz",
+        )
+        assert result == {"event": {"type": "NEW_PROCESS"}}
+
+
+class TestSensorGetChildrenEventsContract:
+    def test_get_children_events_params(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"events": "compressed-data"}
+        mock_org.client.unwrap.return_value = [{"type": "FILE_CREATE"}]
+        result = sensor.get_children_events("atom-xyz")
+        mock_org.client.request.assert_called_once_with(
+            "GET", "insight/test-oid/aaaa-bbbb-cccc-dddd/atom-xyz/children",
+            query_params={"is_compressed": "true"},
+        )
+        mock_org.client.unwrap.assert_called_once_with("compressed-data")
+        assert result == [{"type": "FILE_CREATE"}]

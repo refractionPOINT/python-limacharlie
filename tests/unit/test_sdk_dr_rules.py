@@ -72,6 +72,25 @@ class TestDRRulesCreate:
         call_args = mock_org.client.request.call_args
         assert "hive/dr-managed/test-oid/my-rule/" in call_args[0][1]
 
+    def test_create_sends_json_serialized_data(self, rules, mock_org):
+        import json
+        mock_org.client.request.return_value = {}
+        rule_data = {"detect": {"op": "is", "path": "event/FILE_PATH"}, "respond": [{"action": "report"}]}
+        rules.create("my-rule", rule_data)
+        call_args = mock_org.client.request.call_args
+        params = call_args[1]["params"]
+        # data should be JSON-serialized in the params
+        assert "data" in params
+        parsed = json.loads(params["data"])
+        assert parsed["detect"]["op"] == "is"
+        assert parsed["respond"][0]["action"] == "report"
+
+    def test_create_service_namespace(self, rules, mock_org):
+        mock_org.client.request.return_value = {}
+        rules.create("svc-rule", {}, namespace="service")
+        call_args = mock_org.client.request.call_args
+        assert "hive/dr-service/test-oid/svc-rule/" in call_args[0][1]
+
 
 class TestDRRulesUpdate:
     def test_update_calls_create(self, rules, mock_org):

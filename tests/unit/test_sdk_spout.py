@@ -108,6 +108,74 @@ class TestSpoutShutdown:
         sp.shutdown()  # Should not raise
 
 
+class TestSpoutJwtAuth:
+    @patch("limacharlie.sdk.spout.requests")
+    def test_creates_with_jwt_when_no_api_key(self, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.iter_lines.return_value = iter([])
+        mock_requests.post.return_value = mock_response
+
+        org = MagicMock()
+        org.oid = "test-oid"
+        org.client._api_key = None
+        org.client._jwt = "my-jwt-token"
+        org.client._uid = "uid-123"
+
+        sp = Spout(org, "event")
+        try:
+            assert "api_key" not in sp._spout_params
+            assert sp._spout_params["jwt"] == "my-jwt-token"
+            assert sp._spout_params["uid"] == "uid-123"
+        finally:
+            sp.shutdown()
+
+
+class TestSpoutExtraParams:
+    @patch("limacharlie.sdk.spout.requests")
+    def test_extra_params_merged(self, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.iter_lines.return_value = iter([])
+        mock_requests.post.return_value = mock_response
+
+        org = MagicMock()
+        org.oid = "test-oid"
+        org.client._api_key = "key"
+        org.client._jwt = None
+        org.client._uid = None
+
+        sp = Spout(org, "event", extra_params={"custom_key": "custom_val"})
+        try:
+            assert sp._spout_params["custom_key"] == "custom_val"
+            assert sp._spout_params["type"] == "event"
+        finally:
+            sp.shutdown()
+
+
+class TestSpoutStreamUrl:
+    @patch("limacharlie.sdk.spout.requests")
+    def test_posts_to_correct_url(self, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.iter_lines.return_value = iter([])
+        mock_requests.post.return_value = mock_response
+
+        org = MagicMock()
+        org.oid = "test-oid"
+        org.client._api_key = "key"
+        org.client._jwt = None
+        org.client._uid = None
+
+        sp = Spout(org, "detect")
+        try:
+            call_args = mock_requests.post.call_args
+            assert call_args[0][0] == "https://stream-tmp.limacharlie.io/test-oid"
+            assert call_args[1]["stream"] is True
+        finally:
+            sp.shutdown()
+
+
 class TestSpoutDropped:
     @patch("limacharlie.sdk.spout.requests")
     def test_dropped_counter(self, mock_requests):

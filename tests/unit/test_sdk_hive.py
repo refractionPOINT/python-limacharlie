@@ -150,6 +150,54 @@ class TestHiveSet:
         call_args = mock_org.client.request.call_args
         assert call_args[1]["params"]["etag"] == "old-etag"
 
+    def test_set_data_is_json_serialized(self, hive, mock_org):
+        rec = HiveRecord("rule", data={"key": "value", "nested": {"a": 1}})
+        hive.set(rec)
+        call_args = mock_org.client.request.call_args
+        params = call_args[1]["params"]
+        parsed = json.loads(params["data"])
+        assert parsed == {"key": "value", "nested": {"a": 1}}
+
+    def test_set_with_usr_mtd(self, hive, mock_org):
+        rec = HiveRecord("rule", data={"a": 1})
+        rec.enabled = True
+        rec.tags = ["prod", "critical"]
+        rec.comment = "important rule"
+        rec.expiry = 9999999
+        hive.set(rec)
+        call_args = mock_org.client.request.call_args
+        params = call_args[1]["params"]
+        assert "usr_mtd" in params
+        usr = json.loads(params["usr_mtd"])
+        assert usr["enabled"] is True
+        assert usr["tags"] == ["prod", "critical"]
+        assert usr["comment"] == "important rule"
+        assert usr["expiry"] == 9999999
+
+    def test_set_without_data_targets_mtd(self, hive, mock_org):
+        rec = HiveRecord("rule")
+        rec.enabled = False
+        hive.set(rec)
+        call_args = mock_org.client.request.call_args
+        assert "rule/mtd" in call_args[0][1]
+
+    def test_set_with_arl(self, hive, mock_org):
+        rec = HiveRecord("rule", data={"a": 1})
+        rec.arl = "arl://lookup/my-data"
+        hive.set(rec)
+        call_args = mock_org.client.request.call_args
+        params = call_args[1]["params"]
+        assert params["arl"] == "arl://lookup/my-data"
+        # With arl and data, target should be "data"
+        assert "rule/data" in call_args[0][1]
+
+    def test_set_url_escapes_record_name(self, hive, mock_org):
+        rec = HiveRecord("rule/with/slashes", data={"a": 1})
+        hive.set(rec)
+        call_args = mock_org.client.request.call_args
+        # The name should be URL-escaped
+        assert "rule%2Fwith%2Fslashes" in call_args[0][1]
+
 
 class TestHiveDelete:
     def test_delete(self, hive, mock_org):
