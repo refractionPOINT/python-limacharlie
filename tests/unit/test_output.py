@@ -105,6 +105,37 @@ class TestFormatTable:
         result = format_table("hello")
         assert result == "hello"
 
+    def test_dict_of_dicts_renders_as_table(self):
+        """Dict-of-dicts (e.g. payloads) should render as columnar table, not key/JSON pairs."""
+        data = {
+            "p1": {"name": "p1", "size": 100},
+            "p2": {"name": "p2", "size": 200},
+        }
+        result = format_table(data)
+        # Should have column headers, not Field/Value
+        assert "Field" not in result
+        assert "name" in result
+        assert "size" in result
+        assert "p1" in result
+        assert "p2" in result
+
+    def test_dict_of_dicts_adds_name_column_when_missing(self):
+        """When values lack a 'name' key, the dict key becomes the 'name' column."""
+        data = {
+            "my-rule": {"detect": "op1"},
+            "other-rule": {"detect": "op2"},
+        }
+        result = format_table(data)
+        assert "name" in result
+        assert "my-rule" in result
+        assert "other-rule" in result
+
+    def test_single_key_dict_stays_as_key_value(self):
+        """A dict with only one key should still render as Field/Value."""
+        data = {"only-key": {"nested": "data"}}
+        result = format_table(data)
+        assert "only-key" in result
+
 
 class TestFormatJsonl:
     def test_list(self):

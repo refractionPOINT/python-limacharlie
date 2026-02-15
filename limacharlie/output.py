@@ -165,12 +165,24 @@ def format_table(data: Any) -> str:
     if isinstance(data, str):
         return data
 
-    if isinstance(data, dict) and not _is_list_of_dicts(data):
-        # Single record - show as key/value pairs
-        rows = [[k, _table_value(v)] for k, v in data.items()]
-        if tabulate is not None:
-            return tabulate(rows, headers=["Field", "Value"], tablefmt="simple")
-        return "\n".join(f"{k}: {v}" for k, v in rows)
+    if isinstance(data, dict):
+        if _is_list_of_dicts(data):
+            # Dict-of-dicts → flatten to list-of-dicts for columnar display.
+            # The dict key is added as a "name" column when not already present.
+            rows_data = []
+            for k, v in data.items():
+                row = dict(v)
+                if "name" not in row:
+                    row = {"name": k, **row}
+                rows_data.append(row)
+            data = rows_data
+            # Fall through to list-of-dicts handling below
+        else:
+            # Single record - show as key/value pairs
+            rows = [[k, _table_value(v)] for k, v in data.items()]
+            if tabulate is not None:
+                return tabulate(rows, headers=["Field", "Value"], tablefmt="simple")
+            return "\n".join(f"{k}: {v}" for k, v in rows)
 
     if isinstance(data, list):
         if not data:
@@ -268,8 +280,16 @@ def _table_value(v: Any) -> str:
 
 
 def _is_list_of_dicts(data: Any) -> bool:
-    """Check if data is a dict that looks like a list-of-dicts."""
-    return False
+    """Check if data is a dict-of-dicts that should render as a table.
+
+    Returns True when all values are dicts (e.g. payloads keyed by name),
+    so we can flatten them into rows instead of showing key/JSON pairs.
+    Requires more than one entry to avoid treating single-record responses
+    as tables.
+    """
+    if not isinstance(data, dict) or len(data) <= 1:
+        return False
+    return all(isinstance(v, dict) for v in data.values())
 
 
 def print_output(data: Any, fmt: str | None = None, fields: list[str] | None = None, filter_expr: str | None = None,
