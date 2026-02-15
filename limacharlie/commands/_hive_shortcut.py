@@ -51,46 +51,45 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     if noun_plural is None:
         noun_plural = noun_singular + "s"
 
+    article = "an" if noun_singular[0].lower() in "aeiou" else "a"
+
     explain_list = f"List all {noun_plural} stored in the '{hive_name}' hive."
     explain_get = f"Get a specific {noun_singular} by its key name from the '{hive_name}' hive."
-    explain_set = f"Create or update a {noun_singular} in the '{hive_name}' hive. Provide data via --input-file (JSON/YAML) or stdin."
-    explain_delete = f"Delete a {noun_singular} from the '{hive_name}' hive. Requires --confirm for safety."
+    explain_set = f"Create or update {article} {noun_singular} in the '{hive_name}' hive. Provide data via --input-file (JSON/YAML) or stdin."
+    explain_delete = f"Delete {article} {noun_singular} from the '{hive_name}' hive. Requires --confirm for safety."
 
     @click.group(group_name)
     def grp() -> None:
         pass
 
-    grp.help = f"Manage {noun_plural} in the {hive_name} hive."
+    grp.help = f"Manage {noun_plural}."
 
-    @grp.command("list")
+    @grp.command("list", help=f"List all {noun_plural}.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_list))
     @pass_context
     def list_cmd(ctx) -> None:
-        """List all records."""
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         records = hive.list()
         data = {name: rec.to_dict() for name, rec in records.items()}
         _output(ctx, data)
 
-    @grp.command("get")
+    @grp.command("get", help=f"Get {article} {noun_singular} by key.")
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_get))
     @pass_context
     def get_cmd(ctx, key) -> None:
-        """Get a record by key."""
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         record = hive.get(key)
         _output(ctx, record.to_dict())
 
-    @grp.command("set")
+    @grp.command("set", help=f"Create or update {article} {noun_singular}.")
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--input-file", type=click.Path(exists=True), default=None, help="JSON or YAML file with record data.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_set))
     @pass_context
     def set_cmd(ctx, key, input_file) -> None:
-        """Create or update a record."""
         if input_file:
             with open(input_file, "r") as f:
                 content = f.read()
@@ -125,13 +124,12 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         result = hive.set(record)
         _output(ctx, result)
 
-    @grp.command("delete")
+    @grp.command("delete", help=f"Delete {article} {noun_singular}.")
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion.")
     @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_delete))
     @pass_context
     def delete_cmd(ctx, key, confirm) -> None:
-        """Delete a record."""
         if not confirm:
             raise click.UsageError("Destructive operation requires --confirm flag.")
         org = _get_org(ctx)
