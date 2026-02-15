@@ -76,9 +76,9 @@ class TestCLIGlobalOptions:
 
 
 class TestAuthCommands:
-    @patch("limacharlie.commands.auth.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.auth.Client")
     @patch("limacharlie.commands.auth.Organization")
-    def test_whoami(self, mock_org_cls, mock_creds):
+    def test_whoami(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.who_am_i.return_value = {"ident": "user@test.com"}
         mock_org_cls.return_value = mock_org
@@ -89,9 +89,9 @@ class TestAuthCommands:
         assert "user@test.com" in result.output
         mock_org.who_am_i.assert_called_once()
 
-    @patch("limacharlie.commands.auth.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.auth.Client")
     @patch("limacharlie.commands.auth.Organization")
-    def test_whoami_quiet(self, mock_org_cls, mock_creds):
+    def test_whoami_quiet(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.who_am_i.return_value = {"ident": "user@test.com"}
         mock_org_cls.return_value = mock_org
@@ -101,9 +101,9 @@ class TestAuthCommands:
         assert result.exit_code == 0
         assert result.output.strip() == ""
 
-    @patch("limacharlie.commands.auth.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.auth.Client")
     @patch("limacharlie.commands.auth.Organization")
-    def test_whoami_json(self, mock_org_cls, mock_creds):
+    def test_whoami_json(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.who_am_i.return_value = {"ident": "user@test.com"}
         mock_org_cls.return_value = mock_org
@@ -114,9 +114,8 @@ class TestAuthCommands:
         parsed = json.loads(result.output)
         assert parsed["ident"] == "user@test.com"
 
-    @patch("limacharlie.commands.auth.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
     @patch("limacharlie.commands.auth.Client")
-    def test_auth_test_success(self, mock_client_cls, mock_creds):
+    def test_auth_test_success(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
 
@@ -137,9 +136,9 @@ class TestAuthCommands:
 
 
 class TestOrgCommands:
-    @patch("limacharlie.commands.org.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.org.Client")
     @patch("limacharlie.commands.org.Organization")
-    def test_org_info(self, mock_org_cls, mock_creds):
+    def test_org_info(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.get_info.return_value = {"name": "TestOrg", "sensor_count": 42}
         mock_org_cls.return_value = mock_org
@@ -151,9 +150,9 @@ class TestOrgCommands:
         assert parsed["name"] == "TestOrg"
         mock_org.get_info.assert_called_once()
 
-    @patch("limacharlie.commands.org.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.org.Client")
     @patch("limacharlie.commands.org.Organization")
-    def test_org_urls(self, mock_org_cls, mock_creds):
+    def test_org_urls(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.get_urls.return_value = {"main": "https://app.limacharlie.io"}
         mock_org_cls.return_value = mock_org
@@ -165,9 +164,9 @@ class TestOrgCommands:
         assert "main" in parsed
         mock_org.get_urls.assert_called_once()
 
-    @patch("limacharlie.commands.org.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.org.Client")
     @patch("limacharlie.commands.org.Organization")
-    def test_org_errors(self, mock_org_cls, mock_creds):
+    def test_org_errors(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.get_errors.return_value = [{"component": "output-s3", "error": "access denied"}]
         mock_org_cls.return_value = mock_org
@@ -181,9 +180,9 @@ class TestOrgCommands:
 
 
 class TestSensorCommands:
-    @patch("limacharlie.commands.sensor.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.sensor.Client")
     @patch("limacharlie.commands.sensor.Organization")
-    def test_sensor_list(self, mock_org_cls, mock_creds):
+    def test_sensor_list(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.list_sensors.return_value = iter([
             {"sid": "sid-1", "hostname": "host1"},
@@ -198,10 +197,10 @@ class TestSensorCommands:
         assert len(parsed) == 2
         assert parsed[0]["sid"] == "sid-1"
 
-    @patch("limacharlie.commands.sensor.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.sensor.Client")
     @patch("limacharlie.commands.sensor.Sensor")
     @patch("limacharlie.commands.sensor.Organization")
-    def test_sensor_get(self, mock_org_cls, mock_sensor_cls, mock_creds):
+    def test_sensor_get(self, mock_org_cls, mock_sensor_cls, mock_client_cls):
         mock_sensor = MagicMock()
         mock_sensor.get_info.return_value = {"sid": "sid-1", "hostname": "host1", "platform": "windows"}
         mock_sensor_cls.return_value = mock_sensor
@@ -212,18 +211,18 @@ class TestSensorCommands:
         parsed = json.loads(result.output)
         assert parsed["sid"] == "sid-1"
 
-    @patch("limacharlie.commands.sensor.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
-    def test_sensor_delete_without_confirm(self, mock_creds):
+    @patch("limacharlie.commands.sensor.Client")
+    def test_sensor_delete_without_confirm(self, mock_client_cls):
         runner = CliRunner()
         result = runner.invoke(cli, ["sensor", "delete", "--sid", "sid-1"])
         assert result.exit_code != 0
 
 
 class TestDRCommands:
-    @patch("limacharlie.commands.dr.resolve_credentials", return_value={"oid": "test-oid", "api_key": "test-key"})
+    @patch("limacharlie.commands.dr.Client")
     @patch("limacharlie.commands.dr.Organization")
     @patch("limacharlie.commands.dr.Hive")
-    def test_dr_list(self, mock_hive_cls, mock_org_cls, mock_creds):
+    def test_dr_list(self, mock_hive_cls, mock_org_cls, mock_client_cls):
         mock_record = MagicMock()
         mock_record.to_dict.return_value = {"detect": {"op": "is"}, "respond": [{"action": "report"}]}
         mock_hive = MagicMock()

@@ -13,7 +13,6 @@ import click
 from ..cli import pass_context
 from ..config import (
     load_config,
-    resolve_credentials,
     write_credentials,
     save_config,
     list_environments,
@@ -166,14 +165,9 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 def _get_client(ctx: click.Context, oid_override: str | None = None) -> Client:
-    creds = resolve_credentials(
+    return Client(
         oid=oid_override or ctx.obj.oid,
         environment=ctx.obj.environment,
-    )
-    return Client(
-        oid=creds["oid"],
-        api_key=creds.get("api_key"),
-        uid=creds.get("uid"),
     )
 
 
@@ -285,6 +279,17 @@ def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: s
             uid=firebase_uid or "",
             oauth_creds=tokens,
         )
+
+        # Clear any stale API key from the config so it doesn't
+        # shadow the new OAuth credentials.
+        config = load_config() or {}
+        if env_name == "default" or env_name is None:
+            if config.pop("api_key", None) is not None:
+                save_config(config)
+        else:
+            env_data = config.get("env", {}).get(env_name, {})
+            if env_data.pop("api_key", None) is not None:
+                save_config(config)
 
         if not ctx.obj.quiet:
             click.echo(f"OAuth credentials saved for environment '{env_name}'.")

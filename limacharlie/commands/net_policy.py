@@ -13,7 +13,6 @@ from typing import Any, Callable
 import click
 
 from ..cli import pass_context
-from ..config import resolve_credentials
 from ..client import Client
 from ..sdk.organization import Organization
 from ..sdk.sensor import Sensor
@@ -106,8 +105,7 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
-    creds = resolve_credentials(oid=ctx.obj.oid, environment=ctx.obj.environment)
-    client = Client(oid=creds["oid"], api_key=creds.get("api_key"), uid=creds.get("uid"))
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
     org = Organization(client)
     return Sensor(org, sid)
 
