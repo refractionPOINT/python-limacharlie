@@ -19,7 +19,8 @@ class TestClientInit:
         assert client.oid == "test-oid"
         assert client._api_key == "test-key"
 
-    def test_creates_with_jwt(self):
+    @patch("limacharlie.client.resolve_credentials", return_value={"oid": "test-oid", "uid": None, "api_key": None, "oauth": None})
+    def test_creates_with_jwt(self, mock_creds):
         client = Client(oid="test-oid", jwt="pre-generated-jwt")
         assert client._jwt == "pre-generated-jwt"
         assert client._api_key is None
