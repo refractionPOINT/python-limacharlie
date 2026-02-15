@@ -97,9 +97,10 @@ class Organization:
         """Get organization errors.
 
         Returns:
-            dict: List of errors.
+            dict: Error mappings keyed by component.
         """
-        return self._client.request("GET", f"errors/{self.oid}")
+        resp = self._client.request("GET", f"errors/{self.oid}")
+        return resp.get("errors", resp)
 
     def dismiss_error(self, component: str) -> dict[str, Any]:
         """Dismiss an organization error.
@@ -321,13 +322,14 @@ class Organization:
 
     # --- Users ---
 
-    def get_users(self) -> dict[str, Any]:
+    def get_users(self) -> list[str]:
         """List organization users.
 
         Returns:
-            dict: User list.
+            list: User email strings.
         """
-        return self._client.request("GET", f"orgs/{self.oid}/users")
+        resp = self._client.request("GET", f"orgs/{self.oid}/users")
+        return resp.get("users", resp)
 
     def add_user(self, email: str) -> dict[str, Any]:
         """Invite a user to the organization.
@@ -357,7 +359,8 @@ class Organization:
         Returns:
             dict: User permission mappings.
         """
-        return self._client.request("GET", f"orgs/{self.oid}/users/permissions")
+        resp = self._client.request("GET", f"orgs/{self.oid}/users/permissions")
+        return resp.get("user_permissions", resp)
 
     def add_user_permission(self, email: str, permission: str) -> dict[str, Any]:
         """Grant a permission to a user.
@@ -757,13 +760,14 @@ class Organization:
 
     # --- Groups ---
 
-    def get_groups(self) -> dict[str, Any]:
+    def get_groups(self) -> list[dict[str, Any]]:
         """List organization groups.
 
         Returns:
-            dict: Group list.
+            list: Group dicts.
         """
-        return self._client.request("GET", "groups")
+        resp = self._client.request("GET", "groups")
+        return resp.get("groups", resp)
 
     def create_group(self, name: str) -> dict[str, Any]:
         """Create a new group.

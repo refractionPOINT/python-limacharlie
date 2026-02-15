@@ -33,7 +33,8 @@ class Payloads:
         return self._org.client
 
     def list(self) -> dict[str, Any]:
-        return self.client.request("GET", f"payload/{self._org.oid}")
+        resp = self.client.request("GET", f"payload/{self._org.oid}")
+        return resp.get("payloads", resp)
 
     def upload(self, name: str, file_path: str | None = None,
                payload_content: bytes | None = None) -> bytes | None:

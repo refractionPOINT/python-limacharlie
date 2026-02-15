@@ -21,10 +21,22 @@ def payloads(mock_org):
 
 class TestPayloadsList:
     def test_list(self, payloads, mock_org):
-        mock_org.client.request.return_value = {"payloads": []}
+        mock_org.client.request.return_value = {"payloads": {"p1": {"name": "p1"}}}
         result = payloads.list()
         mock_org.client.request.assert_called_once_with("GET", "payload/test-oid")
-        assert result == {"payloads": []}
+        assert result == {"p1": {"name": "p1"}}
+
+    def test_list_unwraps_payloads_key(self, payloads, mock_org):
+        """The API returns {payloads: {...}, replicants: [...]} — list() extracts just payloads."""
+        mock_org.client.request.return_value = {"payloads": {"a": {}}, "replicants": ["svc"]}
+        result = payloads.list()
+        assert result == {"a": {}}
+
+    def test_list_fallback_when_no_payloads_key(self, payloads, mock_org):
+        """If the response lacks a 'payloads' key, return as-is."""
+        mock_org.client.request.return_value = {"unexpected": "data"}
+        result = payloads.list()
+        assert result == {"unexpected": "data"}
 
 
 class TestPayloadsDelete:
