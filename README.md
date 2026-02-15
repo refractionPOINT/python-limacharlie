@@ -334,7 +334,7 @@ limacharlie stream firehose                    # All data types
 
 ### Hive Records
 
-Hives are key-value stores for LimaCharlie configuration data. Several hive types have dedicated shortcut commands (`secret`, `lookup`, `playbook`, `note`, `sop`, `cloud-sensor`):
+Hives are key-value stores for LimaCharlie configuration data. Several hive types have dedicated shortcut commands (`secret`, `lookup`, `playbook`, `note`, `sop`, `external-adapter`, `cloud-adapter`):
 
 ```bash
 # Generic hive access
@@ -355,7 +355,8 @@ limacharlie lookup set --key ioc-list --input-file iocs.json
 limacharlie playbook list
 limacharlie note list
 limacharlie sop list
-limacharlie cloud-sensor list
+limacharlie external-adapter list
+limacharlie cloud-adapter list
 ```
 
 ### Outputs
