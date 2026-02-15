@@ -176,6 +176,20 @@ class Client:
         """
         effective_oid = oid_override if oid_override is not None else self._oid
 
+        # Early check: if no OID is available and this isn't a user-scoped
+        # operation (oid_override="-"), provide a clear error message instead
+        # of letting the JWT endpoint return a confusing "unknown api key".
+        if effective_oid is None:
+            raise AuthenticationError(
+                "No organization ID (OID) configured.",
+                suggestion=(
+                    "Set a default org with 'limacharlie auth use-org --oid <OID>',\n"
+                    "pass '--oid <OID>' as a global flag (e.g. 'limacharlie --oid <OID> <command>'),\n"
+                    "or set the LC_OID environment variable.\n"
+                    "To find your OID, run 'limacharlie auth list-orgs'."
+                ),
+            )
+
         # Check if we're using OAuth
         if self._oauth_creds is not None:
             self._refresh_jwt_oauth(effective_oid, expiry)

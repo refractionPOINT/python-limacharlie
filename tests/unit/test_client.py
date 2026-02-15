@@ -77,6 +77,44 @@ class TestRefreshJWT:
         # inspecting the URLRequest, which is complex with urlopen mock)
         assert client._jwt == "override-jwt"
 
+    def test_refresh_jwt_no_oid_raises_clear_error(self):
+        client = Client.__new__(Client)
+        client._oid = None
+        client._api_key = "test-key"
+        client._oauth_creds = None
+        client._jwt = None
+        client._uid = None
+        client._ssl_context = None
+        client._debug_fn = None
+        client._on_refresh_auth = None
+
+        with pytest.raises(AuthenticationError, match="No organization ID") as exc_info:
+            client.refresh_jwt()
+        assert "use-org" in str(exc_info.value)
+        assert "--oid" in str(exc_info.value)
+        assert "LC_OID" in str(exc_info.value)
+
+    @patch("limacharlie.client.urlopen")
+    def test_refresh_jwt_oid_override_bypasses_missing_oid_check(self, mock_urlopen):
+        """oid_override='-' should work even when self._oid is None."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": "user-jwt"}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client.__new__(Client)
+        client._oid = None
+        client._api_key = "test-key"
+        client._oauth_creds = None
+        client._jwt = None
+        client._uid = None
+        client._ssl_context = None
+        client._debug_fn = None
+        client._on_refresh_auth = None
+
+        client.refresh_jwt(oid_override="-")
+        assert client._jwt == "user-jwt"
+
     def test_refresh_jwt_no_credentials_raises(self):
         client = Client.__new__(Client)
         client._oid = "test"
