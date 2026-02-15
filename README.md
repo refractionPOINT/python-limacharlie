@@ -244,14 +244,14 @@ limacharlie tag mass-add --selector '`linux` in tags' --tag patch-pending
 limacharlie tag mass-remove --selector '`linux` in tags' --tag patch-pending
 ```
 
-### Network Policy
+### Endpoint Policy
 
 ```bash
-limacharlie net-policy status --sid SENSOR_ID
-limacharlie net-policy isolate --sid SENSOR_ID
-limacharlie net-policy rejoin --sid SENSOR_ID
-limacharlie net-policy seal --sid SENSOR_ID
-limacharlie net-policy unseal --sid SENSOR_ID
+limacharlie endpoint-policy status --sid SENSOR_ID
+limacharlie endpoint-policy isolate --sid SENSOR_ID
+limacharlie endpoint-policy rejoin --sid SENSOR_ID
+limacharlie endpoint-policy seal --sid SENSOR_ID
+limacharlie endpoint-policy unseal --sid SENSOR_ID
 ```
 
 ### Tasking

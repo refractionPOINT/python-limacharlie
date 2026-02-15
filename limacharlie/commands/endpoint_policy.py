@@ -1,9 +1,10 @@
-"""Network policy commands for LimaCharlie CLI v2.
+"""Endpoint policy commands for LimaCharlie CLI v2.
 
-Commands for isolating sensors from the network and checking isolation
-status.  Network isolation prevents a compromised endpoint from
-communicating with anything other than the LimaCharlie cloud, cutting
-off lateral movement and data exfiltration.
+Commands for isolating sensors from the network, checking isolation
+status, and sealing/unsealing sensor configuration.  Network isolation
+prevents a compromised endpoint from communicating with anything other
+than the LimaCharlie cloud, cutting off lateral movement and data
+exfiltration.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ While isolated, the sensor remains manageable via LimaCharlie tasking.
 You can still collect memory dumps, run YARA scans, or kill processes
 on the isolated endpoint.
 
-Use 'limacharlie net-policy rejoin --sid <SID>' to restore network
+Use 'limacharlie endpoint-policy rejoin --sid <SID>' to restore network
 connectivity when the investigation is complete.
 
 This is a disruptive operation: the endpoint will lose all network
@@ -63,7 +64,7 @@ remotely.  This is a protective measure that prevents tampering with
 the sensor configuration on a compromised endpoint.
 
 While sealed, the sensor continues to operate normally but rejects any
-configuration changes.  Use 'limacharlie net-policy unseal --sid <SID>'
+configuration changes.  Use 'limacharlie endpoint-policy unseal --sid <SID>'
 to restore the ability to modify the sensor configuration.
 
 This is a disruptive operation: the endpoint will reject configuration
@@ -79,11 +80,11 @@ If the sensor is not currently sealed, this command has no effect.
 The --confirm flag is required to proceed.
 """
 
-register_explain("net-policy.isolate", _EXPLAIN_ISOLATE)
-register_explain("net-policy.rejoin", _EXPLAIN_REJOIN)
-register_explain("net-policy.status", _EXPLAIN_STATUS)
-register_explain("net-policy.seal", _EXPLAIN_SEAL)
-register_explain("net-policy.unseal", _EXPLAIN_UNSEAL)
+register_explain("endpoint-policy.isolate", _EXPLAIN_ISOLATE)
+register_explain("endpoint-policy.rejoin", _EXPLAIN_REJOIN)
+register_explain("endpoint-policy.status", _EXPLAIN_STATUS)
+register_explain("endpoint-policy.seal", _EXPLAIN_SEAL)
+register_explain("endpoint-policy.unseal", _EXPLAIN_UNSEAL)
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +115,7 @@ def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
 # Group
 # ---------------------------------------------------------------------------
 
-@click.group("net-policy")
+@click.group("endpoint-policy")
 def group() -> None:
     """Manage sensor network isolation.
 
@@ -140,7 +141,7 @@ def isolate(ctx: click.Context, sid: str) -> None:
     """Network-isolate a sensor (block all non-LC traffic).
 
     Example:
-        limacharlie net-policy isolate --sid <SID>
+        limacharlie endpoint-policy isolate --sid <SID>
     """
     sensor = _get_sensor(ctx, sid)
     data = sensor.isolate()
@@ -165,7 +166,7 @@ def rejoin(ctx: click.Context, sid: str) -> None:
     """Remove network isolation from a sensor.
 
     Example:
-        limacharlie net-policy rejoin --sid <SID>
+        limacharlie endpoint-policy rejoin --sid <SID>
     """
     sensor = _get_sensor(ctx, sid)
     data = sensor.rejoin()
@@ -190,7 +191,7 @@ def status(ctx: click.Context, sid: str) -> None:
     """Check the network isolation status of a sensor.
 
     Example:
-        limacharlie net-policy status --sid <SID>
+        limacharlie endpoint-policy status --sid <SID>
     """
     sensor = _get_sensor(ctx, sid)
     is_isolated = sensor.is_isolated()
@@ -216,7 +217,7 @@ def seal(ctx: click.Context, sid: str, confirm: bool) -> None:
     This is a disruptive operation.  Pass --confirm to proceed.
 
     Example:
-        limacharlie net-policy seal --sid <SID> --confirm
+        limacharlie endpoint-policy seal --sid <SID> --confirm
     """
     if not confirm:
         click.echo(
@@ -253,7 +254,7 @@ def unseal(ctx: click.Context, sid: str, confirm: bool) -> None:
     This is a disruptive operation.  Pass --confirm to proceed.
 
     Example:
-        limacharlie net-policy unseal --sid <SID> --confirm
+        limacharlie endpoint-policy unseal --sid <SID> --confirm
     """
     if not confirm:
         click.echo(

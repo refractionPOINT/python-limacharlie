@@ -150,7 +150,7 @@ limacharlie/
 │   ├── schema.py                # schema list, get
 │   ├── tag.py                   # tag list, add, remove, mass-tag
 │   ├── task.py                  # task send, reliable-send, list-reliable
-│   ├── net_policy.py            # net-policy (isolate, rejoin)
+│   ├── endpoint_policy.py       # endpoint-policy (isolate, rejoin, seal, unseal)
 │   ├── yara.py                  # yara scan, rules, sources
 │   ├── cloud_sensor.py          # cloud-sensor list, get, set, delete
 │   ├── job.py                   # job list, get, delete, wait
@@ -361,12 +361,12 @@ This is a full v2.0.0 rewrite with no backwards compatibility requirement:
 - [ ] `tag mass-add --selector <bexpr> --tag <tag> [--ttl <duration>]` - Bulk tag sensors
 - [ ] `tag mass-remove --selector <bexpr> --tag <tag>` - Bulk untag sensors
 
-### Network Policy Commands - `limacharlie net-policy`
-- [ ] `net-policy isolate <sid> --confirm` - Isolate sensor from network (DESTRUCTIVE)
-- [ ] `net-policy rejoin <sid> --confirm` - Rejoin sensor to network (DESTRUCTIVE)
-- [ ] `net-policy status <sid>` - Check isolation status
-- [ ] `net-policy seal <sid>` - Seal sensor
-- [ ] `net-policy unseal <sid>` - Unseal sensor
+### Endpoint Policy Commands - `limacharlie endpoint-policy`
+- [ ] `endpoint-policy isolate <sid> --confirm` - Isolate sensor from network (DESTRUCTIVE)
+- [ ] `endpoint-policy rejoin <sid> --confirm` - Rejoin sensor to network (DESTRUCTIVE)
+- [ ] `endpoint-policy status <sid>` - Check isolation status
+- [ ] `endpoint-policy seal <sid>` - Seal sensor
+- [ ] `endpoint-policy unseal <sid>` - Unseal sensor
 
 ### Sensor Tasking Commands - `limacharlie task`
 - [ ] `task send <sid> <task-command> [--investigation-id <id>]` - Send task to sensor (fire-and-forget)
@@ -1080,7 +1080,7 @@ Full list of permissions available for API keys and user roles:
 - [x] Implement `commands/org.py` - org info, list, create, delete, config, errors, stats, mitre
 - [x] Implement `commands/sensor.py` - sensor list, get, delete, online, wait-online, upgrade, set-version, export, dump, sweep
 - [x] Implement `commands/tag.py` - tag list, add, remove, find, mass-add, mass-remove
-- [x] Implement `commands/net_policy.py` - isolate, rejoin, status, seal, unseal
+- [x] Implement `commands/endpoint_policy.py` - isolate, rejoin, status, seal, unseal
 - [x] Implement `commands/task.py` - send, request, reliable-send, reliable-list
 - [x] Implement `commands/rule.py` - list, get, create, update, delete, test, replay, validate, export, import
 - [x] Implement `commands/fp.py` - list, get, create, delete

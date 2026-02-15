@@ -18,8 +18,8 @@ PROFILES = {
             "sensor export", "sensor dump", "sensor sweep",
             "tag list", "tag add", "tag remove", "tag find",
             "tag mass-add", "tag mass-remove",
-            "net-policy isolate", "net-policy rejoin", "net-policy status",
-            "net-policy seal", "net-policy unseal",
+            "endpoint-policy isolate", "endpoint-policy rejoin", "endpoint-policy status",
+            "endpoint-policy seal", "endpoint-policy unseal",
             "installation-key list", "installation-key create", "installation-key delete",
         ],
     },
@@ -57,7 +57,7 @@ PROFILES = {
     "threat_response": {
         "description": "Incident response: isolation, tagging, sensor management during threats",
         "commands": [
-            "net-policy isolate", "net-policy rejoin",
+            "endpoint-policy isolate", "endpoint-policy rejoin",
             "tag add", "tag mass-add",
             "task send", "task request",
             "sensor dump", "sensor sweep",

@@ -149,14 +149,14 @@ Key operations:
   limacharlie sensor list              - List all sensors (with optional --tag filter)
   limacharlie sensor get --sid <sid>   - Get sensor details
   limacharlie tag add --sid <sid> --tag <tag>   - Tag a sensor
-  limacharlie net-policy isolate --sid <sid>    - Network-isolate a sensor
+  limacharlie endpoint-policy isolate --sid <sid>    - Network-isolate a sensor
   limacharlie task send --sid <sid> --task <cmd> --args '...'  - Send a task
 
 Online status:
   limacharlie sensor online            - List currently online sensors
   limacharlie sensor wait-online --sid <sid>  - Wait for a sensor to come online
 
-Related commands: sensor, tag, net-policy, task, installation-key
+Related commands: sensor, tag, endpoint-policy, task, installation-key
 """
 
 HELP_TOPICS["outputs"] = """\
@@ -698,10 +698,10 @@ Incident Response Cheatsheet
 ==============================
 
 # Isolate a compromised host
-limacharlie net-policy isolate --sid <sid>
+limacharlie endpoint-policy isolate --sid <sid>
 
 # Check isolation status
-limacharlie net-policy status --sid <sid>
+limacharlie endpoint-policy status --sid <sid>
 
 # Tag for tracking
 limacharlie tag add --sid <sid> --tag incident-2024-01
@@ -727,7 +727,7 @@ limacharlie stream events --tag incident-2024-01
 limacharlie sensor dump --sid <sid>
 
 # Rejoin network after investigation
-limacharlie net-policy rejoin --sid <sid>
+limacharlie endpoint-policy rejoin --sid <sid>
 limacharlie tag remove --sid <sid> --tag incident-2024-01
 """
 
