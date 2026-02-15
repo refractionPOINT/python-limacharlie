@@ -3,4 +3,4 @@
 from __future__ import annotations
 
 from ._hive_shortcut import make_hive_group
-group = make_hive_group("ext-adapter", "external_adapter", "external adapter")
+group = make_hive_group("external-adapter", "external_adapter", "external adapter")
