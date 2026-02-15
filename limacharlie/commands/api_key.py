@@ -34,16 +34,26 @@ key metadata for auditing purposes.
 _EXPLAIN_CREATE = """\
 Create a new API key with the specified name and permissions.
 
-Permissions are provided as a comma-separated list of permission
-strings (e.g., 'dr.list,dr.set,sensor.list').  The full list of
-available permissions can be found in the LimaCharlie documentation.
+Permissions are provided as a comma-separated list using the
+category.action convention.  Common permissions:
+
+  Organization:  org.get, org.conf.get, org.conf.set
+  Sensors:       sensor.list, sensor.get, sensor.task, sensor.del, sensor.tag
+  Install keys:  ikey.list, ikey.set, ikey.del
+  D&R rules:     dr.list, dr.set, dr.del
+  Managed D&R:   dr.list.managed, dr.set.managed, dr.del.managed
+  FP rules:      fp.list, fp.set, fp.del
+  Outputs:       output.list, output.set, output.del
+  Access ctrl:   apikey.ctrl, user.ctrl, billing.ctrl
+  Audit:         audit.get
+  Hive:          hive.get, hive.set, hive.del
 
 IMPORTANT: The secret key value is only shown once at creation
 time.  Store it securely -- it cannot be retrieved later.
 
 Examples:
   limacharlie api-key create --name ci-key --permissions dr.list,dr.set
-  limacharlie api-key create --name readonly --permissions sensor.list
+  limacharlie api-key create --name readonly --permissions sensor.list,org.get
 """
 
 _EXPLAIN_DELETE = """\

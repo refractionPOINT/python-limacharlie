@@ -48,27 +48,133 @@ List all D&R rules in the organization.  By default, rules from the
   managed  - Rules managed by LimaCharlie or extensions.
   service  - Rules created by services/replicants.
 
-The output includes the rule data and metadata from the hive.
+Each returned rule contains:
+  data:
+    detect: { ... }    # detection logic (operators, paths, values)
+    respond: [ ... ]   # list of response actions
+    tests:             # optional unit tests
+      match: [ ... ]
+      non_match: [ ... ]
+  usr_mtd:
+    enabled: true/false
+    expiry: 0          # unix epoch, 0 = no expiry
+    tags: []
+    comment: ""
+
+Examples:
+  limacharlie dr list
+  limacharlie dr list --namespace managed
+  limacharlie dr list --namespace service
 """
 
 _EXPLAIN_GET = """\
 Get the full definition of a single D&R rule by key.  Returns the
 detection component, response component, enabled status, and metadata.
 
+The returned structure looks like:
+
+  data:
+    detect:
+      event: NEW_PROCESS
+      op: ends with
+      path: event/FILE_PATH
+      value: .exe
+    respond:
+      - action: report
+        name: my-detection
+    tests:             # optional unit tests
+      match: [...]
+      non_match: [...]
+  usr_mtd:
+    enabled: true
+    expiry: 0
+    tags: []
+    comment: ""
+
 Rule keys are unique within a namespace.  If the rule is in the
 'managed' or 'service' namespace, pass --namespace accordingly.
+
+Examples:
+  limacharlie dr get --key my-rule
+  limacharlie dr get --key some-managed-rule --namespace managed
 """
 
 _EXPLAIN_SET = """\
 Create or update a D&R rule.  Provide rule data via --input-file
 (JSON/YAML) or stdin.
 
-The input should contain 'detect' and 'respond' keys (optionally
-wrapped in a 'data' key for the full hive record format).
+The input must contain detect and respond components.  Minimal example:
+
+  detect:
+    event: NEW_PROCESS
+    op: contains
+    path: event/COMMAND_LINE
+    value: mimikatz
+  respond:
+    - action: report
+      name: mimikatz-detected
+
+The detect component matches events using operators against event field
+paths.  Common operators: is, contains, starts with, ends with, matches
+(regex), exists, is greater than, is lower than, string distance.
+Boolean operators (and, or) combine sub-rules via the 'rules:' list.
+Use 'not: true' on any operator to invert its match.
+
+The 'event:' field filters to a specific event type (NEW_PROCESS,
+NETWORK_CONNECTIONS, DNS_REQUEST, CODE_IDENTITY, WEL, etc.).  By
+default rules target 'edr' events; use 'target:' to switch to
+detection, deployment, artifact, artifact_event, schedule, audit,
+or billing targets.
+
+For stateful detection use 'with child:', 'with descendant:', or
+'with events:' to correlate across multiple events over time.
+Use 'count:' and 'within:' (seconds) for frequency thresholds.
+
+The respond component is a list of actions.  Common actions:
+  - action: report           # generate a detection/alert
+    name: detection-name
+  - action: task             # send a command to the sensor
+    command: history_dump
+  - action: add tag          # tag the sensor
+    tag: suspicious
+    ttl: 86400               # optional TTL in seconds
+  - action: isolate network  # isolate from network
+  - action: output           # forward to a specific output
+    name: my-output
+
+Any action supports a 'suppression:' block to limit frequency:
+  suppression:
+    max_count: 1
+    period: 1h
+    is_global: false
+    keys:
+      - '{{ .event.FILE_PATH }}'
+
+You can optionally include unit tests:
+  tests:
+    match:
+      - - event: { ... }       # list of events that should trigger
+          routing: { ... }
+    non_match:
+      - - event: { ... }       # list of events that should NOT trigger
+          routing: { ... }
+
+The input can also use the full hive record format with a 'data'
+wrapper and 'usr_mtd' for metadata like enabled/expiry/tags:
+
+  data:
+    detect: { ... }
+    respond: [ ... ]
+  usr_mtd:
+    enabled: true
+    expiry: 0
+    tags: []
+    comment: "rule description"
 
 Examples:
   limacharlie dr set --key my-rule --input-file rule.yaml
   cat rule.json | limacharlie dr set --key my-rule
+  limacharlie dr set --key my-rule --namespace managed --input-file rule.yaml
 """
 
 _EXPLAIN_DELETE = """\
@@ -76,48 +182,101 @@ Delete a D&R rule by key.  This permanently removes the rule and stops
 all detections based on it.  The --confirm flag is required to prevent
 accidental deletion.
 
-If the rule is in the 'managed' or 'service' namespace, pass --namespace
-accordingly.
+If the rule is in the 'managed' or 'service' namespace, pass
+--namespace accordingly.
+
+Examples:
+  limacharlie dr delete --key my-rule --confirm
+  limacharlie dr delete --key some-managed-rule --namespace managed --confirm
 """
 
 _EXPLAIN_TEST = """\
-Test a D&R rule against sample events.  This evaluates the rule's
-detection logic against the provided events without deploying the rule
-live.
+Test a D&R rule against sample events without deploying it live.  This
+sends the events through the rule engine and returns which ones matched
+along with the actions that would fire.
 
-The --events parameter accepts a path to a JSON file containing a
-single event, a list of events, or newline-delimited JSON events.
+You can test an existing deployed rule by --name, or provide an ad-hoc
+rule file via --input-file containing 'detect' and 'respond' keys.
 
-You can test an existing rule by name, or provide a rule file with
---input-file containing 'detect' and 'respond' keys.
+The --events parameter accepts a path to a JSON file containing:
+  - A single event object  {"event": {...}, "routing": {...}}
+  - A JSON array of events [{"event": {...}}, ...]
+  - Newline-delimited JSON (one event per line)
+
+Events should match the structure LimaCharlie uses internally:
+
+  {
+    "event": {
+      "FILE_PATH": "C:\\temp\\evil.exe",
+      "COMMAND_LINE": "evil.exe --payload",
+      "PROCESS_ID": 1234
+    },
+    "routing": {
+      "event_type": "NEW_PROCESS",
+      "hostname": "workstation-1",
+      "sid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    }
+  }
+
+Use --trace for a detailed step-by-step evaluation trace showing
+which operators matched or failed, useful for debugging rules.
+
+The response includes num_evals, eval_time, num_events, responses
+(list of actions that would fire), and errors.
 
 Examples:
   limacharlie dr test --name my-rule --events events.json
   limacharlie dr test --input-file rule.yaml --events events.json
+  limacharlie dr test --input-file rule.yaml --events events.json --trace
 """
 
 _EXPLAIN_REPLAY = """\
 Replay a D&R rule against historical sensor data.  This evaluates
 the rule against past events stored in Insight without deploying the
-rule live.
+rule live.  Replay is billed based on data volume processed; use
+--dry-run first to estimate cost.
 
 The --start and --end times are Unix timestamps in seconds.  Use
 --sid to limit replay to a specific sensor, or --selector for a
-sensor selector expression.
+sensor selector expression (boolean expression filtering sensors
+by tags, platform, hostname, etc.).
 
-Use --trace to include detailed evaluation trace output.
+Use --trace to include a detailed step-by-step evaluation trace.
 Use --dry-run to estimate the evaluation cost without running.
+
+The response includes num_evals, eval_time, num_events, responses
+(detections that would have been generated), and errors.
+
+Note: stateful rules are forward-looking only.  Changing a stateful
+rule resets its state, so the parent event must be re-seen before
+child matches apply.
 
 Examples:
   limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000
   limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --sid <SID>
+  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --dry-run
+  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --trace
 """
 
 _EXPLAIN_VALIDATE = """\
 Validate D&R rule components without deploying.  Checks that the
-detection and response components compile correctly.
+detection and response components compile correctly: verifies
+operators are known, paths are well-formed, and response actions
+are valid.  Returns success: true if valid.
 
-Provide the detection and response components as JSON or YAML files.
+Provide separate files for the detection and response components:
+
+  detection file (detect.yaml):
+    event: NEW_PROCESS
+    op: ends with
+    path: event/FILE_PATH
+    value: .scr
+
+  response file (respond.yaml):
+    - action: report
+      name: suspicious-screensaver
+
+This is useful for CI/CD validation before pushing rules.
 
 Examples:
   limacharlie dr validate --detect detect.yaml --respond respond.yaml
@@ -127,7 +286,12 @@ _EXPLAIN_EXPORT = """\
 Export all D&R rules as YAML.  Useful for backup, version control,
 or migration between organizations.
 
-Use --namespace to export only rules from a specific namespace.
+The output is a YAML mapping of rule names to their full hive
+records (data + usr_mtd).  This format is compatible with
+'limacharlie dr import'.
+
+Use --namespace to export only rules from a specific namespace
+(general, managed, or service).  Defaults to general.
 
 Examples:
   limacharlie dr export
@@ -137,10 +301,35 @@ Examples:
 
 _EXPLAIN_IMPORT = """\
 Import D&R rules from a YAML or JSON file.  The file should contain
-a mapping of rule names to rule definitions, each with 'detect' and
-'respond' keys.
+a mapping of rule names to rule definitions.  Rules are upserted
+(existing rules with the same name are overwritten).
 
-Rules are upserted (existing rules with the same name are overwritten).
+The file format is a mapping of rule-key to rule definition:
+
+  my-rule-1:
+    detect:
+      event: NEW_PROCESS
+      op: contains
+      path: event/COMMAND_LINE
+      value: evil
+    respond:
+      - action: report
+        name: evil-detected
+
+  my-rule-2:
+    detect: { ... }
+    respond: [ ... ]
+
+The full hive record format (with 'data' wrapper and 'usr_mtd') is
+also accepted:
+
+  my-rule-1:
+    data:
+      detect: { ... }
+      respond: [ ... ]
+    usr_mtd:
+      enabled: true
+      tags: [production]
 
 Use --dry-run to preview what would be imported without making changes.
 

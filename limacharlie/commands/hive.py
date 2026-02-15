@@ -30,29 +30,77 @@ _EXPLAIN_LIST = """\
 List all records in a specific hive.  Hives are key-value stores that
 hold configuration data.  Common hive names include:
 
-  dr-general   - D&R rules (general namespace).
-  dr-managed   - D&R rules (managed namespace).
-  secret       - Secrets stored for the organization.
-  lookup       - Lookup tables.
-  fp           - False positive rules.
-  external_adapter - External adapter configurations.
+  dr-general       - D&R rules (general namespace)
+  dr-managed       - D&R rules (managed namespace)
+  dr-service       - D&R rules (service namespace)
+  fp               - False positive rules
+  secret           - Secrets (data format: {secret: "value"})
+  lookup           - Lookup tables
+  yara             - YARA rule sources (data format: {rule: "yara content"})
+  extension_config - Extension configurations
+  external_adapter - External adapter configs (syslog, file, cloud connectors)
+  cloud_sensor     - Cloud sensor configurations
+  query            - Saved LCQL queries
+  playbook         - Playbooks
+  sop              - Standard operating procedures
+  note             - Organization notes
+  ai_agent         - AI agent configurations
 
-The output includes the record name and metadata.  Use --output json
-to get the full record data for export or backup.
+Each record returned contains:
+  data     - The record payload (structure varies by hive type)
+  usr_mtd  - User metadata: enabled (bool), expiry (epoch int, 0=never),
+             tags (list of strings), comment (string)
+  sys_mtd  - System metadata: etag (concurrency token), guid, created/updated
+             timestamps, author
+
+Use --output json to get the full record data for export or backup.
 """
 
 _EXPLAIN_GET = """\
 Get a single record from a hive by its key.  Returns the full record
-data, user metadata (expiry, enabled, tags, comment), and system
-metadata (etag, timestamps, author).
+including:
+
+  data     - The record payload (structure varies by hive type)
+  usr_mtd  - User-controlled metadata:
+               enabled: true/false
+               expiry: unix epoch (0 = never expires)
+               tags: [list, of, strings]
+               comment: "free-text description"
+  sys_mtd  - System metadata:
+               etag: concurrency token for optimistic locking
+               guid: globally unique record ID
+               created_at / updated_at: timestamps
+               created_by / updated_by: author identity
+
+Use the etag value in a subsequent "set" call to do compare-and-swap
+updates, preventing concurrent modification conflicts.
 """
 
 _EXPLAIN_SET = """\
 Create or update a record in a hive.  The record data is read from
 --input-file or from stdin if no file is specified.  The input should
-be a JSON or YAML document with at minimum a 'data' key.  Optional
-keys include 'usr_mtd' (with 'expiry', 'enabled', 'tags', 'comment')
-and 'etag' for optimistic concurrency.
+be a JSON or YAML document.
+
+Full record format (YAML):
+
+    data:
+      key: value          # payload varies by hive type
+    usr_mtd:
+      enabled: true       # optional, default true
+      expiry: 0           # optional, unix epoch (0 = never)
+      tags:               # optional
+        - my-tag
+      comment: "note"     # optional
+    etag: "abc123"        # optional, for compare-and-swap updates
+
+If the input has no "data" key, the entire input is treated as the
+record data payload.
+
+Data payload examples per hive type:
+  secret:  {secret: "my-api-key"}
+  yara:    {rule: "rule MyRule { ... }"}
+  lookup:  {lookup_data: {"1.2.3.4": {info: "bad"}}}
+           or {newline_content: "val1\\nval2\\nval3"}
 
 Examples:
   echo '{"data": {"key": "value"}}' | limacharlie hive set \\
@@ -63,8 +111,12 @@ Examples:
 """
 
 _EXPLAIN_DELETE = """\
-Delete a record from a hive.  This permanently removes the record.
-The --confirm flag is required to prevent accidental deletion.
+Delete a record from a hive.  This permanently removes the record
+and any data or metadata associated with it.  The --confirm flag
+is required to prevent accidental deletion.
+
+Any D&R rules, outputs, or extensions that reference this record
+(e.g. via hive://secret/my-key) will break after deletion.
 """
 
 _EXPLAIN_VALIDATE = """\
@@ -83,19 +135,35 @@ List all known hive type names that can be used with hive commands.
 
 Hives are key-value stores that hold different types of configuration
 data for a LimaCharlie organization.  Each hive type stores a specific
-kind of data (e.g., D&R rules, secrets, lookups, YARA rules).
+kind of data.  Known types: dr-general, dr-managed, dr-service, fp,
+cloud_sensor, extension_config, yara, lookup, secret, query, playbook,
+ai_agent, external_adapter, sop, note.
 
-The output is a static list of known hive type names.  Use these
-names with --hive-name in other hive commands.
+Use these names with --hive-name in other hive commands.  Some hive
+types also have dedicated shortcut commands (e.g. "limacharlie lookup",
+"limacharlie secret", "limacharlie yara").
 """
 
 _EXPLAIN_EXPORT = """\
 Export all records from a hive as YAML output.  This is useful for
 backup, migration, or version control of hive contents.
 
-Each record is exported with its full data and user metadata
-(expiry, enabled, tags, comment).  The output can be saved to a
-file and later imported with 'limacharlie hive import'.
+Each record is exported with its full structure:
+
+    record-name:
+      data: { ... }       # record payload
+      usr_mtd:
+        enabled: true
+        expiry: 0
+        tags: [tag1]
+        comment: ""
+      sys_mtd:
+        etag: "..."
+        guid: "..."
+
+The output can be saved to a file and later imported with
+'limacharlie hive import'.  Use --partition-key to export from a
+non-default partition.
 
 Related: 'limacharlie hive import' to restore records from a YAML file,
 'limacharlie sync pull' for full organization config export.
@@ -103,14 +171,25 @@ Related: 'limacharlie hive import' to restore records from a YAML file,
 
 _EXPLAIN_IMPORT = """\
 Import records into a hive from a YAML file.  Each top-level key in
-the YAML file is treated as a record name.  The value should be a
-dict with at minimum a 'data' key, and optionally 'usr_mtd' for
-user metadata (expiry, enabled, tags, comment).
+the YAML file is treated as a record name.  Expected format:
 
-Use --dry-run to preview what would be imported without making changes.
+    my-record-1:
+      data:
+        key: value
+      usr_mtd:
+        enabled: true
+        expiry: 0
+        tags: [tag1]
+        comment: ""
+    my-record-2:
+      data:
+        key: other-value
 
-The YAML format matches the output of 'limacharlie hive export',
-so you can round-trip data between export and import.
+Only "data" is required; "usr_mtd" is optional.  Use --dry-run to
+preview what would be imported without making changes.
+
+The format matches the output of 'limacharlie hive export', so you
+can round-trip data between export and import.
 
 Related: 'limacharlie hive export' to export records,
 'limacharlie sync push' for full organization config push.

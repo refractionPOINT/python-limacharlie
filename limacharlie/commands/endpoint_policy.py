@@ -28,20 +28,24 @@ from ..discovery import register_explain
 _EXPLAIN_ISOLATE = """\
 Network-isolate a sensor so it can only communicate with the LimaCharlie
 cloud.  All other network traffic (outbound and inbound) is blocked at
-the endpoint.  This is a critical incident-response action that prevents
-lateral movement and data exfiltration from a potentially compromised
-host.
+the kernel level on the endpoint.  This is a critical incident-response
+action that prevents lateral movement and data exfiltration from a
+potentially compromised host.
 
-While isolated, the sensor remains manageable via LimaCharlie tasking.
-You can still collect memory dumps, run YARA scans, or kill processes
-on the isolated endpoint.
+While isolated, the sensor remains fully manageable via LimaCharlie
+tasking.  You can still:
+  - Collect files and memory dumps
+  - Run YARA scans
+  - Kill or suspend processes
+  - List processes, services, and network connections
+  - Deploy payloads
 
-Use 'limacharlie endpoint-policy rejoin --sid <SID>' to restore network
-connectivity when the investigation is complete.
+The underlying sensor command is 'segregate_network'.  Use
+'limacharlie endpoint-policy rejoin --sid <SID>' (rejoin_network)
+to restore connectivity when the investigation is complete.
 
 This is a disruptive operation: the endpoint will lose all network
-connectivity except to LimaCharlie.  The --confirm flag is not
-required but be certain before executing.
+connectivity except to LimaCharlie.
 """
 
 _EXPLAIN_REJOIN = """\
@@ -63,12 +67,15 @@ Seal a sensor so that its configuration is locked and cannot be changed
 remotely.  This is a protective measure that prevents tampering with
 the sensor configuration on a compromised endpoint.
 
-While sealed, the sensor continues to operate normally but rejects any
-configuration changes.  Use 'limacharlie endpoint-policy unseal --sid <SID>'
-to restore the ability to modify the sensor configuration.
+While sealed, the sensor continues to operate normally (collecting
+telemetry, executing D&R rules) but rejects configuration changes
+such as tag modifications, exfil rule changes, and FIM updates.
+Tasking commands (os_processes, file_get, etc.) still work.
 
-This is a disruptive operation: the endpoint will reject configuration
-changes.  The --confirm flag is required to proceed.
+Use 'limacharlie endpoint-policy unseal --sid <SID>' to restore the
+ability to modify the sensor configuration.
+
+The --confirm flag is required to proceed.
 """
 
 _EXPLAIN_UNSEAL = """\

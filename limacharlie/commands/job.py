@@ -25,8 +25,14 @@ from ..discovery import register_explain
 
 _EXPLAIN_LIST = """\
 List service jobs in the organization.  Jobs track asynchronous
-operations performed by LimaCharlie services such as scans,
-replays, and bulk operations.
+operations performed by LimaCharlie services such as YARA scans,
+D&R rule replays, and bulk export operations.
+
+Each job entry contains:
+  job_id     - Unique job identifier
+  status     - Current state (pending, running, completed, failed)
+  progress   - Completion percentage (if available)
+  type       - Job type / service that created it
 
 Use --output json to get the full job data for scripting.
 """

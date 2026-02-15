@@ -44,8 +44,19 @@ Example:
 
 _EXPLAIN_CREATE = """\
 Create a new investigation from a JSON or YAML input file.  The
-input file should contain the investigation definition including
-any initial parameters.
+input file should contain the investigation definition.
+
+Example investigation YAML:
+
+    status: open
+    conclusion: ''
+    data:
+      description: Suspicious PowerShell activity on HOST-01
+      priority: high
+      events:
+        - event_id: <EVENT_ID>
+      detections:
+        - detection_id: <DETECTION_ID>
 
 Example:
   limacharlie investigation create --name my-investigation --input-file investigation.yaml

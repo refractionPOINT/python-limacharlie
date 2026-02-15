@@ -29,9 +29,29 @@ the Insight data lake and can be queried by time range and event type.
 You must provide --sid (sensor ID) and a time range via --start and
 --end (unix epoch seconds).
 
-Use --event-type to filter for a specific event type (e.g.,
-'NEW_PROCESS', 'DNS_REQUEST', 'NETWORK_SUMMARY').  Use --limit to
+Use --event-type to filter for a specific event type.  Use --limit to
 cap the number of events returned.
+
+Common event types:
+  NEW_PROCESS          - Process creation with FILE_PATH, COMMAND_LINE, USER_NAME
+  TERMINATE_PROCESS    - Process exit
+  DNS_REQUEST          - DNS query with DOMAIN_NAME, IP_ADDRESS, DNS_TYPE
+  NETWORK_CONNECTIONS  - Active connections snapshot (NETWORK_ACTIVITY array)
+  NEW_TCP4_CONNECTION  - New outbound TCP connection
+  FILE_CREATE          - File created with FILE_PATH
+  FILE_MODIFIED        - File changed with FILE_PATH, ACTION, HASH
+  MODULE_LOAD          - DLL/shared library loaded
+  CODE_IDENTITY        - Code signing info with HASH, SIGNATURE
+  REGISTRY_WRITE       - Windows registry change
+  WEL                  - Windows Event Log entries (nested EVENT structure)
+
+Each returned event has a two-level structure:
+  routing:  oid, sid, event_type, event_time (ms), hostname, ext_ip, int_ip, tags
+  event:    fields vary by event_type (e.g. FILE_PATH, COMMAND_LINE, DOMAIN_NAME)
+
+Events are linked by atom hashes: routing/this identifies the event,
+routing/parent links to the parent process.  Use 'event get' and
+'event children' to navigate the event tree.
 
 Examples:
   limacharlie event list --sid <SID> --start 1700000000 --end 1700086400
@@ -40,12 +60,16 @@ Examples:
 """
 
 _EXPLAIN_GET = """\
-Get a specific event by its atom identifier.  Atoms are unique
-identifiers assigned to every event and can be used to retrieve
-the exact event, navigate parent-child relationships, and build
-event trees.
+Get a specific event by its atom identifier.  Every event in
+LimaCharlie is assigned a unique atom hash (found in routing/this).
+Atoms let you retrieve the exact event and navigate parent-child
+relationships to reconstruct the full process tree.
 
-You must provide --sid (sensor ID) and --atom (event atom).
+The returned event has the standard two-level structure:
+  routing:  oid, sid, event_type, event_time, hostname, this, parent
+  event:    payload fields specific to the event_type
+
+You must provide --sid (sensor ID) and --atom (the routing/this value).
 
 Example:
   limacharlie event get --sid <SID> --atom <ATOM>
@@ -53,8 +77,13 @@ Example:
 
 _EXPLAIN_CHILDREN = """\
 Get child events of a specific parent event atom.  In the LimaCharlie
-event tree, every event has a parent atom and may have child events.
-Use this command to traverse the event tree downward from a given atom.
+event tree, every event has a parent atom (routing/parent) and may
+have children.  Use this command to traverse the tree downward from a
+given atom, e.g. to see all processes spawned by a parent process.
+
+Returns a list of events, each with the standard routing + event
+structure.  The routing/parent of each child matches the atom you
+provided.
 
 You must provide --sid (sensor ID) and --atom (parent event atom).
 
@@ -86,6 +115,16 @@ _EXPLAIN_TYPES = """\
 List available event types and their schemas.  Optionally filter by
 platform (e.g., 'windows', 'linux', 'macos').
 
+Returns the full list of event types the platform recognizes.  Some
+common ones across platforms:
+  NEW_PROCESS, TERMINATE_PROCESS, DNS_REQUEST, NETWORK_CONNECTIONS,
+  NEW_TCP4_CONNECTION, FILE_CREATE, FILE_MODIFIED, FILE_DELETE,
+  MODULE_LOAD, CODE_IDENTITY, REGISTRY_WRITE (Windows),
+  WEL (Windows Event Log), USER_OBSERVED, CONNECTED, CLOUD_NOTIFICATION
+
+Use 'event schema --event-type <TYPE>' to see the full field list for
+any given event type.
+
 Examples:
   limacharlie event types
   limacharlie event types --platform windows
@@ -93,7 +132,14 @@ Examples:
 
 _EXPLAIN_SCHEMA = """\
 Get the schema definition for a specific event type.  The schema
-describes the fields and structure of events of this type.
+describes every field in the event payload, its type, and meaning.
+
+For example, the NEW_PROCESS schema documents fields like FILE_PATH,
+COMMAND_LINE, PROCESS_ID, USER_NAME, PARENT (nested object with its
+own FILE_PATH/PROCESS_ID), and HASH.
+
+Use this to understand what fields are available for D&R rule
+detection conditions, LCQL query filters, or exfil watch rules.
 
 Example:
   limacharlie event schema --event-type NEW_PROCESS

@@ -28,36 +28,81 @@ from ..discovery import register_explain
 
 _EXPLAIN_LIST = """\
 List all configured outputs for the organization.  Outputs forward
-telemetry data to external destinations.  Each output has a name,
-module type (e.g., 'syslog', 's3', 'gcs', 'slack'), and a data type
-filter (e.g., 'event', 'detect', 'audit').
+telemetry data to external destinations in real-time.
 
-The output includes the full configuration for each output.
+Each output has:
+  name    - unique identifier for this output
+  module  - destination type (syslog, s3, gcs, slack, webhook, etc.)
+  type    - which data stream is forwarded
+
+The four output stream types:
+  event      - real-time sensor telemetry (NEW_PROCESS, DNS_REQUEST, etc.)
+  detect     - D&R rule detections/alerts
+  audit      - platform management actions (config changes, API calls)
+  deployment - sensor lifecycle events (install, uninstall, upgrade)
+
+Returns the full configuration for each output including module-specific
+parameters and any filtering rules (event_white_list, tag, cat, etc.).
 """
 
 _EXPLAIN_CREATE = """\
 Create a new output integration.  You must provide:
 
   --name     A unique name for this output.
-  --module   The output module type (e.g., 'syslog', 's3', 'gcs', 'slack').
-  --type     The data type to forward ('event', 'detect', 'audit', etc.).
+  --module   The output module type.
+  --type     The data stream to forward.
 
-Module-specific parameters can be provided via --input-file as a JSON
-or YAML document.  The file contents are passed as additional keyword
-arguments to the API.
+Stream types:  event, detect, audit, deployment
+
+Available modules and their key config parameters:
+  syslog        - dest_host, is_tls, is_strict_tls, is_no_header
+  s3            - bucket, key_id, secret_key, is_compression, region_name, dir
+  gcs           - bucket, secret_key (GCP service account JSON), is_compression, dir
+  slack         - slack_api_token, slack_channel
+  webhook       - dest_host, secret_key, auth_header_name, auth_header_value
+  webhook_bulk  - dest_host, auth_header_name, auth_header_value
+  scp / sftp    - dest_host, username, password/secret_key, dir
+  kafka         - brokers, topic, username, password
+  elastic       - dest_host, username, password, index
+  bigquery      - project_id, dataset, secret_key (service account JSON)
+  pubsub        - project_id, topic, secret_key (service account JSON)
+
+Module-specific parameters are provided via --input-file (YAML or JSON).
+
+Example syslog config file (syslog-config.yaml):
+    dest_host: siem.corp.com:514
+    is_tls: "true"
+    is_strict_tls: "true"
+
+Example S3 config file (s3-config.yaml):
+    bucket: my-security-logs
+    key_id: AKIAEXAMPLEKEY
+    secret_key: wJalrXUtnFEMI/EXAMPLE
+    is_compression: "true"
+    region_name: us-east-1
+
+Optional filtering parameters (add to config file):
+    event_white_list: |        # newline-separated event types
+      NEW_PROCESS
+      DNS_REQUEST
+    tag: production            # only events from sensors with this tag
+    cat: high-priority         # only detections with this category
 
 Examples:
   limacharlie output create --name my-syslog --module syslog \\
       --type event --input-file syslog-config.yaml
 
   limacharlie output create --name my-s3 --module s3 --type detect \\
-      --input-file s3-config.json
+      --input-file s3-config.yaml
 """
 
 _EXPLAIN_DELETE = """\
 Delete an output integration by name.  This stops all data forwarding
 for this output immediately.  The --confirm flag is required to prevent
 accidental deletion.
+
+Example:
+  limacharlie output delete --name my-syslog --confirm
 """
 
 register_explain("output.list", _EXPLAIN_LIST)

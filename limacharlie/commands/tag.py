@@ -30,9 +30,19 @@ entire organization.
 
 Tags are case-sensitive strings.  They are commonly used to group
 sensors by role (e.g. 'web-server', 'database'), environment
-(e.g. 'production', 'staging'), or business unit.  D&R rules can
-target sensors by tag using the sensor selector expression
-'`tag-name` in tags'.
+(e.g. 'production', 'staging'), or business unit.
+
+Tags in D&R and sensor selectors:
+  - In D&R rule target: '`production` in tags'
+  - In sensor list:     limacharlie sensor list --tag production
+  - In mass operations: limacharlie tag mass-add --selector 'plat == `windows`' --tag win-fleet
+
+Tags can be applied:
+  - At enrollment via installation key --tags
+  - Manually via 'limacharlie tag add --sid <SID> --tag <tag>'
+  - Temporarily with --ttl (auto-removed after N seconds)
+  - In bulk via 'limacharlie tag mass-add'
+  - By D&R response actions (action: tag)
 """
 
 _EXPLAIN_ADD = """\

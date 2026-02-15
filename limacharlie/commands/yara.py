@@ -27,8 +27,21 @@ _EXPLAIN_SCAN = """\
 Run an ad-hoc YARA scan on a specific sensor.  Provide the sensor
 ID and a file containing YARA rule content.
 
-The rule file should contain valid YARA rule syntax.  The scan is
-executed on the sensor and results are returned.
+The rule file should contain standard YARA rule syntax, for example:
+
+    rule SuspiciousString {
+        strings:
+            $s1 = "malware" nocase
+        condition:
+            any of them
+    }
+
+A single file can contain multiple YARA rules.  The scan is executed
+on the target sensor and matching results are returned.
+
+Alternatively, rules stored in the yara hive can be referenced in
+D&R rules or sensor commands via hive://yara/<rule-name> without
+needing this ad-hoc scan command.
 
 Example:
   limacharlie yara scan --sid <sensor-id> --rule-file rules.yar
@@ -36,12 +49,32 @@ Example:
 
 _EXPLAIN_RULES_LIST = """\
 List all deployed YARA rules in the organization.  These are rules
-that have been added for continuous or scheduled scanning.
+that have been added for continuous or scheduled scanning via the
+ext-yara extension.
+
+Each rule has a name and a list of sources (URLs or ARLs) that
+the YARA manager syncs every 24 hours.  Rules stored in the yara
+hive can be referenced by sensors as hive://yara/<rule-name>.
 """
 
 _EXPLAIN_RULE_ADD = """\
-Add a YARA rule for deployment.  The --sources-file should contain
-a JSON or YAML list of YARA source references.
+Add a YARA rule for deployment via the ext-yara extension.  The
+--sources-file should contain a JSON or YAML list of YARA source
+references.  Each source is a URL or ARL pointing to YARA rule
+content that will be synced every 24 hours.
+
+Sources file format (YAML):
+
+    - "https://raw.githubusercontent.com/Yara-Rules/rules/master/email/Email_generic_phishing.yar"
+    - "[github,Yara-Rules/rules/email]"
+    - "[github,my-org/my-repo/path/to/rules,token,<github-pat>]"
+
+Source types:
+  Direct URL   - HTTPS link to a single .yar file
+  GitHub ARL   - [github,org/repo/path] fetches a file or directory
+  Predefined   - LimaCharlie-curated rule sets (via the GUI)
+
+After adding, click "Manual Sync" in the GUI or wait 24h for auto-sync.
 
 Example:
   limacharlie yara rule-add --name my-rule --sources-file sources.yaml
@@ -55,20 +88,35 @@ Example:
 """
 
 _EXPLAIN_SOURCES_LIST = """\
-List all YARA sources.  Sources are named collections of YARA rule
-content that can be referenced by deployed rules.
+List all YARA sources stored in the yara hive.  Sources are named
+records whose data payload contains YARA rule content under a "rule"
+key:
+
+    data:
+      rule: |
+        rule MyRule { strings: $s = "test" condition: $s }
+
+Sources can be referenced by sensors for scanning via
+hive://yara/<source-name>, or managed by the ext-yara extension.
 """
 
 _EXPLAIN_SOURCE_GET = """\
-Get the content of a specific YARA source by name.
+Get the content of a specific YARA source by name from the yara
+hive.  Returns the record data which contains the YARA rule text
+in the "rule" key.
 
 Example:
   limacharlie yara source-get --name my-source
 """
 
 _EXPLAIN_SOURCE_ADD = """\
-Add or update a YARA source.  The --source-file should contain
-valid YARA rule content.
+Add or update a YARA source in the yara hive.  The --source-file
+should contain valid YARA rule content (one or more rules).  The
+content is stored under the "rule" key in the hive record.
+
+A single source file can contain multiple YARA rules.  Once stored,
+the source can be referenced for scanning via
+hive://yara/<source-name>.
 
 Example:
   limacharlie yara source-add --name my-source --source-file rules.yar

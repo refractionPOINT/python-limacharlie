@@ -27,7 +27,11 @@ from ..discovery import register_explain
 _EXPLAIN_LIST = """\
 List all ingestion keys for the organization.  Ingestion keys are
 used to authenticate external data sources pushing telemetry into
-LimaCharlie via USP or the ingestion API.
+LimaCharlie via USP (Universal Sensor Protocol) or the ingestion API.
+
+Unlike installation keys (for endpoint sensors), ingestion keys are
+used for third-party log sources such as AWS CloudTrail, syslog
+forwarders, or custom integrations via the adapter binary.
 
 The output includes key names and associated configuration.
 """

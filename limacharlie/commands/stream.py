@@ -25,7 +25,15 @@ from ..discovery import register_explain
 
 _EXPLAIN_EVENTS = """\
 Stream sensor events in real-time.  Opens a pull-mode connection
-to stream.limacharlie.io and prints each event as it arrives.
+(spout) to stream.limacharlie.io and prints each event as JSON.
+
+Each event has the standard two-level structure:
+  routing:  oid, sid, event_type, event_time, hostname, ext_ip, int_ip, tags
+  event:    payload fields vary by event_type
+
+Common event types you will see:
+  NEW_PROCESS, DNS_REQUEST, NETWORK_CONNECTIONS, FILE_CREATE,
+  MODULE_LOAD, CODE_IDENTITY, REGISTRY_WRITE, WEL
 
 Use filters to narrow the stream:
   --tag     Only events from sensors with this tag.
@@ -41,8 +49,18 @@ Examples:
 """
 
 _EXPLAIN_DETECTIONS = """\
-Stream detections in real-time.  Opens a pull-mode connection
-and prints each detection as it arrives.
+Stream D&R detections in real-time.  Opens a pull-mode connection
+(spout) and prints each detection as JSON.
+
+Detection structure:
+  cat          - detection name/category
+  source       - rule source (dr-general, dr-managed, fp)
+  detect_id    - unique detection identifier
+  routing      - inherited from triggering event (sid, hostname, etc.)
+  detect       - copy of the event data that triggered the detection
+  detect_data  - structured IOCs extracted by the rule (optional)
+  priority     - detection priority 0-10 (optional)
+  source_rule  - name of the D&R rule that generated this
 
 Use filters to narrow the stream:
   --cat  Only detections of a specific category.
@@ -59,6 +77,16 @@ _EXPLAIN_AUDIT = """\
 Stream audit logs in real-time.  Shows all administrative actions
 performed on the organization as they happen.
 
+Audit log structure:
+  oid    - organization ID
+  ts     - ISO 8601 timestamp
+  etype  - event type (config_change, api_call, user_action, error)
+  msg    - human-readable description
+  origin - source of action (api, ui, cli, system)
+  ident  - identity performing the action (email or API key name)
+  entity - object acted upon (type, name, hive)
+  mtd    - action metadata (action type, source IP, user agent)
+
 Press Ctrl+C to stop streaming.
 
 Example:
@@ -67,15 +95,24 @@ Example:
 
 _EXPLAIN_FIREHOSE = """\
 Start a push-mode firehose listener.  Creates a TLS server that
-LimaCharlie connects to and pushes data (events, detections, or
-audit logs) in real-time.
+LimaCharlie connects to and pushes data in real-time.  This is the
+inverse of pull-mode spouts: instead of polling, LC pushes data to
+your server.
 
-The --listen parameter specifies the interface and port to bind to
-(e.g., "0.0.0.0:4444").  If no TLS certificate is provided, a
-self-signed certificate is generated automatically.
+The firehose auto-registers itself as an output in LimaCharlie and
+cleans up on shutdown.  Data arrives in the same JSON structures as
+described in 'stream events' / 'stream detections' / 'stream audit'.
 
-The firehose auto-registers itself as an output in LimaCharlie.
-Press Ctrl+C to stop.
+Parameters:
+  --listen       Interface and port to bind (e.g., "0.0.0.0:4444").
+  --data-type    Stream type: event (default), detect, or audit.
+  --name         Output name registered in LC (default: cli-firehose).
+  --public-dest  Public IP:port for LC to connect to (auto-detected
+                 if omitted, but set this if behind NAT/firewall).
+  --tls-cert/--tls-key  PEM certificate and key files.  If omitted,
+                 a self-signed certificate is generated automatically.
+
+Press Ctrl+C to stop and de-register the output.
 
 Examples:
   limacharlie stream firehose --listen 0.0.0.0:4444

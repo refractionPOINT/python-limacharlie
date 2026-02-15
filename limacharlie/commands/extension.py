@@ -29,16 +29,23 @@ from ..discovery import register_explain
 
 _EXPLAIN_LIST = """\
 List all extensions the organization is currently subscribed to.
-Extensions provide additional detection rules, response actions,
-services, and integrations beyond the core LimaCharlie platform.
+Extensions are add-ons that provide capabilities like YARA scanning
+(ext-yara), integrity monitoring (ext-integrity), lookup management
+(ext-lookup-manager), Sigma rule import, Zeek log processing, and
+many more.
 
-The output includes extension names and subscription metadata.
+The output includes each extension's name, subscription status,
+and granted permissions.
 """
 
 _EXPLAIN_SUBSCRIBE = """\
 Subscribe the organization to an extension by name.  Once subscribed,
 the extension's rules, services, and capabilities become available
-to the organization.
+to the organization.  The extension is granted the permissions it
+declared in its manifest.
+
+Common extensions: ext-yara, ext-integrity, ext-lookup-manager,
+ext-sigma, ext-zeek, ext-reliable-tasking.
 
 Example:
   limacharlie extension subscribe --name ext-zeek
@@ -55,7 +62,9 @@ Example:
 
 _EXPLAIN_LIST_AVAILABLE = """\
 List all available extensions in the LimaCharlie marketplace.  This
-includes both subscribed and unsubscribed extensions.
+includes both subscribed and unsubscribed extensions.  Each entry
+shows the extension name, description, required permissions, and
+whether the organization is already subscribed.
 
 Example:
   limacharlie extension list-available
@@ -71,7 +80,9 @@ Example:
 
 _EXPLAIN_SCHEMA = """\
 Get the configuration schema for an extension.  The schema describes
-the expected configuration format and available options.
+the expected structure for extension configs stored in the
+extension_config hive.  Use this to learn what fields an extension
+expects before calling config-set.
 
 Example:
   limacharlie extension schema --name ext-zeek
@@ -79,7 +90,13 @@ Example:
 
 _EXPLAIN_REQUEST = """\
 Call an extension by invoking an action.  You can optionally pass
-a JSON data payload with --data.
+a JSON data payload with --data.  Available actions depend on the
+specific extension.
+
+Common actions for built-in extensions:
+  ext-integrity: list_rules, add_rule, remove_rule
+  ext-yara:      list_rules, add_rule, remove_rule, scan
+  ext-lookup-manager: list_rules, add_rule, remove_rule
 
 Example:
   limacharlie extension request --name ext-zeek --action status
@@ -88,6 +105,9 @@ Example:
 
 _EXPLAIN_CONFIG_LIST = """\
 List all extension configurations stored in the extension_config hive.
+Each config is keyed by the extension name (e.g. ext-yara,
+ext-integrity, ext-lookup-manager) and holds the settings for that
+extension.
 
 Example:
   limacharlie extension config-list
@@ -105,8 +125,30 @@ _EXPLAIN_CONFIG_SET = """\
 Create or update an extension configuration in the extension_config
 hive.  Provide data via --input-file (JSON/YAML) or stdin.
 
+The input should be a hive record with a "data" key.  The data
+structure depends on the extension.  Examples:
+
+  Lookup manager config (ext-lookup-manager):
+    data:
+      lookup_manager_rules:
+        - name: tor-ips
+          format: json
+          arl: ""
+          predefined: "[https,storage.googleapis.com/lc-lookups-bucket/tor-ips.json]"
+          tags: [tor]
+
+  YARA manager config (ext-yara):
+    data:
+      yara_rules:
+        - name: my-rules
+          arl: "[github,Yara-Rules/rules/email]"
+          tags: [email]
+
+Use 'limacharlie extension schema --name <ext>' to see the full
+config schema for a specific extension.
+
 Example:
-  limacharlie extension config-set --name my-extension --input-file config.yaml
+  limacharlie extension config-set --name ext-lookup-manager --input-file config.yaml
 """
 
 _EXPLAIN_CONFIG_DELETE = """\

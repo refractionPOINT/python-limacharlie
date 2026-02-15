@@ -24,38 +24,74 @@ from ..discovery import register_explain
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LIST = """\
-List all integrity monitoring rules in the organization.  Each rule
-specifies a set of file path patterns to monitor for changes.
+List all integrity monitoring rules in the organization.  Integrity
+rules are managed by the ext-integrity extension and provide File
+Integrity Monitoring (FIM) and Registry Integrity Monitoring (RIM).
+
+Each rule specifies patterns (file/registry paths with wildcards),
+optional sensor tags to target, and optional platform filters.
+When a monitored path changes, a FIM_HIT event is generated on the
+sensor's timeline.
 
 Use --output json to get the full rule definitions for export.
 """
 
 _EXPLAIN_CREATE = """\
-Create a new integrity monitoring rule.  The rule defines which
-file paths to watch for modifications.
+Create a new integrity monitoring rule via the ext-integrity
+extension.  The rule defines file or registry paths to watch for
+modifications.  Changes trigger FIM_HIT events on the sensor.
 
-Patterns are provided as a comma-separated list of file path
-glob patterns.  Monitored paths generate events when files are
-created, modified, or deleted.
+Patterns are provided as a comma-separated list.  Wildcards:
+  *  - matches any sequence of characters in a path component
+  ?  - matches any single character (also matches drive letter on Windows)
+  +  - matches one or more subdirectory levels
+
+Pattern examples by platform:
+
+  Linux FIM:
+    /etc/passwd
+    /etc/shadow
+    /root/.ssh/*
+    /home/*/.ssh/authorized_keys
+
+  macOS FIM:
+    /Users/*/Library/Keychains/*
+    /Library/Keychains
+
+  Windows FIM:
+    ?:\\Windows\\System32\\drivers
+    C:\\Windows\\System32\\specialfile.exe
+    ?:\\inetpub\\wwwroot
+
+  Windows RIM (must start with \\REGISTRY):
+    \\REGISTRY\\MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run*
+    \\REGISTRY\\USER\\S-*\\Software\\Microsoft\\Windows\\CurrentVersion\\Run*
+
+Note: Windows paths require double backslash escaping in patterns.
 
 Examples:
   limacharlie integrity create --name critical-configs \\
     --patterns "/etc/passwd,/etc/shadow,/etc/hosts"
 
-  limacharlie integrity create --name web-root \\
-    --patterns "/var/www/html/**"
+  limacharlie integrity create --name win-autorun \\
+    --patterns "?:\\Windows\\System32\\drivers,\\REGISTRY\\MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run*"
 """
 
 _EXPLAIN_DELETE = """\
 Delete an integrity monitoring rule by name.  This stops monitoring
-the associated file paths.  The --confirm flag is required to
-prevent accidental deletion.
+the associated file paths and registry keys.  Sensors will no longer
+generate FIM_HIT events for the patterns in this rule.  The --confirm
+flag is required to prevent accidental deletion.
 """
 
 _EXPLAIN_GET = """\
 Get the details of a single integrity monitoring rule by name.
-Returns the rule definition including its file path patterns,
-tags, and platform filters.
+Returns the full rule definition including:
+
+  name      - rule name
+  patterns  - list of file/registry path patterns being monitored
+  tags      - sensor tags this rule targets (empty = all sensors)
+  platforms - OS filter (linux, windows, macos; empty = all)
 
 Example:
   limacharlie integrity get --name critical-configs

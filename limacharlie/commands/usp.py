@@ -28,14 +28,32 @@ from ..discovery import register_explain
 _EXPLAIN_VALIDATE = """\
 Validate a USP adapter configuration by sending test input data
 through the adapter's parsing pipeline.  This verifies that the
-adapter correctly parses and maps the input data.
+adapter correctly parses and maps the input data before deploying
+to production.
 
-The --input-file should contain a JSON or YAML document with the
-adapter configuration, including mapping rules and test input data
-(text_input or json_input).
+The --input-file should contain a YAML/JSON document with the
+adapter configuration.  Example structure:
 
-The --platform identifies the adapter platform (e.g., 'text',
-'json', 'cef', 'syslog').
+    mapping:
+      event_type_path: event_type
+      mappings:
+        field_a: src.field_a
+        field_b: src.field_b
+    text_input: |
+      sample log line here
+    # or for JSON-based adapters:
+    json_input:
+      event_type: my_event
+      src:
+        field_a: value1
+        field_b: value2
+
+The --platform identifies the adapter type:
+  text    - Line-delimited text logs (syslog, etc.)
+  json    - JSON-formatted logs
+  cef     - Common Event Format
+  syslog  - Syslog protocol
+  xml     - XML-formatted logs
 
 Example:
   limacharlie usp validate --platform json --input-file adapter.yaml

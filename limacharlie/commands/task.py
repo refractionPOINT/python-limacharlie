@@ -32,22 +32,48 @@ for delivery to the sensor.  If the sensor is online, the task is
 delivered immediately; if offline, it will be delivered when the sensor
 next connects.
 
-The --task value is the full task command string exactly as documented
-in the LimaCharlie sensor command reference.  Common task commands
-include:
+The --task value is the full command string.  Common task commands:
 
-  os_processes          - List running processes
-  os_services           - List OS services
-  dir_list /path        - List a directory
-  file_get /path        - Retrieve a file
-  os_kill_process PID   - Kill a process
-  mem_strings PID       - Dump strings from process memory
-  yara_scan rule path   - Run a YARA scan
+  Process / service:
+    os_processes                - List running processes
+    os_services                 - List OS services
+    os_kill_process <PID>       - Kill a process by PID
+    os_suspend <PID>            - Suspend a process
+    os_resume <PID>             - Resume a suspended process
+
+  File system:
+    dir_list <path>             - List a directory
+    file_get <path>             - Retrieve a file as artifact
+    file_del <path>             - Delete a file
+    file_hash <path>            - Get hash of a file
+    file_info <path>            - Get file metadata
+    file_mov <src> <dst>        - Move/rename a file
+
+  Memory / forensics:
+    mem_map <PID>               - Memory map of a process
+    mem_strings <PID>           - Dump strings from process memory
+    mem_handles <PID>           - List handles (Windows only)
+    hidden_module_scan <PID>    - Scan for hidden modules
+
+  Network:
+    netstat                     - List network connections
+    dns_resolve <domain>        - Resolve a domain name
+    segregate_network           - Isolate sensor from network
+    rejoin_network              - Remove network isolation
+
+  Scanning:
+    yara_scan <rule> <path>     - YARA scan a file or directory
+    artifact_get <path>         - Collect an artifact (file/log)
+
+  System info:
+    os_version                  - Get OS version info
+    os_packages                 - List installed packages
+    os_autoruns                 - List autorun entries
+    os_users                    - List local user accounts (Win)
+    history_dump                - Dump recent telemetry
 
 This command does not wait for a response.  To see results, use
-'limacharlie stream events' or check the event history.
-
-Related: 'limacharlie help sensors' for the full task command reference.
+'limacharlie task request' (synchronous) or 'limacharlie stream events'.
 """
 
 _EXPLAIN_REQUEST = """\
@@ -56,13 +82,16 @@ Send a task command to a sensor and wait for the response.  Unlike
 from the sensor and blocks until a response is received or the
 timeout expires.
 
-This is useful for interactive investigation: send a command and
-immediately see the results without needing a separate streaming
-session.
+This is the recommended way to interactively query a sensor, for
+example: listing processes, reading files, or running YARA scans
+while immediately viewing results in the terminal.
 
-The --timeout value (default: 30 seconds) controls how long to wait
-for a response.  If the sensor is offline or the task takes longer
-than the timeout, the command exits with the data collected so far.
+The --timeout value (default: 30 seconds) controls how long to wait.
+If the sensor is offline or the task takes longer than the timeout,
+the command exits with whatever data has been collected so far.
+
+The response events vary by task command; for example os_processes
+returns OS_PROCESSES_REP, dir_list returns DIR_LIST_REP, etc.
 
 Related: 'limacharlie task send' for fire-and-forget tasking,
 'limacharlie stream events' for continuous event streaming.
@@ -74,7 +103,10 @@ service.  Unlike regular tasking, reliable tasks are persisted and
 will be delivered to the sensor even if it is currently offline.
 
 Tasks are retried until the sensor comes online and acknowledges
-receipt, or until the optional TTL expires.
+receipt, or until the optional --ttl expires (default: one week).
+
+This is useful for scenarios where the endpoint may be powered off
+or disconnected, such as laptop fleets or intermittent systems.
 
 Use --investigation-id to associate the task with an investigation
 for tracking purposes.

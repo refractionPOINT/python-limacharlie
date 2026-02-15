@@ -68,13 +68,18 @@ Download a sensor (EDR agent) installer for a specific platform and
 architecture.  Sensors are the endpoint agents that collect telemetry
 and respond to tasks from the LimaCharlie cloud.
 
-The downloaded binary can be installed on an endpoint using an
+The downloaded binary is installed on an endpoint using an
 installation key:
   ./lc_sensor_64 -i YOUR_INSTALLATION_KEY
 
-Supported platforms: windows, linux, mac, chrome
-Supported architectures vary by platform. Use --list to see all
-available combinations.
+Supported targets:
+  windows   64, 32, arm64, msi64, msi32
+  linux     64, deb64, debarm64, alpine64
+  mac       64, arm64
+  chrome    (no arch needed)
+
+Use --list to see all available (platform, architecture) combinations
+with their download URLs.
 
 Examples:
   limacharlie download sensor --platform linux --arch 64
@@ -88,8 +93,18 @@ Download an adapter (USP) binary for a specific platform and
 architecture.  Adapters allow LimaCharlie to ingest data from sources
 beyond the native sensor agent using the Universal Sensor Protocol.
 
-Supported platforms: linux, windows, mac, aix, freebsd, openbsd,
-netbsd, solaris
+Supported targets:
+  linux     64, arm, arm64
+  windows   64
+  mac       64, arm64
+  aix       ppc64
+  freebsd   64
+  openbsd   64
+  netbsd    64
+  solaris   64
+
+The adapter is run with an ingestion key and a USP config file:
+  ./lc_adapter_linux_64 -k <INGESTION_KEY> -c adapter.yaml
 
 Examples:
   limacharlie download adapter --platform linux --arch 64

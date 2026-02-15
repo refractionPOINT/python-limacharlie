@@ -25,14 +25,44 @@ from ..discovery import register_explain
 
 _EXPLAIN_GET = """\
 Resolve an Authenticated Resource Locator (ARL) and return the
-referenced data.  ARLs are secure URLs used by LimaCharlie to
-reference payloads, artifacts, and other stored resources.
+referenced data.  ARLs are compact strings that describe how to
+fetch a remote resource, optionally with authentication.
 
-The --url parameter should be a valid ARL string (typically
-starting with 'lcr://').
+ARL format:  [methodName,methodDest,authType,authData]
+
+  methodName - transport: https, http, gcs, github
+  methodDest - destination (domain/path, bucket/path, org/repo/path)
+  authType   - (optional) basic, bearer, token, gaia, otx
+  authData   - (optional) credentials for the auth type
+
+Examples of valid ARLs:
+
+  Public HTTPS (no auth):
+    [https,my.corp.com/resource/data]
+
+  HTTPS with basic auth:
+    [https,my.corp.com/resource,basic,user:password]
+
+  HTTPS with bearer token:
+    [https,my.corp.com/resource,bearer,<token>]
+
+  Public GitHub repo (main branch):
+    [github,myOrg/myRepo/path/to/file]
+
+  Private GitHub repo with PAT:
+    [github,myOrg/myRepo/path,token,<github-pat>]
+
+  GitHub repo at specific branch:
+    [github,myOrg/myRepo/path?ref=my-branch]
+
+  Google Cloud Storage with service account:
+    [gcs,my-bucket/blob-prefix,gaia,base64(<service-key-json>)]
+
+ARLs are used by the YARA manager, lookup manager, and other
+extensions to fetch external rule/data sources.
 
 Example:
-  limacharlie arl get --url "lcr://my-resource/path"
+  limacharlie arl get --url "[https,example.com/data.json]"
 """
 
 register_explain("arl.get", _EXPLAIN_GET)

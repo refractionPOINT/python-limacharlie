@@ -25,9 +25,24 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 _EXPLAIN_RUN = """\
-Run a spotcheck task across sensors. Spotcheck executes a sensor command
-across multiple sensors matching a selector and collects the results.
-This is useful for ad-hoc fleet-wide queries.
+Run a spotcheck task across sensors.  Spotcheck executes a sensor command
+across multiple sensors matching a selector or tag and collects the
+aggregated results.  This is useful for ad-hoc fleet-wide queries such
+as checking if a specific process is running, a file exists, or a
+service is installed across the fleet.
+
+The --task value is any sensor command string (same as 'limacharlie
+task send --task').  Common spotcheck tasks:
+  os_processes       - List processes on all matching sensors
+  os_services        - List services
+  os_packages        - List installed packages
+  netstat            - List network connections
+
+Use --tag to target sensors with a specific tag, or --selector for
+more complex bexpr expressions.
+
+Example:
+  limacharlie spotcheck run --task os_processes --tag production
 """
 
 @click.group("spotcheck")

@@ -25,13 +25,22 @@ from ..discovery import register_explain
 
 _EXPLAIN_LIST = """\
 List sensors enrolled in the organization.  Results can be filtered by
-tag (using the sensor selector expression 'tag in tags'), by hostname
+tag (using the sensor selector expression '`tag` in tags'), by hostname
 prefix, or by IP address.  The --limit and --offset options control
 pagination; by default all sensors are returned.
 
-Sensors are returned with their SID, hostname, platform, external and
-internal IPs, online status, and other metadata.  Use --output json to
-get the full sensor records for scripting.
+Each sensor record contains:
+  sid          - Sensor ID (UUID), the primary identifier
+  hostname     - Endpoint hostname
+  plat         - Platform (windows, linux, macos, chrome, edge)
+  arch         - Architecture (x64, x86, arm64)
+  ext_ip       - External IP address
+  int_ip       - Internal IP address
+  alive        - Boolean, whether currently online
+  enroll_ts    - Enrollment timestamp (epoch seconds)
+  last_error   - Last reported error (if any)
+  sensor_ver   - Running sensor version string
+  tags         - List of tags applied to the sensor
 
 Related: 'limacharlie tag find' to find sensors by a specific tag,
 'limacharlie sensor get --sid <SID>' for detailed info on one sensor.
@@ -39,12 +48,15 @@ Related: 'limacharlie tag find' to find sensors by a specific tag,
 
 _EXPLAIN_GET = """\
 Get full details for a single sensor identified by its SID (Sensor ID).
-Returns hostname, platform, architecture, version, enrollment time, IPs,
-online status, isolation status, tags, and other metadata.
 
 The SID is a UUID that uniquely identifies a sensor across the
 LimaCharlie platform.  You can obtain SIDs from 'limacharlie sensor list',
-'limacharlie tag find', or 'limacharlie ioc search'.
+'limacharlie tag find', or 'limacharlie search run'.
+
+The returned record includes:
+  sid, hostname, plat, arch, ext_ip, int_ip, alive, enroll_ts,
+  sensor_ver, tags, is_isolated, last_error, oid (organization ID),
+  and additional platform-specific fields.
 """
 
 _EXPLAIN_DELETE = """\
@@ -132,7 +144,16 @@ you to collect a broad set of forensic artifacts from an endpoint
 in a single operation.
 
 The --config parameter accepts either a JSON string or a path to a
-JSON file containing the sweep configuration.
+JSON file.  Each key is a sensor command; set to true to run with
+defaults, or provide a string/dict for parameters:
+
+    {
+      "os_processes": true,
+      "os_services": true,
+      "os_autoruns": true,
+      "netstat": true,
+      "dir_list": "/tmp"
+    }
 
 Related: 'limacharlie task send' for individual task commands,
 'limacharlie sensor dump' for full memory dumps.

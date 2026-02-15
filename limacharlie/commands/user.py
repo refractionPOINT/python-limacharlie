@@ -59,11 +59,18 @@ Example:
 """
 
 _EXPLAIN_PERM_ADD = """\
-Grant a specific permission to a user.  Permissions are fine-grained
-access controls such as 'dr.set', 'sensor.task', 'org.conf.set', etc.
+Grant a specific permission to a user.  Permissions use the
+category.action convention.  Common permission strings:
 
-Use 'limacharlie help permissions' for the full list of available
-permission strings.
+  org.get, org.conf.get, org.conf.set, org.del
+  sensor.list, sensor.get, sensor.task, sensor.del, sensor.tag
+  dr.list, dr.set, dr.del
+  dr.list.managed, dr.set.managed, dr.del.managed
+  fp.list, fp.set, fp.del
+  output.list, output.set, output.del
+  ikey.list, ikey.set, ikey.del
+  apikey.ctrl, user.ctrl, billing.ctrl
+  audit.get, hive.get, hive.set, hive.del
 
 Example:
   limacharlie user permissions add --email user@example.com --permission dr.set

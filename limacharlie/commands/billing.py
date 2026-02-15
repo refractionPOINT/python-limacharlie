@@ -30,6 +30,9 @@ current plan, usage summary, and billing period information.
 _EXPLAIN_DETAILS = """\
 Get detailed billing information for the organization.  Includes
 per-SKU usage breakdown, costs, and quota information.
+
+SKUs include sensor-months, event volume, output volume, artifact
+storage, and add-on services.
 """
 
 _EXPLAIN_INVOICE = """\

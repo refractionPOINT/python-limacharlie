@@ -50,8 +50,13 @@ _EXPLAIN_CONFIG_SET = """\
 Set an organization configuration value.  Configuration values control
 platform behavior.  Changes take effect immediately and are audited.
 
-Common configuration keys include vt (VirusTotal integration),
-retention (telemetry retention period), and sensor version settings.
+Common configuration keys:
+  vt               - VirusTotal API key for hash lookups
+  retention        - Telemetry retention period (days)
+  sensor_version   - Target sensor version for the org
+  twilio_*         - Twilio integration credentials
+  otx_key          - AlienVault OTX API key
+
 Use with caution as incorrect values may affect sensor behavior.
 """
 
@@ -98,11 +103,14 @@ that sensors are pointed at the correct endpoints.
 
 _EXPLAIN_CREATE = """\
 Create a new organization.  You must provide a name and a data center
-location (e.g. 'us', 'ca', 'eu', 'uk', 'emea').  Optionally supply a
-template name to bootstrap the organization with preconfigured rules and
-outputs.
+location.  Optionally supply a template name to bootstrap the
+organization with preconfigured rules and outputs.
 
-The API returns the new organization's OID on success.
+Available locations: us, ca, eu, uk, emea
+Templates bootstrap the org with starter D&R rules and outputs.
+
+The API returns the new organization's OID on success.  After creation,
+set it as default with 'limacharlie auth use-org --oid <OID>'.
 """
 
 _EXPLAIN_DELETE = """\

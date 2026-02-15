@@ -32,10 +32,11 @@ Use --output json to get the full rule definitions for export.
 
 _EXPLAIN_CREATE = """\
 Create a new log collection rule.  The rule defines which log
-paths to collect from endpoints.
+paths to collect from endpoints.  Collected logs are uploaded as
+artifacts and available via 'limacharlie artifact list'.
 
 Patterns are provided as a comma-separated list of file path
-patterns (e.g., '/var/log/syslog,/var/log/auth.log').
+patterns.  Glob wildcards (* and ?) are supported.
 
 Examples:
   limacharlie logging create --name system-logs \\
@@ -43,6 +44,9 @@ Examples:
 
   limacharlie logging create --name app-logs \\
     --patterns "/opt/myapp/logs/*.log"
+
+  limacharlie logging create --name windows-evtx \\
+    --patterns "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx"
 """
 
 _EXPLAIN_DELETE = """\

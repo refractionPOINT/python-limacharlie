@@ -27,6 +27,13 @@ List all groups accessible to the current user.  Groups provide
 multi-tenancy by grouping multiple LimaCharlie organizations under
 a single management umbrella with shared permissions.
 
+A group has:
+  - Members: users who inherit the group's permissions on all
+    associated organizations
+  - Owners: users who can manage the group itself
+  - Organizations: the set of orgs the group's permissions apply to
+  - Permissions: the permission set inherited by members
+
 Use --output json to get the full group definitions for export.
 """
 
@@ -91,7 +98,9 @@ Set the permissions for a group.  This replaces all existing group
 permissions with the specified list.  Members of the group will
 inherit these permissions across all associated organizations.
 
-Permissions are specified as a comma-separated list.
+Permissions use the same category.action format as user permissions
+(e.g., sensor.list, dr.set, org.get).  See 'limacharlie user
+permissions add' explain text for the full list.
 
 Example:
   limacharlie group permissions-set --gid <group-id> --permissions 'sensor.list,sensor.get,dr.list'

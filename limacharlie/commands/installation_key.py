@@ -24,11 +24,18 @@ from ..discovery import register_explain
 
 _EXPLAIN_LIST = """\
 List all installation keys for the organization.  Installation keys
-are used to enroll new sensors.  Each key has a description, optional
-tags (applied to sensors at enrollment), and a unique installation
-key ID (IID).
+are Base64-encoded strings used to enroll new sensors and adapters.
 
-The output includes the key ID, description, tags, and creation date.
+Each key contains four components:
+  OID   - Organization ID the sensor enrolls into
+  IID   - Installer ID (auto-generated, unique per key)
+  tags  - List of tags automatically applied at enrollment
+  desc  - Human-readable description of the key's purpose
+
+The output includes the key ID (IID), description, tags, and
+creation date.  Use separate keys per deployment segment (e.g.,
+'production-linux', 'staging-windows') so tags automatically
+classify sensors at enrollment time.
 """
 
 _EXPLAIN_CREATE = """\
@@ -37,7 +44,13 @@ should identify the purpose of the key (e.g., 'production-linux',
 'staging-windows').
 
 Use --tags to apply tags to sensors enrolled with this key.  Multiple
-tags can be comma-separated.
+tags can be comma-separated.  Tags are applied automatically at
+enrollment and can be used in sensor selectors, D&R rule targeting,
+and fleet filtering.
+
+The returned output includes the full Base64-encoded installation key
+string that should be provided to the sensor installer:
+  ./lc_sensor_64 -i <INSTALLATION_KEY>
 
 Examples:
   limacharlie installation-key create --description "production linux"

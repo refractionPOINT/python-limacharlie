@@ -28,19 +28,38 @@ from ..discovery import register_explain
 _EXPLAIN_RUN = """\
 Replay a D&R rule against historical sensor data.  This allows you
 to test detection logic against past events without deploying the
-rule live.
+rule live.  Requires Insight to be enabled.  Replay is billed based
+on data volume processed.
 
-You can replay an existing rule by name:
-  limacharlie replay run --name my-rule --start 1700000000 --end 1700100000
-
-Or provide detection and response components from files:
-  limacharlie replay run --detect-file detect.yaml \\
-    --respond-file respond.yaml --start 1700000000 --end 1700100000
+You can replay an existing deployed rule by --name, or provide
+ad-hoc detection and response components from separate files via
+--detect-file and --respond-file.
 
 The --start and --end times are Unix timestamps in seconds.
 
-The results include any detections that would have been generated
-and (optionally) a trace of the rule evaluation.
+The detection file should contain the detect component:
+
+  event: NEW_PROCESS
+  op: ends with
+  path: event/FILE_PATH
+  value: .scr
+
+The response file should contain the respond component:
+
+  - action: report
+    name: suspicious-screensaver
+
+The result includes num_evals (number of operator evaluations),
+eval_time (seconds), num_events (events processed), responses
+(list of detections that would have been generated), and errors.
+
+Note: stateful rules (using 'with child', 'with descendant', or
+'with events') are forward-looking only.  The parent event must
+be seen before child matches apply during replay.
+
+Examples:
+  limacharlie replay run --name my-rule --start 1700000000 --end 1700100000
+  limacharlie replay run --detect-file detect.yaml --respond-file respond.yaml --start 1700000000 --end 1700100000
 """
 
 register_explain("replay.run", _EXPLAIN_RUN)

@@ -23,22 +23,33 @@ from ..discovery import register_explain
 
 _EXPLAIN_LIST = """\
 List historical detections for the organization.  Detections are
-generated when D&R rules match against telemetry events.
+generated when D&R rules with a 'report' response action match
+against telemetry events.  Requires Insight to be enabled.
 
 You must provide a time range via --start and --end (unix epoch
-seconds).  Use --cat to filter by detection category (e.g.,
-'lateral_movement', 'exfiltration').  Use --limit to cap results.
+seconds).  Use --cat to filter by detection category (the 'name'
+field from the report action).  Use --limit to cap results.
+
+Each detection record includes:
+  cat          - detection name (from the report action's 'name')
+  detect       - the event data that triggered the detection
+  routing      - sensor routing info (sid, hostname, event_type, etc.)
+  detect_mtd   - metadata from the report action (if any)
+  priority     - priority level (if set in the report action)
 
 Examples:
   limacharlie detection list --start 1700000000 --end 1700086400
-  limacharlie detection list --start 1700000000 --end 1700086400 \\
-      --cat lateral_movement --limit 50
+  limacharlie detection list --start 1700000000 --end 1700086400 --cat lateral_movement --limit 50
 """
 
 _EXPLAIN_GET = """\
 Get a specific detection by its ID.  Returns the full detection
-record including the matched rule, detection category, sensor
-information, and the triggering event data.
+record including the detection category (cat), the triggering event
+data (detect), sensor routing information (routing), and any
+metadata (detect_mtd) from the rule's report action.
+
+Detection IDs are returned by 'detection list' and are also present
+in detection output streams and webhooks.
 
 Example:
   limacharlie detection get --id <DETECTION_ID>

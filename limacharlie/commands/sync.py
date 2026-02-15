@@ -31,15 +31,45 @@ from ..discovery import register_explain
 
 _EXPLAIN_PULL = """\
 Fetch the current organization configuration from the cloud and
-save it to a local YAML file.  Use --all to fetch everything, or
-use specific flags to fetch only certain resource types.
+save it to a local YAML file.  This enables Infrastructure-as-Code
+workflows where the entire org configuration is version-controlled.
+
+The saved YAML file uses version 3 format with top-level keys for
+each resource type:
+
+    version: 3
+    outputs:
+      my-syslog-output:
+        module: syslog
+        dest_host: 10.0.0.1
+        ...
+    integrity:
+      my-fim-rule:
+        patterns:
+          - /etc/passwd
+        ...
+    hives:
+      dr-general:
+        my-dr-rule:
+          detect:
+            ...
+          respond:
+            ...
+      fp:
+        my-fp-rule:
+          ...
+    installation_keys:
+      - desc: production linux
+        tags:
+          - production
+          - linux
 
 Resource type flags:
   --outputs              Output configurations
   --integrity            Integrity monitoring rules
   --exfil                Exfil prevention rules
   --artifact             Artifact/logging rules
-  --resources            Resource subscriptions
+  --resources            Resource subscriptions (marketplace add-ons)
   --extensions           Extension subscriptions
   --org-values           Organization config values
   --installation-keys    Installation keys
@@ -67,12 +97,30 @@ Examples:
 """
 
 _EXPLAIN_PUSH = """\
-Push a local configuration file to the cloud.  Use --all to push
+Push a local YAML configuration file to the cloud.  Use --all to push
 everything in the file, or use specific flags to push only certain
 resource types.
 
-Use --dry-run to preview changes without applying them.
+The YAML file must use version 3 format (same as produced by pull):
+
+    version: 3
+    hives:
+      dr-general:
+        my-dr-rule:
+          detect:
+            op: ends with
+            event: NEW_PROCESS
+            path: event/FILE_PATH
+            value: evil.exe
+          respond:
+            - action: report
+              name: evil-process-detected
+
+Use --dry-run to preview changes without applying them.  The output
+shows which resources would be added, modified, or removed.
+
 Use --force to remove cloud resources not present in the local file.
+Without --force, push only adds or updates; it never removes.
 
 Examples:
   limacharlie sync push --config-file org.yaml --all

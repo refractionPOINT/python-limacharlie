@@ -50,9 +50,26 @@ The --oid flag is optional with OAuth and can be set later via
 Use --env to store credentials under a named environment so you can
 switch between multiple orgs or accounts.
 
-In CI/CD pipelines, prefer setting LC_OID and LC_API_KEY environment
-variables instead of calling login.  If LC_EPHEMERAL_CREDS is set,
-login will refuse to write to disk.
+The credential file (~/.limacharlie) is YAML formatted:
+
+    oid: <organization-id>
+    api_key: <api-key-uuid>
+    uid: <user-id>
+    env:
+      staging:
+        oid: <staging-org-id>
+        api_key: <staging-api-key>
+      production:
+        oid: <prod-org-id>
+        api_key: <prod-api-key>
+
+Environment variables for CI/CD (no file write needed):
+  LC_OID          - Organization ID
+  LC_API_KEY      - API key
+  LC_UID          - User ID (optional, for user-scoped keys)
+  LC_CREDS_FILE   - Override credential file path
+  LC_CURRENT_ENV  - Override active named environment
+  LC_EPHEMERAL_CREDS - If set, login refuses to write to disk
 """
 
 _EXPLAIN_LOGOUT = """\

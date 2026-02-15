@@ -25,51 +25,90 @@ from ..discovery import register_explain
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LIST = """\
-List all exfil prevention rules in the organization.  Rules are
-grouped into two types:
+List all exfil (event collection) rules in the organization.  These
+rules control which real-time events sensors send to the LimaCharlie
+cloud.  By default sensors send a standard profile; exfil rules
+customize this.
 
-  watch  - Match on specific field values within events.
-  event  - Match on entire event types.
+Rules are grouped into three types:
+
+  event  - Specify which event types to collect from sensors.
+           Each rule has a list of event type names, optional tags,
+           and optional platform filters.
+  watch  - Conditional collection: only send events matching a
+           field-level condition (e.g. MODULE_LOAD where FILE_PATH
+           ends with "wininet.dll").
+  perf   - Performance rules for high-I/O servers (Windows only).
+           Applied via tag to reduce processing overhead.
+
+Rule changes sync to sensors every few minutes.
 
 Use --output json to get the full rule definitions for export.
 """
 
 _EXPLAIN_CREATE_WATCH = """\
-Create an exfil watch rule that matches on a specific field value
-within events.  Watch rules inspect individual event fields using
-an operator and value comparison.
+Create an exfil watch rule that conditionally collects events based
+on a field-level match.  Only events where the specified field matches
+the operator/value condition are sent from the sensor to the cloud.
+
+This is useful for high-volume event types where you only care about
+specific values (e.g. only MODULE_LOAD events for a particular DLL).
 
 Required parameters:
-  --name      Rule name.
-  --event     Event type to watch (e.g., 'NEW_PROCESS').
-  --operator  Comparison operator (e.g., 'is', 'contains', 'starts with').
+  --name      Rule name (unique identifier).
+  --event     Event type to watch (e.g., MODULE_LOAD, DNS_REQUEST).
+  --operator  Comparison: 'is', 'is not', 'contains', 'not contains',
+              'starts with', 'ends with', 'matches' (regex).
   --value     Value to compare against.
-  --path      Event field path to inspect (e.g., 'event/FILE_PATH').
+  --path      Event field path to inspect (e.g., event/FILE_PATH,
+              event/DOMAIN_NAME, event/COMMAND_LINE).
 
-Example:
-  limacharlie exfil create-watch --name block-uploads \\
-    --event NETWORK_SUMMARY --operator contains \\
+Example watch rule: only collect MODULE_LOAD events where FILE_PATH
+ends with wininet.dll:
+  limacharlie exfil create-watch --name wininet-loading \\
+    --event MODULE_LOAD --operator "ends with" \\
+    --value wininet.dll --path event/FILE_PATH
+
+Example: collect DNS_REQUEST only for a specific domain:
+  limacharlie exfil create-watch --name track-uploads \\
+    --event DNS_REQUEST --operator contains \\
     --value upload.example.com --path event/DOMAIN_NAME
 """
 
 _EXPLAIN_CREATE_EVENT = """\
-Create an exfil event rule that matches on entire event types.
-Event rules specify which event types should be exfiltrated from
-sensors.
+Create an exfil event collection rule that specifies which event
+types sensors should send to the cloud.  This is the primary way
+to customize what telemetry is collected from endpoints.
 
 Events are provided as a comma-separated list of event type names.
+Common event types to collect:
+  NEW_PROCESS, TERMINATE_PROCESS, DNS_REQUEST, NETWORK_CONNECTIONS,
+  NEW_TCP4_CONNECTION, NEW_TCP6_CONNECTION, FILE_CREATE, FILE_MODIFIED,
+  MODULE_LOAD, CODE_IDENTITY, REGISTRY_WRITE, WEL
 
-Example:
+Be careful enabling all events at once -- this can produce very high
+traffic volume.  Start with specific event types and expand as needed.
+See 'event types' for the full list of available event types.
+
+Examples:
   limacharlie exfil create-event --name critical-events \\
-    --events NEW_PROCESS,DNS_REQUEST,NETWORK_SUMMARY
+    --events NEW_PROCESS,DNS_REQUEST,NETWORK_CONNECTIONS
+
+  limacharlie exfil create-event --name tcp-monitoring \\
+    --events NEW_TCP4_CONNECTION,NEW_TCP6_CONNECTION
 """
 
 _EXPLAIN_DELETE = """\
-Delete an exfil rule by name.  The --confirm flag is required to
-prevent accidental deletion.
+Delete an exfil rule by name.  Use --type to specify whether it is
+an 'event' rule or a 'watch' rule (defaults to 'event').
 
-Example:
-  limacharlie exfil delete --name block-uploads --confirm
+The --confirm flag is required to prevent accidental deletion.
+Deleting an event collection rule will cause sensors to stop
+collecting those event types (sync takes a few minutes).
+
+Examples:
+  limacharlie exfil delete --name critical-events --confirm
+  limacharlie exfil delete --name wininet-loading --type watch --confirm
 """
 
 register_explain("exfil.list", _EXPLAIN_LIST)

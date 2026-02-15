@@ -27,17 +27,28 @@ List all available event schemas in the organization.  Schemas
 define the structure (fields, types, descriptions) of each event
 type produced by sensors.
 
+Common event types include:
+  NEW_PROCESS, TERMINATE_PROCESS, NEW_TCP4_CONNECTION,
+  DNS_REQUEST, FILE_CREATE, MODULE_LOAD, REG_KEY_SET,
+  CONNECTED, NEW_DOCUMENT, SENSITIVE_PROCESS_ACCESS
+
 This is useful for understanding what fields are available when
-writing D&R rules or LCQL queries.
+writing D&R rules or LCQL queries.  For example, the NEW_PROCESS
+schema shows that event/FILE_PATH, event/COMMAND_LINE, and
+event/PARENT are available for detection logic.
 """
 
 _EXPLAIN_GET = """\
 Get the full schema definition for a specific event type.  Returns
-the field names, types, descriptions, and any enumeration values.
+the field names, data types, descriptions, and any enumeration values.
 
-Example:
+The schema is used by D&R rules to reference event fields via dot
+paths (e.g., event/FILE_PATH, event/COMMAND_LINE).
+
+Examples:
   limacharlie schema get --name NEW_PROCESS
   limacharlie schema get --name DNS_REQUEST
+  limacharlie schema get --name NEW_TCP4_CONNECTION
 """
 
 register_explain("schema.list", _EXPLAIN_LIST)

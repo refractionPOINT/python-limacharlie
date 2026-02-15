@@ -28,6 +28,14 @@ List all payloads stored in the organization.  Payloads are binary
 artifacts (executables, scripts, configuration files) that can be
 deployed to sensors via D&R response actions or tasking commands.
 
+Payloads are referenced by name in D&R response actions:
+
+    respond:
+      - action: task
+        command: run --payload-name my-script
+
+Or deployed directly via the 'put' sensor command.
+
 The output includes payload names and metadata.
 """
 

@@ -28,8 +28,22 @@ Generate a complete D&R rule (detection + response) from a natural
 language description.  The AI will produce both the detection
 component and the response actions.
 
-The generated rule should be reviewed before deployment.  Use
-'limacharlie rule create' to deploy the generated rule.
+The output is a YAML structure ready for use with 'limacharlie dr set':
+
+    detect:
+      op: ends with
+      event: NEW_PROCESS
+      path: event/FILE_PATH
+      value: powershell.exe
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: downloadstring
+    respond:
+      - action: report
+        name: powershell-download-detected
+
+The generated rule should be reviewed before deployment.
 
 Example:
   limacharlie ai generate-rule \\
@@ -40,6 +54,12 @@ _EXPLAIN_GENERATE_QUERY = """\
 Generate an LCQL (LimaCharlie Query Language) query from a natural
 language description.  The AI will produce a query that can be used
 with 'limacharlie search run'.
+
+LCQL queries follow a SQL-like syntax for searching telemetry:
+
+    event_type = DNS_REQUEST
+    AND event/DOMAIN_NAME ends with ".ru"
+    AND timestamp >= now() - 24h
 
 Example:
   limacharlie ai generate-query \\
@@ -68,8 +88,13 @@ Example:
 
 _EXPLAIN_GENERATE_SELECTOR = """\
 Generate a sensor selector expression (bexpr) from a natural language
-description.  Sensor selectors are used to target specific groups of
-sensors for rules, tasks, and queries.
+description.  Sensor selectors target specific groups of sensors for
+D&R rules, tasks, and queries.
+
+Selector syntax examples:
+  plat == `windows`
+  `production` in tags
+  plat == `linux` AND `web-server` in tags
 
 Example:
   limacharlie ai generate-selector \\

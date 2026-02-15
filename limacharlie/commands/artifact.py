@@ -24,30 +24,48 @@ from ..discovery import register_explain
 
 _EXPLAIN_LIST = """\
 List artifacts stored in Insight for the organization.  Artifacts are
-uploaded log files and binary data associated with sensors or ingested
-externally.
+log files and binary data collected from sensors or ingested externally.
 
-Use --sid to filter artifacts for a specific sensor.  Without filters,
-all artifacts in the organization are listed.
+Types of artifacts:
+  - Files collected from endpoints via D&R response actions or the
+    Artifact extension
+  - Windows Event Log (WEL) streams captured via wel:// patterns
+  - Mac Unified Log (MUL) streams
+  - PCAP network captures (Linux only)
+  - Externally uploaded log files (syslog, JSON, pcap, prefetch, etc.)
 
-The output includes artifact IDs, source info, and timestamps.
+Use --sid to filter artifacts for a specific sensor.  Use --type to
+filter by artifact type and --start/--end for time range filtering.
+
+The output includes artifact IDs, source info, type, and timestamps.
+Use the artifact ID with 'artifact download' to retrieve the data.
 """
 
 
 _EXPLAIN_UPLOAD = """\
-Upload an artifact/log file to Insight.  The file is uploaded using
-the ingestion endpoint and stored in the organization's Insight data
-lake.
+Upload an artifact/log file to Insight.  The file is ingested and
+stored in the organization's data lake where it can be searched via
+LCQL and viewed in the web UI.
 
 The upload requires an ingestion key, provided via the LC_LOGS_TOKEN
 environment variable or passed to the SDK.
 
-Optional parameters control the source label, parse hint, retention
-period, and original file path metadata.
+Optional parameters:
+  --source          Label identifying the source system (e.g. hostname).
+  --hint            Parse hint telling Insight how to interpret the file.
+                    Supported hints: pcap, json, wel (Windows Event Log),
+                    prefetch, txt, evtx, xml, csv, clf (Common Log Format).
+  --retention-days  How long to keep the artifact (default: 30 days).
+  --original-path   Original file path on the source system (metadata).
+
+Artifacts are parsed according to the hint and become searchable
+telemetry.  For example, uploading a pcap with --hint pcap makes
+its network connections queryable.
 
 Examples:
   limacharlie artifact upload --file /var/log/syslog --source my-server
   limacharlie artifact upload --file data.pcap --hint pcap --retention-days 90
+  limacharlie artifact upload --file security.evtx --hint wel --source dc01
 """
 
 _EXPLAIN_DOWNLOAD = """\
