@@ -6,7 +6,7 @@ for all supported platforms and architectures.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import os
 import sys
@@ -116,14 +116,6 @@ register_explain("download.list", _EXPLAIN_LIST)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -200,11 +192,6 @@ def group() -> None:
     "--list", "show_list", is_flag=True, default=False,
     help="List available sensor platforms and architectures.",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SENSOR),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def sensor(ctx, platform, arch, output_path, show_list) -> None:
     """Download a sensor (EDR) installer.
@@ -279,11 +266,6 @@ def sensor(ctx, platform, arch, output_path, show_list) -> None:
     "--list", "show_list", is_flag=True, default=False,
     help="List available adapter platforms and architectures.",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ADAPTER),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def adapter(ctx, platform, arch, output_path, show_list) -> None:
     """Download an adapter (USP) binary.
@@ -334,11 +316,6 @@ def adapter(ctx, platform, arch, output_path, show_list) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_targets(ctx) -> None:
     """List all available download targets.

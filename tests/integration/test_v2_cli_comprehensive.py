@@ -776,16 +776,16 @@ class TestCliGlobal:
         assert data is not None
         assert isinstance(data, dict)
 
-    def test_explain_flag(self, oid, key):
-        """Verify --explain prints help text and exits."""
+    def test_ai_help_flag(self, oid, key):
+        """Verify --ai-help prints help text and exits."""
         runner = CliRunner(env={"LC_API_KEY": key})
         result = runner.invoke(
             cli,
-            ["--oid", oid, "dr", "list", "--explain"],
+            ["--oid", oid, "dr", "list", "--ai-help"],
             catch_exceptions=False,
         )
         assert result.exit_code == 0
-        assert len(result.output) > 50  # Explain text should be substantial
+        assert len(result.output) > 50  # AI help text should be substantial
 
 
 # ============================================================================

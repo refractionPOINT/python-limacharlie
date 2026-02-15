@@ -6,7 +6,7 @@ LimaCharlie Insight.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -52,14 +52,6 @@ register_explain("detection.get", _EXPLAIN_GET)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -94,11 +86,6 @@ def group() -> None:
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
 @click.option("--cat", default=None, help="Filter by detection category.")
 @click.option("--limit", default=None, type=int, help="Maximum number of detections.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_detections(ctx: click.Context, start: int, end: int, cat: str | None, limit: int | None) -> None:
     """List detections.
@@ -119,11 +106,6 @@ def list_detections(ctx: click.Context, start: int, end: int, cat: str | None, l
 
 @group.command()
 @click.option("--id", "detect_id", required=True, help="Detection ID.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def get(ctx: click.Context, detect_id: str) -> None:
     """Get a detection by ID.

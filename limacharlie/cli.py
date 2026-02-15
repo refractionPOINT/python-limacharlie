@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import click
 
 from .client import __version__
+from .ai_help import inject_ai_help
 from .output import set_filter_expr, set_wide_mode
 
 
@@ -55,6 +56,7 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     """LimaCharlie CLI - Endpoint Detection & Response platform.
 
     Manage sensors, detection rules, hive data, and more from the command line.
+    Use --ai-help on any command for AI-oriented contextual help.
     Use 'limacharlie discover' to explore available commands by use-case.
     Use 'limacharlie help <topic>' for concept guides.
     """
@@ -99,8 +101,9 @@ def _auto_discover_commands() -> None:
                 traceback.print_exc()
 
 
-# Auto-discover commands on import
+# Auto-discover commands on import, then inject --ai-help everywhere.
 _auto_discover_commands()
+inject_ai_help(cli)
 
 
 def main() -> None:

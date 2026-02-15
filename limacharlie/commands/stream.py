@@ -7,8 +7,6 @@ push-mode firehose listeners.
 
 from __future__ import annotations
 
-from typing import Any, Callable
-
 import json
 
 import click
@@ -95,14 +93,6 @@ register_explain("stream.firehose", _EXPLAIN_FIREHOSE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _get_org(ctx: click.Context) -> Organization:
     client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
     return Organization(client)
@@ -142,11 +132,6 @@ def group() -> None:
 @click.option("--tag", default=None, help="Only events from sensors with this tag.")
 @click.option("--sid", default=None, help="Only events from this sensor ID.")
 @click.option("--inv-id", default=None, help="Only events with this investigation ID.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_EVENTS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def events(ctx: click.Context, tag: str | None, sid: str | None, inv_id: str | None) -> None:
     """Stream sensor events in real-time.
@@ -170,11 +155,6 @@ def events(ctx: click.Context, tag: str | None, sid: str | None, inv_id: str | N
 @group.command()
 @click.option("--cat", default=None, help="Only detections of this category.")
 @click.option("--sid", default=None, help="Only detections from this sensor ID.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DETECTIONS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def detections(ctx: click.Context, cat: str | None, sid: str | None) -> None:
     """Stream detections in real-time.
@@ -195,11 +175,6 @@ def detections(ctx: click.Context, cat: str | None, sid: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_AUDIT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def audit(ctx: click.Context) -> None:
     """Stream audit logs in real-time.
@@ -242,11 +217,6 @@ def _firehose_loop(fh: Firehose) -> None:
 )
 @click.option("--name", default=None, help="Name to register as an Output in LimaCharlie (auto-generated if omitted).")
 @click.option("--public-dest", default=None, help="Public IP:port for LC to connect to (auto-detected if omitted).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_FIREHOSE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def firehose(ctx: click.Context, listen: str, tls_cert: str | None, tls_key: str | None, data_type: str, name: str | None, public_dest: str | None) -> None:
     """Start a push-mode firehose listener.

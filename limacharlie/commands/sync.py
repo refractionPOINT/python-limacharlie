@@ -88,14 +88,6 @@ register_explain("sync.push", _EXPLAIN_PUSH)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -215,11 +207,6 @@ def group() -> None:
     help="Path to save the configuration YAML file.",
 )
 @_add_sync_flags
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PULL),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def pull(ctx, config_file, sync_all, outputs, integrity,
          exfil, artifact, resources, extensions, org_values,
@@ -282,11 +269,6 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
 @click.option("--force", is_flag=True, default=False, help="Remove cloud resources not in local file.")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview changes without applying.")
 @_add_sync_flags
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PUSH),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def push(ctx, config_file, force, dry_run, sync_all, outputs,
          integrity, exfil, artifact, resources, extensions, org_values,

@@ -251,24 +251,6 @@ class TestDownloadCLI:
         ])
         assert result.exit_code != 0
 
-    def test_download_sensor_explain(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["download", "sensor", "--explain"])
-        assert result.exit_code == 0
-        assert "sensor" in result.output.lower()
-        assert "installation key" in result.output.lower() or "installation_key" in result.output.lower()
-
-    def test_download_adapter_explain(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["download", "adapter", "--explain"])
-        assert result.exit_code == 0
-        assert "adapter" in result.output.lower()
-
-    def test_download_list_explain(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["download", "list", "--explain"])
-        assert result.exit_code == 0
-
     @patch("limacharlie.commands.download.download_binary")
     def test_download_sensor_saves_file(self, mock_download):
         mock_download.return_value = b"\x7fELF_FAKE_BINARY"

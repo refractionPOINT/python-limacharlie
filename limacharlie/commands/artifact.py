@@ -6,7 +6,7 @@ Commands for listing, retrieving, uploading, and downloading artifacts
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -72,14 +72,6 @@ register_explain("artifact.download", _EXPLAIN_DOWNLOAD)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -114,11 +106,6 @@ def group() -> None:
 @click.option("--start", default=None, type=int, help="Start time (unix seconds).")
 @click.option("--end", default=None, type=int, help="End time (unix seconds).")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
     """List artifacts.
@@ -150,11 +137,6 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
 @click.option("--hint", default=None, help="Parse hint (e.g., pcap, json, wel, prefetch, txt).")
 @click.option("--retention-days", default=None, type=int, help="Retention period in days (default: 30).")
 @click.option("--original-path", default=None, help="Original file path on the source system.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_UPLOAD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def upload(ctx, file_path, source, hint, retention_days, original_path) -> None:
     """Upload an artifact/log file.
@@ -187,11 +169,6 @@ def upload(ctx, file_path, source, hint, retention_days, original_path) -> None:
 @group.command()
 @click.option("--id", "artifact_id", required=True, help="Artifact ID to download.")
 @click.option("--output-path", default=None, type=click.Path(), help="Local path to save the artifact to.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DOWNLOAD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def download(ctx, artifact_id, output_path) -> None:
     """Download an artifact by ID.

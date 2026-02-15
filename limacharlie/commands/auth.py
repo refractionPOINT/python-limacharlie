@@ -6,7 +6,7 @@ switching between organizations and environments.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -149,15 +149,6 @@ register_explain("auth.signup", _EXPLAIN_SIGNUP)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    """Return a Click callback that prints explain text and exits."""
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -208,11 +199,6 @@ def group() -> None:
     default="google", help="OAuth provider (default: google). Only used with --oauth.",
 )
 @click.option("--no-browser", is_flag=True, default=False, help="Print the OAuth URL instead of opening a browser. Only used with --oauth.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LOGIN),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def login(ctx: click.Context, oid: str | None, api_key: str | None, environment: str | None, uid: str | None, oauth: bool, provider: str, no_browser: bool) -> None:
     """Store credentials in the local configuration file.
@@ -313,11 +299,6 @@ def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: s
     "--env", "environment", default=None,
     help="Named environment to clear (default: 'default').",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LOGOUT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def logout(ctx: click.Context, environment: str | None) -> None:
     """Remove stored credentials from the local configuration file.
@@ -351,11 +332,6 @@ def logout(ctx: click.Context, environment: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_WHOAMI),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def whoami(ctx: click.Context) -> None:
     """Show the current identity and permissions.
@@ -374,11 +350,6 @@ def whoami(ctx: click.Context) -> None:
 
 @group.command("use-org")
 @click.option("--oid", required=True, help="Organization ID to set as default.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_USE_ORG),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def use_org(ctx: click.Context, oid: str) -> None:
     """Set the default organization for subsequent commands.
@@ -406,11 +377,6 @@ def use_org(ctx: click.Context, oid: str) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_TEST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def test(ctx: click.Context) -> None:
     """Test whether the current credentials are valid.
@@ -437,11 +403,6 @@ def test(ctx: click.Context) -> None:
 
 @group.command("use-env")
 @click.argument("name")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_USE_ENV),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def use_env(ctx: click.Context, name: str) -> None:
     """Switch the active named environment.
@@ -473,11 +434,6 @@ def use_env(ctx: click.Context, name: str) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list-envs")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST_ENVS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_envs(ctx: click.Context) -> None:
     """List configured environments.
@@ -507,11 +463,6 @@ def list_envs(ctx: click.Context) -> None:
 
 @group.command("list-orgs")
 @click.option("--filter", "filter_text", default=None, help="Case-insensitive name filter.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST_ORGS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_orgs(ctx: click.Context, filter_text: str | None) -> None:
     """List organizations accessible to the current credentials.
@@ -543,11 +494,6 @@ def list_orgs(ctx: click.Context, filter_text: str | None) -> None:
 @click.option(
     "--env", "environment", default=None,
     help="Named environment to store credentials under (default: 'default').",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SIGNUP),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | None, environment: str | None) -> None:

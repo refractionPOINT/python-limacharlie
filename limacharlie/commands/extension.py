@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Callable
+from typing import Any
 
 import click
 import yaml
@@ -134,14 +134,6 @@ register_explain("extension.config-delete", _EXPLAIN_CONFIG_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -171,11 +163,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_extensions(ctx) -> None:
     """List subscribed extensions.
@@ -195,11 +182,6 @@ def list_extensions(ctx) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Extension name to subscribe to.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SUBSCRIBE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def subscribe(ctx, name) -> None:
     """Subscribe to an extension.
@@ -221,11 +203,6 @@ def subscribe(ctx, name) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Extension name to unsubscribe from.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_UNSUBSCRIBE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def unsubscribe(ctx, name) -> None:
     """Unsubscribe from an extension.
@@ -246,11 +223,6 @@ def unsubscribe(ctx, name) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list-available")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST_AVAILABLE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_available(ctx) -> None:
     """List all available extensions.
@@ -270,11 +242,6 @@ def list_available(ctx) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Extension name to rekey.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_REKEY),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def rekey(ctx, name) -> None:
     """Rotate API key for an extension.
@@ -296,11 +263,6 @@ def rekey(ctx, name) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Extension name.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SCHEMA),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def schema(ctx, name) -> None:
     """Get extension configuration schema.
@@ -322,11 +284,6 @@ def schema(ctx, name) -> None:
 @click.option("--name", required=True, help="Extension name.")
 @click.option("--action", required=True, help="Action to invoke.")
 @click.option("--data", default=None, help="JSON string with request data.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_REQUEST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def request(ctx, name, action, data) -> None:
     """Call an extension action.
@@ -350,11 +307,6 @@ def request(ctx, name, action, data) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("config-list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CONFIG_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def config_list(ctx) -> None:
     """List extension configurations.
@@ -375,11 +327,6 @@ def config_list(ctx) -> None:
 
 @group.command("config-get")
 @click.option("--name", required=True, help="Extension config name.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CONFIG_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def config_get(ctx, name) -> None:
     """Get an extension configuration.
@@ -400,11 +347,6 @@ def config_get(ctx, name) -> None:
 @group.command("config-set")
 @click.option("--name", required=True, help="Extension config name.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to config data (JSON or YAML). Reads stdin if omitted.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CONFIG_SET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def config_set(ctx, name, input_file) -> None:
     """Set an extension configuration.
@@ -452,11 +394,6 @@ def config_set(ctx, name, input_file) -> None:
 @group.command("config-delete")
 @click.option("--name", required=True, help="Extension config name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CONFIG_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def config_delete(ctx, name, confirm) -> None:
     """Delete an extension configuration.

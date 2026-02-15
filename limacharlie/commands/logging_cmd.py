@@ -7,7 +7,7 @@ from endpoints.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -70,14 +70,6 @@ register_explain("logging.get", _EXPLAIN_GET)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -108,11 +100,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_rules(ctx) -> None:
     """List log collection rules.
@@ -135,11 +122,6 @@ def list_rules(ctx) -> None:
 @click.option(
     "--patterns", required=True,
     help="Comma-separated list of log path patterns to collect.",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CREATE),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def create(ctx, name, patterns) -> None:
@@ -173,11 +155,6 @@ def create(ctx, name, patterns) -> None:
 @group.command()
 @click.option("--name", required=True, help="Rule name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, name, confirm) -> None:
     """Delete a log collection rule.
@@ -210,11 +187,6 @@ def delete(ctx, name, confirm) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Rule name to retrieve.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def get(ctx, name) -> None:
     """Get a single log collection rule by name.

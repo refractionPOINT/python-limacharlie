@@ -7,7 +7,7 @@ killing processes, downloading files, running YARA scans, and more.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import time
 
@@ -114,14 +114,6 @@ register_explain("task.reliable-delete", _EXPLAIN_RELIABLE_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -166,11 +158,6 @@ def group() -> None:
     "--investigation-id", default=None,
     help="Optional investigation ID to associate with this task.",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SEND),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def send(ctx: click.Context, sid: str, task: str, investigation_id: str | None) -> None:
     """Send a task to a sensor (fire-and-forget).
@@ -200,11 +187,6 @@ def send(ctx: click.Context, sid: str, task: str, investigation_id: str | None) 
 @click.option(
     "--timeout", default=30, type=int,
     help="Seconds to wait for a response (default: 30).",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_REQUEST),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def request(ctx: click.Context, sid: str, task_command: str, timeout: int) -> None:
@@ -260,11 +242,6 @@ def request(ctx: click.Context, sid: str, task_command: str, timeout: int) -> No
     "--ttl", default=None, type=int,
     help="Seconds before the task expires if undelivered (default: one week).",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RELIABLE_SEND),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def reliable_send(ctx: click.Context, sid: str, task_command: str, investigation_id: str | None, ttl: int | None) -> None:
     """Send a task with guaranteed delivery.
@@ -298,11 +275,6 @@ def reliable_send(ctx: click.Context, sid: str, task_command: str, investigation
 
 @group.command("reliable-list")
 @click.option("--sid", required=True, help="Sensor ID (UUID) to list pending tasks for.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RELIABLE_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def reliable_list(ctx: click.Context, sid: str) -> None:
     """List pending reliable tasks for a sensor.
@@ -326,11 +298,6 @@ def reliable_list(ctx: click.Context, sid: str) -> None:
 @group.command("reliable-delete")
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
 @click.option("--task-id", required=True, help="Task ID to cancel.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RELIABLE_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def reliable_delete(ctx: click.Context, sid: str, task_id: str) -> None:
     """Cancel a pending reliable task.

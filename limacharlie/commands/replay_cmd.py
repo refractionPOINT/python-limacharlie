@@ -8,7 +8,7 @@ waiting for new telemetry.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Any
 
 import click
 import yaml
@@ -49,14 +49,6 @@ register_explain("replay.run", _EXPLAIN_RUN)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
 
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
@@ -110,11 +102,6 @@ def group() -> None:
 )
 @click.option("--start", required=True, type=int, help="Start time (Unix seconds).")
 @click.option("--end", required=True, type=int, help="End time (Unix seconds).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RUN),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def run(ctx, name, detect_file, respond_file, start, end) -> None:
     """Replay a rule against historical data.

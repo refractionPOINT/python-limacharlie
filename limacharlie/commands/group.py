@@ -7,7 +7,7 @@ multiple LimaCharlie organizations.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -140,14 +140,6 @@ register_explain("group.logs", _EXPLAIN_LOGS)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -178,11 +170,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_groups(ctx) -> None:
     """List all groups.
@@ -201,11 +188,6 @@ def list_groups(ctx) -> None:
 
 @group.command()
 @click.option("--id", "group_id", required=True, help="Group ID.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def get(ctx, group_id) -> None:
     """Get details of a specific group.
@@ -224,11 +206,6 @@ def get(ctx, group_id) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Group name.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CREATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def create(ctx, name) -> None:
     """Create a new group.
@@ -250,11 +227,6 @@ def create(ctx, name) -> None:
 @group.command()
 @click.option("--id", "group_id", required=True, help="Group ID to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, group_id, confirm) -> None:
     """Delete a group.
@@ -287,11 +259,6 @@ def delete(ctx, group_id, confirm) -> None:
 @group.command("member-add")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the user to add as member.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_MEMBER_ADD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def member_add(ctx, gid, email) -> None:
     """Add a member to a group.
@@ -313,11 +280,6 @@ def member_add(ctx, gid, email) -> None:
 @group.command("member-remove")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the member to remove.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_MEMBER_REMOVE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def member_remove(ctx, gid, email) -> None:
     """Remove a member from a group.
@@ -339,11 +301,6 @@ def member_remove(ctx, gid, email) -> None:
 @group.command("owner-add")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the user to add as owner.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_OWNER_ADD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def owner_add(ctx, gid, email) -> None:
     """Add an owner to a group.
@@ -365,11 +322,6 @@ def owner_add(ctx, gid, email) -> None:
 @group.command("owner-remove")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the owner to remove.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_OWNER_REMOVE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def owner_remove(ctx, gid, email) -> None:
     """Remove an owner from a group.
@@ -391,11 +343,6 @@ def owner_remove(ctx, gid, email) -> None:
 @group.command("permissions-set")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--permissions", required=True, help="Comma-separated list of permissions (e.g. 'sensor.list,sensor.get,dr.list').")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PERMISSIONS_SET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def permissions_set(ctx, gid, permissions) -> None:
     """Set permissions for a group.
@@ -420,11 +367,6 @@ def permissions_set(ctx, gid, permissions) -> None:
 @group.command("org-add")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--oid", required=True, help="Organization ID to associate with the group.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ORG_ADD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def org_add(ctx, gid, oid) -> None:
     """Add an organization to a group.
@@ -446,11 +388,6 @@ def org_add(ctx, gid, oid) -> None:
 @group.command("org-remove")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--oid", required=True, help="Organization ID to remove from the group.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ORG_REMOVE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def org_remove(ctx, gid, oid) -> None:
     """Remove an organization from a group.
@@ -471,11 +408,6 @@ def org_remove(ctx, gid, oid) -> None:
 
 @group.command()
 @click.option("--gid", required=True, help="Group ID.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LOGS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def logs(ctx, gid) -> None:
     """Get audit logs for a group.

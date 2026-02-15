@@ -8,7 +8,7 @@ and event rules (event-type matching).
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -82,14 +82,6 @@ register_explain("exfil.delete", _EXPLAIN_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -120,11 +112,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_rules(ctx) -> None:
     """List exfil prevention rules.
@@ -148,11 +135,6 @@ def list_rules(ctx) -> None:
 @click.option("--operator", required=True, help="Comparison operator (e.g., is, contains).")
 @click.option("--value", required=True, help="Value to compare against.")
 @click.option("--path", required=True, help="Event field path (e.g., event/FILE_PATH).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CREATE_WATCH),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def create_watch(ctx, name, event, operator, value, path) -> None:
     """Create an exfil watch rule (field-level matching).
@@ -179,11 +161,6 @@ def create_watch(ctx, name, event, operator, value, path) -> None:
 @click.option(
     "--events", required=True,
     help="Comma-separated list of event types (e.g., NEW_PROCESS,DNS_REQUEST).",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CREATE_EVENT),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def create_event(ctx, name, events) -> None:
@@ -219,11 +196,6 @@ def create_event(ctx, name, events) -> None:
     help="Rule type: 'event' or 'watch' (default: event).",
 )
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, name, rule_type, confirm) -> None:
     """Delete an exfil rule.

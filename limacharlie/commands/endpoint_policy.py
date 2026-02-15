@@ -9,7 +9,7 @@ exfiltration.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -91,14 +91,6 @@ register_explain("endpoint-policy.unseal", _EXPLAIN_UNSEAL)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -131,11 +123,6 @@ def group() -> None:
 
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to isolate.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ISOLATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def isolate(ctx: click.Context, sid: str) -> None:
     """Network-isolate a sensor (block all non-LC traffic).
@@ -156,11 +143,6 @@ def isolate(ctx: click.Context, sid: str) -> None:
 
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to rejoin.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_REJOIN),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def rejoin(ctx: click.Context, sid: str) -> None:
     """Remove network isolation from a sensor.
@@ -181,11 +163,6 @@ def rejoin(ctx: click.Context, sid: str) -> None:
 
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_STATUS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def status(ctx: click.Context, sid: str) -> None:
     """Check the network isolation status of a sensor.
@@ -205,11 +182,6 @@ def status(ctx: click.Context, sid: str) -> None:
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to seal.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm seal operation (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SEAL),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def seal(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Seal a sensor (lock its configuration).
@@ -242,11 +214,6 @@ def seal(ctx: click.Context, sid: str, confirm: bool) -> None:
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to unseal.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm unseal operation (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_UNSEAL),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def unseal(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Remove the seal from a sensor (unlock its configuration).

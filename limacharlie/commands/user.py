@@ -5,7 +5,7 @@ Commands for listing, inviting, and removing organization users.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -107,14 +107,6 @@ register_explain("user.permissions.set-role", _EXPLAIN_PERM_SET_ROLE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -143,11 +135,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_users(ctx) -> None:
     """List organization users.
@@ -167,11 +154,6 @@ def list_users(ctx) -> None:
 
 @group.command()
 @click.option("--email", required=True, help="Email address of the user to invite.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_INVITE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def invite(ctx, email) -> None:
     """Invite a user to the organization.
@@ -194,11 +176,6 @@ def invite(ctx, email) -> None:
 @group.command()
 @click.option("--email", required=True, help="Email address of the user to remove.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm removal (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_REMOVE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def remove(ctx, email, confirm) -> None:
     """Remove a user from the organization.
@@ -244,11 +221,6 @@ def permissions() -> None:
 # ---------------------------------------------------------------------------
 
 @permissions.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PERM_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def perm_list(ctx) -> None:
     """List user permissions.
@@ -269,11 +241,6 @@ def perm_list(ctx) -> None:
 @permissions.command()
 @click.option("--email", required=True, help="Email address of the user.")
 @click.option("--permission", required=True, help="Permission string to grant (e.g. 'dr.set').")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PERM_ADD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def add(ctx, email, permission) -> None:
     """Grant a permission to a user.
@@ -296,11 +263,6 @@ def add(ctx, email, permission) -> None:
 @permissions.command("remove")
 @click.option("--email", required=True, help="Email address of the user.")
 @click.option("--permission", required=True, help="Permission string to revoke (e.g. 'dr.set').")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PERM_REMOVE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def perm_remove(ctx, email, permission) -> None:
     """Revoke a permission from a user.
@@ -326,11 +288,6 @@ def perm_remove(ctx, email, permission) -> None:
     "--role", required=True,
     type=click.Choice(["Owner", "Administrator", "Operator", "Viewer", "Basic"], case_sensitive=False),
     help="Predefined role to assign (replaces all current permissions).",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PERM_SET_ROLE),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def set_role(ctx, email, role) -> None:

@@ -7,7 +7,7 @@ descriptions.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -108,14 +108,6 @@ register_explain("ai.summarize-detection", _EXPLAIN_SUMMARIZE_DETECTION)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -146,11 +138,6 @@ def group() -> None:
 
 @group.command("generate-rule")
 @click.option("--prompt", required=True, help="Natural language description of the detection.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GENERATE_RULE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def generate_rule(ctx, prompt) -> None:
     """Generate a D&R rule from a description.
@@ -171,11 +158,6 @@ def generate_rule(ctx, prompt) -> None:
 
 @group.command("generate-query")
 @click.option("--prompt", required=True, help="Natural language description of the query.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GENERATE_QUERY),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def generate_query(ctx, prompt) -> None:
     """Generate an LCQL query from a description.
@@ -196,11 +178,6 @@ def generate_query(ctx, prompt) -> None:
 
 @group.command("generate-detection")
 @click.option("--description", required=True, help="Natural language description of the detection.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GENERATE_DETECTION),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def generate_detection(ctx, description) -> None:
     """Generate a detection component from a description.
@@ -221,11 +198,6 @@ def generate_detection(ctx, description) -> None:
 
 @group.command("generate-response")
 @click.option("--description", required=True, help="Natural language description of the response actions.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GENERATE_RESPONSE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def generate_response(ctx, description) -> None:
     """Generate a response component from a description.
@@ -246,11 +218,6 @@ def generate_response(ctx, description) -> None:
 
 @group.command("generate-selector")
 @click.option("--description", required=True, help="Natural language description of the sensor selector.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GENERATE_SELECTOR),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def generate_selector(ctx, description) -> None:
     """Generate a sensor selector expression from a description.
@@ -271,11 +238,6 @@ def generate_selector(ctx, description) -> None:
 
 @group.command("generate-playbook")
 @click.option("--description", required=True, help="Natural language description of the playbook.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GENERATE_PLAYBOOK),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def generate_playbook(ctx, description) -> None:
     """Generate a Python playbook from a description.
@@ -296,11 +258,6 @@ def generate_playbook(ctx, description) -> None:
 
 @group.command("summarize-detection")
 @click.option("--detection-id", required=True, help="Detection ID to summarize.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SUMMARIZE_DETECTION),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def summarize_detection(ctx, detection_id) -> None:
     """Summarize a detection using AI.

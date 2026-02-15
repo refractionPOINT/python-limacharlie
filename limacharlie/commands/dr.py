@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Callable
+from typing import Any
 
 import click
 import yaml
@@ -165,14 +165,6 @@ register_explain("dr.import", _EXPLAIN_IMPORT)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -219,11 +211,6 @@ def group() -> None:
     "--namespace", default=None, type=_NS_CHOICES,
     help="Namespace (default: general).",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_rules(ctx, namespace) -> None:
     """List D&R rules.
@@ -248,11 +235,6 @@ def list_rules(ctx, namespace) -> None:
 @click.option(
     "--namespace", default=None, type=_NS_CHOICES,
     help="Namespace (default: general).",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def get(ctx, key, namespace) -> None:
@@ -280,11 +262,6 @@ def get(ctx, key, namespace) -> None:
 @click.option(
     "--namespace", default=None, type=_NS_CHOICES,
     help="Namespace (default: general).",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SET),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def set_cmd(ctx, key, input_file, namespace) -> None:
@@ -338,11 +315,6 @@ def set_cmd(ctx, key, input_file, namespace) -> None:
     help="Namespace (default: general).",
 )
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, key, namespace, confirm) -> None:
     """Delete a D&R rule.
@@ -407,11 +379,6 @@ def _load_events(events_path: str) -> list[dict[str, Any]]:
     "--namespace", default=None, type=_NS_CHOICES,
     help="Rule namespace (when using --name).",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_TEST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def test(ctx, name, events_path, input_file, trace, namespace) -> None:
     """Test a rule against sample events.
@@ -469,11 +436,6 @@ def test(ctx, name, events_path, input_file, trace, namespace) -> None:
     "--namespace", default=None, type=_NS_CHOICES,
     help="Rule namespace.",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_REPLAY),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace) -> None:
     """Replay a rule against historical sensor data.
@@ -506,11 +468,6 @@ def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace) -> N
 @group.command()
 @click.option("--detect", "detect_path", required=True, type=click.Path(exists=True), help="Path to detection component (JSON or YAML file).")
 @click.option("--respond", "respond_path", required=True, type=click.Path(exists=True), help="Path to response component (JSON or YAML file).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_VALIDATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def validate(ctx, detect_path, respond_path) -> None:
     """Validate D&R rule components without deploying.
@@ -544,11 +501,6 @@ def validate(ctx, detect_path, respond_path) -> None:
     "--namespace", default=None, type=_NS_CHOICES,
     help="Export rules from this namespace only (default: general).",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_EXPORT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def export_rules(ctx, namespace) -> None:
     """Export all D&R rules as YAML.
@@ -576,11 +528,6 @@ def export_rules(ctx, namespace) -> None:
     help="Import rules into this namespace (default: general).",
 )
 @click.option("--dry-run", is_flag=True, default=False, help="Preview changes without importing.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_IMPORT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def import_rules(ctx, input_file, namespace, dry_run) -> None:
     """Import D&R rules from a YAML or JSON file.

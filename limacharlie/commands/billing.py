@@ -6,7 +6,7 @@ available plans for the organization.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -56,14 +56,6 @@ register_explain("billing.plans", _EXPLAIN_PLANS)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -93,11 +85,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_STATUS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def status(ctx) -> None:
     """Get billing status.
@@ -116,11 +103,6 @@ def status(ctx) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DETAILS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def details(ctx) -> None:
     """Get detailed billing information.
@@ -141,11 +123,6 @@ def details(ctx) -> None:
 @group.command()
 @click.option("--year", required=True, type=int, help="Invoice year (e.g., 2024).")
 @click.option("--month", required=True, type=int, help="Invoice month (1-12).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_INVOICE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def invoice(ctx, year, month) -> None:
     """Get invoice URL for a specific month.
@@ -164,11 +141,6 @@ def invoice(ctx, year, month) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_PLANS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def plans(ctx) -> None:
     """List available billing plans.

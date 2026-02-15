@@ -7,7 +7,7 @@ actions performed on the organization.
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -44,14 +44,6 @@ register_explain("audit.list", _EXPLAIN_LIST)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
 
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
@@ -92,11 +84,6 @@ def group() -> None:
     help="End time (Unix seconds).  Defaults to now.",
 )
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_audit(ctx, start, end, limit) -> None:
     """List audit logs.

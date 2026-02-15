@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Callable
+from typing import Any
 
 import click
 import yaml
@@ -26,14 +26,6 @@ def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
-
-
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text)
-            ctx.exit(0)
-    return callback
 
 
 def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None) -> click.Group:
@@ -65,7 +57,6 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     grp.help = f"Manage {noun_plural}."
 
     @grp.command("list", help=f"List all {noun_plural}.")
-    @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_list))
     @pass_context
     def list_cmd(ctx) -> None:
         org = _get_org(ctx)
@@ -76,7 +67,6 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
 
     @grp.command("get", help=f"Get {article} {noun_singular} by key.")
     @click.option("--key", required=True, help="Record key name.")
-    @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_get))
     @pass_context
     def get_cmd(ctx, key) -> None:
         org = _get_org(ctx)
@@ -87,7 +77,6 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     @grp.command("set", help=f"Create or update {article} {noun_singular}.")
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--input-file", type=click.Path(exists=True), default=None, help="JSON or YAML file with record data.")
-    @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_set))
     @pass_context
     def set_cmd(ctx, key, input_file) -> None:
         if input_file:
@@ -127,7 +116,6 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     @grp.command("delete", help=f"Delete {article} {noun_singular}.")
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion.")
-    @click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(explain_delete))
     @pass_context
     def delete_cmd(ctx, key, confirm) -> None:
         if not confirm:

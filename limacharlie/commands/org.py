@@ -6,7 +6,7 @@ errors, usage statistics, and MITRE ATT&CK coverage.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -166,14 +166,6 @@ register_explain("org.check-name", _EXPLAIN_CHECK_NAME)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -207,11 +199,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_INFO),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def info(ctx: click.Context) -> None:
     """Show organization details (name, sensor count, version, quotas).
@@ -232,11 +219,6 @@ def info(ctx: click.Context) -> None:
 @click.option("--filter", "filter_text", default=None, help="Case-insensitive name filter.")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
 @click.option("--offset", default=None, type=int, help="Pagination offset.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_orgs(ctx: click.Context, filter_text: str | None, limit: int | None, offset: int | None) -> None:
     """List organizations accessible to the current credentials.
@@ -261,11 +243,6 @@ def list_orgs(ctx: click.Context, filter_text: str | None, limit: int | None, of
 
 @group.command("config-get")
 @click.option("--name", required=True, help="Configuration key name to retrieve.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CONFIG_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def config_get(ctx: click.Context, name: str) -> None:
     """Get an organization configuration value.
@@ -285,11 +262,6 @@ def config_get(ctx: click.Context, name: str) -> None:
 @group.command("config-set")
 @click.option("--name", required=True, help="Configuration key name to set.")
 @click.option("--value", required=True, help="Configuration value.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CONFIG_SET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def config_set(ctx: click.Context, name: str, value: str) -> None:
     """Set an organization configuration value.
@@ -307,11 +279,6 @@ def config_set(ctx: click.Context, name: str, value: str) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ERRORS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def errors(ctx: click.Context) -> None:
     """List current organization errors.
@@ -330,11 +297,6 @@ def errors(ctx: click.Context) -> None:
 
 @group.command("dismiss-error")
 @click.option("--component", required=True, help="Error component name to dismiss.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DISMISS_ERROR),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def dismiss_error(ctx: click.Context, component: str) -> None:
     """Dismiss an organization error by component name.
@@ -352,11 +314,6 @@ def dismiss_error(ctx: click.Context, component: str) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_STATS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def stats(ctx: click.Context) -> None:
     """Show usage statistics for the organization.
@@ -374,11 +331,6 @@ def stats(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_MITRE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def mitre(ctx: click.Context) -> None:
     """Get MITRE ATT&CK coverage report.
@@ -398,11 +350,6 @@ def mitre(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_URLS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def urls(ctx: click.Context) -> None:
     """Show service URLs for the organization.
@@ -423,11 +370,6 @@ def urls(ctx: click.Context) -> None:
 @click.option("--name", required=True, help="Name for the new organization.")
 @click.option("--location", required=True, help="Data center location (e.g. us, ca, eu, uk, emea).")
 @click.option("--template", default=None, help="Optional template name to bootstrap the organization.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CREATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def create(ctx: click.Context, name: str, location: str, template: str | None) -> None:
     """Create a new organization.
@@ -447,11 +389,6 @@ def create(ctx: click.Context, name: str, location: str, template: str | None) -
 
 @group.command()
 @click.option("--confirm-token", default=None, help="Confirmation token from initial delete call.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx: click.Context, confirm_token: str | None) -> None:
     """Delete an organization (two-step process).
@@ -474,11 +411,6 @@ def delete(ctx: click.Context, confirm_token: str | None) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="New organization name.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RENAME),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def rename(ctx: click.Context, name: str) -> None:
     """Rename the organization.
@@ -497,11 +429,6 @@ def rename(ctx: click.Context, name: str) -> None:
 
 @group.command()
 @click.option("--quota", required=True, type=int, help="Sensor quota (0 to remove limit).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_QUOTA),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def quota(ctx: click.Context, quota: int) -> None:
     """Set the sensor quota for the organization.
@@ -522,11 +449,6 @@ def quota(ctx: click.Context, quota: int) -> None:
 @group.command()
 @click.option("--event-type", default=None, help="Specific event type to retrieve schema for.")
 @click.option("--platform", default=None, help="Platform to filter schemas by.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SCHEMA),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def schema(ctx: click.Context, event_type: str | None, platform: str | None) -> None:
     """Get event schemas for the organization.
@@ -554,11 +476,6 @@ def schema(ctx: click.Context, event_type: str | None, platform: str | None) -> 
 @group.command("runtime-metadata")
 @click.option("--entity-type", default=None, help="Entity type to filter by.")
 @click.option("--entity-name", default=None, help="Entity name to filter by.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RUNTIME_METADATA),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def runtime_metadata(ctx: click.Context, entity_type: str | None, entity_name: str | None) -> None:
     """Get runtime metadata for the organization.
@@ -579,11 +496,6 @@ def runtime_metadata(ctx: click.Context, entity_type: str | None, entity_name: s
 
 @group.command("check-name")
 @click.option("--name", required=True, help="Organization name to check availability for.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CHECK_NAME),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def check_name(ctx: click.Context, name: str) -> None:
     """Check if an organization name is available.

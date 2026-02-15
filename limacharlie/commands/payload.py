@@ -7,7 +7,7 @@ sensors via D&R response actions.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -73,14 +73,6 @@ register_explain("payload.download", _EXPLAIN_DOWNLOAD)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -110,11 +102,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_payloads(ctx) -> None:
     """List payloads.
@@ -135,11 +122,6 @@ def list_payloads(ctx) -> None:
 @group.command()
 @click.option("--name", required=True, help="Payload name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, name, confirm) -> None:
     """Delete a payload.
@@ -173,11 +155,6 @@ def delete(ctx, name, confirm) -> None:
 @group.command()
 @click.option("--name", required=True, help="Payload name (identifier for D&R rules and tasking).")
 @click.option("--file", "file_path", required=True, type=click.Path(exists=True), help="Path to the file to upload.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_UPLOAD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def upload(ctx, name, file_path) -> None:
     """Upload a payload.
@@ -201,11 +178,6 @@ def upload(ctx, name, file_path) -> None:
 @group.command()
 @click.option("--name", required=True, help="Payload name to download.")
 @click.option("--output-path", default=None, type=click.Path(), help="Local path to save the payload to.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DOWNLOAD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def download(ctx, name, output_path) -> None:
     """Download a payload.

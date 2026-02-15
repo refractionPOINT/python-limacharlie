@@ -7,7 +7,7 @@ external systems such as S3, syslog, GCS, Slack, and more.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import json
 
@@ -69,14 +69,6 @@ register_explain("output.delete", _EXPLAIN_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -117,11 +109,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_outputs(ctx: click.Context) -> None:
     """List configured outputs.
@@ -144,11 +131,6 @@ def list_outputs(ctx: click.Context) -> None:
 @click.option("--module", required=True, help="Output module type (e.g., syslog, s3, gcs, slack).")
 @click.option("--type", "data_type", required=True, help="Data type to forward (event, detect, audit).")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to module-specific config (JSON or YAML).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CREATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def create(ctx: click.Context, name: str, module: str, data_type: str, input_file: str | None) -> None:
     """Create a new output integration.
@@ -183,11 +165,6 @@ def create(ctx: click.Context, name: str, module: str, data_type: str, input_fil
 @group.command()
 @click.option("--name", required=True, help="Output name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx: click.Context, name: str, confirm: bool) -> None:
     """Delete an output integration.

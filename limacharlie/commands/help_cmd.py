@@ -6,8 +6,6 @@ and quick-reference cheatsheets.
 
 from __future__ import annotations
 
-from typing import Callable
-
 import click
 
 from ..cli import pass_context
@@ -64,14 +62,6 @@ register_explain("help.cheatsheet", _EXPLAIN_CHEATSHEET)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 # ---------------------------------------------------------------------------
 # Group
 # ---------------------------------------------------------------------------
@@ -95,11 +85,6 @@ def group(ctx) -> None:
 
 @group.command()
 @click.argument("name", required=False, default=None)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_TOPIC),
-    help="Show detailed explanation of this command.",
-)
 def topic(name) -> None:
     """Show a help topic (or list all topics).
 
@@ -135,11 +120,6 @@ def topic(name) -> None:
 
 @group.command()
 @click.option("--profile", default=None, help="Filter by use-case profile name.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DISCOVER),
-    help="Show detailed explanation of this command.",
-)
 def discover(profile) -> None:
     """Discover commands by use-case profile.
 
@@ -156,11 +136,6 @@ def discover(profile) -> None:
 
 @group.command()
 @click.option("--name", default=None, help="Cheatsheet name.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CHEATSHEET),
-    help="Show detailed explanation of this command.",
-)
 def cheatsheet(name) -> None:
     """Show a cheatsheet (or list all cheatsheets).
 

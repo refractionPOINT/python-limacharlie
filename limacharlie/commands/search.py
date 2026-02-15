@@ -6,7 +6,7 @@ telemetry stored in LimaCharlie Insight.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -125,14 +125,6 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -167,11 +159,6 @@ def group() -> None:
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RUN),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None, limit: int | None) -> None:
     """Execute an LCQL query.
@@ -195,11 +182,6 @@ def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None
 
 @group.command()
 @click.option("--query", required=True, help="LCQL query string to validate.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_VALIDATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def validate(ctx: click.Context, query: str) -> None:
     """Validate LCQL query syntax.
@@ -222,11 +204,6 @@ def validate(ctx: click.Context, query: str) -> None:
 @click.option("--start", required=True, type=int, help="Start time (unix seconds).")
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ESTIMATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def estimate(ctx: click.Context, query: str, start: int, end: int, stream: str | None) -> None:
     """Estimate billing cost for an LCQL query.
@@ -246,11 +223,6 @@ def estimate(ctx: click.Context, query: str, start: int, end: int, stream: str |
 # ---------------------------------------------------------------------------
 
 @group.command("saved-list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SAVED_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def saved_list(ctx: click.Context) -> None:
     """List saved LCQL queries.
@@ -271,11 +243,6 @@ def saved_list(ctx: click.Context) -> None:
 
 @group.command("saved-get")
 @click.option("--name", required=True, help="Name of the saved query.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SAVED_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def saved_get(ctx: click.Context, name: str) -> None:
     """Get a saved query by name.
@@ -299,11 +266,6 @@ def saved_get(ctx: click.Context, name: str) -> None:
 @click.option("--start", default=None, type=int, help="Default start time (unix seconds).")
 @click.option("--end", default=None, type=int, help="Default end time (unix seconds).")
 @click.option("--stream", default=None, help="Default stream type (event, detect, audit).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SAVED_CREATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def saved_create(ctx: click.Context, name: str, query: str, start: int | None, end: int | None, stream: str | None) -> None:
     """Create a saved query.
@@ -340,11 +302,6 @@ def saved_create(ctx: click.Context, name: str, query: str, start: int | None, e
 
 @group.command("saved-delete")
 @click.option("--name", required=True, help="Name of the saved query to delete.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SAVED_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def saved_delete(ctx: click.Context, name: str) -> None:
     """Delete a saved query.
@@ -367,11 +324,6 @@ def saved_delete(ctx: click.Context, name: str) -> None:
 @group.command("saved-run")
 @click.option("--name", required=True, help="Name of the saved query to execute.")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SAVED_RUN),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def saved_run(ctx: click.Context, name: str, limit: int | None) -> None:
     """Execute a saved query.

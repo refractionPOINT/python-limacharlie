@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Callable
+from typing import Any
 
 import click
 import yaml
@@ -131,14 +131,6 @@ register_explain("hive.import", _EXPLAIN_IMPORT)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -232,11 +224,6 @@ def group() -> None:
 
 @group.command("list")
 @click.option("--hive-name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_records(ctx, hive_name) -> None:
     """List records in a hive.
@@ -259,11 +246,6 @@ def list_records(ctx, hive_name) -> None:
 @group.command()
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def get(ctx, hive_name, key) -> None:
     """Get a hive record by key.
@@ -285,11 +267,6 @@ def get(ctx, hive_name, key) -> None:
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def set_record(ctx, hive_name, key, input_file) -> None:
     """Set (create or update) a hive record.
@@ -330,11 +307,6 @@ def set_record(ctx, hive_name, key, input_file) -> None:
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, hive_name, key, confirm) -> None:
     """Delete a hive record.
@@ -369,11 +341,6 @@ def delete(ctx, hive_name, key, confirm) -> None:
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key to validate as.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_VALIDATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def validate(ctx, hive_name, key, input_file) -> None:
     """Validate a hive record without saving.
@@ -407,11 +374,6 @@ def validate(ctx, hive_name, key, input_file) -> None:
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Current record key.")
 @click.option("--new-name", required=True, help="New record key.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RENAME),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def rename(ctx, hive_name, key, new_name) -> None:
     """Rename a hive record.
@@ -432,11 +394,6 @@ def rename(ctx, hive_name, key, new_name) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list-types")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST_TYPES),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_types(ctx) -> None:
     """List known hive type names.
@@ -457,11 +414,6 @@ def list_types(ctx) -> None:
 @group.command("export")
 @click.option("--hive-name", "name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
 @click.option("--partition-key", default=None, help="Optional partition key (defaults to org OID).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_EXPORT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def export_records(ctx, name, partition_key) -> None:
     """Export all records from a hive as YAML.
@@ -494,11 +446,6 @@ def export_records(ctx, name, partition_key) -> None:
 @click.option("--input-file", required=True, type=click.Path(exists=True), help="Path to YAML or JSON file to import.")
 @click.option("--partition-key", default=None, help="Optional partition key (defaults to org OID).")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview changes without applying them.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_IMPORT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def import_records(ctx, name, input_file, partition_key, dry_run) -> None:
     """Import records into a hive from a YAML or JSON file.

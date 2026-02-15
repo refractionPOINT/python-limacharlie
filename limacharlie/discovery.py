@@ -1,7 +1,7 @@
 """Command discovery and explain system for LimaCharlie CLI v2.
 
-Provides profile-based command grouping, help topics, and the --explain
-flag system for AI/LLM discoverability.
+Provides profile-based command grouping, help topics, and contextual
+explain texts consumed by the --ai-help system.
 """
 
 from __future__ import annotations

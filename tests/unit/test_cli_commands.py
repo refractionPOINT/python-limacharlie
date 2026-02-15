@@ -56,8 +56,8 @@ class TestCLIGlobalOptions:
         original = output_mod._wide_mode
         try:
             runner = CliRunner()
-            # Use --explain on a subcommand to avoid needing auth mocks
-            result = runner.invoke(cli, ["--wide", "auth", "whoami", "--explain"])
+            # Use --help on a subcommand to avoid needing auth mocks
+            result = runner.invoke(cli, ["--wide", "auth", "whoami", "--help"])
             assert result.exit_code == 0
             assert output_mod._wide_mode is True
         finally:
@@ -68,7 +68,7 @@ class TestCLIGlobalOptions:
         original = output_mod._filter_expr
         try:
             runner = CliRunner()
-            result = runner.invoke(cli, ["--filter", "items[0]", "auth", "whoami", "--explain"])
+            result = runner.invoke(cli, ["--filter", "items[0]", "auth", "whoami", "--help"])
             assert result.exit_code == 0
             assert output_mod._filter_expr == "items[0]"
         finally:
@@ -237,15 +237,3 @@ class TestDRCommands:
         mock_hive.list.assert_called_once()
 
 
-class TestExplainFlag:
-    def test_auth_whoami_explain(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["auth", "whoami", "--explain"])
-        assert result.exit_code == 0
-        assert "identity" in result.output.lower() or "permissions" in result.output.lower()
-
-    def test_org_info_explain(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["org", "info", "--explain"])
-        assert result.exit_code == 0
-        assert "organization" in result.output.lower()

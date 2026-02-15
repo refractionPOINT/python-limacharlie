@@ -5,7 +5,7 @@ Commands for listing, inspecting, and managing sensors in an organization.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import json
 
@@ -154,14 +154,6 @@ register_explain("sensor.sweep", _EXPLAIN_SWEEP)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -202,11 +194,6 @@ def group() -> None:
 @click.option("--ip", default=None, help="Filter by IP address.")
 @click.option("--limit", default=None, type=int, help="Maximum number of sensors to return.")
 @click.option("--offset", default=None, type=int, help="Pagination offset (not used directly; controls client-side skip).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_sensors(ctx: click.Context, tag: str | None, hostname: str | None, ip: str | None, limit: int | None, offset: int | None) -> None:
     """List sensors in the organization.
@@ -255,11 +242,6 @@ def list_sensors(ctx: click.Context, tag: str | None, hostname: str | None, ip: 
 
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def get(ctx: click.Context, sid: str) -> None:
     """Get full details for a sensor.
@@ -279,11 +261,6 @@ def get(ctx: click.Context, sid: str) -> None:
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Permanently delete a sensor.
@@ -315,11 +292,6 @@ def delete(ctx: click.Context, sid: str, confirm: bool) -> None:
 
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ONLINE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def online(ctx: click.Context, sid: str) -> None:
     """Check if a sensor is currently online.
@@ -339,11 +311,6 @@ def online(ctx: click.Context, sid: str) -> None:
 @group.command("wait-online")
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
 @click.option("--timeout", default=300, type=int, help="Maximum seconds to wait (default: 300).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_WAIT_ONLINE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def wait_online(ctx: click.Context, sid: str, timeout: int) -> None:
     """Wait for a sensor to come online.
@@ -371,11 +338,6 @@ def wait_online(ctx: click.Context, sid: str, timeout: int) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_UPGRADE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def upgrade(ctx: click.Context) -> None:
     """Upgrade sensors in the organization.
@@ -401,11 +363,6 @@ def upgrade(ctx: click.Context) -> None:
 @click.option("--version", "version_str", default=None, help="Specific sensor version string (e.g., '4.29.0').")
 @click.option("--fallback", is_flag=True, default=False, help="Use the stable/fallback version branch.")
 @click.option("--sleep", "is_sleep", is_flag=True, default=False, help="Put sensors into dormant mode.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SET_VERSION),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def set_version(ctx: click.Context, version_str: str | None, fallback: bool, is_sleep: bool) -> None:
     """Set the sensor version for the organization.
@@ -448,11 +405,6 @@ def set_version(ctx: click.Context, version_str: str | None, fallback: bool, is_
 
 @group.command("export")
 @click.option("--selector", default=None, help="Sensor selector expression (bexpr) to filter exported sensors.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_EXPORT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def export_sensors(ctx: click.Context, selector: str | None) -> None:
     """Export full sensor data for the organization.
@@ -481,11 +433,6 @@ def export_sensors(ctx: click.Context, selector: str | None) -> None:
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to dump.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm the memory dump (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DUMP),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def dump(ctx: click.Context, sid: str, confirm: bool) -> None:
     """Trigger a full memory dump on a sensor.
@@ -520,11 +467,6 @@ def dump(ctx: click.Context, sid: str, confirm: bool) -> None:
 @click.option(
     "--config", "config_str", required=True,
     help="Sweep configuration as a JSON string or path to a JSON file.",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SWEEP),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def sweep(ctx: click.Context, sid: str, config_str: str) -> None:

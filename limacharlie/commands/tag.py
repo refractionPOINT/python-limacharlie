@@ -7,7 +7,7 @@ and targeting D&R rules or tasks.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -94,14 +94,6 @@ register_explain("tag.mass-remove", _EXPLAIN_MASS_REMOVE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -138,11 +130,6 @@ def group() -> None:
 
 @group.command("list")
 @click.option("--sid", default=None, help="Sensor ID (UUID).  If omitted, lists all org tags.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_tags(ctx: click.Context, sid: str | None) -> None:
     """List tags for a sensor or all tags in the organization.
@@ -169,11 +156,6 @@ def list_tags(ctx: click.Context, sid: str | None) -> None:
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
 @click.option("--tag", required=True, help="Tag string to add.")
 @click.option("--ttl", default=None, type=int, help="Time-to-live in seconds (tag auto-removed after).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ADD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def add(ctx: click.Context, sid: str, tag: str, ttl: int | None) -> None:
     """Add a tag to a sensor.
@@ -198,11 +180,6 @@ def add(ctx: click.Context, sid: str, tag: str, ttl: int | None) -> None:
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
 @click.option("--tag", required=True, help="Tag string to remove.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_REMOVE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def remove(ctx: click.Context, sid: str, tag: str) -> None:
     """Remove a tag from a sensor.
@@ -222,11 +199,6 @@ def remove(ctx: click.Context, sid: str, tag: str) -> None:
 
 @group.command()
 @click.option("--tag", required=True, help="Tag to search for.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_FIND),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def find(ctx: click.Context, tag: str) -> None:
     """Find all sensors with a specific tag.
@@ -247,11 +219,6 @@ def find(ctx: click.Context, tag: str) -> None:
 @click.option("--selector", required=True, help="Sensor selector expression (bexpr) to match sensors.")
 @click.option("--tag", required=True, help="Tag string to add to all matching sensors.")
 @click.option("--ttl", default=None, type=int, help="Time-to-live in seconds (tag auto-removed after).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_MASS_ADD),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def mass_add(ctx: click.Context, selector: str, tag: str, ttl: int | None) -> None:
     """Add a tag to all sensors matching a selector.
@@ -277,11 +244,6 @@ def mass_add(ctx: click.Context, selector: str, tag: str, ttl: int | None) -> No
 @group.command("mass-remove")
 @click.option("--selector", required=True, help="Sensor selector expression (bexpr) to match sensors.")
 @click.option("--tag", required=True, help="Tag string to remove from all matching sensors.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_MASS_REMOVE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def mass_remove(ctx: click.Context, selector: str, tag: str) -> None:
     """Remove a tag from all sensors matching a selector.

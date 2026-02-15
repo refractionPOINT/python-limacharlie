@@ -6,7 +6,7 @@ historical telemetry stored in LimaCharlie Insight.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import json
 import sys
@@ -112,14 +112,6 @@ register_explain("ioc.batch-enrich", _EXPLAIN_BATCH_ENRICH)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -176,11 +168,6 @@ def group() -> None:
 @group.command()
 @click.option("--type", "ioc_type", required=True, help="IOC type (domain, ip, file_hash, file_path, etc.).")
 @click.option("--value", required=True, help="IOC value to search for.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SEARCH),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def search(ctx: click.Context, ioc_type: str, value: str) -> None:
     """Search for an IOC.
@@ -201,11 +188,6 @@ def search(ctx: click.Context, ioc_type: str, value: str) -> None:
 
 @group.command("batch-search")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to JSON file with IOCs ({type: [values]}). Reads stdin if omitted.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_BATCH_SEARCH),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def batch_search(ctx: click.Context, input_file: str | None) -> None:
     """Batch IOC search from a JSON file.
@@ -243,11 +225,6 @@ def batch_search(ctx: click.Context, input_file: str | None) -> None:
 
 @group.command()
 @click.option("--hostname", required=True, help="Hostname prefix to search for.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_HOSTS),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def hosts(ctx: click.Context, hostname: str) -> None:
     """Find sensors by hostname prefix.
@@ -268,11 +245,6 @@ def hosts(ctx: click.Context, hostname: str) -> None:
 @group.command()
 @click.option("--type", "obj_type", required=True, help="Indicator type (domain, ip, file_hash, file_path, file_name, user, service_name, package_name).")
 @click.option("--value", required=True, help="Indicator value to look up.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_ENRICH),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def enrich(ctx: click.Context, obj_type: str, value: str) -> None:
     """Get enrichment info for an indicator.
@@ -293,11 +265,6 @@ def enrich(ctx: click.Context, obj_type: str, value: str) -> None:
 
 @group.command("batch-enrich")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to JSON file with indicators ({type: [values]}). Reads stdin if omitted.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_BATCH_ENRICH),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def batch_enrich(ctx: click.Context, input_file: str | None) -> None:
     """Batch enrichment lookup from a JSON file.

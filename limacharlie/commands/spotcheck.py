@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -30,14 +30,6 @@ across multiple sensors matching a selector and collects the results.
 This is useful for ad-hoc fleet-wide queries.
 """
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text)
-            ctx.exit(0)
-    return callback
-
-
 @click.group("spotcheck")
 def group() -> None:
     """Run ad-hoc fleet-wide spotcheck queries."""
@@ -48,7 +40,6 @@ def group() -> None:
 @click.option("--task", required=True, help="Sensor task command to run (e.g., os_processes).")
 @click.option("--tag", default=None, help="Only target sensors with this tag.")
 @click.option("--selector", default=None, help="Sensor selector expression.")
-@click.option("--explain", is_flag=True, is_eager=True, expose_value=False, callback=_make_explain_callback(_EXPLAIN_RUN))
 @pass_context
 def run_cmd(ctx, task, tag, selector) -> None:
     """Run a spotcheck across sensors."""

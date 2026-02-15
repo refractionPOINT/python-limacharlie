@@ -6,7 +6,7 @@ Installation keys are used to enroll new sensors into an organization.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -63,14 +63,6 @@ register_explain("installation-key.delete", _EXPLAIN_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -101,11 +93,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_keys(ctx) -> None:
     """List installation keys.
@@ -126,11 +113,6 @@ def list_keys(ctx) -> None:
 @group.command()
 @click.option("--description", required=True, help="Key description.")
 @click.option("--tags", default=None, help="Comma-separated tags to apply to enrolled sensors.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CREATE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def create(ctx, description, tags) -> None:
     """Create a new installation key.
@@ -159,11 +141,6 @@ def create(ctx, description, tags) -> None:
 @group.command()
 @click.option("--iid", required=True, help="Installation key ID to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, iid, confirm) -> None:
     """Delete an installation key.

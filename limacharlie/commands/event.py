@@ -6,7 +6,7 @@ via LimaCharlie Insight.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -123,14 +123,6 @@ register_explain("event.retention", _EXPLAIN_RETENTION)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[..., None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -166,11 +158,6 @@ def group() -> None:
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
 @click.option("--limit", default=None, type=int, help="Maximum number of events.")
 @click.option("--event-type", default=None, help="Filter by event type (e.g., NEW_PROCESS).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_events(ctx: click.Context, sid: str, start: int, end: int, limit: int | None, event_type: str | None) -> None:
     """List events for a sensor.
@@ -193,11 +180,6 @@ def list_events(ctx: click.Context, sid: str, start: int, end: int, limit: int |
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID.")
 @click.option("--atom", required=True, help="Event atom identifier.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def get(ctx: click.Context, sid: str, atom: str) -> None:
     """Get an event by atom.
@@ -218,11 +200,6 @@ def get(ctx: click.Context, sid: str, atom: str) -> None:
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID.")
 @click.option("--atom", required=True, help="Parent event atom identifier.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_CHILDREN),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def children(ctx: click.Context, sid: str, atom: str) -> None:
     """Get child events of an atom.
@@ -244,11 +221,6 @@ def children(ctx: click.Context, sid: str, atom: str) -> None:
 @click.option("--sid", required=True, help="Sensor ID.")
 @click.option("--start", required=True, type=int, help="Start time (unix seconds).")
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_OVERVIEW),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def overview(ctx: click.Context, sid: str, start: int, end: int) -> None:
     """Get event overview for a sensor.
@@ -270,11 +242,6 @@ def overview(ctx: click.Context, sid: str, start: int, end: int) -> None:
 @click.option("--sid", required=True, help="Sensor ID.")
 @click.option("--start", required=True, type=int, help="Start time (unix seconds).")
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_TIMELINE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def timeline(ctx: click.Context, sid: str, start: int, end: int) -> None:
     """Get event timeline for a sensor (alias for overview).
@@ -294,11 +261,6 @@ def timeline(ctx: click.Context, sid: str, start: int, end: int) -> None:
 
 @group.command()
 @click.option("--platform", default=None, help="Filter by platform (e.g., windows, linux, macos).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_TYPES),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def types(ctx: click.Context, platform: str | None) -> None:
     """List available event types.
@@ -318,11 +280,6 @@ def types(ctx: click.Context, platform: str | None) -> None:
 
 @group.command()
 @click.option("--event-type", required=True, help="Event type name (e.g., NEW_PROCESS).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SCHEMA),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def schema(ctx: click.Context, event_type: str) -> None:
     """Get schema for a specific event type.
@@ -344,11 +301,6 @@ def schema(ctx: click.Context, event_type: str) -> None:
 @click.option("--start", required=True, type=int, help="Start time (unix seconds).")
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
 @click.option("--detailed", is_flag=True, default=False, help="Include detailed breakdown by event type.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RETENTION),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def retention(ctx: click.Context, sid: str, start: int, end: int, detailed: bool) -> None:
     """Get event retention statistics for a sensor.

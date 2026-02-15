@@ -7,7 +7,7 @@ used for ad-hoc scans against specific sensors.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -95,14 +95,6 @@ register_explain("yara.source-delete", _EXPLAIN_SOURCE_DELETE)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -138,11 +130,6 @@ def group() -> None:
     "--rule-file", required=True, type=click.Path(exists=True),
     help="Path to YARA rule file.",
 )
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SCAN),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def scan(ctx, sid, rule_file) -> None:
     """Run an ad-hoc YARA scan on a sensor.
@@ -164,11 +151,6 @@ def scan(ctx, sid, rule_file) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("rules-list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RULES_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def rules_list(ctx) -> None:
     """List deployed YARA rules.
@@ -191,11 +173,6 @@ def rules_list(ctx) -> None:
 @click.option(
     "--sources-file", required=True, type=click.Path(exists=True),
     help="Path to sources definition file (JSON or YAML).",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RULE_ADD),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def rule_add(ctx, name, sources_file) -> None:
@@ -228,11 +205,6 @@ def rule_add(ctx, name, sources_file) -> None:
 
 @group.command("rule-delete")
 @click.option("--name", required=True, help="Rule name to delete.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_RULE_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def rule_delete(ctx, name) -> None:
     """Delete a deployed YARA rule.
@@ -253,11 +225,6 @@ def rule_delete(ctx, name) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("sources-list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SOURCES_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def sources_list(ctx) -> None:
     """List YARA sources.
@@ -277,11 +244,6 @@ def sources_list(ctx) -> None:
 
 @group.command("source-get")
 @click.option("--name", required=True, help="Source name.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SOURCE_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def source_get(ctx, name) -> None:
     """Get a YARA source by name.
@@ -304,11 +266,6 @@ def source_get(ctx, name) -> None:
 @click.option(
     "--source-file", required=True, type=click.Path(exists=True),
     help="Path to YARA rule content file.",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SOURCE_ADD),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def source_add(ctx, name, source_file) -> None:
@@ -334,11 +291,6 @@ def source_add(ctx, name, source_file) -> None:
 
 @group.command("source-delete")
 @click.option("--name", required=True, help="Source name to delete.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_SOURCE_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def source_delete(ctx, name) -> None:
     """Delete a YARA source.

@@ -7,7 +7,7 @@ services and replicants.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import click
 
@@ -67,14 +67,6 @@ register_explain("job.wait", _EXPLAIN_WAIT)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
-
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -105,11 +97,6 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_LIST),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def list_jobs(ctx) -> None:
     """List service jobs.
@@ -129,11 +116,6 @@ def list_jobs(ctx) -> None:
 
 @group.command()
 @click.option("--id", "job_id", required=True, help="Job ID.")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_GET),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def get(ctx, job_id) -> None:
     """Get job details.
@@ -154,11 +136,6 @@ def get(ctx, job_id) -> None:
 @group.command()
 @click.option("--id", "job_id", required=True, help="Job ID to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_DELETE),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def delete(ctx, job_id, confirm) -> None:
     """Delete a job.
@@ -192,11 +169,6 @@ def delete(ctx, job_id, confirm) -> None:
 @group.command()
 @click.option("--id", "job_id", required=True, help="Job ID to wait for.")
 @click.option("--timeout", default=300, type=int, help="Maximum wait time in seconds (default: 300).")
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_WAIT),
-    help="Show detailed explanation of this command.",
-)
 @pass_context
 def wait(ctx, job_id, timeout) -> None:
     """Wait for a job to complete.

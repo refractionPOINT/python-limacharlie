@@ -6,7 +6,7 @@ allow ingesting data from third-party sources into LimaCharlie.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import json
 
@@ -47,14 +47,6 @@ register_explain("usp.validate", _EXPLAIN_VALIDATE)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_explain_callback(text: str) -> Callable[[click.Context, click.Parameter, bool], None]:
-    def callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-        if value:
-            click.echo(text.strip())
-            ctx.exit()
-    return callback
-
 
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
@@ -101,11 +93,6 @@ def group() -> None:
 @click.option(
     "--input-file", required=True, type=click.Path(exists=True),
     help="Path to adapter config/test file (JSON or YAML).",
-)
-@click.option(
-    "--explain", is_flag=True, expose_value=False, is_eager=True,
-    callback=_make_explain_callback(_EXPLAIN_VALIDATE),
-    help="Show detailed explanation of this command.",
 )
 @pass_context
 def validate(ctx, platform, input_file) -> None:
