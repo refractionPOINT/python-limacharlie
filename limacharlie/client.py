@@ -217,7 +217,7 @@ class Client:
         from .oauth_simple import SimpleOAuthManager
 
         oauth_manager = SimpleOAuthManager()
-        updated_creds = oauth_manager.ensure_valid_token(self._oauth_creds)
+        updated_creds = oauth_manager.ensure_valid_token(dict(self._oauth_creds))
         if updated_creds is None:
             raise AuthenticationError("Failed to refresh OAuth token.")
 
