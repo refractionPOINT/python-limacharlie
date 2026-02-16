@@ -57,6 +57,12 @@ class _GlobalOptionsGroup(click.Group):
             for name in param.opts + param.secondary_opts:
                 opt_takes_value[name] = takes_value
 
+        # Don't hoist options that the target subcommand also defines,
+        # otherwise e.g. `auth login --oid X` would lose its --oid to the
+        # global --oid.
+        shadowed = self._find_shadowed_opts(args, opt_takes_value)
+        hoistable = {k: v for k, v in opt_takes_value.items() if k not in shadowed}
+
         global_args: list[str] = []
         remaining: list[str] = []
         i = 0
@@ -71,14 +77,14 @@ class _GlobalOptionsGroup(click.Group):
             # Handle --option=value form.
             if "=" in arg:
                 opt_name = arg.split("=", 1)[0]
-                if opt_name in opt_takes_value:
+                if opt_name in hoistable:
                     global_args.append(arg)
                     i += 1
                     continue
 
-            if arg in opt_takes_value:
+            if arg in hoistable:
                 global_args.append(arg)
-                if opt_takes_value[arg]:  # consumes the next token as value
+                if hoistable[arg]:  # consumes the next token as value
                     i += 1
                     if i < len(args):
                         global_args.append(args[i])
@@ -87,6 +93,42 @@ class _GlobalOptionsGroup(click.Group):
             i += 1
 
         return super().parse_args(ctx, global_args + remaining)
+
+    def _find_shadowed_opts(
+        self,
+        args: list[str],
+        global_opts: dict[str, bool],
+    ) -> set[str]:
+        """Walk the subcommand tree to find option names that the target
+        command also defines, which must not be hoisted."""
+        shadowed: set[str] = set()
+        cmd: click.BaseCommand = self
+        i = 0
+        while i < len(args) and isinstance(cmd, click.Group):
+            arg = args[i]
+            if arg == "--":
+                break
+            if arg.startswith("-"):
+                # Skip over options (and their values).
+                clean = arg.split("=", 1)[0] if "=" in arg else arg
+                if clean in global_opts and global_opts[clean] and "=" not in arg:
+                    i += 2
+                else:
+                    i += 1
+                continue
+            # Non-option token — potential subcommand name.
+            sub = cmd.commands.get(arg)
+            if sub is not None:
+                cmd = sub
+                for p in cmd.params:
+                    if isinstance(p, click.Option):
+                        for name in p.opts + p.secondary_opts:
+                            if name in global_opts:
+                                shadowed.add(name)
+                i += 1
+            else:
+                break
+        return shadowed
 
 
 @click.group(cls=_GlobalOptionsGroup)

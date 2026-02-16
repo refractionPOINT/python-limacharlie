@@ -115,7 +115,7 @@ limacharlie auth list-envs
 limacharlie auth use-env production
 
 # Set default org (useful after OAuth login without --oid)
-limacharlie auth use-org --oid YOUR_ORG_ID
+limacharlie auth use-org YOUR_ORG_ID
 
 # Check current identity
 limacharlie auth whoami
@@ -182,7 +182,7 @@ Credentials are resolved in this order (highest priority first):
 
 ## CLI Reference
 
-The CLI follows a consistent `limacharlie <noun> <verb>` pattern. Every command supports `--output` to control the format, `--explain` for a detailed description, and `--help` for usage.
+The CLI follows a consistent `limacharlie <noun> <verb>` pattern. Every command supports `--output` to control the format, `--ai-help` for a detailed description, and `--help` for usage. Global options like `--output`, `--filter`, and `--wide` can appear anywhere on the command line.
 
 ### Global Options
 
@@ -587,42 +587,42 @@ Use `--filter` with a [JMESPath](https://jmespath.org/) expression to extract or
 
 ```bash
 # Extract a single field from a dict
-limacharlie --filter 'user_perms' auth whoami
+limacharlie auth whoami --filter 'user_perms'
 
 # Get just the keys of a nested object
-limacharlie --filter 'keys(user_perms)' auth whoami
+limacharlie auth whoami --filter 'keys(user_perms)'
 
 # Get the values as an array
-limacharlie --filter 'values(user_perms)' auth whoami
+limacharlie auth whoami --filter 'values(user_perms)'
 
 # Drill into nested data: permissions for the first org
-limacharlie --filter 'values(user_perms)[0]' auth whoami
+limacharlie auth whoami --filter 'values(user_perms)[0]'
 ```
 
 **Working with lists:**
 
 ```bash
 # Extract one field from each item in a list
-limacharlie --filter '[].hostname' sensor list
+limacharlie sensor list --filter '[].hostname'
 
 # Pick specific fields (reshaping output)
-limacharlie --filter '[].{sid: sid, hostname: hostname, platform: platform}' sensor list
+limacharlie sensor list --filter '[].{sid: sid, hostname: hostname, platform: platform}'
 
 # First 5 results
-limacharlie --filter '[0:5]' sensor list
+limacharlie sensor list --filter '[0:5]'
 
 # Filter items by condition
-limacharlie --filter "[?platform=='windows']" sensor list
+limacharlie sensor list --filter "[?platform=='windows']"
 ```
 
 **Combining with other flags:**
 
 ```bash
 # Filter + output format
-limacharlie --filter '[].hostname' --output json sensor list
+limacharlie sensor list --filter '[].hostname' --output json
 
 # Filter + wide mode (full values, no truncation)
-limacharlie --filter 'user_perms' --wide auth whoami
+limacharlie auth whoami --filter 'user_perms' --wide
 ```
 
 ### Wide Mode
@@ -631,8 +631,8 @@ Table output automatically truncates large values (dicts become `{N keys}`, long
 
 ```bash
 limacharlie auth whoami                # user_perms shown as "{8 keys}"
-limacharlie --wide auth whoami         # user_perms shown in full
-limacharlie -W sensor list             # All columns untruncated
+limacharlie auth whoami --wide         # user_perms shown in full
+limacharlie sensor list -W             # All columns untruncated
 ```
 
 ### Discovery & Help
@@ -654,7 +654,7 @@ limacharlie cheatsheet detection-engineering
 limacharlie cheatsheet incident-response
 
 # Detailed explanation of any command
-limacharlie rule create --explain
+limacharlie rule create --ai-help
 
 # JSON schema for a command's parameters
 limacharlie schema rule create
@@ -969,4 +969,4 @@ Key changes in v2:
 - CLI uses `noun verb` pattern instead of flat commands with flags
 - `gevent` dependency removed; streaming uses `requests` directly
 - All commands support `--output json|yaml|csv|table|jsonl` and `--filter`
-- Built-in help: `--explain`, `limacharlie help <topic>`, `limacharlie discover`
+- Built-in help: `--ai-help`, `limacharlie help <topic>`, `limacharlie discover`

@@ -110,7 +110,7 @@ Available locations: us, ca, eu, uk, emea
 Templates bootstrap the org with starter D&R rules and outputs.
 
 The API returns the new organization's OID on success.  After creation,
-set it as default with 'limacharlie auth use-org --oid <OID>'.
+set it as default with 'limacharlie auth use-org <OID>'.
 """
 
 _EXPLAIN_DELETE = """\

@@ -183,7 +183,7 @@ class Client:
             raise AuthenticationError(
                 "No organization ID (OID) configured.",
                 suggestion=(
-                    "Set a default org with 'limacharlie auth use-org --oid <OID>',\n"
+                    "Set a default org with 'limacharlie auth use-org <OID>',\n"
                     "pass '--oid <OID>' as a global flag (e.g. 'limacharlie --oid <OID> <command>'),\n"
                     "or set the LC_OID environment variable.\n"
                     "To find your OID, run 'limacharlie auth list-orgs'."

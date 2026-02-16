@@ -297,7 +297,7 @@ def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: s
         if not ctx.obj.quiet:
             click.echo(f"OAuth credentials saved for environment '{env_name}'.")
             if not oid:
-                click.echo("Tip: Set a default org with 'limacharlie auth use-org --oid <OID>'.")
+                click.echo("Tip: Set a default org with 'limacharlie auth use-org <OID>'.")
 
     except FirebaseAuthError as e:
         click.echo(f"OAuth authentication failed: {e}", err=True)
@@ -366,13 +366,13 @@ def whoami(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("use-org")
-@click.option("--oid", required=True, help="Organization ID to set as default.")
+@click.argument("oid")
 @pass_context
 def use_org(ctx: click.Context, oid: str) -> None:
     """Set the default organization for subsequent commands.
 
     Example:
-        limacharlie auth use-org --oid <OID>
+        limacharlie auth use-org <OID>
     """
     env_name = ctx.obj.environment or "default"
     config = load_config() or {}
@@ -609,7 +609,7 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
         click.echo(f"Error: Failed to obtain API token: {e}", err=True)
         click.echo(
             "Your OAuth credentials have been saved. You can create an org "
-            "later via the web UI and set it with 'limacharlie auth use-org --oid <OID>'.",
+            "later via the web UI and set it with 'limacharlie auth use-org <OID>'.",
             err=True,
         )
         ctx.exit(4)
@@ -625,7 +625,7 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
         click.echo(f"Error creating organization: {e}", err=True)
         click.echo(
             "Your OAuth credentials have been saved. You can create an org "
-            "later via the web UI and set it with 'limacharlie auth use-org --oid <OID>'.",
+            "later via the web UI and set it with 'limacharlie auth use-org <OID>'.",
             err=True,
         )
         ctx.exit(5)
