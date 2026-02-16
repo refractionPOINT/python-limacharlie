@@ -10,6 +10,7 @@ The simplified approach means we only deal with Firebase tokens, not provider-sp
 tokens, making the refresh logic much cleaner and more reliable.
 """
 
+import sys
 import time
 from typing import Dict, Optional
 
@@ -46,22 +47,22 @@ class SimpleOAuthManager:
         # Token expired or about to expire, refresh it
         refresh_token = oauth_creds.get('refresh_token')
         if not refresh_token:
-            print("No refresh token available")
+            print("No refresh token available", file=sys.stderr)
             return None
-        
+
         try:
-            print("Refreshing expired OAuth token...")
+            print("Refreshing expired OAuth token...", file=sys.stderr)
             new_id_token, new_expires_at = self.auth_client.refresh_id_token(refresh_token)
-            
+
             # Update credentials
             oauth_creds['id_token'] = new_id_token
             oauth_creds['expires_at'] = new_expires_at
-            
+
             return oauth_creds
-            
+
         except FirebaseAuthError as e:
-            print(f"Failed to refresh OAuth token: {str(e)}")
+            print(f"Failed to refresh OAuth token: {str(e)}", file=sys.stderr)
             return None
         except Exception as e:
-            print(f"Unexpected error refreshing token: {str(e)}")
+            print(f"Unexpected error refreshing token: {str(e)}", file=sys.stderr)
             return None

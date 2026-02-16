@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import time
+import uuid
 
 import click
 
@@ -202,7 +203,7 @@ def send(ctx: click.Context, sid: str, task: str, investigation_id: str | None) 
     sensor = _get_sensor(ctx, sid)
     data = sensor.task(task, inv_id=investigation_id)
     if not ctx.obj.quiet:
-        click.echo(f"Task sent to sensor {sid}.")
+        click.echo(f"Task sent to sensor {sid}.", err=True)
     _output(ctx, data)
 
 
@@ -234,22 +235,48 @@ def request(ctx: click.Context, sid: str, task_command: str, timeout: int) -> No
     org = _get_org(ctx)
     sensor = Sensor(org, sid)
 
-    # Create a Spout to receive events from this sensor.
-    spout = Spout(org, "event", sid=sid)
-    try:
-        # Send the task.
-        sensor.task(task_command)
-        if not ctx.obj.quiet:
-            click.echo(f"Task sent, waiting up to {timeout}s for response...")
+    # Use an investigation_id to correlate the task with its response.
+    inv_id = str(uuid.uuid4())
 
-        # Collect events until timeout.
+    # Ensure the JWT is available before creating the Spout.  JWTs are
+    # normally generated lazily on the first client.request() call, but
+    # the Spout reads client._jwt directly in its constructor.
+    if org.client._jwt is None:
+        org.client.refresh_jwt()
+
+    # Create a Spout FIRST so the subscription is active before the task is sent.
+    # The stream-tmp server sends {"__trace":"connected"} once the output
+    # subscription has propagated (~1 s after HTTP 200).  We must wait for
+    # that signal before sending the task, otherwise the response event
+    # arrives before the subscription exists and is silently lost.
+    spout = Spout(org, "event", inv_id=inv_id)
+    try:
+        spout.wait_connected(timeout=10)
+
+        # Send the task with the same investigation_id.
+        sensor.task(task_command, inv_id=inv_id)
+        if not ctx.obj.quiet:
+            click.echo(f"Task sent, waiting up to {timeout}s for response...", err=True)
+
+        # Collect events until timeout.  CLOUD_NOTIFICATION is just a
+        # delivery receipt from the cloud, not the actual sensor response.
         results = []
         deadline = time.time() + timeout
+        got_result = False
         while time.time() < deadline:
             remaining = max(0.1, deadline - time.time())
             event = spout.get(timeout=min(remaining, 2))
             if event is not None:
+                routing = event.get("routing", {})
+                if routing.get("event_type") == "CLOUD_NOTIFICATION":
+                    continue
                 results.append(event)
+                if not got_result:
+                    # After the first real result, shorten the deadline
+                    # to collect any trailing events without waiting the
+                    # full timeout.
+                    got_result = True
+                    deadline = min(deadline, time.time() + 2)
     finally:
         spout.shutdown()
 
@@ -297,7 +324,7 @@ def reliable_send(ctx: click.Context, sid: str, task_command: str, investigation
         req["ttl"] = ttl
     data = org.service_request("reliable-tasking", req, is_async=True)
     if not ctx.obj.quiet:
-        click.echo(f"Reliable task sent to sensor {sid}.")
+        click.echo(f"Reliable task sent to sensor {sid}.", err=True)
     _output(ctx, data)
 
 
@@ -345,5 +372,5 @@ def reliable_delete(ctx: click.Context, sid: str, task_id: str) -> None:
     }
     data = org.service_request("reliable-tasking", req, is_async=True)
     if not ctx.obj.quiet:
-        click.echo(f"Reliable task {task_id} cancelled for sensor {sid}.")
+        click.echo(f"Reliable task {task_id} cancelled for sensor {sid}.", err=True)
     _output(ctx, data)

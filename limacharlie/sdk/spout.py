@@ -65,13 +65,19 @@ class Spout:
         self._max_buffer = max_buffer
         self._dropped = 0
         self._is_stop = False
+        self._connected = threading.Event()
+        self._error: str | None = None
 
         # Build spout parameters.
+        # Prefer JWT over raw API key: when OAuth is active the Client
+        # generates JWTs from the OAuth token, while a stale api_key may
+        # still be present in the config.  Using the JWT keeps auth
+        # consistent with what Client.request() does.
         self._spout_params: dict[str, str] = {"type": self._data_type}
-        if hasattr(org, 'client') and org.client._api_key:
-            self._spout_params["api_key"] = org.client._api_key
-        elif hasattr(org, 'client') and org.client._jwt:
+        if hasattr(org, 'client') and org.client._jwt:
             self._spout_params["jwt"] = org.client._jwt
+        elif hasattr(org, 'client') and org.client._api_key:
+            self._spout_params["api_key"] = org.client._api_key
         if inv_id is not None:
             self._spout_params["inv_id"] = inv_id
         if tag is not None:
@@ -112,13 +118,40 @@ class Spout:
             return
         self._is_stop = True
         if self._conn is not None:
+            # We must force-close the underlying socket.  The normal
+            # Response.close() path drains remaining body data for
+            # connection reuse, which blocks indefinitely on a streaming
+            # connection that keeps sending keepalives.  Closing the fd
+            # directly is the only reliable way to unblock iter_lines().
             try:
-                self._conn.close()
+                self._conn.raw._fp.fp.raw.close()
             except Exception:
                 pass
             self._conn = None
         for t in self._threads:
             t.join(timeout=2)
+
+    def wait_connected(self, timeout: float = 10) -> bool:
+        """Block until the server confirms the subscription is active.
+
+        The stream-tmp endpoint sends a ``{"__trace":"connected"}`` message
+        once the output subscription has been created and propagated.
+        Callers should wait for this before sending tasks to avoid a race
+        where the task response arrives before the subscription is ready.
+
+        Args:
+            timeout: Seconds to wait for the connected signal.
+
+        Returns:
+            True if connected, False if timeout expired.
+
+        Raises:
+            ApiError: if the server sent an error (auth failure, etc.).
+        """
+        self._connected.wait(timeout=timeout)
+        if self._error is not None:
+            raise ApiError(f"Spout connection failed: {self._error}")
+        return self._connected.is_set()
 
     def get(self, timeout: int = 1) -> Any | None:
         """Get next message from the queue.
@@ -158,12 +191,25 @@ class Spout:
                         if self._is_parse:
                             parsed = json.loads(line.decode())
                             if "__trace" in parsed:
-                                if parsed["__trace"] == "dropped":
+                                if parsed["__trace"] == "connected":
+                                    self._connected.set()
+                                elif parsed["__trace"] == "dropped":
                                     self._dropped += int(parsed.get("n", 0))
                                 continue
                             self.queue.put_nowait(parsed)
                         else:
                             self.queue.put_nowait(line)
+                    except (ValueError, UnicodeDecodeError):
+                        # The stream-tmp server writes plain-text error
+                        # messages (e.g. "error: unauthorized") when auth
+                        # or output creation fails.  Surface these instead
+                        # of silently dropping them.
+                        text = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line)
+                        if text.startswith("error:"):
+                            self._error = text
+                            self._connected.set()  # unblock wait_connected
+                            return
+                        self._dropped += 1
                     except Exception:
                         self._dropped += 1
             except Exception:
