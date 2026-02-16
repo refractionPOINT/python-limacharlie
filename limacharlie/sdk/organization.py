@@ -651,7 +651,7 @@ class Organization:
 
     # --- Sensors ---
 
-    def list_sensors(self, selector: str | None = None, limit: int | None = None, with_ip: str | None = None, with_hostname_prefix: str | None = None) -> Generator[dict[str, Any], None, None]:
+    def list_sensors(self, selector: str | None = None, limit: int | None = None, with_ip: str | None = None, with_hostname_prefix: str | None = None, is_online_only: bool = False) -> Generator[dict[str, Any], None, None]:
         """List sensors in the organization.
 
         Args:
@@ -659,6 +659,7 @@ class Organization:
             limit: Max number per page.
             with_ip: Filter by IP address.
             with_hostname_prefix: Filter by hostname prefix.
+            is_online_only: If True, only return sensors that are currently online.
 
         Yields:
             dict: Sensor information dicts.
@@ -676,6 +677,8 @@ class Organization:
                 qp["with_ip"] = with_ip
             if with_hostname_prefix:
                 qp["with_hostname_prefix"] = with_hostname_prefix
+            if is_online_only:
+                qp["is_online_only"] = "true"
 
             resp = self._client.request("GET", f"sensors/{self.oid}", query_params=qp or None)
             for s in resp.get("sensors", []):

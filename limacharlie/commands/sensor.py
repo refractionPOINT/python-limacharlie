@@ -24,23 +24,53 @@ from ..discovery import register_explain
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LIST = """\
-List sensors enrolled in the organization.  Results can be filtered by
-tag (using the sensor selector expression '`tag` in tags'), by hostname
-prefix, or by IP address.  The --limit and --offset options control
-pagination; by default all sensors are returned.
+List sensors enrolled in the organization.  Results can be filtered
+server-side with --selector (bexpr expression), --online (only online
+sensors), --tag, --hostname, or --ip.  The --limit and --offset options
+control pagination; by default all sensors are returned.
 
 Each sensor record contains:
   sid          - Sensor ID (UUID), the primary identifier
   hostname     - Endpoint hostname
-  plat         - Platform (windows, linux, macos, chrome, edge)
-  arch         - Architecture (x64, x86, arm64)
+  plat         - Platform (windows, linux, macos, chrome, etc.)
+  arch         - Architecture (x64, x86, arm64, arml)
   ext_ip       - External IP address
   int_ip       - Internal IP address
-  alive        - Boolean, whether currently online
-  enroll_ts    - Enrollment timestamp (epoch seconds)
-  last_error   - Last reported error (if any)
+  alive        - Last connection timestamp (epoch seconds)
+  enroll       - Enrollment timestamp (epoch seconds)
   sensor_ver   - Running sensor version string
   tags         - List of tags applied to the sensor
+  isolated     - Whether network isolation is active
+  sealed       - Whether sensor is sealed
+
+## Selector Expressions (--selector)
+
+Selectors use bexpr syntax for powerful server-side filtering.  This is
+much more efficient than fetching all sensors and filtering client-side.
+
+Available fields:
+  sid, hostname, plat, arch, ext_ip, int_ip, alive, enroll,
+  tags, isolated, sealed, kernel, did, mac_addr
+
+Operators:
+  ==, !=, in, not in, contains, matches (regex), not matches
+
+Logical operators:
+  and, or, ( )
+
+Platform values for plat:
+  windows, linux, macos, ios, android, chrome
+
+Examples:
+  limacharlie sensor list --selector 'plat == windows'
+  limacharlie sensor list --selector 'plat == linux and arch == x64'
+  limacharlie sensor list --selector '"prod" in tags'
+  limacharlie sensor list --selector 'hostname matches "^web-.*"'
+  limacharlie sensor list --selector 'isolated == true'
+  limacharlie sensor list --selector '(plat == windows or plat == linux) and "prod" in tags'
+
+Combine --selector with --online for online Windows sensors:
+  limacharlie sensor list --online --selector 'plat == windows'
 
 Related: 'limacharlie tag find' to find sensors by a specific tag,
 'limacharlie sensor get --sid <SID>' for detailed info on one sensor.
@@ -66,13 +96,6 @@ re-enrolled if you want it back.  Historical telemetry for this sensor
 is retained according to your retention policy.
 
 This is a destructive operation.  You must pass --confirm to proceed.
-"""
-
-_EXPLAIN_ONLINE = """\
-Check whether a specific sensor is currently online (connected to the
-LimaCharlie cloud).  Returns a simple boolean result.  This is a
-lightweight check useful for scripts that need to verify connectivity
-before sending tasks.
 """
 
 _EXPLAIN_WAIT_ONLINE = """\
@@ -162,7 +185,6 @@ Related: 'limacharlie task send' for individual task commands,
 register_explain("sensor.list", _EXPLAIN_LIST)
 register_explain("sensor.get", _EXPLAIN_GET)
 register_explain("sensor.delete", _EXPLAIN_DELETE)
-register_explain("sensor.online", _EXPLAIN_ONLINE)
 register_explain("sensor.wait-online", _EXPLAIN_WAIT_ONLINE)
 register_explain("sensor.upgrade", _EXPLAIN_UPGRADE)
 register_explain("sensor.set-version", _EXPLAIN_SET_VERSION)
@@ -210,26 +232,33 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("list")
-@click.option("--tag", default=None, help="Filter by tag (sensors with this tag).")
+@click.option("--selector", default=None, help="Sensor selector expression (bexpr) for server-side filtering. E.g. 'plat == windows', '\"prod\" in tags'.")
+@click.option("--online", "online_only", is_flag=True, default=False, help="Only return sensors that are currently online.")
+@click.option("--tag", default=None, help="Filter by tag (shorthand for '`tag` in tags' selector).")
 @click.option("--hostname", default=None, help="Filter by hostname prefix.")
 @click.option("--ip", default=None, help="Filter by IP address.")
 @click.option("--limit", default=None, type=int, help="Maximum number of sensors to return.")
 @click.option("--offset", default=None, type=int, help="Pagination offset (not used directly; controls client-side skip).")
 @pass_context
-def list_sensors(ctx: click.Context, tag: str | None, hostname: str | None, ip: str | None, limit: int | None, offset: int | None) -> None:
+def list_sensors(ctx: click.Context, selector: str | None, online_only: bool, tag: str | None, hostname: str | None, ip: str | None, limit: int | None, offset: int | None) -> None:
     """List sensors in the organization.
 
     Examples:
         limacharlie sensor list
+        limacharlie sensor list --online --selector 'plat == windows'
+        limacharlie sensor list --selector '"prod" in tags' --limit 50
         limacharlie sensor list --tag production --limit 50
         limacharlie sensor list --hostname web-server
         limacharlie sensor list --ip 10.0.0.5
     """
     org = _get_org(ctx)
 
-    selector = None
     if tag:
-        selector = f"`{tag}` in tags"
+        tag_selector = f"`{tag}` in tags"
+        if selector:
+            selector = f"({selector}) and {tag_selector}"
+        else:
+            selector = tag_selector
 
     # When offset is used, we need to fetch offset+limit from the API
     api_limit = None
@@ -245,6 +274,7 @@ def list_sensors(ctx: click.Context, tag: str | None, hostname: str | None, ip: 
         limit=api_limit,
         with_ip=ip,
         with_hostname_prefix=hostname,
+        is_online_only=online_only,
     ):
         if offset and count < offset:
             count += 1
@@ -306,29 +336,6 @@ def delete(ctx: click.Context, sid: str, confirm: bool) -> None:
         click.echo(f"Sensor {sid} deleted.")
     _output(ctx, data)
 
-
-# ---------------------------------------------------------------------------
-# online
-# ---------------------------------------------------------------------------
-
-@group.command()
-@click.option("--sid", default=None, help="Sensor ID (UUID). If omitted, list all online sensors.")
-@pass_context
-def online(ctx: click.Context, sid: str | None) -> None:
-    """List online sensors, or check if a specific sensor is online.
-
-    Example:
-        limacharlie sensor online
-        limacharlie sensor online --sid <SID>
-    """
-    org = _get_org(ctx)
-    if sid is not None:
-        sensor = _get_sensor(ctx, sid)
-        is_online = sensor.is_online()
-        _output(ctx, {"sid": sid, "is_online": is_online})
-    else:
-        online_sids = org.get_online_sensors()
-        _output(ctx, online_sids)
 
 
 # ---------------------------------------------------------------------------

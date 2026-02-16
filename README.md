@@ -220,10 +220,11 @@ limacharlie org delete --confirm-token <token>  # Step 2: confirm
 
 ```bash
 limacharlie sensor list
+limacharlie sensor list --online --selector 'plat == windows'
+limacharlie sensor list --selector '"prod" in tags' --limit 50
 limacharlie sensor list --tag production --limit 50
 limacharlie sensor list --hostname web-server
 limacharlie sensor get --sid SENSOR_ID
-limacharlie sensor online --sid SENSOR_ID
 limacharlie sensor wait-online --sid SENSOR_ID --timeout 120
 limacharlie sensor delete --sid SENSOR_ID --confirm
 limacharlie sensor export                # Full fleet manifest
