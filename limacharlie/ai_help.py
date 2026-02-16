@@ -130,7 +130,7 @@ def _top_level_help(cli: click.Group) -> str:
     # -- Global options ----------------------------------------------------
     lines.append("")
     lines.append("## Global Options")
-    lines.append("These go *before* the command group:")
+    lines.append("These can appear anywhere on the command line:")
     lines.append("```")
     lines.append("--oid OID          Override organization ID")
     lines.append("--output FORMAT    json | yaml | table | csv | jsonl")

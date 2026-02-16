@@ -36,7 +36,60 @@ class LimaCharlieContext:
 pass_context = click.pass_context
 
 
-@click.group()
+class _GlobalOptionsGroup(click.Group):
+    """Click Group that allows group-level options to appear anywhere on the command line.
+
+    Normally Click only parses group options that appear before the subcommand
+    name.  This subclass hoists recognized group options to the front of the
+    args list so that ``limacharlie org list --output json`` works the same as
+    ``limacharlie --output json org list``.
+    """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # Build a map of option strings defined on this group.
+        opt_takes_value: dict[str, bool] = {}
+        for param in self.params:
+            if not isinstance(param, click.Option) or param.is_eager:
+                # Skip non-options and eager options (--help, --version) which
+                # should remain position-sensitive.
+                continue
+            takes_value = not getattr(param, "is_flag", False)
+            for name in param.opts + param.secondary_opts:
+                opt_takes_value[name] = takes_value
+
+        global_args: list[str] = []
+        remaining: list[str] = []
+        i = 0
+        while i < len(args):
+            arg = args[i]
+
+            # "--" signals end of options; pass everything after it through.
+            if arg == "--":
+                remaining.extend(args[i:])
+                break
+
+            # Handle --option=value form.
+            if "=" in arg:
+                opt_name = arg.split("=", 1)[0]
+                if opt_name in opt_takes_value:
+                    global_args.append(arg)
+                    i += 1
+                    continue
+
+            if arg in opt_takes_value:
+                global_args.append(arg)
+                if opt_takes_value[arg]:  # consumes the next token as value
+                    i += 1
+                    if i < len(args):
+                        global_args.append(args[i])
+            else:
+                remaining.append(arg)
+            i += 1
+
+        return super().parse_args(ctx, global_args + remaining)
+
+
+@click.group(cls=_GlobalOptionsGroup)
 @click.option("--oid", default=None, help="Organization ID (overrides env/config).")
 @click.option(
     "--output", "output_format",
