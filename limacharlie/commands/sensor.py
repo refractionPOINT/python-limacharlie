@@ -33,7 +33,7 @@ Each sensor record contains:
   sid          - Sensor ID (UUID), the primary identifier
   hostname     - Endpoint hostname
   plat         - Platform (windows, linux, macos, chrome, etc.)
-  arch         - Architecture (x64, x86, arm64, arml)
+  arch         - Architecture (x64, x86, arm64)
   ext_ip       - External IP address
   int_ip       - Internal IP address
   alive        - Last connection timestamp (epoch seconds)
