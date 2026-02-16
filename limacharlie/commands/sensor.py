@@ -312,17 +312,23 @@ def delete(ctx: click.Context, sid: str, confirm: bool) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--sid", required=True, help="Sensor ID (UUID).")
+@click.option("--sid", default=None, help="Sensor ID (UUID). If omitted, list all online sensors.")
 @pass_context
-def online(ctx: click.Context, sid: str) -> None:
-    """Check if a sensor is currently online.
+def online(ctx: click.Context, sid: str | None) -> None:
+    """List online sensors, or check if a specific sensor is online.
 
     Example:
+        limacharlie sensor online
         limacharlie sensor online --sid <SID>
     """
-    sensor = _get_sensor(ctx, sid)
-    is_online = sensor.is_online()
-    _output(ctx, {"sid": sid, "is_online": is_online})
+    org = _get_org(ctx)
+    if sid is not None:
+        sensor = _get_sensor(ctx, sid)
+        is_online = sensor.is_online()
+        _output(ctx, {"sid": sid, "is_online": is_online})
+    else:
+        online_sids = org.get_online_sensors()
+        _output(ctx, online_sids)
 
 
 # ---------------------------------------------------------------------------
