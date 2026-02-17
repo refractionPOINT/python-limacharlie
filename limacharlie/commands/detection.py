@@ -15,6 +15,7 @@ from ..client import Client
 from ..sdk.organization import Organization
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,8 @@ def list_detections(ctx: click.Context, start: int, end: int, cat: str | None, l
         limacharlie detection list --start 1700000000 --end 1700086400 \\
             --cat lateral_movement --limit 50
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     detections = list(org.get_detections(start, end, limit=limit, category=cat))
     _output(ctx, detections)

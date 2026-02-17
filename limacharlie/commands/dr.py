@@ -22,6 +22,7 @@ from ..sdk.hive import Hive, HiveRecord
 from ..sdk.replay import Replay as ReplaySDK
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -636,6 +637,8 @@ def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace) -> N
         limacharlie dr replay --name my-rule \\
             --start 1700000000 --end 1700100000 --sid <SID> --trace
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     replay_sdk = ReplaySDK(org)
     data = replay_sdk.run(

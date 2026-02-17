@@ -17,6 +17,7 @@ from ..sdk.search import Search
 from ..sdk.hive import Hive, HiveRecord
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +216,8 @@ def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None
         limacharlie search run --query "detect.cat == 'lateral_movement'" \\
             --start 1700000000 --end 1700086400 --stream detect --limit 100
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     search = Search(org)
     results = list(search.execute(query, start, end, stream=stream, limit=limit))
@@ -257,6 +260,8 @@ def estimate(ctx: click.Context, query: str, start: int, end: int, stream: str |
         limacharlie search estimate --query "event_type == 'NEW_PROCESS'" \\
             --start 1700000000 --end 1700086400
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     search = Search(org)
     data = search.estimate(query, start, end, stream=stream)
@@ -323,6 +328,8 @@ def saved_create(ctx: click.Context, name: str, query: str, start: int | None, e
             --query "event_type == 'DNS_REQUEST'" \\
             --start 1700000000 --end 1700086400 --stream event
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     hive = Hive(org, "query")
 

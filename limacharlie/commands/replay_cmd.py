@@ -19,6 +19,7 @@ from ..sdk.organization import Organization
 from ..sdk.replay import Replay as ReplaySDK
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +136,8 @@ def run(ctx, name, detect_file, respond_file, start, end) -> None:
         limacharlie replay run --detect-file detect.yaml \\
             --respond-file respond.yaml --start 1700000000 --end 1700100000
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     detect = None
     respond = None
 

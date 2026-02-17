@@ -16,6 +16,7 @@ from ..client import Client
 from ..sdk.organization import Organization
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,9 @@ def list_audit(ctx, start, end, limit) -> None:
         limacharlie audit list --start 1700000000 --end 1700100000
         limacharlie audit list --limit 50
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
+
     now = int(time.time())
     if end is None:
         end = now

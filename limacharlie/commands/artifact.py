@@ -16,6 +16,7 @@ from ..sdk.organization import Organization
 from ..sdk.artifacts import Artifacts
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +36,8 @@ Types of artifacts:
   - Externally uploaded log files (syslog, JSON, pcap, prefetch, etc.)
 
 Use --sid to filter artifacts for a specific sensor.  Use --type to
-filter by artifact type and --start/--end for time range filtering.
+filter by artifact type.  Use --start/--end to filter by time range
+(Unix timestamps in seconds).
 
 The output includes artifact IDs, source info, type, and timestamps.
 Use the artifact ID with 'artifact download' to retrieve the data.
@@ -133,6 +135,8 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
         limacharlie artifact list --sid <SID>
         limacharlie artifact list --sid <SID> --output json
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     artifacts = Artifacts(org)
     data = artifacts.list(sid=sid, start=start, end=end)

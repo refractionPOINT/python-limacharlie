@@ -16,6 +16,7 @@ from ..sdk.organization import Organization
 from ..sdk.sensor import Sensor
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +214,8 @@ def list_events(ctx: click.Context, sid: str, start: int, end: int, limit: int |
         limacharlie event list --sid <SID> --start 1700000000 --end 1700086400 \\
             --event-type NEW_PROCESS --limit 100
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     sensor = Sensor(org, sid)
     events = list(sensor.get_events(start, end, limit=limit, event_type=event_type))
@@ -274,6 +277,8 @@ def overview(ctx: click.Context, sid: str, start: int, end: int) -> None:
     Example:
         limacharlie event overview --sid <SID> --start 1700000000 --end 1700086400
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     sensor = Sensor(org, sid)
     data = sensor.get_overview(start, end)
@@ -295,6 +300,8 @@ def timeline(ctx: click.Context, sid: str, start: int, end: int) -> None:
     Example:
         limacharlie event timeline --sid <SID> --start 1700000000 --end 1700086400
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     sensor = Sensor(org, sid)
     data = sensor.get_overview(start, end)
@@ -355,6 +362,8 @@ def retention(ctx: click.Context, sid: str, start: int, end: int, detailed: bool
         limacharlie event retention --sid <SID> --start 1700000000 --end 1700086400
         limacharlie event retention --sid <SID> --start 1700000000 --end 1700086400 --detailed
     """
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     sensor = Sensor(org, sid)
     data = sensor.get_event_retention(start, end, is_detailed=detailed)
