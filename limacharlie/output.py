@@ -196,18 +196,20 @@ def format_table(data: Any) -> str:
                     if k not in all_keys:
                         all_keys.append(k)
 
-            rows = []
-            for item in data:
-                rows.append([_table_value(item.get(k, "")) for k in all_keys])
+            selected_keys, rows = _fit_columns(all_keys, data)
+            dropped = len(all_keys) - len(selected_keys)
 
             if tabulate is not None:
-                return tabulate(rows, headers=all_keys, tablefmt="simple")
-            # Fallback without tabulate
-            header = "  ".join(str(k) for k in all_keys)
-            lines = [header]
-            for row in rows:
-                lines.append("  ".join(str(v) for v in row))
-            return "\n".join(lines)
+                tbl = tabulate(rows, headers=selected_keys, tablefmt="simple")
+            else:
+                header = "  ".join(str(k) for k in selected_keys)
+                lines = [header]
+                for row in rows:
+                    lines.append("  ".join(str(v) for v in row))
+                tbl = "\n".join(lines)
+            if dropped > 0:
+                tbl += f"\n({dropped} more field{'s' if dropped != 1 else ''} hidden, use -W to show all or --output json for full data)"
+            return tbl
 
         # List of primitives
         return "\n".join(str(item) for item in data)
@@ -245,6 +247,73 @@ def _max_value_width() -> int:
     return max(40, cols - 20)
 
 
+def _term_width() -> int:
+    """Return the current terminal width."""
+    try:
+        return shutil.get_terminal_size().columns
+    except Exception:
+        return 80
+
+
+def _fit_columns(
+    keys: list[str],
+    rows_raw: list[dict[str, Any]],
+) -> tuple[list[str], list[list[str]]]:
+    """Select and truncate columns to fit the terminal width.
+
+    Returns (selected_keys, formatted_rows) where columns that
+    would push the table past the terminal width are dropped,
+    preferring to drop the sparsest (most-empty) columns first.
+    """
+    term = _term_width()
+    num_rows = len(rows_raw)
+
+    if _wide_mode or num_rows == 0:
+        # No column dropping in wide mode.
+        rows = []
+        for item in rows_raw:
+            rows.append([_table_value(item.get(k, "")) for k in keys])
+        return keys, rows
+
+    # Per-cell max: reasonable cap so one column can't eat all space.
+    cell_max = max(20, min(60, term // 3))
+
+    # Pre-compute cell strings and actual widths per column.
+    col_cells: dict[str, list[str]] = {}
+    col_width: dict[str, int] = {}
+    col_fill: dict[str, int] = {}  # number of non-empty cells
+    for k in keys:
+        cells = [_table_value(item.get(k, ""), width=cell_max) for item in rows_raw]
+        col_cells[k] = cells
+        # Column display width: tabulate uses max(header + MIN_PADDING, content).
+        max_cell = max((len(c) for c in cells), default=0)
+        col_width[k] = max(len(k) + 2, max_cell)
+        col_fill[k] = sum(1 for c in cells if c != "")
+
+    # Greedily select columns that fit.  Sort candidates so the
+    # sparsest columns are dropped first (lowest fill count last).
+    # Among equal fill, keep original key order.
+    priority = sorted(keys, key=lambda k: (-col_fill[k], keys.index(k)))
+
+    selected: list[str] = []
+    used = 0
+    for k in priority:
+        # 2-char separator between columns
+        needed = col_width[k] + (2 if selected else 0)
+        if used + needed <= term:
+            selected.append(k)
+            used += needed
+
+    # Restore original key order for display.
+    selected_set = set(selected)
+    selected = [k for k in keys if k in selected_set]
+
+    rows = []
+    for i in range(num_rows):
+        rows.append([col_cells[k][i] for k in selected])
+    return selected, rows
+
+
 def _truncate(s: str, width: int) -> str:
     """Truncate a string to *width* characters, adding '...' if needed."""
     if len(s) <= width:
@@ -252,8 +321,14 @@ def _truncate(s: str, width: int) -> str:
     return s[:width - 3] + "..."
 
 
-def _table_value(v: Any) -> str:
-    """Convert a value for table display."""
+def _table_value(v: Any, width: int | None = None) -> str:
+    """Convert a value for table display.
+
+    Args:
+        v: The value to convert.
+        width: Max character width for this cell.  When None, falls back
+               to the terminal-based default from _max_value_width().
+    """
     if _wide_mode:
         if isinstance(v, dict):
             return json.dumps(v, default=str)
@@ -262,7 +337,8 @@ def _table_value(v: Any) -> str:
         if v is None:
             return ""
         return str(v)
-    width = _max_value_width()
+    if width is None:
+        width = _max_value_width()
     if isinstance(v, dict):
         s = json.dumps(v, default=str)
         if len(s) <= width:
