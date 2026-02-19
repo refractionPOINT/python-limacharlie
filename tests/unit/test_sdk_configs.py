@@ -74,9 +74,10 @@ class TestConfigsPush:
             "data": {"ops": [{"type": "output", "name": "o1", "is_added": True, "is_removed": False}]}
         }
         config = {"version": 3, "outputs": {"o1": {"module": "s3"}}}
-        results = configs.push(config, sync_outputs=True)
+        results, errors = configs.push(config, sync_outputs=True)
         assert len(results) == 1
         assert results[0] == ("+", "output", "o1")
+        assert errors == []
 
     def test_push_dry_run(self, configs, mock_org):
         mock_org.client.request.return_value = {"data": {"ops": []}}
@@ -89,17 +90,19 @@ class TestConfigsPush:
                 {"type": "output", "name": "old", "is_added": False, "is_removed": True},
             ]}
         }
-        results = configs.push({"version": 3}, is_force=True, sync_outputs=True)
+        results, errors = configs.push({"version": 3}, is_force=True, sync_outputs=True)
         assert results[0] == ("-", "output", "old")
+        assert errors == []
 
     def test_push_with_hives(self, configs, mock_org):
         mock_org.client.request.return_value = {
             "data": {"ops": [{"type": "hive.dr-general", "name": "r1", "is_added": True, "is_removed": False}]}
         }
         config = {"version": 3, "hives": {"dr-general": {"r1": {"data": {}}}}}
-        results = configs.push(config, sync_hives={"dr-general": True})
+        results, errors = configs.push(config, sync_hives={"dr-general": True})
         assert len(results) == 1
         assert results[0] == ("+", "hive.dr-general", "r1")
+        assert errors == []
 
     def test_push_unchanged(self, configs, mock_org):
         mock_org.client.request.return_value = {
@@ -107,8 +110,21 @@ class TestConfigsPush:
                 {"type": "output", "name": "o1", "is_added": False, "is_removed": False},
             ]}
         }
-        results = configs.push({"version": 3}, sync_outputs=True)
+        results, errors = configs.push({"version": 3}, sync_outputs=True)
         assert results[0] == ("=", "output", "o1")
+        assert errors == []
+
+    def test_push_returns_backend_errors(self, configs, mock_org):
+        mock_org.client.request.return_value = {
+            "data": {
+                "ops": [],
+                "errors": ["failed to sync output 'bad-output': invalid module"],
+            }
+        }
+        results, errors = configs.push({"version": 3}, sync_outputs=True)
+        assert results == []
+        assert len(errors) == 1
+        assert "bad-output" in errors[0]
 
 
 class TestConfigsLoadEffectiveConfig:

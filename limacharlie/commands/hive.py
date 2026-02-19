@@ -549,6 +549,8 @@ def import_records(ctx, name, input_file, partition_key, dry_run) -> None:
     hive = Hive(org, name, partition_key=partition_key)
 
     results = {}
+    imported = 0
+    errors = []
     for record_name, record_data in data.items():
         record = _record_from_input(record_name, record_data)
         if dry_run:
@@ -556,9 +558,23 @@ def import_records(ctx, name, input_file, partition_key, dry_run) -> None:
             if not ctx.obj.quiet:
                 click.echo(f"[dry-run] Would set record '{record_name}' in hive '{name}'.")
         else:
-            result = hive.set(record)
-            results[record_name] = result
-            if not ctx.obj.quiet:
-                click.echo(f"Set record '{record_name}' in hive '{name}'.")
+            try:
+                result = hive.set(record)
+                results[record_name] = result
+                imported += 1
+                if not ctx.obj.quiet:
+                    click.echo(f"Set record '{record_name}' in hive '{name}'.")
+            except Exception as e:
+                errors.append(f"  {record_name}: {e}")
+                if not ctx.obj.quiet:
+                    click.echo(f"Error setting record '{record_name}': {e}", err=True)
 
+    if not dry_run and not ctx.obj.quiet:
+        click.echo(f"Imported {imported}/{len(data)} records.")
+        if errors:
+            click.echo("Errors:", err=True)
+            for err in errors:
+                click.echo(err, err=True)
     _output(ctx, results)
+    if errors:
+        ctx.exit(min(len(errors), 125))

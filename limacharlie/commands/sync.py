@@ -362,7 +362,7 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
 
     org = _get_org(ctx)
     configs = Configs(org)
-    results = configs.push_from_file(
+    results, errors = configs.push_from_file(
         config_file,
         is_force=force,
         is_dry_run=dry_run,
@@ -374,6 +374,12 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
             click.echo("Dry run results:")
         for op, rtype, name in results:
             click.echo(f"  {op} {rtype}: {name}")
-        if not results:
+        if not results and not errors:
             click.echo("  No changes.")
+        if errors:
+            click.echo("Errors:", err=True)
+            for err in errors:
+                click.echo(f"  {err}", err=True)
     _output(ctx, [{"op": op, "type": rtype, "name": name} for op, rtype, name in results])
+    if errors:
+        ctx.exit(min(len(errors), 125))

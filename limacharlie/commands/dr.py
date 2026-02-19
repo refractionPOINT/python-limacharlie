@@ -780,3 +780,5 @@ def import_rules(ctx, input_file, namespace, dry_run) -> None:
             click.echo("Errors:", err=True)
             for err in errors:
                 click.echo(err, err=True)
+    if errors:
+        ctx.exit(min(len(errors), 125))

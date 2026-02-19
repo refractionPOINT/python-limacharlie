@@ -111,7 +111,7 @@ class Configs:
              sync_outputs: bool = False, sync_integrity: bool = False, sync_artifact: bool = False,
              sync_exfil: bool = False, sync_resources: bool = False, sync_extensions: bool = False,
              sync_org_values: bool = False, sync_hives: dict[str, bool] | None = None,
-             sync_installation_keys: bool = False, sync_yara: bool = False) -> list[tuple[str, str, str]]:
+             sync_installation_keys: bool = False, sync_yara: bool = False) -> tuple[list[tuple[str, str, str]], list[str]]:
         """Push configuration to the org in the cloud.
 
         Args:
@@ -131,7 +131,9 @@ class Configs:
             sync_yara: Push YARA rules and sources.
 
         Returns:
-            list: List of (op_type, resource_type, name) tuples.
+            tuple: (results, errors) where results is a list of
+                (op_type, resource_type, name) tuples and errors is a list
+                of error strings from the backend.
                 op_type is '+' (added), '-' (removed), or '=' (unchanged).
         """
         if sync_hives is None:
@@ -169,7 +171,17 @@ class Configs:
                 results.append(("-", op["type"], op["name"]))
             else:
                 results.append(("=", op["type"], op["name"]))
-        return results
+
+        errors: list[str] = []
+        for err in data.get("errors", []):
+            if isinstance(err, str):
+                errors.append(err)
+            elif isinstance(err, dict):
+                errors.append(err.get("error", str(err)))
+            else:
+                errors.append(str(err))
+
+        return results, errors
 
     def fetch_to_file(self, file_path: str, **kwargs: Any) -> dict[str, Any]:
         """Fetch configuration and save to a YAML file.
@@ -183,7 +195,7 @@ class Configs:
             f.write(yaml.safe_dump(config, default_flow_style=False, version=(1, 1)).encode())
         return config
 
-    def push_from_file(self, file_path: str, **kwargs: Any) -> list[tuple[str, str, str]]:
+    def push_from_file(self, file_path: str, **kwargs: Any) -> tuple[list[tuple[str, str, str]], list[str]]:
         """Load configuration from a YAML file and push it.
 
         Args:
@@ -191,7 +203,7 @@ class Configs:
             **kwargs: Same as push() (except config).
 
         Returns:
-            list: List of (op_type, resource_type, name) tuples.
+            tuple: (results, errors) — same as push().
         """
         file_path = os.path.abspath(file_path)
         config, _ = self._load_effective_config(file_path)
