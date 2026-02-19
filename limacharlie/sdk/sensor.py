@@ -40,6 +40,7 @@ class Sensor:
 
     @property
     def client(self) -> Client:
+        """The underlying API client."""
         return self._org.client
 
     def get_info(self) -> dict[str, Any]:
@@ -89,22 +90,27 @@ class Sensor:
 
     @property
     def is_windows(self) -> bool:
+        """True if this sensor is running on Windows."""
         return self._get_platform() == self.PLATFORM_WINDOWS
 
     @property
     def is_linux(self) -> bool:
+        """True if this sensor is running on Linux."""
         return self._get_platform() == self.PLATFORM_LINUX
 
     @property
     def is_macos(self) -> bool:
+        """True if this sensor is running on macOS."""
         return self._get_platform() == self.PLATFORM_MACOS
 
     @property
     def is_chrome(self) -> bool:
+        """True if this sensor is a Chrome OS sensor."""
         return self._get_architecture() == self.ARCH_CHROME
 
     @property
     def hostname(self) -> str:
+        """The hostname reported by this sensor."""
         return self.get_info().get("hostname", "")
 
     # --- Tasking ---
@@ -209,9 +215,11 @@ class Sensor:
         return info.get("should_seal", False)
 
     def seal(self) -> dict[str, Any]:
+        """Seal the sensor, preventing uninstallation."""
         return self.client.request("POST", f"{self.sid}/seal")
 
     def unseal(self) -> dict[str, Any]:
+        """Unseal the sensor, allowing uninstallation."""
         return self.client.request("DELETE", f"{self.sid}/seal")
 
     # --- Lifecycle ---

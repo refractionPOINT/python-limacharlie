@@ -9,14 +9,27 @@ if TYPE_CHECKING:
 
 
 class IngestionKeys:
+    """Ingestion key management for a LimaCharlie organization."""
+
     def __init__(self, org: Organization) -> None:
         self._org = org
 
     def list(self) -> Any:
+        """List all ingestion keys."""
         return self._org.get_ingestion_keys()
 
     def create(self, name: str) -> dict[str, Any]:
+        """Create a new ingestion key.
+
+        Args:
+            name: Key name.
+        """
         return self._org.create_ingestion_key(name)
 
     def delete(self, name: str) -> dict[str, Any]:
+        """Delete an ingestion key.
+
+        Args:
+            name: Key name.
+        """
         return self._org.delete_ingestion_key(name)

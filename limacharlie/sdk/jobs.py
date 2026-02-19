@@ -17,17 +17,36 @@ class Jobs:
 
     @property
     def client(self) -> Any:
+        """The underlying API client."""
         return self._org.client
 
     def list(self, start_time: int | None = None, end_time: int | None = None,
              limit: int | None = None, sid: str | None = None) -> list[dict[str, Any]]:
+        """List jobs.
+
+        Args:
+            start_time: Filter start time (unix seconds).
+            end_time: Filter end time (unix seconds).
+            limit: Maximum number of jobs to return.
+            sid: Filter by sensor ID.
+        """
         return self._org.get_jobs(start_time=start_time, end_time=end_time,
                                   limit=limit, sid=sid)
 
     def get(self, job_id: str) -> dict[str, Any]:
+        """Get a job by ID.
+
+        Args:
+            job_id: Job identifier.
+        """
         return self.client.request("GET", f"job/{self._org.oid}/{job_id}")
 
     def delete(self, job_id: str) -> dict[str, Any]:
+        """Delete a job.
+
+        Args:
+            job_id: Job identifier.
+        """
         return self.client.request("DELETE", f"job/{self._org.oid}/{job_id}")
 
     def wait(self, job_id: str, timeout: int = 300, poll_interval: int = 5) -> dict[str, Any]:

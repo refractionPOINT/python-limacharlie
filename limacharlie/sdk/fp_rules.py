@@ -21,11 +21,20 @@ class FPRules:
         self._org = org
 
     def list(self) -> dict[str, Any]:
+        """List all false positive rules."""
         hive = Hive(self._org, "fp")
         records = hive.list()
         return {name: rec.to_dict() for name, rec in records.items()}
 
     def get(self, name: str) -> dict[str, Any] | None:
+        """Get a false positive rule by name.
+
+        Args:
+            name: Rule name.
+
+        Returns:
+            dict: Rule data, or None if not found.
+        """
         hive = Hive(self._org, "fp")
         try:
             record = hive.get(name)
@@ -36,10 +45,21 @@ class FPRules:
             raise
 
     def create(self, name: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a false positive rule.
+
+        Args:
+            name: Rule name.
+            data: Rule definition.
+        """
         hive = Hive(self._org, "fp")
         record = HiveRecord(name, data=data)
         return hive.set(record)
 
     def delete(self, name: str) -> dict[str, Any]:
+        """Delete a false positive rule.
+
+        Args:
+            name: Rule name.
+        """
         hive = Hive(self._org, "fp")
         return hive.delete(name)

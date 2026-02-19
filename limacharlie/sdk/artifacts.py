@@ -42,6 +42,7 @@ class Artifacts:
 
     @property
     def client(self) -> Any:
+        """The underlying API client."""
         return self._org.client
 
     def upload(self, file_path: str, source: str | None = None, hint: str | None = None,

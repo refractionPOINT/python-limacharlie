@@ -105,6 +105,7 @@ class Hive:
 
     @property
     def client(self) -> Client:
+        """The underlying API client."""
         return self._org.client
 
     def list(self) -> dict[str, HiveRecord]:

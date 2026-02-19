@@ -9,14 +9,29 @@ if TYPE_CHECKING:
 
 
 class ApiKeys:
+    """API key management for a LimaCharlie organization."""
+
     def __init__(self, org: Organization) -> None:
         self._org = org
 
     def list(self) -> dict[str, Any]:
+        """List all API keys."""
         return self._org.get_api_keys()
 
     def create(self, name: str, permissions: list[str], ip_range: str | None = None) -> dict[str, Any]:
+        """Create a new API key.
+
+        Args:
+            name: Key name.
+            permissions: List of permission strings to grant.
+            ip_range: Optional CIDR IP range restriction.
+        """
         return self._org.add_api_key(name, permissions, ip_range=ip_range)
 
     def delete(self, key_hash: str) -> dict[str, Any]:
+        """Delete an API key.
+
+        Args:
+            key_hash: Hash of the API key to delete.
+        """
         return self._org.remove_api_key(key_hash)

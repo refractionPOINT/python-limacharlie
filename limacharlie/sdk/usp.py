@@ -17,6 +17,7 @@ class USP:
 
     @property
     def client(self) -> Any:
+        """The underlying API client."""
         return self._org.client
 
     def validate(self, platform: str, mapping: dict[str, Any] | None = None,

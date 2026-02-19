@@ -16,6 +16,7 @@ class ARL:
 
     @property
     def client(self) -> Any:
+        """The underlying API client."""
         return self._org.client
 
     def get(self, arl_url: str) -> dict[str, Any]:

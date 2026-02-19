@@ -30,9 +30,11 @@ class Payloads:
 
     @property
     def client(self) -> Any:
+        """The underlying API client."""
         return self._org.client
 
     def list(self) -> dict[str, Any]:
+        """List all payloads."""
         resp = self.client.request("GET", f"payload/{self._org.oid}")
         return resp.get("payloads", resp)
 
@@ -104,4 +106,9 @@ class Payloads:
             u.close()
 
     def delete(self, name: str) -> dict[str, Any]:
+        """Delete a payload.
+
+        Args:
+            name: Payload name.
+        """
         return self.client.request("DELETE", f"payload/{self._org.oid}/{name}")

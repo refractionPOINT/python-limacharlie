@@ -18,19 +18,35 @@ class Extensions:
         self._org = org
 
     def list_subscribed(self) -> dict[str, Any]:
+        """List all extensions the organization is subscribed to."""
         return self._org.client.request("GET", f"orgs/{self._org.oid}/subscriptions")
 
     def subscribe(self, name: str) -> dict[str, Any]:
+        """Subscribe the organization to an extension.
+
+        Args:
+            name: Extension name.
+        """
         return self._org.client.request(
             "POST", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
         )
 
     def unsubscribe(self, name: str) -> dict[str, Any]:
+        """Unsubscribe the organization from an extension.
+
+        Args:
+            name: Extension name.
+        """
         return self._org.client.request(
             "DELETE", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
         )
 
     def rekey(self, name: str) -> dict[str, Any]:
+        """Rotate the API key for an extension subscription.
+
+        Args:
+            name: Extension name.
+        """
         return self._org.client.request(
             "PATCH", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
         )

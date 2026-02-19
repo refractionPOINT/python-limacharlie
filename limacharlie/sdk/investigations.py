@@ -24,6 +24,7 @@ class Investigations:
 
     @property
     def client(self) -> Any:
+        """The underlying API client."""
         return self._org.client
 
     def list(self) -> dict[str, Any]:

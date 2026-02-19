@@ -15,10 +15,22 @@ class Exfil:
         self._org = org
 
     def list(self) -> dict[str, Any]:
+        """List all exfil prevention rules."""
         return self._org.service_request("exfil", {"action": "list_rules"})
 
     def create_watch(self, name: str, event: str, value: str, operator: str, path: str | list[str],
                      tags: list[str] | None = None, platforms: list[str] | None = None) -> dict[str, Any]:
+        """Create an exfil watch rule.
+
+        Args:
+            name: Rule name.
+            event: Event type to watch.
+            value: Value to match.
+            operator: Comparison operator.
+            path: Event path (string with '/' separators or list of segments).
+            tags: Optional sensor tag filter.
+            platforms: Optional platform filter.
+        """
         params: dict[str, Any] = {
             "action": "add_watch",
             "name": name,
@@ -35,6 +47,14 @@ class Exfil:
 
     def create_event(self, name: str, events: list[str], tags: list[str] | None = None,
                      platforms: list[str] | None = None) -> dict[str, Any]:
+        """Create an exfil event rule.
+
+        Args:
+            name: Rule name.
+            events: List of event types to monitor.
+            tags: Optional sensor tag filter.
+            platforms: Optional platform filter.
+        """
         params: dict[str, Any] = {
             "action": "add_event_rule",
             "name": name,
@@ -47,7 +67,17 @@ class Exfil:
         return self._org.service_request("exfil", params)
 
     def delete_event(self, name: str) -> dict[str, Any]:
+        """Delete an exfil event rule.
+
+        Args:
+            name: Rule name.
+        """
         return self._org.service_request("exfil", {"action": "remove_event_rule", "name": name})
 
     def delete_watch(self, name: str) -> dict[str, Any]:
+        """Delete an exfil watch rule.
+
+        Args:
+            name: Rule name.
+        """
         return self._org.service_request("exfil", {"action": "remove_watch", "name": name})

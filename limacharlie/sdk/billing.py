@@ -11,20 +11,32 @@ BILLING_URL = "https://billing.limacharlie.io/"
 
 
 class Billing:
+    """Billing and subscription management for a LimaCharlie organization."""
+
     def __init__(self, org: Organization) -> None:
         self._org = org
 
     @property
     def client(self) -> Any:
+        """The underlying API client."""
         return self._org.client
 
     def get_status(self) -> dict[str, Any]:
+        """Get the current billing status for the organization."""
         return self.client.request("GET", f"orgs/{self._org.oid}/status", alt_root=BILLING_URL)
 
     def get_details(self) -> dict[str, Any]:
+        """Get detailed billing information for the organization."""
         return self.client.request("GET", f"orgs/{self._org.oid}/details", alt_root=BILLING_URL)
 
     def get_invoice_url(self, year: int | str, month: int | str, fmt: str | None = None) -> dict[str, Any]:
+        """Get the invoice URL for a specific month.
+
+        Args:
+            year: Invoice year.
+            month: Invoice month (1-12).
+            fmt: Optional format (e.g. 'pdf').
+        """
         year = str(int(year))
         month = str(int(month)).zfill(2)
         qp: dict[str, str] = {}
@@ -34,5 +46,6 @@ class Billing:
                                    alt_root=BILLING_URL, query_params=qp or None)
 
     def get_plans(self) -> dict[str, Any]:
+        """Get available billing plans."""
         return self.client.request("GET", "user/self/plans", alt_root=BILLING_URL)
 

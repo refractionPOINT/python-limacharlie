@@ -9,17 +9,37 @@ if TYPE_CHECKING:
 
 
 class InstallationKeys:
+    """Installation key management for a LimaCharlie organization."""
+
     def __init__(self, org: Organization) -> None:
         self._org = org
 
     def list(self) -> dict[str, Any]:
+        """List all installation keys."""
         return self._org.get_installation_keys()
 
     def get(self, iid: str) -> dict[str, Any]:
+        """Get a specific installation key.
+
+        Args:
+            iid: Installation key ID.
+        """
         return self._org.get_installation_key(iid)
 
     def create(self, description: str, tags: list[str] | str | None = None, use_public_ca: bool = False) -> dict[str, Any]:
+        """Create a new installation key.
+
+        Args:
+            description: Human-readable description.
+            tags: Tags to apply to sensors using this key.
+            use_public_ca: Use the public CA for sensor enrollment.
+        """
         return self._org.create_installation_key(description, tags=tags, use_public_ca=use_public_ca)
 
     def delete(self, iid: str) -> dict[str, Any]:
+        """Delete an installation key.
+
+        Args:
+            iid: Installation key ID.
+        """
         return self._org.delete_installation_key(iid)

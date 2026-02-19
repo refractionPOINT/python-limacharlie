@@ -128,10 +128,12 @@ class Client:
 
     @property
     def oid(self) -> str | None:
+        """The organization ID this client is authenticated to."""
         return self._oid
 
     @property
     def uid(self) -> str | None:
+        """The user ID for user-scoped API keys, or None."""
         return self._uid
 
     def __enter__(self) -> Client:

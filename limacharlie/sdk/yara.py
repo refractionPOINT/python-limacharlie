@@ -32,10 +32,19 @@ class Yara:
         return self._org.service_request("yara", params)
 
     def list_rules(self) -> dict[str, Any]:
+        """List all YARA scanning rules."""
         return self._org.service_request("yara", {"action": "list_rules"})
 
     def add_rule(self, name: str, sources: list[str], tags: list[str] | None = None,
                  platforms: list[str] | None = None) -> dict[str, Any]:
+        """Add a YARA scanning rule.
+
+        Args:
+            name: Rule name.
+            sources: List of YARA source names to include.
+            tags: Optional sensor tag filter.
+            platforms: Optional platform filter.
+        """
         params: dict[str, Any] = {"action": "add_rule", "name": name, "sources": json.dumps(sources)}
         if tags:
             params["tags"] = json.dumps(tags)
@@ -44,16 +53,38 @@ class Yara:
         return self._org.service_request("yara", params)
 
     def delete_rule(self, name: str) -> dict[str, Any]:
+        """Delete a YARA scanning rule.
+
+        Args:
+            name: Rule name.
+        """
         return self._org.service_request("yara", {"action": "remove_rule", "name": name})
 
     def list_sources(self) -> dict[str, Any]:
+        """List all YARA rule sources."""
         return self._org.service_request("yara", {"action": "list_sources"})
 
     def get_source(self, name: str) -> dict[str, Any]:
+        """Get a YARA rule source by name.
+
+        Args:
+            name: Source name.
+        """
         return self._org.service_request("yara", {"action": "get_source", "name": name})
 
     def add_source(self, name: str, source: str) -> dict[str, Any]:
+        """Add a YARA rule source.
+
+        Args:
+            name: Source name.
+            source: YARA rule content.
+        """
         return self._org.service_request("yara", {"action": "add_source", "name": name, "source": source})
 
     def delete_source(self, name: str) -> dict[str, Any]:
+        """Delete a YARA rule source.
+
+        Args:
+            name: Source name.
+        """
         return self._org.service_request("yara", {"action": "remove_source", "name": name})

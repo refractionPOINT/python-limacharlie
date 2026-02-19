@@ -15,9 +15,18 @@ class LoggingRules:
         self._org = org
 
     def list(self) -> dict[str, Any]:
+        """List all logging rules."""
         return self._org.service_request("logging", {"action": "list_rules"})
 
     def get(self, name: str) -> dict[str, Any] | None:
+        """Get a logging rule by name.
+
+        Args:
+            name: Rule name.
+
+        Returns:
+            dict: Rule data, or None if not found.
+        """
         rules = self.list()
         if isinstance(rules, dict):
             for rule_name, rule_data in rules.items():
@@ -28,6 +37,16 @@ class LoggingRules:
     def create(self, name: str, patterns: list[str], tags: list[str] | None = None,
                platforms: list[str] | None = None, retention_days: int | None = None,
                delete_after: bool = False) -> dict[str, Any]:
+        """Create a logging rule.
+
+        Args:
+            name: Rule name.
+            patterns: File path patterns to collect.
+            tags: Optional sensor tag filter.
+            platforms: Optional platform filter.
+            retention_days: Log retention period in days.
+            delete_after: Delete source file after collection.
+        """
         params: dict[str, Any] = {"action": "add_rule", "name": name, "patterns": patterns}
         if tags:
             params["tags"] = tags
@@ -40,4 +59,9 @@ class LoggingRules:
         return self._org.service_request("logging", params)
 
     def delete(self, name: str) -> dict[str, Any]:
+        """Delete a logging rule.
+
+        Args:
+            name: Rule name.
+        """
         return self._org.service_request("logging", {"action": "remove_rule", "name": name})
