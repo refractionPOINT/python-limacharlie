@@ -528,8 +528,7 @@ limacharlie session profile delete --id PROFILE_ID
 ### Sync (Infrastructure as Code)
 
 Sync uses the `ext-infrastructure` extension to pull and push org configuration.
-D&R rules and FP rules are synced through their respective hives rather than the
-legacy `--rules` / `--fps` flags.
+D&R rules and FP rules are synced through their respective hives.
 
 ```bash
 # Pull/push everything
@@ -880,8 +879,7 @@ artifact_list = artifacts.list()
 ### Configuration Sync
 
 Uses the `ext-infrastructure` extension. D&R rules and FP rules are synced
-via their hives (`dr-general`, `dr-managed`, `dr-service`, `fp`) rather
-than the legacy `sync_rules` / `sync_fps` flags.
+via their hives (`dr-general`, `dr-managed`, `dr-service`, `fp`).
 
 ```python
 from limacharlie.sdk.configs import Configs
@@ -932,42 +930,48 @@ configs.push_from_file("org.yaml", sync_outputs=True,
 | `AISessions` | `limacharlie.sdk.ai_sessions` | Interactive AI session lifecycle and WebSocket chat |
 | `Billing` | `limacharlie.sdk.billing` | Billing and usage details |
 
-## Legacy v1 SDK
+## Development
 
-The v1 SDK classes (`Manager`, `Sensor`, `Firehose`, `Sync`, etc.) remain available under `limacharlie.*` for backward compatibility. They are not actively developed but will continue to work.
+### Setup
 
-```python
-# v1 imports still work
-import limacharlie
-man = limacharlie.Manager(oid="...", secret_api_key="...")
-sensors = man.sensors()
+```bash
+git clone https://github.com/refractionPOINT/python-limacharlie.git
+cd python-limacharlie
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-### Migration from v1
+The editable install (`-e`) means changes to the source code take effect immediately without reinstalling.
 
-| v1 Pattern | v2 Pattern |
-|---|---|
-| `limacharlie.Manager(oid=..., secret_api_key=...)` | `Client(oid=..., api_key=...)` + `Organization(client)` |
-| `man.sensors()` | `org.list_sensors()` |
-| `man.rules()` | `org.get_rules()` or `DRRules(org).list()` |
-| `man.add_rule(name, detect, respond)` | `org.add_rule(name, detect, respond)` |
-| `man.del_rule(name)` | `org.delete_rule(name)` |
-| `man.outputs()` | `org.get_outputs()` |
-| `limacharlie.Sensor(man, sid)` | `Sensor(org, sid)` |
-| `sensor.tag(tag, ttl)` | `sensor.add_tag(tag, ttl=ttl)` |
-| `sensor.task(command)` | `sensor.task(command)` |
-| `limacharlie.Firehose(...)` | `Spout(org, data_type=...)` |
-| `limacharlie.Configs(man).fetch()` | `Configs(org).fetch()` |
-| `limacharlie login` | `limacharlie auth login` |
-| `limacharlie use` | `limacharlie auth use-env` |
-| `limacharlie whoami` | `limacharlie auth whoami` |
-| `limacharlie dr --list` | `limacharlie rule list` |
-| `limacharlie configs fetch` | `limacharlie sync pull` |
-| `limacharlie configs push` | `limacharlie sync push` |
+### Running the CLI
 
-Key changes in v2:
-- `Manager` replaced by `Client` (auth/HTTP) + domain-specific SDK classes
-- CLI uses `noun verb` pattern instead of flat commands with flags
-- `gevent` dependency removed; streaming uses `requests` directly
-- All commands support `--output json|yaml|csv|table|jsonl` and `--filter`
-- Built-in help: `--ai-help`, `limacharlie help <topic>`, `limacharlie discover`
+After the editable install, the `limacharlie` command is available in your venv:
+
+```bash
+limacharlie --version
+limacharlie --help
+limacharlie sensor list --help
+```
+
+### Running Tests
+
+Unit tests run without any credentials or network access:
+
+```bash
+# All unit tests
+pytest tests/unit/ -v
+
+# Single test file
+pytest tests/unit/test_client.py -v
+
+# Single test case
+pytest tests/unit/test_client.py::TestClientInit::test_creates_with_explicit_creds -v
+```
+
+Integration tests require a real LimaCharlie organization:
+- [ ] TODO: specify requirements for the org to run integation tests against, if any
+
+```bash
+pytest tests/integration/ --oid YOUR_ORG_ID --key YOUR_API_KEY -v
+```
