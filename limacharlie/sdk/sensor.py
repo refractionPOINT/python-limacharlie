@@ -253,7 +253,6 @@ class Sensor:
             qp = {
                 "start": str(int(start)),
                 "end": str(int(end)),
-                "is_compressed": "true",
                 "is_forward": "true" if is_forward else "false",
                 "cursor": cursor,
             }
@@ -264,7 +263,7 @@ class Sensor:
 
             resp = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}", query_params=qp)
             cursor = resp.get("next_cursor")
-            for evt in self.client.unwrap(resp.get("events", "")):
+            for evt in resp.get("events", []):
                 yield evt
                 n_returned += 1
                 if limit is not None and n_returned >= limit:
@@ -306,9 +305,8 @@ class Sensor:
         Returns:
             list: Child events.
         """
-        data = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/{atom}/children",
-                                   query_params={"is_compressed": "true"})
-        return self.client.unwrap(data.get("events", ""))
+        data = self.client.request("GET", f"insight/{self._org.oid}/{self.sid}/{atom}/children")
+        return data.get("events", [])
 
     def get_event_retention(self, start: int, end: int, is_detailed: bool = False) -> dict[str, Any]:
         """Get event retention statistics.

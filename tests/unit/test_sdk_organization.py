@@ -739,18 +739,25 @@ class TestGroupOrgs:
 
 class TestDetections:
     def test_get_detections_single_page(self, org, mock_client):
-        mock_client.request.return_value = {"detects": "", "next_cursor": None}
-        mock_client.unwrap.return_value = [{"detect_id": "d1"}]
+        mock_client.request.return_value = {
+            "detects": [{"detect_id": "d1"}],
+            "next_cursor": None,
+        }
         result = list(org.get_detections(1000, 2000))
         mock_client.request.assert_called_once_with(
             "GET", "insight/test-oid-123/detections",
-            query_params={"start": "1000", "end": "2000", "cursor": "-", "is_compressed": "true"},
+            query_params={"start": "1000", "end": "2000", "cursor": "-"},
         )
+        # is_compressed must NOT be in query params
+        qp = mock_client.request.call_args[1]["query_params"]
+        assert "is_compressed" not in qp
         assert result == [{"detect_id": "d1"}]
 
     def test_get_detections_with_limit_and_category(self, org, mock_client):
-        mock_client.request.return_value = {"detects": "", "next_cursor": None}
-        mock_client.unwrap.return_value = [{"detect_id": "d1"}]
+        mock_client.request.return_value = {
+            "detects": [{"detect_id": "d1"}],
+            "next_cursor": None,
+        }
         result = list(org.get_detections(1000, 2000, limit=5, category="lateral"))
         qp = mock_client.request.call_args[1]["query_params"]
         assert qp["limit"] == "5"
@@ -758,20 +765,18 @@ class TestDetections:
 
     def test_get_detections_pagination(self, org, mock_client):
         mock_client.request.side_effect = [
-            {"detects": "compressed1", "next_cursor": "cursor2"},
-            {"detects": "compressed2", "next_cursor": None},
-        ]
-        mock_client.unwrap.side_effect = [
-            [{"detect_id": "d1"}],
-            [{"detect_id": "d2"}],
+            {"detects": [{"detect_id": "d1"}], "next_cursor": "cursor2"},
+            {"detects": [{"detect_id": "d2"}], "next_cursor": None},
         ]
         result = list(org.get_detections(1000, 2000))
         assert len(result) == 2
         assert mock_client.request.call_count == 2
 
     def test_get_detections_limit_stops_iteration(self, org, mock_client):
-        mock_client.request.return_value = {"detects": "", "next_cursor": "more"}
-        mock_client.unwrap.return_value = [{"detect_id": "d1"}, {"detect_id": "d2"}]
+        mock_client.request.return_value = {
+            "detects": [{"detect_id": "d1"}, {"detect_id": "d2"}],
+            "next_cursor": "more",
+        }
         result = list(org.get_detections(1000, 2000, limit=1))
         assert len(result) == 1
 
@@ -784,18 +789,25 @@ class TestDetections:
 
 class TestAuditLogs:
     def test_get_audit_logs_single_page(self, org, mock_client):
-        mock_client.request.return_value = {"events": "", "next_cursor": None}
-        mock_client.unwrap.return_value = [{"event": "login"}]
+        mock_client.request.return_value = {
+            "events": [{"event": "login"}],
+            "next_cursor": None,
+        }
         result = list(org.get_audit_logs(1000, 2000))
         mock_client.request.assert_called_once_with(
             "GET", "insight/test-oid-123/audit",
-            query_params={"start": "1000", "end": "2000", "cursor": "-", "is_compressed": "true"},
+            query_params={"start": "1000", "end": "2000", "cursor": "-"},
         )
+        # is_compressed must NOT be in query params
+        qp = mock_client.request.call_args[1]["query_params"]
+        assert "is_compressed" not in qp
         assert result == [{"event": "login"}]
 
     def test_get_audit_logs_with_filters(self, org, mock_client):
-        mock_client.request.return_value = {"events": "", "next_cursor": None}
-        mock_client.unwrap.return_value = []
+        mock_client.request.return_value = {
+            "events": [],
+            "next_cursor": None,
+        }
         list(org.get_audit_logs(1000, 2000, limit=10, event_type="auth", sid="sid-1"))
         qp = mock_client.request.call_args[1]["query_params"]
         assert qp["limit"] == "10"
@@ -804,42 +816,42 @@ class TestAuditLogs:
 
     def test_get_audit_logs_pagination(self, org, mock_client):
         mock_client.request.side_effect = [
-            {"events": "c1", "next_cursor": "cursor2"},
-            {"events": "c2", "next_cursor": None},
-        ]
-        mock_client.unwrap.side_effect = [
-            [{"event": "e1"}],
-            [{"event": "e2"}],
+            {"events": [{"event": "e1"}], "next_cursor": "cursor2"},
+            {"events": [{"event": "e2"}], "next_cursor": None},
         ]
         result = list(org.get_audit_logs(1000, 2000))
         assert len(result) == 2
 
     def test_get_audit_logs_limit_stops_iteration(self, org, mock_client):
-        mock_client.request.return_value = {"events": "", "next_cursor": "more"}
-        mock_client.unwrap.return_value = [{"event": "e1"}, {"event": "e2"}]
+        mock_client.request.return_value = {
+            "events": [{"event": "e1"}, {"event": "e2"}],
+            "next_cursor": "more",
+        }
         result = list(org.get_audit_logs(1000, 2000, limit=1))
         assert len(result) == 1
 
 
 class TestJobs:
     def test_get_jobs_with_explicit_times(self, org, mock_client):
-        mock_client.request.return_value = {"jobs": {"j1": {"name": "scan"}, "j2": {"name": "resp"}}}
-        mock_client.unwrap.return_value = {"j1": {"name": "scan"}, "j2": {"name": "resp"}}
+        mock_client.request.return_value = {
+            "jobs": {"j1": {"name": "scan"}, "j2": {"name": "resp"}},
+        }
         result = org.get_jobs(start_time=1000, end_time=2000)
         qp = mock_client.request.call_args[1]["query_params"]
         assert qp["start"] == "1000"
         assert qp["end"] == "2000"
-        assert qp["is_compressed"] == "true"
+        # is_compressed must NOT be in query params
+        assert "is_compressed" not in qp
         assert qp["with_data"] == "false"
         assert len(result) == 2
 
     def test_get_jobs_empty(self, org, mock_client):
-        mock_client.request.return_value = {"jobs": ""}
+        mock_client.request.return_value = {"jobs": {}}
         result = org.get_jobs(start_time=1000, end_time=2000)
         assert result == []
 
     def test_get_jobs_with_limit_and_sid(self, org, mock_client):
-        mock_client.request.return_value = {"jobs": ""}
+        mock_client.request.return_value = {"jobs": {}}
         org.get_jobs(start_time=1000, end_time=2000, limit=5, sid="sid-1")
         qp = mock_client.request.call_args[1]["query_params"]
         assert qp["limit"] == "5"

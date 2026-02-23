@@ -868,7 +868,7 @@ class Organization:
         cursor = "-"
         n_returned = 0
         while cursor:
-            qp = {"start": str(int(start)), "end": str(int(end)), "cursor": cursor, "is_compressed": "true"}
+            qp = {"start": str(int(start)), "end": str(int(end)), "cursor": cursor}
             if limit is not None:
                 qp["limit"] = str(limit)
             if category:
@@ -876,7 +876,7 @@ class Organization:
 
             resp = self._client.request("GET", f"insight/{self.oid}/detections", query_params=qp)
             cursor = resp.get("next_cursor")
-            for d in self._client.unwrap(resp.get("detects", "")):
+            for d in resp.get("detects", []):
                 yield d
                 n_returned += 1
                 if limit is not None and n_returned >= limit:
@@ -913,7 +913,7 @@ class Organization:
         cursor = "-"
         n_returned = 0
         while cursor:
-            qp = {"start": str(int(start)), "end": str(int(end)), "cursor": cursor, "is_compressed": "true"}
+            qp = {"start": str(int(start)), "end": str(int(end)), "cursor": cursor}
             if limit is not None:
                 qp["limit"] = str(limit)
             if event_type:
@@ -923,7 +923,7 @@ class Organization:
 
             resp = self._client.request("GET", f"insight/{self.oid}/audit", query_params=qp)
             cursor = resp.get("next_cursor")
-            for entry in self._client.unwrap(resp.get("events", "")):
+            for entry in resp.get("events", []):
                 yield entry
                 n_returned += 1
                 if limit is not None and n_returned >= limit:
@@ -946,7 +946,7 @@ class Organization:
             list: Job dicts.
         """
         import time as _time
-        qp = {"is_compressed": "true", "with_data": "false"}
+        qp = {"with_data": "false"}
         if start_time is None:
             start_time = int(_time.time()) - 86400
         if end_time is None:
@@ -958,8 +958,7 @@ class Organization:
         if sid is not None:
             qp["sid"] = str(sid)
         resp = self._client.request("GET", f"job/{self.oid}", query_params=qp)
-        raw_jobs = resp.get("jobs", "")
+        raw_jobs = resp.get("jobs", {})
         if not raw_jobs:
             return []
-        jobs = self._client.unwrap(raw_jobs)
-        return [job for job_id, job in jobs.items()]
+        return [job for job_id, job in raw_jobs.items()]

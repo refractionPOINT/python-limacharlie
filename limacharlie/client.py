@@ -28,6 +28,7 @@ from .errors import (
     RateLimitError,
     error_from_status_code,
 )
+from .transport_compression import ACCEPT_ENCODING, decompress_response
 from .user_agent_utils import build_user_agent
 
 __version__ = "5.0.0"
@@ -153,10 +154,13 @@ class Client:
     def unwrap(data: str, is_raw: bool = False) -> Any:
         """Decompress gzip+base64 encoded data from the API.
 
-        Used when is_compressed=true is set on requests. The API returns
-        data as base64-encoded gzip-compressed JSON.
+        .. deprecated::
+            Application-level compression (is_compressed=true) has been
+            replaced by transport-level compression (Accept-Encoding).
+            This method is kept for backward compatibility with external
+            callers but is no longer used internally by the SDK.
 
-        Args:
+        Parameters:
             data: Base64-encoded gzip-compressed string.
             is_raw: If True, return raw bytes instead of parsed JSON.
 
@@ -310,6 +314,10 @@ class Client:
         request = URLRequest(full_url, body, headers=headers)
         request.get_method = lambda: verb
         request.add_header("User-Agent", self._user_agent)
+        # Request compressed responses at the transport level.
+        # urllib doesn't auto-decompress like requests does, so we
+        # handle decompression ourselves in the response path.
+        request.add_header("Accept-Encoding", ACCEPT_ENCODING)
         if content_type is not None:
             request.add_header("Content-Type", content_type)
 
@@ -323,6 +331,12 @@ class Client:
 
             try:
                 data = u.read()
+                # Decompress transport-level encoding (gzip, zstd, etc.)
+                # before JSON parsing. The server may compress the entire
+                # response body when we send Accept-Encoding.
+                content_enc = u.headers.get("Content-Encoding")
+                if data and content_enc:
+                    data = decompress_response(data, content_enc)
                 resp = json.loads(data.decode()) if data else {}
             except ValueError:
                 resp = {}
@@ -347,6 +361,10 @@ class Client:
 
         except HTTPError as e:
             error_body = e.read()
+            # Error responses can also be transport-compressed.
+            error_enc = e.headers.get("Content-Encoding") if hasattr(e, "headers") else None
+            if error_body and error_enc:
+                error_body = decompress_response(error_body, error_enc)
             try:
                 resp = json.loads(error_body.decode())
             except Exception:

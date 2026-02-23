@@ -124,6 +124,45 @@ class TestSensorTask:
         assert call_args[0][0] == "DELETE"
 
 
+class TestSensorGetEventsContract:
+    def test_get_events_query_params(self, sensor, mock_org):
+        """get_events should not send is_compressed - transport compression handles it."""
+        mock_org.client.request.return_value = {
+            "events": [{"type": "NEW_PROCESS"}],
+            "next_cursor": None,
+        }
+        result = list(sensor.get_events(1000, 2000))
+        qp = mock_org.client.request.call_args[1]["query_params"]
+        # is_compressed must NOT be in query params
+        assert "is_compressed" not in qp
+        assert qp["start"] == "1000"
+        assert qp["end"] == "2000"
+        assert qp["is_forward"] == "true"
+        assert result == [{"type": "NEW_PROCESS"}]
+
+    def test_get_events_with_limit(self, sensor, mock_org):
+        mock_org.client.request.return_value = {
+            "events": [{"type": "e1"}, {"type": "e2"}, {"type": "e3"}],
+            "next_cursor": "more",
+        }
+        result = list(sensor.get_events(1000, 2000, limit=2))
+        assert len(result) == 2
+
+    def test_get_events_pagination(self, sensor, mock_org):
+        mock_org.client.request.side_effect = [
+            {"events": [{"type": "e1"}], "next_cursor": "cursor2"},
+            {"events": [{"type": "e2"}], "next_cursor": None},
+        ]
+        result = list(sensor.get_events(1000, 2000))
+        assert len(result) == 2
+        assert mock_org.client.request.call_count == 2
+
+    def test_get_events_empty(self, sensor, mock_org):
+        mock_org.client.request.return_value = {"events": [], "next_cursor": None}
+        result = list(sensor.get_events(1000, 2000))
+        assert result == []
+
+
 class TestSensorEventRetention:
     def test_get_event_retention_uses_correct_params(self, sensor, mock_org):
         mock_org.client.request.return_value = {"retention": {}}
@@ -262,12 +301,14 @@ class TestSensorGetEventByAtomContract:
 
 class TestSensorGetChildrenEventsContract:
     def test_get_children_events_params(self, sensor, mock_org):
-        mock_org.client.request.return_value = {"events": "compressed-data"}
-        mock_org.client.unwrap.return_value = [{"type": "FILE_CREATE"}]
+        mock_org.client.request.return_value = {"events": [{"type": "FILE_CREATE"}]}
         result = sensor.get_children_events("atom-xyz")
         mock_org.client.request.assert_called_once_with(
             "GET", "insight/test-oid/aaaa-bbbb-cccc-dddd/atom-xyz/children",
-            query_params={"is_compressed": "true"},
         )
-        mock_org.client.unwrap.assert_called_once_with("compressed-data")
         assert result == [{"type": "FILE_CREATE"}]
+
+    def test_get_children_events_empty(self, sensor, mock_org):
+        mock_org.client.request.return_value = {}
+        result = sensor.get_children_events("atom-xyz")
+        assert result == []

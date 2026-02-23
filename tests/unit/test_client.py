@@ -1,5 +1,6 @@
 """Tests for limacharlie.client module."""
 
+import gzip
 import json
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +10,7 @@ from limacharlie.client import Client, _build_user_agent, _create_ssl_context
 from limacharlie.errors import (
     AuthenticationError,
     ApiError,
+    LimaCharlieError,
     RateLimitError,
 )
 
@@ -287,6 +289,132 @@ class TestRefreshAuthCallback:
 
         callback.assert_called_with(client)
         assert result == {"ok": True}
+
+
+class TestTransportCompression:
+    @patch("limacharlie.client.urlopen")
+    def test_request_sends_accept_encoding_header(self, mock_urlopen):
+        """Every outgoing request should include Accept-Encoding."""
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+        api_response.headers = MagicMock()
+        api_response.headers.get.return_value = None
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        client.request("GET", "sensors")
+
+        # The second call is the API request (first is JWT)
+        api_request = mock_urlopen.call_args_list[1][0][0]
+        accept_enc = api_request.get_header("Accept-encoding")
+        assert "gzip" in accept_enc
+        assert "deflate" in accept_enc
+
+    @patch("limacharlie.client.urlopen")
+    def test_request_decompresses_gzip_response(self, mock_urlopen):
+        """Response with Content-Encoding: gzip should be decompressed transparently."""
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        # Build a gzip-compressed JSON body
+        body = json.dumps({"sensors": ["s1", "s2"]}).encode()
+        compressed_body = gzip.compress(body)
+
+        api_response = MagicMock()
+        api_response.read.return_value = compressed_body
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+        api_response.headers = MagicMock()
+        api_response.headers.get.return_value = "gzip"
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        result = client.request("GET", "sensors")
+
+        assert result == {"sensors": ["s1", "s2"]}
+
+    @patch("limacharlie.client.urlopen")
+    def test_request_decompresses_zstd_response(self, mock_urlopen):
+        """Response with Content-Encoding: zstd should be decompressed."""
+        zstandard = pytest.importorskip("zstandard")
+
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        body = json.dumps({"detects": [{"id": "d1"}]}).encode()
+        cctx = zstandard.ZstdCompressor()
+        compressed_body = cctx.compress(body)
+
+        api_response = MagicMock()
+        api_response.read.return_value = compressed_body
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+        api_response.headers = MagicMock()
+        api_response.headers.get.return_value = "zstd"
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        result = client.request("GET", "detections")
+
+        assert result == {"detects": [{"id": "d1"}]}
+
+    @patch("limacharlie.client.urlopen")
+    def test_request_handles_uncompressed_response(self, mock_urlopen):
+        """When server returns no Content-Encoding, response works as before."""
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+        api_response.headers = MagicMock()
+        api_response.headers.get.return_value = None
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        result = client.request("GET", "test")
+
+        assert result == {"ok": True}
+
+    @patch("limacharlie.client.urlopen")
+    def test_error_response_decompressed(self, mock_urlopen):
+        """HTTPError bodies with Content-Encoding should be decompressed."""
+        from urllib.error import HTTPError
+        import io
+
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        error_body = json.dumps({"error": "not found"}).encode()
+        compressed_error = gzip.compress(error_body)
+
+        error = HTTPError(
+            "https://api.limacharlie.io/v1/test", 404, "Not Found",
+            {"Content-Encoding": "gzip"}, io.BytesIO(compressed_error),
+        )
+        # HTTPError wraps headers in an http.client.HTTPMessage
+        error.headers = error.headers  # already set via the constructor
+
+        mock_urlopen.side_effect = [jwt_response, error]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        with pytest.raises(LimaCharlieError):
+            client.request("GET", "test")
 
 
 class TestBuildUserAgent:

@@ -24,7 +24,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+zstd = ["zstandard>=0.22.0"]
 dev = [
+    "zstandard>=0.22.0",
     "pytest==8.3.4",
     "pytest-rerunfailures==15.0",
     "tomli>=1.0; python_version < '3.11'",
