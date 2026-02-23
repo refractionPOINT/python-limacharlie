@@ -1,14 +1,18 @@
 """Tests for limacharlie.transport_compression module."""
 
 import gzip
+import importlib
 import json
+import sys
 import zlib
+from unittest import mock
 
 import pytest
 import zstandard
 
 from limacharlie.transport_compression import (
     ACCEPT_ENCODING,
+    _HAS_ZSTD,
     decompress_response,
 )
 
@@ -23,6 +27,45 @@ class TestAcceptEncoding:
     def test_zstd_preferred(self):
         """zstd should be listed first (highest priority)."""
         assert ACCEPT_ENCODING.startswith("zstd")
+
+
+class TestAcceptEncodingWithoutZstd:
+    def test_fallback_without_zstandard(self):
+        """When zstandard is not importable, fall back to gzip/deflate only."""
+        import limacharlie.transport_compression as tc_mod
+
+        # Temporarily make zstandard unimportable by removing it from
+        # sys.modules and patching the import machinery.
+        saved = sys.modules.pop("zstandard", None)
+        try:
+            with mock.patch.dict(sys.modules, {"zstandard": None}):
+                importlib.reload(tc_mod)
+                assert tc_mod._HAS_ZSTD is False
+                assert "zstd" not in tc_mod.ACCEPT_ENCODING
+                assert "gzip" in tc_mod.ACCEPT_ENCODING
+                assert "deflate" in tc_mod.ACCEPT_ENCODING
+        finally:
+            # Restore original module state
+            if saved is not None:
+                sys.modules["zstandard"] = saved
+            importlib.reload(tc_mod)
+
+    def test_zstd_passthrough_when_unavailable(self):
+        """If server sends zstd but lib is missing, return raw bytes."""
+        import limacharlie.transport_compression as tc_mod
+
+        saved = sys.modules.pop("zstandard", None)
+        try:
+            with mock.patch.dict(sys.modules, {"zstandard": None}):
+                importlib.reload(tc_mod)
+                raw = b"some-zstd-compressed-bytes"
+                # Should passthrough without crashing
+                result = tc_mod.decompress_response(raw, "zstd")
+                assert result is raw
+        finally:
+            if saved is not None:
+                sys.modules["zstandard"] = saved
+            importlib.reload(tc_mod)
 
 
 class TestDecompressGzip:

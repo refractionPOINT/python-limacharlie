@@ -82,3 +82,47 @@ jobs:
           assert result == original, 'zstd round-trip failed'
           print('zstd round-trip OK')
           "
+
+  no-zstd-fallback:
+    name: "Fallback without zstandard - Python ${{ matrix.python-version }} / ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package then remove zstandard
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+          pip uninstall -y zstandard
+
+      - name: Verify zstandard is NOT importable
+        run: python -c "
+          try:
+            import zstandard
+            raise AssertionError('zstandard should not be importable')
+          except ImportError:
+            print('zstandard correctly unavailable')
+          "
+
+      - name: Verify fallback Accept-Encoding (no zstd)
+        run: |
+          python -c "
+          from limacharlie.transport_compression import ACCEPT_ENCODING, _HAS_ZSTD
+          assert not _HAS_ZSTD, '_HAS_ZSTD should be False'
+          assert 'zstd' not in ACCEPT_ENCODING, f'zstd should not be in: {ACCEPT_ENCODING}'
+          assert 'gzip' in ACCEPT_ENCODING, f'gzip missing from: {ACCEPT_ENCODING}'
+          print(f'Accept-Encoding (fallback): {ACCEPT_ENCODING}')
+          "
+
+      - name: Run unit tests without zstandard
+        run: pytest -v --durations=10 tests/unit/ -k "not TestDecompressZstd"

@@ -4,17 +4,29 @@ Handles Accept-Encoding negotiation and Content-Encoding decompression
 for HTTP responses. Supports zstd, gzip, and deflate.
 
 zstd is preferred because it offers better compression ratios and faster
-decompression than gzip.
+decompression than gzip. The zstandard package is a hard dependency but
+the runtime gracefully falls back to gzip/deflate if it's unavailable
+(e.g., exotic platform where the wheel couldn't be installed).
 """
 
 from __future__ import annotations
 
 import zlib
 
-import zstandard as _zstd
+# zstandard is a hard dependency (listed in pyproject.toml) with pre-built
+# wheels for all major platforms. However, we guard the import so the SDK
+# still works if someone is on an exotic platform where the wheel isn't
+# available and there's no C compiler to build from source.
+try:
+    import zstandard as _zstd
 
-# Header value sent on every request. Prefer zstd over gzip.
-ACCEPT_ENCODING: str = "zstd, gzip, deflate"
+    _HAS_ZSTD = True
+except ImportError:
+    _zstd = None  # type: ignore[assignment]
+    _HAS_ZSTD = False
+
+# Header value sent on every request. Prefer zstd when available.
+ACCEPT_ENCODING: str = "zstd, gzip, deflate" if _HAS_ZSTD else "gzip, deflate"
 
 
 def decompress_response(data: bytes, content_encoding: str | None) -> bytes:
@@ -38,6 +50,10 @@ def decompress_response(data: bytes, content_encoding: str | None) -> bytes:
     encoding = content_encoding.strip().lower()
 
     if encoding == "zstd":
+        if not _HAS_ZSTD:
+            # Server sent zstd but we can't decompress - return as-is.
+            # JSON parsing will fail with a clear error downstream.
+            return data
         return _zstd.ZstdDecompressor().decompress(data)
 
     if encoding in ("gzip", "x-gzip"):
