@@ -1,81 +1,8 @@
-"""limacharlie API for limacharlie.io"""
+"""limacharlie SDK for limacharlie.io"""
 
-__version__ = "4.11.3"
-__author__ = "Maxime Lamothe-Brassard ( Refraction Point, Inc )"
-__author_email__ = "maxime@refractionpoint.com"
+from .client import __version__
+
+__author__ = "Refraction Point, Inc"
+__author_email__ = "info@refractionpoint.com"
 __license__ = "Apache v2"
-__copyright__ = "Copyright (c) 2020 Refraction Point, Inc"
-
-# Global API Credentials
-import os
-import yaml
-
-from .constants import CONFIG_FILE_PATH, EPHEMERAL_CREDS_ENV_VAR
-
-
-def _getEnvironmentCreds( name ):
-    # If ephemeral credentials mode is enabled, skip disk operations entirely
-    if os.environ.get( EPHEMERAL_CREDS_ENV_VAR ):
-        return ( None, None, None, None )
-
-    credsFile = os.environ.get( 'LC_CREDS_FILE', None )
-    if credsFile is None:
-        credsFile = CONFIG_FILE_PATH
-    if not os.path.isfile( credsFile ):
-        return ( None, None, None, None )
-    with open( credsFile, 'rb' ) as f:
-        credsFile = yaml.safe_load( f.read() )
-
-        if name == 'default':
-            # Default creds are at the top of the creds file.
-            oid = credsFile.get( 'oid', None )
-            uid = credsFile.get( 'uid', None )
-            key = credsFile.get( 'api_key', None )
-            oauth = credsFile.get( 'oauth', None )
-
-            return ( oid, uid, key, oauth )
-
-        if name not in credsFile.get( 'env', {} ):
-            return ( None, None, None, None )
-
-        envData = credsFile[ 'env' ][ name ]
-        oid = envData.get( 'oid', None )
-        uid = envData.get( 'uid', None )
-        key = envData.get( 'api_key', None )
-        oauth = envData.get( 'oauth', None )
-
-        return ( oid, uid, key, oauth )
-
-# Global credentials are acquired in the following order:
-# 1- LC_OID and LC_API_KEY environment variables.
-# 2- LC_CREDS_FILE environment variable points to a YAML file with "oid: <OID>" and "api_key: <KEY>".
-# 3- Assumes a creds file (like #2) is present at "~/.limacharlie".
-GLOBAL_OID = os.environ.get( 'LC_OID', None )
-GLOBAL_UID = os.environ.get( 'LC_UID', None )
-GLOBAL_API_KEY = os.environ.get( 'LC_API_KEY', None )
-GLOBAL_OAUTH = None
-if GLOBAL_API_KEY is None:
-    _lcEnv = os.environ.get( 'LC_CURRENT_ENV', 'default' )
-    if _lcEnv == '':
-        _lcEnv = 'default'
-    GLOBAL_OID, GLOBAL_UID, GLOBAL_API_KEY, GLOBAL_OAUTH = _getEnvironmentCreds( _lcEnv )
-
-from .Manager import Manager
-from .Firehose import Firehose
-from .Spout import Spout
-from .Webhook import Webhook
-from .Sync import Sync
-from .Configs import Configs
-from .SpotCheck import SpotCheck
-from .Payloads import Payloads
-from .Logs import Logs
-from .Logs import Logs as Artifacts
-from .Hive import Hive
-from .Hive import HiveRecord
-from .Extensions import Extension
-from .Billing import Billing
-from .utils import LcApiException
-from . import Replicants as services
-from .WebhookSender import WebhookSender
-from .UserPreferences import UserPreferences
-from .User import User
+__copyright__ = "Copyright (c) 2026 Refraction Point, Inc"
