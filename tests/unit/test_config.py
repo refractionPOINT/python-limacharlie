@@ -2,6 +2,7 @@
 
 import os
 import stat
+import sys
 import tempfile
 
 import pytest
@@ -57,8 +58,11 @@ class TestSaveConfig:
     def test_creates_file_with_secure_permissions(self, tmp_config_file):
         save_config({"oid": "test-oid"})
         assert os.path.isfile(tmp_config_file)
-        mode = os.stat(tmp_config_file).st_mode
-        assert mode & 0o777 == 0o600
+        # Windows NTFS uses ACLs, not Unix permission bits - os.chmod(0o600)
+        # doesn't restrict access the same way. Only assert on Unix.
+        if sys.platform != "win32":
+            mode = os.stat(tmp_config_file).st_mode
+            assert mode & 0o777 == 0o600
 
     def test_round_trips_data(self, tmp_config_file):
         data = {"oid": "abc-123", "api_key": "key-456", "env": {"prod": {"oid": "prod-oid"}}}
