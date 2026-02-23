@@ -345,7 +345,7 @@ class TestTransportCompression:
     @patch("limacharlie.client.urlopen")
     def test_request_decompresses_zstd_response(self, mock_urlopen):
         """Response with Content-Encoding: zstd should be decompressed."""
-        import zstandard
+        zstandard = pytest.importorskip("zstandard")
 
         jwt_response = MagicMock()
         jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()

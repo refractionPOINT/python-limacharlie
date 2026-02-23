@@ -97,4 +97,4 @@ jobs:
         run: python scripts/ci/verify_fallback_encoding.py
 
       - name: Run unit tests without zstandard
-        run: pytest -v --durations=10 tests/unit/ -k "not TestDecompressZstd"
+        run: pytest -v --durations=10 tests/unit/

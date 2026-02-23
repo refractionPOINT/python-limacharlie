@@ -8,7 +8,6 @@ import zlib
 from unittest import mock
 
 import pytest
-import zstandard
 
 from limacharlie.transport_compression import (
     ACCEPT_ENCODING,
@@ -18,19 +17,35 @@ from limacharlie.transport_compression import (
 
 
 class TestAcceptEncoding:
-    def test_includes_all_algorithms(self):
-        """Accept-Encoding should advertise zstd, gzip, and deflate."""
-        assert "zstd" in ACCEPT_ENCODING
+    def test_includes_gzip_and_deflate(self):
+        """Accept-Encoding should always advertise gzip and deflate."""
         assert "gzip" in ACCEPT_ENCODING
         assert "deflate" in ACCEPT_ENCODING
 
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstandard not installed")
+    def test_includes_zstd_when_available(self):
+        """Accept-Encoding should include zstd when zstandard is installed."""
+        assert "zstd" in ACCEPT_ENCODING
+
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstandard not installed")
     def test_zstd_preferred(self):
         """zstd should be listed first (highest priority)."""
         assert ACCEPT_ENCODING.startswith("zstd")
 
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstandard not installed")
     def test_has_zstd_flag_true(self):
         """_HAS_ZSTD should be True when zstandard is importable."""
         assert _HAS_ZSTD is True
+
+    @pytest.mark.skipif(_HAS_ZSTD, reason="zstandard is installed")
+    def test_excludes_zstd_when_unavailable(self):
+        """Accept-Encoding should not include zstd when zstandard is missing."""
+        assert "zstd" not in ACCEPT_ENCODING
+
+    @pytest.mark.skipif(_HAS_ZSTD, reason="zstandard is installed")
+    def test_has_zstd_flag_false(self):
+        """_HAS_ZSTD should be False when zstandard is not importable."""
+        assert _HAS_ZSTD is False
 
 
 class TestAcceptEncodingWithoutZstd:
@@ -151,9 +166,12 @@ class TestDecompressDeflate:
         assert decompress_response(compressed, "Deflate") == original
 
 
+@pytest.mark.skipif(not _HAS_ZSTD, reason="zstandard not installed")
 class TestDecompressZstd:
     def test_round_trip(self):
         """Compress with zstandard, decompress with our function."""
+        import zstandard
+
         original = b'{"detects": [{"id": "d-1", "title": "suspicious"}]}'
         cctx = zstandard.ZstdCompressor()
         compressed = cctx.compress(original)
@@ -162,6 +180,8 @@ class TestDecompressZstd:
 
     def test_large_payload(self):
         """Verify zstd works with larger payloads (realistic JSON response)."""
+        import zstandard
+
         events = [{"type": "NEW_PROCESS", "id": f"evt-{i}", "data": "x" * 100} for i in range(500)]
         original = json.dumps({"events": events}).encode()
         cctx = zstandard.ZstdCompressor()
@@ -171,6 +191,8 @@ class TestDecompressZstd:
 
     def test_case_insensitive(self):
         """Content-Encoding: ZSTD should work."""
+        import zstandard
+
         original = b'{"data": "test"}'
         cctx = zstandard.ZstdCompressor()
         compressed = cctx.compress(original)
@@ -179,6 +201,8 @@ class TestDecompressZstd:
 
     def test_whitespace_around_header(self):
         """Leading/trailing whitespace in Content-Encoding should be stripped."""
+        import zstandard
+
         original = b'{"ok": true}'
         cctx = zstandard.ZstdCompressor()
         compressed = cctx.compress(original)
