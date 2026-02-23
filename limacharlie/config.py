@@ -92,7 +92,10 @@ def save_config(config: dict[str, Any]) -> None:
 
     fd, tmp_path = tempfile.mkstemp()
     try:
-        os.chown(tmp_path, os.getuid(), os.getgid())
+        # os.chown/os.getuid are Unix-only; skip on Windows where file
+        # ownership is managed by the OS via ACLs.
+        if hasattr(os, "chown"):
+            os.chown(tmp_path, os.getuid(), os.getgid())
         os.chmod(tmp_path, stat.S_IWUSR | stat.S_IRUSR)  # 0o600
         try:
             os.write(fd, content)
