@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [cli-v2, master]
+  push:
+    branches: [cli-v2, master]
+
+jobs:
+  unit-tests:
+    name: "Tests - Python ${{ matrix.python-version }} / ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Verify zstandard is installed
+        run: python -c "import zstandard; print(f'zstandard {zstandard.__version__} OK')"
+
+      - name: Verify transport compression imports
+        run: |
+          python -c "
+          from limacharlie.transport_compression import ACCEPT_ENCODING, decompress_response
+          assert 'zstd' in ACCEPT_ENCODING, f'zstd missing from: {ACCEPT_ENCODING}'
+          print(f'Accept-Encoding: {ACCEPT_ENCODING}')
+          "
+
+      - name: Run unit tests
+        run: pytest -v --durations=10 tests/unit/
+
+  wheel-sanity:
+    name: "Wheel install - Python ${{ matrix.python-version }} / ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build and install wheel
+        run: |
+          python -m pip install --upgrade pip setuptools wheel build
+          python -m build
+          pip install dist/limacharlie-*-py3-none-any.whl
+
+      - name: Verify CLI works
+        run: limacharlie version
+
+      - name: Verify zstandard available after wheel install
+        run: python -c "import zstandard; print(f'zstandard {zstandard.__version__} OK')"
+
+      - name: Verify zstd decompression works end-to-end
+        run: |
+          python -c "
+          import zstandard, json
+          from limacharlie.transport_compression import decompress_response
+          # Round-trip: compress then decompress
+          original = json.dumps({'events': [{'type': 'test'}]}).encode()
+          compressed = zstandard.ZstdCompressor().compress(original)
+          result = decompress_response(compressed, 'zstd')
+          assert result == original, 'zstd round-trip failed'
+          print('zstd round-trip OK')
+          "

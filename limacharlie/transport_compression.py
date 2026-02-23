@@ -1,29 +1,20 @@
 """Transport-level HTTP compression support.
 
 Handles Accept-Encoding negotiation and Content-Encoding decompression
-for HTTP responses. Supports zstd (if the `zstandard` package is installed),
-gzip, and deflate.
+for HTTP responses. Supports zstd, gzip, and deflate.
 
-zstd is preferred when available because it offers better compression ratios
-and faster decompression than gzip. Install via `pip install limacharlie[zstd]`.
+zstd is preferred because it offers better compression ratios and faster
+decompression than gzip.
 """
 
 from __future__ import annotations
 
 import zlib
 
-# Probe for zstandard at import time. This is an optional dependency
-# installed via `pip install limacharlie[zstd]`.
-try:
-    import zstandard as _zstd
+import zstandard as _zstd
 
-    _HAS_ZSTD = True
-except ImportError:
-    _zstd = None  # type: ignore[assignment]
-    _HAS_ZSTD = False
-
-# Header value sent on every request. Prefer zstd when available.
-ACCEPT_ENCODING: str = "zstd, gzip, deflate" if _HAS_ZSTD else "gzip, deflate"
+# Header value sent on every request. Prefer zstd over gzip.
+ACCEPT_ENCODING: str = "zstd, gzip, deflate"
 
 
 def decompress_response(data: bytes, content_encoding: str | None) -> bytes:
@@ -47,11 +38,6 @@ def decompress_response(data: bytes, content_encoding: str | None) -> bytes:
     encoding = content_encoding.strip().lower()
 
     if encoding == "zstd":
-        if not _HAS_ZSTD:
-            # Server sent zstd but we don't have the library. This shouldn't
-            # happen since we only advertise zstd in Accept-Encoding when the
-            # library is available, but handle it gracefully.
-            return data
         return _zstd.ZstdDecompressor().decompress(data)
 
     if encoding in ("gzip", "x-gzip"):

@@ -1,10 +1,11 @@
 """Tests for limacharlie.transport_compression module."""
 
 import gzip
+import json
 import zlib
-from unittest.mock import patch
 
 import pytest
+import zstandard
 
 from limacharlie.transport_compression import (
     ACCEPT_ENCODING,
@@ -13,27 +14,15 @@ from limacharlie.transport_compression import (
 
 
 class TestAcceptEncoding:
-    def test_includes_zstd_when_available(self):
-        """zstandard is installed in dev, so zstd should be in the header."""
+    def test_includes_all_algorithms(self):
+        """Accept-Encoding should advertise zstd, gzip, and deflate."""
         assert "zstd" in ACCEPT_ENCODING
         assert "gzip" in ACCEPT_ENCODING
         assert "deflate" in ACCEPT_ENCODING
 
-    def test_fallback_without_zstd(self):
-        """When zstandard is not importable, Accept-Encoding should omit zstd."""
-        # Re-import the module with zstandard mocked away
-        import importlib
-        import limacharlie.transport_compression as tc
-
-        original_has_zstd = tc._HAS_ZSTD
-        try:
-            tc._HAS_ZSTD = False
-            # Verify the constant construction logic - when _HAS_ZSTD is False,
-            # the module-level ACCEPT_ENCODING would be "gzip, deflate".
-            expected = "gzip, deflate"
-            assert expected == ("zstd, gzip, deflate" if tc._HAS_ZSTD else "gzip, deflate")
-        finally:
-            tc._HAS_ZSTD = original_has_zstd
+    def test_zstd_preferred(self):
+        """zstd should be listed first (highest priority)."""
+        assert ACCEPT_ENCODING.startswith("zstd")
 
 
 class TestDecompressGzip:
@@ -63,9 +52,8 @@ class TestDecompressDeflate:
     def test_raw_deflate_round_trip(self):
         """Compress with raw deflate, decompress with our function."""
         original = b'{"sensors": []}'
-        # Raw deflate (no zlib header)
-        compressed = zlib.compress(original)
         # zlib.compress produces zlib-wrapped deflate, test that path
+        compressed = zlib.compress(original)
         result = decompress_response(compressed, "deflate")
         assert result == original
 
@@ -73,7 +61,6 @@ class TestDecompressDeflate:
 class TestDecompressZstd:
     def test_round_trip(self):
         """Compress with zstandard, decompress with our function."""
-        zstandard = pytest.importorskip("zstandard")
         original = b'{"detects": [{"id": "d-1", "title": "suspicious"}]}'
         cctx = zstandard.ZstdCompressor()
         compressed = cctx.compress(original)
@@ -82,9 +69,6 @@ class TestDecompressZstd:
 
     def test_large_payload(self):
         """Verify zstd works with larger payloads (realistic JSON response)."""
-        zstandard = pytest.importorskip("zstandard")
-        # Build a realistic-ish JSON payload
-        import json
         events = [{"type": "NEW_PROCESS", "id": f"evt-{i}", "data": "x" * 100} for i in range(500)]
         original = json.dumps({"events": events}).encode()
         cctx = zstandard.ZstdCompressor()
