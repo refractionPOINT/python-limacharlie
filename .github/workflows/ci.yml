@@ -29,15 +29,10 @@ jobs:
           pip install ".[dev]"
 
       - name: Verify zstandard is installed
-        run: python -c "import zstandard; print(f'zstandard {zstandard.__version__} OK')"
+        run: python scripts/ci/verify_zstd_installed.py
 
       - name: Verify transport compression imports
-        run: |
-          python -c "
-          from limacharlie.transport_compression import ACCEPT_ENCODING, decompress_response
-          assert 'zstd' in ACCEPT_ENCODING, f'zstd missing from: {ACCEPT_ENCODING}'
-          print(f'Accept-Encoding: {ACCEPT_ENCODING}')
-          "
+        run: python scripts/ci/verify_transport_compression.py
 
       - name: Run unit tests
         run: pytest -v --durations=10 tests/unit/
@@ -68,20 +63,10 @@ jobs:
         run: limacharlie --version
 
       - name: Verify zstandard available after wheel install
-        run: python -c "import zstandard; print(f'zstandard {zstandard.__version__} OK')"
+        run: python scripts/ci/verify_zstd_installed.py
 
       - name: Verify zstd decompression works end-to-end
-        run: |
-          python -c "
-          import zstandard, json
-          from limacharlie.transport_compression import decompress_response
-          # Round-trip: compress then decompress
-          original = json.dumps({'events': [{'type': 'test'}]}).encode()
-          compressed = zstandard.ZstdCompressor().compress(original)
-          result = decompress_response(compressed, 'zstd')
-          assert result == original, 'zstd round-trip failed'
-          print('zstd round-trip OK')
-          "
+        run: python scripts/ci/verify_zstd_decompression.py
 
   no-zstd-fallback:
     name: "Fallback without zstandard - Python ${{ matrix.python-version }} / ${{ matrix.os }}"
@@ -106,23 +91,10 @@ jobs:
           pip uninstall -y zstandard
 
       - name: Verify zstandard is NOT importable
-        run: python -c "
-          try:
-            import zstandard
-            raise AssertionError('zstandard should not be importable')
-          except ImportError:
-            print('zstandard correctly unavailable')
-          "
+        run: python scripts/ci/verify_zstd_not_importable.py
 
       - name: Verify fallback Accept-Encoding (no zstd)
-        run: |
-          python -c "
-          from limacharlie.transport_compression import ACCEPT_ENCODING, _HAS_ZSTD
-          assert not _HAS_ZSTD, '_HAS_ZSTD should be False'
-          assert 'zstd' not in ACCEPT_ENCODING, f'zstd should not be in: {ACCEPT_ENCODING}'
-          assert 'gzip' in ACCEPT_ENCODING, f'gzip missing from: {ACCEPT_ENCODING}'
-          print(f'Accept-Encoding (fallback): {ACCEPT_ENCODING}')
-          "
+        run: python scripts/ci/verify_fallback_encoding.py
 
       - name: Run unit tests without zstandard
         run: pytest -v --durations=10 tests/unit/ -k "not TestDecompressZstd"
