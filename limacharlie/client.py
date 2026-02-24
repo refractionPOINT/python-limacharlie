@@ -280,7 +280,8 @@ class Client:
             raise AuthenticationError(f"Failed to get JWT: {e}")
 
     def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, str] | None = None,
-                   raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None) -> tuple[int, Any]:
+                   raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None,
+                   extra_headers: dict[str, str] | None = None) -> tuple[int, Any]:
         """Make a single HTTP request to the API.
 
         Returns:
@@ -288,6 +289,8 @@ class Client:
         """
         params = params or {}
         headers = {}
+        if extra_headers:
+            headers.update(extra_headers)
 
         if not is_no_auth and self._jwt:
             headers["Authorization"] = f"Bearer {self._jwt}"
@@ -360,7 +363,7 @@ class Client:
 
     def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, str] | None = None,
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
-                max_retries: int = 3, timeout: int | None = None) -> dict[str, Any]:
+                max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
         """Make an API request with retry logic and JWT management.
 
         Args:
@@ -374,6 +377,7 @@ class Client:
             is_no_auth: Skip authorization header.
             max_retries: Maximum number of retry attempts.
             timeout: Request timeout in seconds.
+            extra_headers: Additional HTTP headers to include.
 
         Returns:
             dict: Parsed JSON response.
@@ -400,7 +404,7 @@ class Client:
                 url, verb, params=params, alt_root=alt_root,
                 query_params=query_params, raw_body=raw_body,
                 content_type=content_type, is_no_auth=is_no_auth,
-                timeout=timeout,
+                timeout=timeout, extra_headers=extra_headers,
             )
 
             if code == HTTP_OK:
@@ -450,3 +454,57 @@ class Client:
             raise error_from_status_code(code, data)
 
         return data
+
+    def raw_request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None,
+                    query_params: dict[str, str] | None = None, raw_body: bytes | None = None,
+                    content_type: str | None = None, is_no_auth: bool = False,
+                    extra_headers: dict[str, str] | None = None) -> tuple[int, Any]:
+        """Make a raw API request, returning (status_code, response_data).
+
+        Unlike ``request()``, this method does not raise on non-200 responses.
+        It handles JWT priming and a single 401 retry, but otherwise returns
+        whatever the server sent.
+
+        Args:
+            verb: HTTP method (GET, POST, DELETE, etc.).
+            url: API endpoint path (relative to ROOT_URL/v1/).
+            params: Form-encoded body parameters.
+            alt_root: Override the base URL entirely.
+            query_params: URL query parameters.
+            raw_body: Raw body bytes (overrides params).
+            content_type: Content-Type header override.
+            is_no_auth: Skip authorization header.
+            extra_headers: Additional HTTP headers to include.
+
+        Returns:
+            tuple: (status_code, response_data).
+        """
+        # Prime JWT if needed.
+        if not is_no_auth and self._jwt is None:
+            if self._on_refresh_auth is not None:
+                self._on_refresh_auth(self)
+            else:
+                self.refresh_jwt()
+
+        code, data = self._rest_call(
+            url, verb, params=params, alt_root=alt_root,
+            query_params=query_params, raw_body=raw_body,
+            content_type=content_type, is_no_auth=is_no_auth,
+            extra_headers=extra_headers,
+        )
+
+        # Single 401 retry with JWT refresh.
+        if code == HTTP_UNAUTHORIZED and not is_no_auth:
+            if self._on_refresh_auth is not None:
+                self._on_refresh_auth(self)
+            else:
+                if self._api_key is not None or self._oauth_creds is not None:
+                    self.refresh_jwt()
+            code, data = self._rest_call(
+                url, verb, params=params, alt_root=alt_root,
+                query_params=query_params, raw_body=raw_body,
+                content_type=content_type, is_no_auth=is_no_auth,
+                extra_headers=extra_headers,
+            )
+
+        return (code, data)

@@ -60,6 +60,40 @@ org = Organization(client)
 | `AI` | `limacharlie.sdk.ai` | AI-assisted rule/query generation |
 | `Billing` | `limacharlie.sdk.billing` | Billing and usage details |
 
+## Raw API Requests
+
+`Client.raw_request()` makes authenticated HTTP requests to any LimaCharlie API endpoint without raising on non-200 responses. It returns a `(status_code, response_data)` tuple, making it useful for accessing unwrapped endpoints or scripting.
+
+```python
+from limacharlie.client import Client
+
+client = Client(oid="your-org-id", api_key="your-api-key")
+
+# GET request
+status, data = client.raw_request("GET", f"orgs/{client.oid}")
+
+# POST with form-encoded body
+status, data = client.raw_request("POST", f"orgs/{client.oid}/sensors",
+                                  params={"hostname": "test"})
+
+# POST with JSON body
+import json
+status, data = client.raw_request("POST", f"orgs/{client.oid}/rules",
+                                  raw_body=json.dumps({"name": "my-rule"}).encode(),
+                                  content_type="application/json")
+
+# Target alternate API hosts
+status, data = client.raw_request("GET", f"orgs/{client.oid}/status",
+                                  alt_root="https://billing.limacharlie.io")
+
+# Skip authentication for public endpoints
+status, data = client.raw_request("GET", "public/info", is_no_auth=True)
+
+# Add custom headers
+status, data = client.raw_request("GET", f"orgs/{client.oid}",
+                                  extra_headers={"X-Custom": "value"})
+```
+
 ## Detailed Guides
 
 | Guide | Topics |

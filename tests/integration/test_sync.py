@@ -54,7 +54,11 @@ def test_v2_sync_push_dry_run(oid, key):
         is_dry_run=True,
         sync_outputs=True,
     )
-    # push() returns a list of (op_type, resource_type, name) tuples.
-    assert isinstance(result, list), (
-        f"Expected list from configs.push(dry_run), got {type(result).__name__}"
+    # push() returns a (changes, warnings) tuple.
+    assert isinstance(result, tuple), (
+        f"Expected tuple from configs.push(dry_run), got {type(result).__name__}"
+    )
+    changes, warnings = result
+    assert isinstance(changes, list), (
+        f"Expected list of changes, got {type(changes).__name__}"
     )

@@ -527,83 +527,8 @@ class TestCliInvestigation:
         assert result.exit_code in (0, 1)
 
 
-# ============================================================================
-# Integrity commands (CRUD)
-# ============================================================================
-
-class TestCliIntegrity:
-    def test_list(self, oid, key):
-        result, _ = _invoke(oid, key, ["integrity", "list"])
-        assert result.exit_code == 0
-
-    def test_crud(self, oid, key):
-        name = _unique("integrity-")
-
-        try:
-            # Create
-            result, _ = _invoke(oid, key, [
-                "integrity", "create", "--name", name,
-                "--patterns", "/tmp/test-cli-v2-*",
-            ])
-            assert result.exit_code == 0
-
-            # List
-            result, _ = _invoke(oid, key, ["integrity", "list"])
-            assert result.exit_code == 0
-
-            # Get
-            result, _ = _invoke(oid, key, ["integrity", "get", "--name", name])
-            assert result.exit_code == 0
-        finally:
-            _invoke(oid, key, [
-                "integrity", "delete", "--name", name, "--confirm",
-            ])
-
-
-# ============================================================================
-# Logging commands (CRUD)
-# ============================================================================
-
-class TestCliLogging:
-    def test_list(self, oid, key):
-        result, _ = _invoke(oid, key, ["logging", "list"])
-        assert result.exit_code == 0
-
-    def test_crud(self, oid, key):
-        name = _unique("logging-")
-
-        try:
-            # Create
-            result, _ = _invoke(oid, key, [
-                "logging", "create", "--name", name, "--patterns", "*.exe",
-            ])
-            assert result.exit_code == 0
-
-            # List
-            result, _ = _invoke(oid, key, ["logging", "list"])
-            assert result.exit_code == 0
-
-            # Get
-            result, _ = _invoke(oid, key, ["logging", "get", "--name", name])
-            assert result.exit_code == 0
-        finally:
-            _invoke(oid, key, [
-                "logging", "delete", "--name", name, "--confirm",
-            ])
-
-
-# ============================================================================
-# YARA commands (read-only)
-# ============================================================================
-
-class TestCliYara:
-    def test_rules_list(self, oid, key):
-        result, _ = _invoke(oid, key, ["yara", "rules-list"])
-        assert result.exit_code == 0
-
-    def test_sources_list(self, oid, key):
-        result, _ = _invoke(oid, key, ["yara", "sources-list"])
-        assert result.exit_code == 0
+# Integrity, Logging, YARA, and Exfil CLI tests removed — these depend on
+# replicant services which have been superseded by Extensions.
 
 
 # ============================================================================
@@ -788,32 +713,3 @@ class TestCliGlobal:
         assert len(result.output) > 50  # AI help text should be substantial
 
 
-# ============================================================================
-# Exfil commands (CRUD)
-# ============================================================================
-
-class TestCliExfil:
-    def test_list(self, oid, key):
-        result, _ = _invoke(oid, key, ["exfil", "list"])
-        assert result.exit_code == 0
-
-    def test_event_crud(self, oid, key):
-        name = _unique("exfil-")
-
-        try:
-            # Create event rule
-            result, _ = _invoke(oid, key, [
-                "exfil", "create-event", "--name", name,
-                "--events", "DNS_REQUEST",
-            ])
-            assert result.exit_code == 0
-
-            time.sleep(2)
-
-            # List
-            result, _ = _invoke(oid, key, ["exfil", "list"])
-            assert result.exit_code == 0
-        finally:
-            _invoke(oid, key, [
-                "exfil", "delete", "--name", name, "--confirm",
-            ])

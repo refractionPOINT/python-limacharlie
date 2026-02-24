@@ -85,6 +85,7 @@ PROFILES = {
             "billing status", "billing details", "billing plans",
             "output list", "output create", "output delete",
             "audit list",
+            "api",
         ],
     },
     "ai_powered": {
