@@ -204,7 +204,11 @@ inject_ai_help(cli)
 def main() -> None:
     """CLI entry point."""
     try:
-        cli(standalone_mode=False)
+        rv = cli(standalone_mode=False)
+        # With standalone_mode=False, ctx.exit(code) returns the exit
+        # code as the return value instead of raising SystemExit.
+        if isinstance(rv, int) and rv != 0:
+            sys.exit(rv)
     except click.exceptions.Abort:
         sys.exit(1)
     except click.exceptions.Exit as e:
