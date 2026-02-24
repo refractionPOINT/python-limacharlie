@@ -46,7 +46,7 @@ steps:
 
       # Verify it works (basic sanity check)
       pip show limacharlie
-      limacharlie version
+      limacharlie --version
   waitFor: ["-"]  # Run in parallel with other steps.
 
 - id: "Run sdist Sanity Checks"
@@ -71,5 +71,5 @@ steps:
 
       # Verify it works (basic sanity check)
       pip show limacharlie
-      limacharlie version
+      limacharlie --version
   waitFor: ["Run wheel Sanity Checks"]  # This can't run in parallel with previous step since it shares workspace
