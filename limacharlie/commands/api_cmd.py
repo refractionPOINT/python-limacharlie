@@ -7,8 +7,10 @@ to any LimaCharlie API endpoint, similar to ``gh api``.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import Any
+from urllib.parse import quote
 
 import click
 
@@ -47,7 +49,8 @@ placeholder and it will be replaced with the resolved organization ID:
     limacharlie api orgs/{oid}/sensors
 
 Request body fields can be provided via -f (string) or -F (typed) flags.
-Multiple flags build a JSON object.  -F coerces bools, ints, and supports
+Multiple flags build a form-encoded body (the default for LimaCharlie APIs).
+Use --json to send a JSON body instead.  -F coerces bools, ints, and supports
 @file for reading values from files.  Alternatively, use --input to send
 a raw body from a file or stdin.
 
@@ -71,6 +74,29 @@ def _parse_raw_field(spec: str) -> tuple[str, str]:
         raise click.BadParameter(f"Expected key=value, got: {spec}")
     key, value = spec.split("=", 1)
     return (key, value)
+
+
+def _read_stdin() -> str:
+    """Read stdin, guarding against accidental reads from a terminal."""
+    if sys.stdin.isatty():
+        click.echo(
+            "Reading from terminal stdin. Provide input and press "
+            "Ctrl-D (EOF) to continue, or Ctrl-C to cancel.",
+            err=True,
+        )
+    return sys.stdin.read()
+
+
+def _safe_read_file(path: str) -> str:
+    """Read a file with basic path-safety checks.
+
+    Resolves symlinks and verifies the target is a regular file.
+    """
+    resolved = os.path.realpath(path)
+    if not os.path.isfile(resolved):
+        raise click.BadParameter(f"Not a regular file: {path} (resolved to {resolved})")
+    with open(resolved, "r") as f:
+        return f.read()
 
 
 def _parse_typed_field(spec: str) -> tuple[str, Any]:
@@ -97,9 +123,8 @@ def _parse_typed_field(spec: str) -> tuple[str, Any]:
     if raw.startswith("@"):
         path = raw[1:]
         if path == "-":
-            return (key, sys.stdin.read())
-        with open(path, "r") as f:
-            return (key, f.read())
+            return (key, _read_stdin())
+        return (key, _safe_read_file(path))
 
     # Numeric coercion
     try:
@@ -140,9 +165,11 @@ def _exit_code_for_status(status: int) -> int:
 @click.command("api")
 @click.argument("endpoint")
 @click.option("-X", "--method", default=None, help="HTTP method (default: GET, or POST if body provided).")
-@click.option("-f", "--raw-field", multiple=True, help="String field as key=value (JSON body, or query param for GET).")
+@click.option("-f", "--raw-field", multiple=True, help="String field as key=value (form-encoded body, or query param for GET).")
 @click.option("-F", "--field", multiple=True, help="Typed field as key=value. Coerces bools/ints. @file reads from file.")
+@click.option("--json", "use_json", is_flag=True, help="Send fields as JSON body instead of form-encoded.")
 @click.option("--input", "input_file", default=None, help="Request body from file (use '-' for stdin).")
+@click.option("--content-type", "content_type_override", default=None, help="Content-Type for --input body (default: auto-detect).")
 @click.option("--target", default="api", help="API host alias or URL (aliases: api, billing, jwt, stream, downloads).")
 @click.option("-i", "--include", "include_status", is_flag=True, help="Show HTTP status code in output.")
 @click.option("--silent", is_flag=True, help="Suppress response body.")
@@ -150,23 +177,30 @@ def _exit_code_for_status(status: int) -> int:
 @click.option("-H", "--header", multiple=True, help="Additional header as 'Key: Value'.")
 @pass_context
 def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[str, ...],
-        field: tuple[str, ...], input_file: str | None, target: str,
+        field: tuple[str, ...], use_json: bool, input_file: str | None,
+        content_type_override: str | None, target: str,
         include_status: bool, silent: bool, no_auth: bool, header: tuple[str, ...]) -> None:
     """Make an authenticated API request to any LimaCharlie endpoint.
 
     ENDPOINT is a relative API path.  Use {oid} as a placeholder for the
     organization ID.
 
+    Fields provided via -f/-F are sent as a form-encoded body by default
+    (matching LC API conventions).  Use --json to send as a JSON body instead.
+
     \b
     Examples:
         limacharlie api orgs/{oid}/sensors
-        limacharlie api orgs/{oid}/sensors -X POST -F hostname=test
+        limacharlie api orgs/{oid}/sensors -X POST -f hostname=test
+        limacharlie api orgs/{oid} -X POST --json -F enabled=true
         limacharlie api --target billing orgs/{oid}/status
         limacharlie api orgs/{oid}/sensors --no-auth
     """
     # --- Validate mutual exclusivity ---
     if input_file and (raw_field or field):
         raise click.UsageError("--input cannot be combined with -f/--raw-field or -F/--field.")
+    if content_type_override and not input_file:
+        raise click.UsageError("--content-type can only be used with --input.")
 
     # --- Build fields dict from -f and -F ---
     fields: dict[str, Any] = {}
@@ -208,7 +242,7 @@ def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[
                 "Endpoint contains {oid} but no organization ID is configured.\n"
                 "Set a default org with 'limacharlie auth use-org <OID>' or pass --oid."
             )
-        endpoint = endpoint.replace("{oid}", oid)
+        endpoint = endpoint.replace("{oid}", quote(oid, safe=""))
 
     # --- Parse extra headers ---
     extra_headers: dict[str, str] = {}
@@ -220,34 +254,41 @@ def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[
     query_params: dict[str, str] | None = None
     raw_body: bytes | None = None
     content_type: str | None = None
+    params: dict[str, Any] | None = None
 
     if input_file is not None:
         # Raw body from file or stdin
         if input_file == "-":
-            body_text = sys.stdin.read()
+            body_text = _read_stdin()
         else:
-            with open(input_file, "r") as f:
-                body_text = f.read()
+            body_text = _safe_read_file(input_file)
         raw_body = body_text.encode("utf-8")
-        # Auto-detect content type
-        stripped = body_text.lstrip()
-        if stripped.startswith("{") or stripped.startswith("["):
-            content_type = "application/json"
+        # Content type: explicit override > auto-detect
+        if content_type_override:
+            content_type = content_type_override
         else:
-            content_type = "application/octet-stream"
+            stripped = body_text.lstrip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                content_type = "application/json"
+            else:
+                content_type = "application/octet-stream"
     elif fields:
         if effective_method == "GET":
             # Fields go to query params for GET
             query_params = {k: str(v) for k, v in fields.items()}
-        else:
-            # Fields go to JSON body
+        elif use_json:
+            # --json: send as JSON body (preserves typed values from -F)
             raw_body = json.dumps(fields).encode("utf-8")
             content_type = "application/json"
+        else:
+            # Default: form-encoded body (LC API convention)
+            params = {k: str(v) for k, v in fields.items()}
 
     # --- Make the request ---
     status, data = client.raw_request(
         effective_method,
         endpoint,
+        params=params,
         alt_root=alt_root,
         query_params=query_params,
         raw_body=raw_body,

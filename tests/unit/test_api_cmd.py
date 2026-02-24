@@ -43,6 +43,8 @@ class TestApiHelp:
         assert "--field" in result.output
         assert "--input" in result.output
         assert "--header" in result.output
+        assert "--json" in result.output
+        assert "--content-type" in result.output
 
 
 class TestEndpointPlaceholder:
@@ -71,6 +73,20 @@ class TestEndpointPlaceholder:
             result = runner.invoke(cli, ["api", "orgs/{oid}/sensors"])
             assert result.exit_code != 0
             assert "{oid}" in result.output
+
+    def test_oid_placeholder_url_encoded(self):
+        """OID value is URL-encoded in the path to prevent injection."""
+        mock_client = MagicMock()
+        mock_client.oid = "has spaces/and slashes"
+        mock_client.raw_request.return_value = (200, {"ok": True})
+        with patch("limacharlie.commands.api_cmd.Client", return_value=mock_client):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "orgs/{oid}/sensors"])
+            assert result.exit_code == 0
+            args, _ = mock_client.raw_request.call_args
+            # Slashes and spaces should be percent-encoded
+            assert "/" not in args[1].split("orgs/")[1].split("/sensors")[0]
+            assert "has%20spaces%2Fand%20slashes" in args[1]
 
 
 class TestTargetResolution:
@@ -107,64 +123,89 @@ class TestTargetResolution:
             assert kwargs["alt_root"] == "https://ticketing.limacharlie.io"
 
 
-class TestRawFieldParsing:
-    def test_single_raw_field(self):
+class TestFormEncodedDefault:
+    """Fields sent via -f default to form-encoded body (LC API convention)."""
+
+    def test_single_raw_field_form_encoded(self):
         with _patch_client() as mock_cls:
             runner = CliRunner()
             result = runner.invoke(cli, ["api", "endpoint", "-f", "name=test"])
             assert result.exit_code == 0
             _, kwargs = mock_cls.return_value.raw_request.call_args
-            body = json.loads(kwargs["raw_body"].decode())
-            assert body == {"name": "test"}
+            assert kwargs["params"] == {"name": "test"}
+            assert kwargs.get("raw_body") is None
 
-    def test_multiple_raw_fields(self):
+    def test_multiple_raw_fields_form_encoded(self):
         with _patch_client() as mock_cls:
             runner = CliRunner()
             result = runner.invoke(cli, ["api", "endpoint", "-f", "a=1", "-f", "b=2"])
             assert result.exit_code == 0
             _, kwargs = mock_cls.return_value.raw_request.call_args
-            body = json.loads(kwargs["raw_body"].decode())
-            assert body == {"a": "1", "b": "2"}
+            assert kwargs["params"] == {"a": "1", "b": "2"}
 
-    def test_raw_field_content_type_is_json(self):
+    def test_typed_fields_stringified_in_form_mode(self):
+        """Without --json, -F values are stringified for form encoding."""
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "endpoint", "-F", "enabled=true", "-F", "count=42"])
+            assert result.exit_code == 0
+            _, kwargs = mock_cls.return_value.raw_request.call_args
+            assert kwargs["params"] == {"enabled": "True", "count": "42"}
+
+    def test_no_content_type_for_form_encoded(self):
+        """Form-encoded fields use params, not raw_body, so no content_type is set."""
         with _patch_client() as mock_cls:
             runner = CliRunner()
             result = runner.invoke(cli, ["api", "endpoint", "-f", "k=v"])
             assert result.exit_code == 0
             _, kwargs = mock_cls.return_value.raw_request.call_args
-            assert kwargs["content_type"] == "application/json"
+            assert kwargs.get("content_type") is None
 
 
-class TestTypedFieldParsing:
-    def test_bool_coercion(self):
+class TestJsonFlag:
+    """--json flag sends fields as a JSON body."""
+
+    def test_json_flag_sends_json_body(self):
         with _patch_client() as mock_cls:
             runner = CliRunner()
-            result = runner.invoke(cli, ["api", "endpoint", "-F", "enabled=true", "-F", "verbose=false"])
+            result = runner.invoke(cli, ["api", "endpoint", "--json", "-f", "name=test"])
+            assert result.exit_code == 0
+            _, kwargs = mock_cls.return_value.raw_request.call_args
+            body = json.loads(kwargs["raw_body"].decode())
+            assert body == {"name": "test"}
+            assert kwargs["content_type"] == "application/json"
+
+    def test_json_flag_preserves_typed_values(self):
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "endpoint", "--json", "-F", "enabled=true", "-F", "count=42"])
             assert result.exit_code == 0
             _, kwargs = mock_cls.return_value.raw_request.call_args
             body = json.loads(kwargs["raw_body"].decode())
             assert body["enabled"] is True
-            assert body["verbose"] is False
+            assert body["count"] == 42
 
-    def test_int_coercion(self):
+    def test_json_flag_with_float(self):
         with _patch_client() as mock_cls:
             runner = CliRunner()
-            result = runner.invoke(cli, ["api", "endpoint", "-F", "limit=42"])
-            assert result.exit_code == 0
-            _, kwargs = mock_cls.return_value.raw_request.call_args
-            body = json.loads(kwargs["raw_body"].decode())
-            assert body["limit"] == 42
-            assert isinstance(body["limit"], int)
-
-    def test_float_coercion(self):
-        with _patch_client() as mock_cls:
-            runner = CliRunner()
-            result = runner.invoke(cli, ["api", "endpoint", "-F", "rate=3.14"])
+            result = runner.invoke(cli, ["api", "endpoint", "--json", "-F", "rate=3.14"])
             assert result.exit_code == 0
             _, kwargs = mock_cls.return_value.raw_request.call_args
             body = json.loads(kwargs["raw_body"].decode())
             assert body["rate"] == 3.14
 
+    def test_json_flag_mixed_f_and_F(self):
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "endpoint", "--json", "-f", "name=test", "-F", "count=5"])
+            assert result.exit_code == 0
+            _, kwargs = mock_cls.return_value.raw_request.call_args
+            body = json.loads(kwargs["raw_body"].decode())
+            assert body["name"] == "test"
+            assert body["count"] == 5
+
+
+class TestAtFileField:
     def test_at_file_reads_contents(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write("file-contents-here")
@@ -173,7 +214,7 @@ class TestTypedFieldParsing:
         try:
             with _patch_client() as mock_cls:
                 runner = CliRunner()
-                result = runner.invoke(cli, ["api", "endpoint", "-F", f"data=@{tmppath}"])
+                result = runner.invoke(cli, ["api", "endpoint", "--json", "-F", f"data=@{tmppath}"])
                 assert result.exit_code == 0
                 _, kwargs = mock_cls.return_value.raw_request.call_args
                 body = json.loads(kwargs["raw_body"].decode())
@@ -181,15 +222,18 @@ class TestTypedFieldParsing:
         finally:
             os.unlink(tmppath)
 
-    def test_mixed_f_and_F(self):
-        with _patch_client() as mock_cls:
+    def test_at_file_rejects_nonexistent_file(self):
+        with _patch_client():
             runner = CliRunner()
-            result = runner.invoke(cli, ["api", "endpoint", "-f", "name=test", "-F", "count=5"])
-            assert result.exit_code == 0
-            _, kwargs = mock_cls.return_value.raw_request.call_args
-            body = json.loads(kwargs["raw_body"].decode())
-            assert body["name"] == "test"
-            assert body["count"] == 5
+            result = runner.invoke(cli, ["api", "endpoint", "-F", "data=@/nonexistent/file.txt"])
+            assert result.exit_code != 0
+
+    def test_at_file_rejects_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with _patch_client():
+                runner = CliRunner()
+                result = runner.invoke(cli, ["api", "endpoint", "-F", f"data=@{tmpdir}"])
+                assert result.exit_code != 0
 
 
 class TestMethodDetection:
@@ -225,6 +269,7 @@ class TestMethodDetection:
             _, kwargs = mock_cls.return_value.raw_request.call_args
             assert kwargs["query_params"] == {"limit": "10"}
             assert kwargs.get("raw_body") is None
+            assert kwargs.get("params") is None
 
 
 class TestInputFile:
@@ -268,6 +313,45 @@ class TestInputFile:
                 assert kwargs["content_type"] == "application/octet-stream"
         finally:
             os.unlink(tmppath)
+
+    def test_input_rejects_nonexistent_file(self):
+        with _patch_client():
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "endpoint", "--input", "/nonexistent/file.json"])
+            assert result.exit_code != 0
+
+    def test_input_rejects_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with _patch_client():
+                runner = CliRunner()
+                result = runner.invoke(cli, ["api", "endpoint", "--input", tmpdir])
+                assert result.exit_code != 0
+
+
+class TestContentTypeOverride:
+    def test_explicit_content_type_with_input(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write("key: value")
+            f.flush()
+            tmppath = f.name
+        try:
+            with _patch_client() as mock_cls:
+                runner = CliRunner()
+                result = runner.invoke(cli, [
+                    "api", "endpoint", "--input", tmppath,
+                    "--content-type", "application/yaml",
+                ])
+                assert result.exit_code == 0
+                _, kwargs = mock_cls.return_value.raw_request.call_args
+                assert kwargs["content_type"] == "application/yaml"
+        finally:
+            os.unlink(tmppath)
+
+    def test_content_type_without_input_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["api", "endpoint", "--content-type", "application/json"])
+        assert result.exit_code != 0
+        assert "--content-type" in result.output
 
 
 class TestMutualExclusivity:
