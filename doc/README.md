@@ -17,7 +17,7 @@
 | [Platform Administration](cli/platform-admin.md) | org, user, group, api-key, ingestion-key, billing, audit |
 | [Hive & Data Stores](cli/hive-data.md) | hive, secret, lookup, playbook, note, sop, adapter, cloud-sensor, extension |
 | [Infrastructure](cli/infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
-| [Other Commands](cli/other-commands.md) | arl, usp, spotcheck, job, schema, completion, help/discover |
+| [Other Commands](cli/other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover |
 
 ## SDK Reference
 
