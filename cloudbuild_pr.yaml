@@ -5,8 +5,9 @@ steps:
   args:
     - "-c"
     - |
+      cp -r /workspace /tmp/src
       pip install --upgrade pip
-      pip install ".[dev]"
+      pip install "/tmp/src[dev]"
 
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
   waitFor: ["-"]  # Run in parallel with other steps.
@@ -17,8 +18,9 @@ steps:
   args:
     - "-c"
     - |
+      cp -r /workspace /tmp/src
       pip install --upgrade pip
-      pip install ".[dev]"
+      pip install "/tmp/src[dev]"
 
       # We use rerun since tests are flaky
       pytest -s -v --durations=10 tests/integration/ --oid=${_OID} --key=${_KEY}
