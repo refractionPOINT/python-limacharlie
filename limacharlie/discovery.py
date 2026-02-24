@@ -51,7 +51,6 @@ PROFILES = {
             "stream events", "stream detections", "stream audit",
             "ioc search", "ioc batch-search", "ioc hosts", "ioc enrich", "ioc batch-enrich",
             "stream firehose",
-            "investigation list", "investigation get", "investigation create",
         ],
     },
     "threat_response": {

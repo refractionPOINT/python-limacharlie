@@ -516,19 +516,9 @@ class TestCliArtifact:
         assert result.exit_code == 0
 
 
-# ============================================================================
-# Investigation commands (CRUD)
-# ============================================================================
-
-class TestCliInvestigation:
-    def test_list(self, oid, key):
-        result, _ = _invoke(oid, key, ["investigation", "list"], expect_success=False)
-        # Investigation API may not be available for all orgs (404).
-        assert result.exit_code in (0, 1)
-
-
-# Integrity, Logging, YARA, and Exfil CLI tests removed — these depend on
-# replicant services which have been superseded by Extensions.
+# Integrity, Logging, YARA, Exfil, and Investigation CLI tests removed —
+# Investigations have moved to Ticketing; the others depend on replicant
+# services which have been superseded by Extensions.
 
 
 # ============================================================================
