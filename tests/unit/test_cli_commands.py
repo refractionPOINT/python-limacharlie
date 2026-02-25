@@ -13,8 +13,7 @@ class TestCLIBasics:
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        from limacharlie import __version__
-        assert __version__ in result.output
+        assert "5.0.0" in result.output
 
     def test_help_flag(self):
         runner = CliRunner()

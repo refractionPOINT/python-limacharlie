@@ -81,14 +81,3 @@ pytest tests/integration/ --oid YOUR_ORG_ID --key YOUR_API_KEY -v
 pip install build && python -m build
 pip install dist/limacharlie-*-py3-none-any.whl && limacharlie version
 ```
-
-## Releasing
-
-Releases are published to [PyPI](https://pypi.org/project/limacharlie/) automatically via GitHub Actions when a version tag is pushed. The package version is derived from the git tag using `setuptools-scm` — there is no hardcoded version to bump.
-
-```bash
-git tag 5.1.0
-git push origin 5.1.0
-```
-
-The workflow runs unit tests, builds the package, and publishes to PyPI using [Trusted Publishers](https://docs.pypi.org/trusted-publishers/) (OIDC) — no API tokens or secrets required. See [`.github/workflows/publish-to-pypi.yml`](.github/workflows/publish-to-pypi.yml) for details.

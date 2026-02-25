@@ -41,10 +41,10 @@ class TestPyprojectToml:
         assert "limacharlie" in scripts
         assert scripts["limacharlie"] == "limacharlie.cli:main"
 
-    def test_version_is_dynamic(self):
+    def test_version(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
-        assert "version" in data["project"].get("dynamic", [])
+        assert data["project"]["version"] == "5.0.0"
 
     def test_dev_dependencies(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:

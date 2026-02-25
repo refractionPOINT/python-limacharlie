@@ -292,8 +292,7 @@ class TestRefreshAuthCallback:
 class TestBuildUserAgent:
     def test_user_agent_format(self):
         ua = _build_user_agent()
-        from limacharlie import __version__
-        assert ua.startswith(f"lc-cli/{__version__}")
+        assert ua.startswith("lc-cli/5.0.0")
         assert "python-" in ua
 
 
