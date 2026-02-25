@@ -26,10 +26,9 @@ class TestAIGenerateDrRule:
         ai.generate_dr_rule("detect mimikatz")
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("POST", "ai/dr")
-        body = json.loads(call_args[1]["raw_body"])
-        assert body["query"] == "detect mimikatz"
-        assert "description" not in body
-        assert call_args[1]["content_type"] == "application/json"
+        assert call_args[1]["params"] == {"query": "detect mimikatz"}
+        assert "raw_body" not in call_args[1]
+        assert "content_type" not in call_args[1]
         assert "test-oid" not in call_args[0][1]
 
 
@@ -39,10 +38,9 @@ class TestAIGenerateDetection:
         ai.generate_detection("lateral movement")
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("POST", "ai/detection")
-        body = json.loads(call_args[1]["raw_body"])
-        assert body["query"] == "lateral movement"
-        assert "description" not in body
-        assert call_args[1]["content_type"] == "application/json"
+        assert call_args[1]["params"] == {"query": "lateral movement"}
+        assert "raw_body" not in call_args[1]
+        assert "content_type" not in call_args[1]
 
 
 class TestAIGenerateResponse:
@@ -51,9 +49,9 @@ class TestAIGenerateResponse:
         ai.generate_response("isolate sensor")
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("POST", "ai/response")
-        body = json.loads(call_args[1]["raw_body"])
-        assert body["query"] == "isolate sensor"
-        assert call_args[1]["content_type"] == "application/json"
+        assert call_args[1]["params"] == {"query": "isolate sensor"}
+        assert "raw_body" not in call_args[1]
+        assert "content_type" not in call_args[1]
 
 
 class TestAIGenerateLcql:
@@ -62,9 +60,9 @@ class TestAIGenerateLcql:
         ai.generate_lcql("find all DNS events")
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("POST", "ai/lcql")
-        body = json.loads(call_args[1]["raw_body"])
-        assert body["query"] == "find all DNS events"
-        assert call_args[1]["content_type"] == "application/json"
+        assert call_args[1]["params"] == {"query": "find all DNS events"}
+        assert "raw_body" not in call_args[1]
+        assert "content_type" not in call_args[1]
 
 
 class TestAIGenerateSensorSelector:
@@ -73,9 +71,9 @@ class TestAIGenerateSensorSelector:
         ai.generate_sensor_selector("all windows servers")
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("POST", "ai/sensor_selector")
-        body = json.loads(call_args[1]["raw_body"])
-        assert body["query"] == "all windows servers"
-        assert call_args[1]["content_type"] == "application/json"
+        assert call_args[1]["params"] == {"query": "all windows servers"}
+        assert "raw_body" not in call_args[1]
+        assert "content_type" not in call_args[1]
 
 
 class TestAIGeneratePlaybook:
@@ -84,9 +82,9 @@ class TestAIGeneratePlaybook:
         ai.generate_playbook("respond to ransomware")
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("POST", "ai/playbook/python")
-        body = json.loads(call_args[1]["raw_body"])
-        assert body["query"] == "respond to ransomware"
-        assert call_args[1]["content_type"] == "application/json"
+        assert call_args[1]["params"] == {"query": "respond to ransomware"}
+        assert "raw_body" not in call_args[1]
+        assert "content_type" not in call_args[1]
 
 
 class TestAISummarizeDetection:
@@ -96,6 +94,6 @@ class TestAISummarizeDetection:
         ai.summarize_detection(detection)
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("POST", "ai/det_summary")
-        body = json.loads(call_args[1]["raw_body"])
-        assert body["query"] == json.dumps(detection)
-        assert call_args[1]["content_type"] == "application/json"
+        assert call_args[1]["params"] == {"query": json.dumps(detection)}
+        assert "raw_body" not in call_args[1]
+        assert "content_type" not in call_args[1]

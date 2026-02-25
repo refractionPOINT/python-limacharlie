@@ -106,6 +106,14 @@ class TestTargetResolution:
             _, kwargs = mock_cls.return_value.raw_request.call_args
             assert kwargs["alt_root"] == "https://billing.limacharlie.io"
 
+    def test_ticketing_target(self):
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "--target", "ticketing", "api/v1/tickets"])
+            assert result.exit_code == 0
+            _, kwargs = mock_cls.return_value.raw_request.call_args
+            assert kwargs["alt_root"] == "https://ticketing.limacharlie.io"
+
     def test_raw_url_target(self):
         with _patch_client() as mock_cls:
             runner = CliRunner()
