@@ -27,8 +27,7 @@ class AI:
             description: Natural language description of the desired rule.
         """
         return self.client.request("POST", "ai/dr",
-                                   raw_body=json.dumps({"query": description}).encode(),
-                                   content_type="application/json")
+                                   params={"query": description})
 
     def generate_detection(self, description: str) -> dict[str, Any]:
         """Generate a detection component from a natural language description.
@@ -37,8 +36,7 @@ class AI:
             description: Natural language description of the detection logic.
         """
         return self.client.request("POST", "ai/detection",
-                                   raw_body=json.dumps({"query": description}).encode(),
-                                   content_type="application/json")
+                                   params={"query": description})
 
     def generate_response(self, description: str) -> dict[str, Any]:
         """Generate a response component from a natural language description.
@@ -47,8 +45,7 @@ class AI:
             description: Natural language description of the response action.
         """
         return self.client.request("POST", "ai/response",
-                                   raw_body=json.dumps({"query": description}).encode(),
-                                   content_type="application/json")
+                                   params={"query": description})
 
     def generate_lcql(self, description: str) -> dict[str, Any]:
         """Generate an LCQL query from a natural language description.
@@ -57,8 +54,7 @@ class AI:
             description: Natural language description of the query.
         """
         return self.client.request("POST", "ai/lcql",
-                                   raw_body=json.dumps({"query": description}).encode(),
-                                   content_type="application/json")
+                                   params={"query": description})
 
     def generate_sensor_selector(self, description: str) -> dict[str, Any]:
         """Generate a sensor selector from a natural language description.
@@ -67,8 +63,7 @@ class AI:
             description: Natural language description of the target sensors.
         """
         return self.client.request("POST", "ai/sensor_selector",
-                                   raw_body=json.dumps({"query": description}).encode(),
-                                   content_type="application/json")
+                                   params={"query": description})
 
     def generate_playbook(self, description: str) -> dict[str, Any]:
         """Generate a Python playbook from a natural language description.
@@ -77,8 +72,7 @@ class AI:
             description: Natural language description of the playbook logic.
         """
         return self.client.request("POST", "ai/playbook/python",
-                                   raw_body=json.dumps({"query": description}).encode(),
-                                   content_type="application/json")
+                                   params={"query": description})
 
     def summarize_detection(self, detection_data: dict[str, Any]) -> dict[str, Any]:
         """Generate a human-readable summary of a detection.
@@ -87,5 +81,4 @@ class AI:
             detection_data: Detection data dict to summarize.
         """
         return self.client.request("POST", "ai/det_summary",
-                                   raw_body=json.dumps({"query": json.dumps(detection_data)}).encode(),
-                                   content_type="application/json")
+                                   params={"query": json.dumps(detection_data)})
