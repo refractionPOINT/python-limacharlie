@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=75.8.0", "wheel"]
+requires = ["setuptools>=75.8.0", "wheel", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "limacharlie"
-version = "5.0.0"
+dynamic = ["version"]
 description = "Python API for LimaCharlie.io"
 readme = "README.md"
 license = "Apache-2.0"
@@ -38,3 +38,6 @@ Homepage = "https://limacharlie.io"
 
 [tool.setuptools.packages.find]
 include = ["limacharlie*"]
+
+[tool.setuptools_scm]
+version_file = "limacharlie/_version.py"
