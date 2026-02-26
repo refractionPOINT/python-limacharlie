@@ -843,8 +843,8 @@ def import_rules(ctx, input_file, namespace, dry_run) -> None:
     help="Save converted rules as YAML files to this directory.",
 )
 @click.option(
-    "--parallel", type=click.IntRange(1, 20), default=5,
-    help="Number of parallel conversion workers (default: 5).",
+    "--parallel", type=click.IntRange(1, 20), default=10,
+    help="Number of parallel conversion workers (default: 10).",
 )
 @click.option("--prefix", default="", help="Prefix for rule key names in dr-general.")
 @click.option("--tag", "tags", multiple=True, help="Tags to add to all converted rules (repeatable).")
