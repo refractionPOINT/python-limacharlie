@@ -30,7 +30,7 @@ from .errors import (
 )
 from .user_agent_utils import build_user_agent
 
-__version__ = "5.0.0"
+__version__ = "5.0.1"
 
 ROOT_URL = "https://api.limacharlie.io"
 API_VERSION = "v1"
