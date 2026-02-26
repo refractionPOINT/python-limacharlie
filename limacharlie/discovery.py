@@ -31,6 +31,7 @@ PROFILES = {
             "fp list", "fp get", "fp create", "fp delete",
             "replay run",
             "ai generate-rule", "ai generate-detection", "ai generate-response",
+            "dr convert-rules",
         ],
     },
     "historical_data": {
