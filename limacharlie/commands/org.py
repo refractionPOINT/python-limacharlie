@@ -106,7 +106,7 @@ Create a new organization.  You must provide a name and a data center
 location.  Optionally supply a template name to bootstrap the
 organization with preconfigured rules and outputs.
 
-Available locations: us, ca, eu, uk, emea
+Available locations: usa, canada, europe, uk, india, australia, auto
 Templates bootstrap the org with starter D&R rules and outputs.
 
 The API returns the new organization's OID on success.  After creation,
@@ -376,15 +376,15 @@ def urls(ctx: click.Context) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Name for the new organization.")
-@click.option("--location", required=True, help="Data center location (e.g. us, ca, eu, uk, emea).")
+@click.option("--location", required=True, help="Data center location (e.g. usa, canada, europe, uk, india, australia, auto).")
 @click.option("--template", default=None, help="Optional template name to bootstrap the organization.")
 @pass_context
 def create(ctx: click.Context, name: str, location: str, template: str | None) -> None:
     """Create a new organization.
 
     Example:
-        limacharlie org create --name my-org --location us
-        limacharlie org create --name my-org --location eu --template default
+        limacharlie org create --name my-org --location usa
+        limacharlie org create --name my-org --location europe --template default
     """
     client = _get_client(ctx)
     data = Organization.create_org(client, name, location, template)
