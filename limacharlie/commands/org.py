@@ -390,6 +390,20 @@ def create(ctx: click.Context, name: str, location: str, template: str | None) -
     data = Organization.create_org(client, name, location, template)
     _output(ctx, data)
 
+    # Show the web app URL for the new org on success.
+    oid = None
+    inner = data.get("data") if isinstance(data, dict) else None
+    if isinstance(inner, dict):
+        oid = inner.get("oid")
+    elif isinstance(inner, str):
+        try:
+            import json
+            oid = json.loads(inner).get("oid")
+        except (ValueError, AttributeError):
+            pass
+    if oid and not ctx.obj.quiet:
+        click.echo(f"\nOrganization URL: https://app.limacharlie.io/orgs/{oid}")
+
 
 # ---------------------------------------------------------------------------
 # delete
