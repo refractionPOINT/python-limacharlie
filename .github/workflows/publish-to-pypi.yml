@@ -1,4 +1,4 @@
-name: Publish to TestPyPI
+name: Publish to PyPI
 
 on:
   push:
@@ -47,12 +47,12 @@ jobs:
           path: dist/
 
   publish:
-    name: Publish to TestPyPI
+    name: Publish to PyPI
     needs: build
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://test.pypi.org/p/limacharlie
+      url: https://pypi.org/p/limacharlie
     permissions:
       id-token: write
       attestations: write
@@ -63,7 +63,5 @@ jobs:
         with:
           name: python-package-distributions
           path: dist/
-      - name: Publish to TestPyPI
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
