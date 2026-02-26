@@ -9,6 +9,7 @@ and dr-service.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import Any
 
@@ -340,6 +341,32 @@ Examples:
   limacharlie dr import --input-file rules.yaml --namespace managed
 """
 
+_EXPLAIN_CONVERT_RULES = """\
+Mass-convert external detection rules to LimaCharlie D&R format using
+AI-powered translation.  Reads rules from a local directory or a GitHub
+repository, converts each to LC D&R format, and optionally creates
+them in the dr-general hive.
+
+The AI backend auto-detects the source format and platform — Sigma,
+Splunk SPL, Elastic KQL, CrowdStrike, and many more are supported
+without any format hint.
+
+The GitHub crawler intelligently identifies rule files by extension
+(.yml, .yaml, .json, .sigma, .spl, .kql, .toml) and filters out
+non-rule files (README, LICENSE, CI configs, etc.).
+
+Rules are created disabled by default for safety.  Use --enabled to
+create them enabled.  Use --dry-run to preview conversions without
+creating hive records.
+
+Examples:
+  limacharlie dr convert-rules --github SigmaHQ/sigma \\
+      --github-path rules/windows/process_creation
+  limacharlie dr convert-rules --input-dir ./splunk-rules --dry-run
+  limacharlie dr convert-rules --github elastic/detection-rules \\
+      --parallel 10 --tag migrated
+"""
+
 register_explain("dr.list", _EXPLAIN_LIST)
 register_explain("dr.get", _EXPLAIN_GET)
 register_explain("dr.set", _EXPLAIN_SET)
@@ -349,6 +376,7 @@ register_explain("dr.replay", _EXPLAIN_REPLAY)
 register_explain("dr.validate", _EXPLAIN_VALIDATE)
 register_explain("dr.export", _EXPLAIN_EXPORT)
 register_explain("dr.import", _EXPLAIN_IMPORT)
+register_explain("dr.convert-rules", _EXPLAIN_CONVERT_RULES)
 
 
 # ---------------------------------------------------------------------------
@@ -782,3 +810,160 @@ def import_rules(ctx, input_file, namespace, dry_run) -> None:
                 click.echo(err, err=True)
     if errors:
         ctx.exit(min(len(errors), 125))
+
+
+# ---------------------------------------------------------------------------
+# convert-rules
+# ---------------------------------------------------------------------------
+
+@group.command("convert-rules")
+@click.option(
+    "--input-dir", type=click.Path(exists=True, file_okay=False), default=None,
+    help="Local directory containing detection rule files.",
+)
+@click.option(
+    "--github", "github_repo", default=None,
+    help="GitHub repo to crawl (owner/repo or full URL).",
+)
+@click.option(
+    "--github-path", default=None,
+    help="Subdirectory within the GitHub repo to search.",
+)
+@click.option(
+    "--github-ref", default=None,
+    help="Branch or tag to use (default: repo default branch).",
+)
+@click.option(
+    "--github-token", default=None, envvar="GH_TOKEN",
+    help="GitHub token for private repos (or set GH_TOKEN env var).",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Convert without creating hive records.")
+@click.option(
+    "--output-dir", type=click.Path(file_okay=False), default=None,
+    help="Save converted rules as YAML files to this directory.",
+)
+@click.option(
+    "--parallel", type=click.IntRange(1, 20), default=10,
+    help="Number of parallel conversion workers (default: 10).",
+)
+@click.option("--prefix", default="", help="Prefix for rule key names in dr-general.")
+@click.option("--tag", "tags", multiple=True, help="Tags to add to all converted rules (repeatable).")
+@click.option("--enabled/--disabled", default=False, help="Whether rules start enabled (default: disabled).")
+@pass_context
+def convert_rules(ctx, input_dir, github_repo, github_path, github_ref,
+                  github_token, dry_run, output_dir, parallel, prefix,
+                  tags, enabled) -> None:
+    """Mass-convert external detection rules to LC D&R format.
+
+    Converts rules from local files or a GitHub repository using
+    AI-powered translation, then creates them in dr-general.
+
+    The AI auto-detects the source format (Sigma, Splunk, Elastic, etc.).
+
+    Examples:
+        limacharlie dr convert-rules --github SigmaHQ/sigma \\
+            --github-path rules/windows/process_creation
+
+        limacharlie dr convert-rules --input-dir ./my-rules --dry-run
+
+        limacharlie dr convert-rules --github elastic/detection-rules \\
+            --parallel 10 --tag migrated --disabled
+    """
+    from ._dr_convert import (
+        GitHubCrawler, LocalCrawler, ConversionPipeline, ProgressDisplay,
+    )
+
+    # -- Validate inputs ---------------------------------------------------
+    if not input_dir and not github_repo:
+        raise click.UsageError("Provide --input-dir or --github.")
+    if input_dir and github_repo:
+        raise click.UsageError("Provide --input-dir or --github, not both.")
+
+    quiet = ctx.obj.quiet
+
+    def echo(msg: str) -> None:
+        if not quiet:
+            click.echo(msg)
+
+    # -- Collect rule files ------------------------------------------------
+    if github_repo:
+        crawler = GitHubCrawler(github_repo, path=github_path, ref=github_ref, token=github_token)
+        echo(f"Crawling GitHub repo: {crawler.display_name}...")
+        rule_files = crawler.crawl(progress_echo=echo)
+    else:
+        echo(f"Scanning directory: {input_dir}")
+        rule_files = LocalCrawler(input_dir).crawl()
+
+    if not rule_files:
+        click.echo("No rule files found.", err=True)
+        ctx.exit(1)
+        return
+
+    echo(f"Found {len(rule_files)} rule file(s).\n")
+
+    # -- Run conversion pipeline -------------------------------------------
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment, is_retry_quota_errors=True)
+    org = Organization(client)
+
+    pipeline = ConversionPipeline(org, parallel=parallel, prefix=prefix)
+    progress = ProgressDisplay(len(rule_files), quiet=quiet)
+    results = pipeline.convert_all(rule_files, progress_callback=progress.update)
+
+    # -- Create in hive (unless dry-run) -----------------------------------
+    if not dry_run:
+        hive = Hive(org, "dr-general")
+        for r in results:
+            if not r.success:
+                continue
+            try:
+                record = HiveRecord(
+                    name=r.rule_key,
+                    data={"detect": r.detect, "respond": r.respond},
+                    enabled=enabled,
+                    tags=list(tags) if tags else None,
+                    comment=f"Converted from: {r.source_path}",
+                )
+                hive.set(record)
+                r.created_in_hive = True
+            except Exception as exc:
+                # Don't mark conversion as failed — it succeeded, only the
+                # hive write failed.  Track the error separately.
+                r.error = f"Hive write failed: {exc}"
+
+    # -- Save to files (optional) ------------------------------------------
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        for r in results:
+            if r.success:
+                out_path = os.path.join(output_dir, f"{r.rule_key}.yaml")
+                with open(out_path, "w") as f:
+                    yaml.dump(
+                        {"detect": r.detect, "respond": r.respond},
+                        f, default_flow_style=False, sort_keys=False,
+                    )
+
+    # -- Summary -----------------------------------------------------------
+    progress.finish(results)
+
+    # -- Structured output -------------------------------------------------
+    output_data = {
+        "total": len(results),
+        "converted": sum(1 for r in results if r.success),
+        "failed": sum(1 for r in results if not r.success),
+        "created_in_hive": sum(1 for r in results if r.created_in_hive),
+        "rules": [
+            {
+                "source": r.source_path,
+                "key": r.rule_key,
+                "success": r.success,
+                "error": r.error,
+                "created_in_hive": r.created_in_hive,
+            }
+            for r in results
+        ],
+    }
+    _output(ctx, output_data)
+
+    # -- Exit code ---------------------------------------------------------
+    if results and all(not r.success for r in results):
+        ctx.exit(1)
