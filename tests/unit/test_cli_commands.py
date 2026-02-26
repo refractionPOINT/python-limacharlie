@@ -167,6 +167,35 @@ class TestOrgCommands:
 
     @patch("limacharlie.commands.org.Client")
     @patch("limacharlie.commands.org.Organization")
+    def test_org_create_shows_url(self, mock_org_cls, mock_client_cls):
+        oid = "d379729c-ab8c-492b-808e-5be1bb09774f"
+        mock_org_cls.create_org.return_value = {
+            "success": True,
+            "data": {"code": "e3d54874270322f0", "loc": "usa", "oid": oid},
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "org", "create", "--name", "test-org"])
+        assert result.exit_code == 0
+        assert f"https://app.limacharlie.io/orgs/{oid}" in result.output
+        mock_org_cls.create_org.assert_called_once()
+
+    @patch("limacharlie.commands.org.Client")
+    @patch("limacharlie.commands.org.Organization")
+    def test_org_create_quiet_no_url(self, mock_org_cls, mock_client_cls):
+        oid = "d379729c-ab8c-492b-808e-5be1bb09774f"
+        mock_org_cls.create_org.return_value = {
+            "success": True,
+            "data": {"code": "abc", "loc": "usa", "oid": oid},
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--quiet", "org", "create", "--name", "test-org"])
+        assert result.exit_code == 0
+        assert "app.limacharlie.io" not in result.output
+
+    @patch("limacharlie.commands.org.Client")
+    @patch("limacharlie.commands.org.Organization")
     def test_org_errors(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.get_errors.return_value = [{"component": "output-s3", "error": "access denied"}]
