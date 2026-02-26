@@ -57,6 +57,15 @@ Examples:
   limacharlie installation-key create --description "staging" --tags "env:staging,os:windows"
 """
 
+_EXPLAIN_GET = """\
+Get a specific installation key by its IID.  Returns the key's
+description, tags, creation date, and the full Base64-encoded
+installation key string.
+
+Example:
+  limacharlie installation-key get --iid <IID>
+"""
+
 _EXPLAIN_DELETE = """\
 Delete an installation key by its IID.  Sensors already enrolled
 with this key will not be affected, but no new sensors can enroll
@@ -68,6 +77,7 @@ Example:
 """
 
 register_explain("installation-key.list", _EXPLAIN_LIST)
+register_explain("installation-key.get", _EXPLAIN_GET)
 register_explain("installation-key.create", _EXPLAIN_CREATE)
 register_explain("installation-key.delete", _EXPLAIN_DELETE)
 
@@ -116,6 +126,25 @@ def list_keys(ctx) -> None:
     org = _get_org(ctx)
     keys = InstallationKeys(org)
     data = keys.list()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# get
+# ---------------------------------------------------------------------------
+
+@group.command("get")
+@click.option("--iid", required=True, help="Installation key ID.")
+@pass_context
+def get_key(ctx, iid) -> None:
+    """Get a specific installation key.
+
+    Example:
+        limacharlie installation-key get --iid <IID>
+    """
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.get(iid)
     _output(ctx, data)
 
 
