@@ -376,7 +376,7 @@ def urls(ctx: click.Context) -> None:
 
 @group.command()
 @click.option("--name", required=True, help="Name for the new organization.")
-@click.option("--location", required=True, help="Data center location (e.g. usa, canada, europe, uk, india, australia, auto).")
+@click.option("--location", default="auto", help="Data center location (usa, canada, europe, uk, india, australia, auto). Defaults to auto.")
 @click.option("--template", default=None, help="Optional template name to bootstrap the organization.")
 @pass_context
 def create(ctx: click.Context, name: str, location: str, template: str | None) -> None:
