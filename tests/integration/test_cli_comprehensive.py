@@ -667,7 +667,8 @@ class TestCliGlobal:
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "5.0.0" in result.output
+        from limacharlie import __version__
+        assert __version__ in result.output
 
     def test_invalid_command(self, oid, key):
         runner = CliRunner(env={"LC_API_KEY": key})
