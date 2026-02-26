@@ -115,32 +115,38 @@ class TestHasRuleDirAncestor:
 
 class TestGitHubCrawlerParseRepo:
     def test_short_form(self):
-        owner, repo = GitHubCrawler._parse_repo("SigmaHQ/sigma")
+        owner, repo, ref, path = GitHubCrawler._parse_repo("SigmaHQ/sigma")
         assert owner == "SigmaHQ"
         assert repo == "sigma"
+        assert ref is None
+        assert path is None
 
     def test_https_url(self):
-        owner, repo = GitHubCrawler._parse_repo("https://github.com/SigmaHQ/sigma")
+        owner, repo, ref, path = GitHubCrawler._parse_repo("https://github.com/SigmaHQ/sigma")
         assert owner == "SigmaHQ"
         assert repo == "sigma"
+        assert ref is None
+        assert path is None
 
     def test_https_url_with_git(self):
-        owner, repo = GitHubCrawler._parse_repo("https://github.com/elastic/detection-rules.git")
+        owner, repo, ref, path = GitHubCrawler._parse_repo("https://github.com/elastic/detection-rules.git")
         assert owner == "elastic"
         assert repo == "detection-rules"
+        assert ref is None
+        assert path is None
 
     def test_http_url(self):
-        owner, repo = GitHubCrawler._parse_repo("http://github.com/owner/repo")
+        owner, repo, ref, path = GitHubCrawler._parse_repo("http://github.com/owner/repo")
         assert owner == "owner"
         assert repo == "repo"
 
     def test_bare_domain(self):
-        owner, repo = GitHubCrawler._parse_repo("github.com/owner/repo")
+        owner, repo, ref, path = GitHubCrawler._parse_repo("github.com/owner/repo")
         assert owner == "owner"
         assert repo == "repo"
 
     def test_trailing_slash(self):
-        owner, repo = GitHubCrawler._parse_repo("SigmaHQ/sigma/")
+        owner, repo, ref, path = GitHubCrawler._parse_repo("SigmaHQ/sigma/")
         assert owner == "SigmaHQ"
         assert repo == "sigma"
 
@@ -148,10 +154,76 @@ class TestGitHubCrawlerParseRepo:
         with pytest.raises(ValueError, match="Cannot parse"):
             GitHubCrawler._parse_repo("just-a-name")
 
-    def test_url_with_extra_path(self):
-        owner, repo = GitHubCrawler._parse_repo("https://github.com/owner/repo/tree/main/rules")
+    def test_tree_url_extracts_ref_and_path(self):
+        owner, repo, ref, path = GitHubCrawler._parse_repo(
+            "https://github.com/SigmaHQ/sigma/tree/master/rules/network/cisco"
+        )
+        assert owner == "SigmaHQ"
+        assert repo == "sigma"
+        assert ref == "master"
+        assert path == "rules/network/cisco"
+
+    def test_tree_url_ref_only(self):
+        owner, repo, ref, path = GitHubCrawler._parse_repo(
+            "https://github.com/owner/repo/tree/main"
+        )
         assert owner == "owner"
         assert repo == "repo"
+        assert ref == "main"
+        assert path is None
+
+    def test_blob_url_extracts_ref_and_path(self):
+        owner, repo, ref, path = GitHubCrawler._parse_repo(
+            "https://github.com/owner/repo/blob/develop/src/rule.yml"
+        )
+        assert owner == "owner"
+        assert repo == "repo"
+        assert ref == "develop"
+        assert path == "src/rule.yml"
+
+    def test_tree_url_trailing_slash(self):
+        owner, repo, ref, path = GitHubCrawler._parse_repo(
+            "https://github.com/SigmaHQ/sigma/tree/master/rules/"
+        )
+        assert owner == "SigmaHQ"
+        assert repo == "sigma"
+        assert ref == "master"
+        assert path == "rules"
+
+    def test_non_tree_extra_path_ignored(self):
+        """Extra path segments that aren't tree/blob are ignored."""
+        owner, repo, ref, path = GitHubCrawler._parse_repo(
+            "https://github.com/owner/repo/issues/123"
+        )
+        assert owner == "owner"
+        assert repo == "repo"
+        assert ref is None
+        assert path is None
+
+
+class TestGitHubCrawlerInitFromURL:
+    """Verify __init__ uses URL-derived ref/path as defaults."""
+
+    def test_url_populates_path_and_ref(self):
+        c = GitHubCrawler("https://github.com/SigmaHQ/sigma/tree/master/rules/network/cisco")
+        assert c._owner == "SigmaHQ"
+        assert c._repo == "sigma"
+        assert c._ref == "master"
+        assert c._path == "rules/network/cisco"
+
+    def test_explicit_flags_override_url(self):
+        c = GitHubCrawler(
+            "https://github.com/SigmaHQ/sigma/tree/master/rules/network/cisco",
+            path="rules/windows",
+            ref="develop",
+        )
+        assert c._ref == "develop"
+        assert c._path == "rules/windows"
+
+    def test_plain_repo_no_defaults(self):
+        c = GitHubCrawler("SigmaHQ/sigma")
+        assert c._ref is None
+        assert c._path is None
 
 
 class TestGitHubCrawlerDisplayName:
@@ -380,6 +452,127 @@ class TestConversionPipelineConvertOne:
 
         assert result.success is False
         assert "non-dict" in result.error
+
+
+class TestConversionPipelineTransientRetry:
+    def test_retries_on_rate_limit_then_succeeds(self):
+        from limacharlie.errors import RateLimitError
+
+        org = MagicMock()
+        p = ConversionPipeline(org)
+
+        call_count = 0
+        def mock_detect(query):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise RateLimitError("Rate limit exceeded: {'error': 'rate limit exceeded'}")
+            return {"response": {"event": "X"}}
+
+        p._ai = MagicMock()
+        p._ai.generate_detection.side_effect = mock_detect
+        p._ai.generate_response.return_value = {"response": [{"action": "report", "name": "x"}]}
+
+        rf = RuleFile(path="rules/rule.yml", content="title: Test", filename="rule.yml")
+        with patch("limacharlie.commands._dr_convert.time.sleep"):
+            result = p._convert_one_with_retry(rf, "rule")
+
+        assert result.success is True
+        assert call_count == 3
+
+    def test_retries_on_server_500_then_succeeds(self):
+        from limacharlie.errors import ApiError
+
+        org = MagicMock()
+        p = ConversionPipeline(org)
+
+        call_count = 0
+        def mock_detect(query):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise ApiError("API error (500): {'error': 'failed to process response'}", status_code=500)
+            return {"response": {"event": "X"}}
+
+        p._ai = MagicMock()
+        p._ai.generate_detection.side_effect = mock_detect
+        p._ai.generate_response.return_value = {"response": [{"action": "report", "name": "x"}]}
+
+        rf = RuleFile(path="rules/rule.yml", content="title: Test", filename="rule.yml")
+        with patch("limacharlie.commands._dr_convert.time.sleep"):
+            result = p._convert_one_with_retry(rf, "rule")
+
+        assert result.success is True
+        assert call_count == 3
+
+    def test_retries_on_mcp_timeout_then_succeeds(self):
+        from limacharlie.errors import ApiError
+
+        org = MagicMock()
+        p = ConversionPipeline(org)
+
+        call_count = 0
+        def mock_detect(query):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ApiError(
+                    'API error (500): {\'error\': \'AI generation failed: MCP tool call failed: '
+                    'transport error: context deadline exceeded\'}',
+                    status_code=500,
+                )
+            return {"response": {"event": "X"}}
+
+        p._ai = MagicMock()
+        p._ai.generate_detection.side_effect = mock_detect
+        p._ai.generate_response.return_value = {"response": [{"action": "report", "name": "x"}]}
+
+        rf = RuleFile(path="rules/rule.yml", content="title: Test", filename="rule.yml")
+        with patch("limacharlie.commands._dr_convert.time.sleep"):
+            result = p._convert_one_with_retry(rf, "rule")
+
+        assert result.success is True
+        assert call_count == 2
+
+    def test_gives_up_after_max_retries(self):
+        from limacharlie.errors import RateLimitError
+
+        org = MagicMock()
+        p = ConversionPipeline(org)
+
+        p._ai = MagicMock()
+        p._ai.generate_detection.side_effect = RateLimitError("Rate limit exceeded: {'error': 'rate limit exceeded'}")
+
+        rf = RuleFile(path="rules/rule.yml", content="title: Test", filename="rule.yml")
+        with patch("limacharlie.commands._dr_convert.time.sleep"):
+            result = p._convert_one_with_retry(rf, "rule")
+
+        assert result.success is False
+        assert "rate limit" in result.error.lower()
+
+    def test_non_transient_error_not_retried(self):
+        org = MagicMock()
+        p = ConversionPipeline(org)
+
+        p._ai = MagicMock()
+        p._ai.generate_detection.side_effect = Exception("Some other error")
+
+        rf = RuleFile(path="rules/rule.yml", content="title: Test", filename="rule.yml")
+        result = p._convert_one_with_retry(rf, "rule")
+
+        assert result.success is False
+        assert "Some other error" in result.error
+        # Should only have been called once (no retry).
+        assert p._ai.generate_detection.call_count == 1
+
+    def test_is_transient_error_coverage(self):
+        check = ConversionPipeline._is_transient_error
+        assert check("Rate limit exceeded: blah") is True
+        assert check("API error (500): {'error': 'failed'}") is True
+        assert check("API error (502): bad gateway") is True
+        assert check("API error (503): unavailable") is True
+        assert check("API error (404): not found") is False
+        assert check("Some random error") is False
 
 
 class TestConversionPipelineConvertAll:

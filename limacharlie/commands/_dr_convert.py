@@ -9,6 +9,7 @@ from __future__ import annotations
 import collections
 import json
 import os
+import random
 import re
 import shutil
 import ssl
@@ -156,9 +157,10 @@ class GitHubCrawler:
         ref: str | None = None,
         token: str | None = None,
     ) -> None:
-        self._owner, self._repo = self._parse_repo(repo)
-        self._path = path.strip("/") if path else None
-        self._ref = ref
+        self._owner, self._repo, url_ref, url_path = self._parse_repo(repo)
+        # Explicit CLI flags take priority over URL-derived values.
+        self._path = path.strip("/") if path else url_path
+        self._ref = ref if ref is not None else url_ref
         self._token = token
 
     @property
@@ -173,8 +175,17 @@ class GitHubCrawler:
     # -- URL parsing --------------------------------------------------------
 
     @staticmethod
-    def _parse_repo(raw: str) -> tuple[str, str]:
-        """Parse ``owner/repo`` from various URL forms."""
+    def _parse_repo(raw: str) -> tuple[str, str, str | None, str | None]:
+        """Parse ``owner/repo`` (and optional ref/path) from various URL forms.
+
+        Handles URLs like:
+            ``SigmaHQ/sigma``
+            ``https://github.com/SigmaHQ/sigma``
+            ``https://github.com/SigmaHQ/sigma/tree/master/rules/network``
+
+        Returns:
+            (owner, repo, ref_or_none, path_or_none)
+        """
         raw = raw.strip().rstrip("/")
         # Strip trailing .git
         if raw.endswith(".git"):
@@ -190,7 +201,17 @@ class GitHubCrawler:
                 f"Cannot parse GitHub repo from {raw!r}. "
                 "Expected owner/repo or https://github.com/owner/repo."
             )
-        return parts[0], parts[1]
+        owner, repo = parts[0], parts[1]
+        ref: str | None = None
+        path: str | None = None
+        # Remainder after owner/repo may be /tree/<ref>[/<path>]
+        # or /blob/<ref>[/<path>].
+        rest = parts[2:]
+        if rest and rest[0] in ("tree", "blob") and len(rest) >= 2:
+            ref = rest[1]
+            if len(rest) > 2:
+                path = "/".join(rest[2:])
+        return owner, repo, ref, path
 
     # -- HTTP helpers -------------------------------------------------------
 
@@ -415,7 +436,7 @@ class ConversionPipeline:
     def __init__(
         self,
         org: Organization,
-        parallel: int = 5,
+        parallel: int = 10,
         prefix: str = "",
     ) -> None:
         from ..sdk.ai import AI
@@ -445,6 +466,10 @@ class ConversionPipeline:
         failed = 0
         results: list[ConversionResult] = []
 
+        # Prime the JWT before spawning workers so that parallel threads
+        # don't all independently trigger an OAuth token refresh.
+        self._ai.client.refresh_jwt()
+
         # Pre-allocate keys so that exception handlers don't double-allocate.
         pre_keys = {id(rf): self._unique_key(rf.filename) for rf in rule_files}
 
@@ -452,7 +477,7 @@ class ConversionPipeline:
         try:
             with ThreadPoolExecutor(max_workers=self._parallel) as pool:
                 future_to_rule = {
-                    pool.submit(self._convert_one, rf, pre_keys[id(rf)]): rf
+                    pool.submit(self._convert_one_with_retry, rf, pre_keys[id(rf)]): rf
                     for rf in rule_files
                 }
                 for future in as_completed(future_to_rule):
@@ -480,6 +505,47 @@ class ConversionPipeline:
             click.echo("\nInterrupted — returning partial results.", err=True)
 
         return results
+
+    _TRANSIENT_RETRIES = 4
+    _TRANSIENT_BASE_WAIT = 15  # seconds
+
+    @staticmethod
+    def _is_transient_error(error: str) -> bool:
+        """Return True if the error looks transient and worth retrying."""
+        low = error.lower()
+        # Rate limits (429).
+        if "rate limit" in low:
+            return True
+        # Server-side failures (500): timeouts, processing errors, etc.
+        if "api error (500)" in low or "api error (502)" in low or "api error (503)" in low:
+            return True
+        return False
+
+    def _convert_one_with_retry(self, rule_file: RuleFile, key: str | None = None) -> ConversionResult:
+        """Call ``_convert_one`` with pipeline-level retries for transient errors.
+
+        The underlying ``Client.request`` already retries 429s and 504s a few
+        times, but with many parallel workers the thundering-herd effect can
+        exhaust those retries.  Server-side 500s (MCP timeouts, processing
+        failures) are also transient.  This wrapper adds additional backoff
+        with jitter at the pipeline level so that transient failures don't
+        become permanent.
+        """
+        last_result: ConversionResult | None = None
+        for attempt in range(1, self._TRANSIENT_RETRIES + 1):
+            result = self._convert_one(rule_file, key)
+            if result.success:
+                return result
+            last_result = result
+            if result.error and self._is_transient_error(result.error):
+                wait = self._TRANSIENT_BASE_WAIT * attempt + random.uniform(0, 5)
+                time.sleep(wait)
+                continue
+            # Non-transient failure — don't retry.
+            return result
+
+        # All retries exhausted — return the last failure.
+        return last_result  # type: ignore[return-value]
 
     def _convert_one(self, rule_file: RuleFile, key: str | None = None) -> ConversionResult:
         """Convert a single rule file.
