@@ -389,7 +389,7 @@ def create(ctx: click.Context, name: str, location: str, template: str | None, u
         limacharlie org create --name my-org --location europe --template default
         limacharlie org create --name my-org --use
     """
-    client = _get_client(ctx)
+    client = Client(oid="-", environment=ctx.obj.environment)
     data = Organization.create_org(client, name, location, template)
     _output(ctx, data)
 
