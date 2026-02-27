@@ -20,116 +20,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_GENERATE_RULE = """\
-Generate a complete D&R rule (detection + response) from a natural
-language description.  The AI will produce both the detection
-component and the response actions.
-
-The output is a YAML structure ready for use with 'limacharlie dr set':
-
-    detect:
-      op: ends with
-      event: NEW_PROCESS
-      path: event/FILE_PATH
-      value: powershell.exe
-      rules:
-        - op: contains
-          path: event/COMMAND_LINE
-          value: downloadstring
-    respond:
-      - action: report
-        name: powershell-download-detected
-
-The generated rule should be reviewed before deployment.
-
-Example:
-  limacharlie ai generate-rule \\
-    --prompt "Detect PowerShell downloading files from the internet"
-"""
-
-_EXPLAIN_GENERATE_QUERY = """\
-Generate an LCQL (LimaCharlie Query Language) query from a natural
-language description.  The AI will produce a query that can be used
-with 'limacharlie search run'.
-
-LCQL queries follow a SQL-like syntax for searching telemetry:
-
-    event_type = DNS_REQUEST
-    AND event/DOMAIN_NAME ends with ".ru"
-    AND timestamp >= now() - 24h
-
-Example:
-  limacharlie ai generate-query \\
-    --prompt "Find all DNS requests to .ru domains in the last 24 hours"
-"""
-
-_EXPLAIN_GENERATE_DETECTION = """\
-Generate a detection component from a natural language description.
-The AI will produce only the detection part of a D&R rule (no response
-actions).
-
-Example:
-  limacharlie ai generate-detection \\
-    --description "Detect PowerShell executing encoded commands"
-"""
-
-_EXPLAIN_GENERATE_RESPONSE = """\
-Generate a response component from a natural language description.
-The AI will produce only the response actions part of a D&R rule
-(no detection logic).
-
-Example:
-  limacharlie ai generate-response \\
-    --description "Alert and isolate the sensor from the network"
-"""
-
-_EXPLAIN_GENERATE_SELECTOR = """\
-Generate a sensor selector expression (bexpr) from a natural language
-description.  Sensor selectors target specific groups of sensors for
-D&R rules, tasks, and queries.
-
-Selector syntax examples:
-  plat == `windows`
-  `production` in tags
-  plat == `linux` AND `web-server` in tags
-
-Example:
-  limacharlie ai generate-selector \\
-    --description "All Windows servers with the production tag"
-"""
-
-_EXPLAIN_GENERATE_PLAYBOOK = """\
-Generate a Python playbook from a natural language description.
-Playbooks are automation scripts that can be deployed as LimaCharlie
-services.
-
-Example:
-  limacharlie ai generate-playbook \\
-    --description "Collect process listing when a new detection fires"
-"""
-
-_EXPLAIN_SUMMARIZE_DETECTION = """\
-Summarize a detection using AI.  Provide the detection ID and the
-command will fetch the detection data and produce a human-readable
-summary.
-
-Example:
-  limacharlie ai summarize-detection --detection-id <DETECTION_ID>
-"""
-
-register_explain("ai.generate-rule", _EXPLAIN_GENERATE_RULE)
-register_explain("ai.generate-query", _EXPLAIN_GENERATE_QUERY)
-register_explain("ai.generate-detection", _EXPLAIN_GENERATE_DETECTION)
-register_explain("ai.generate-response", _EXPLAIN_GENERATE_RESPONSE)
-register_explain("ai.generate-selector", _EXPLAIN_GENERATE_SELECTOR)
-register_explain("ai.generate-playbook", _EXPLAIN_GENERATE_PLAYBOOK)
-register_explain("ai.summarize-detection", _EXPLAIN_SUMMARIZE_DETECTION)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -161,16 +51,39 @@ def group() -> None:
 # generate-rule
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GENERATE_RULE = """\
+Generate a complete D&R rule (detection + response) from a natural
+language description.  The AI will produce both the detection
+component and the response actions.
+
+The output is a YAML structure ready for use with 'limacharlie dr set':
+
+    detect:
+      op: ends with
+      event: NEW_PROCESS
+      path: event/FILE_PATH
+      value: powershell.exe
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: downloadstring
+    respond:
+      - action: report
+        name: powershell-download-detected
+
+The generated rule should be reviewed before deployment.
+
+Example:
+  limacharlie ai generate-rule \\
+    --prompt "Detect PowerShell downloading files from the internet"
+"""
+register_explain("ai.generate-rule", _EXPLAIN_GENERATE_RULE)
+
+
 @group.command("generate-rule")
 @click.option("--prompt", required=True, help="Natural language description of the detection.")
 @pass_context
 def generate_rule(ctx, prompt) -> None:
-    """Generate a D&R rule from a description.
-
-    Example:
-        limacharlie ai generate-rule \\
-            --prompt "Detect PowerShell downloading files from the internet"
-    """
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_dr_rule(prompt)
@@ -181,16 +94,28 @@ def generate_rule(ctx, prompt) -> None:
 # generate-query
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GENERATE_QUERY = """\
+Generate an LCQL (LimaCharlie Query Language) query from a natural
+language description.  The AI will produce a query that can be used
+with 'limacharlie search run'.
+
+LCQL queries follow a SQL-like syntax for searching telemetry:
+
+    event_type = DNS_REQUEST
+    AND event/DOMAIN_NAME ends with ".ru"
+    AND timestamp >= now() - 24h
+
+Example:
+  limacharlie ai generate-query \\
+    --prompt "Find all DNS requests to .ru domains in the last 24 hours"
+"""
+register_explain("ai.generate-query", _EXPLAIN_GENERATE_QUERY)
+
+
 @group.command("generate-query")
 @click.option("--prompt", required=True, help="Natural language description of the query.")
 @pass_context
 def generate_query(ctx, prompt) -> None:
-    """Generate an LCQL query from a description.
-
-    Example:
-        limacharlie ai generate-query \\
-            --prompt "Find all DNS requests to .ru domains in the last 24 hours"
-    """
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_lcql(prompt)
@@ -201,16 +126,22 @@ def generate_query(ctx, prompt) -> None:
 # generate-detection
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GENERATE_DETECTION = """\
+Generate a detection component from a natural language description.
+The AI will produce only the detection part of a D&R rule (no response
+actions).
+
+Example:
+  limacharlie ai generate-detection \\
+    --description "Detect PowerShell executing encoded commands"
+"""
+register_explain("ai.generate-detection", _EXPLAIN_GENERATE_DETECTION)
+
+
 @group.command("generate-detection")
 @click.option("--description", required=True, help="Natural language description of the detection.")
 @pass_context
 def generate_detection(ctx, description) -> None:
-    """Generate a detection component from a description.
-
-    Example:
-        limacharlie ai generate-detection \\
-            --description "Detect PowerShell executing encoded commands"
-    """
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_detection(description)
@@ -221,16 +152,22 @@ def generate_detection(ctx, description) -> None:
 # generate-response
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GENERATE_RESPONSE = """\
+Generate a response component from a natural language description.
+The AI will produce only the response actions part of a D&R rule
+(no detection logic).
+
+Example:
+  limacharlie ai generate-response \\
+    --description "Alert and isolate the sensor from the network"
+"""
+register_explain("ai.generate-response", _EXPLAIN_GENERATE_RESPONSE)
+
+
 @group.command("generate-response")
 @click.option("--description", required=True, help="Natural language description of the response actions.")
 @pass_context
 def generate_response(ctx, description) -> None:
-    """Generate a response component from a description.
-
-    Example:
-        limacharlie ai generate-response \\
-            --description "Alert and isolate the sensor from the network"
-    """
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_response(description)
@@ -241,16 +178,27 @@ def generate_response(ctx, description) -> None:
 # generate-selector
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GENERATE_SELECTOR = """\
+Generate a sensor selector expression (bexpr) from a natural language
+description.  Sensor selectors target specific groups of sensors for
+D&R rules, tasks, and queries.
+
+Selector syntax examples:
+  plat == `windows`
+  `production` in tags
+  plat == `linux` AND `web-server` in tags
+
+Example:
+  limacharlie ai generate-selector \\
+    --description "All Windows servers with the production tag"
+"""
+register_explain("ai.generate-selector", _EXPLAIN_GENERATE_SELECTOR)
+
+
 @group.command("generate-selector")
 @click.option("--description", required=True, help="Natural language description of the sensor selector.")
 @pass_context
 def generate_selector(ctx, description) -> None:
-    """Generate a sensor selector expression from a description.
-
-    Example:
-        limacharlie ai generate-selector \\
-            --description "All Windows servers with the production tag"
-    """
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_sensor_selector(description)
@@ -261,16 +209,22 @@ def generate_selector(ctx, description) -> None:
 # generate-playbook
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GENERATE_PLAYBOOK = """\
+Generate a Python playbook from a natural language description.
+Playbooks are automation scripts that can be deployed as LimaCharlie
+services.
+
+Example:
+  limacharlie ai generate-playbook \\
+    --description "Collect process listing when a new detection fires"
+"""
+register_explain("ai.generate-playbook", _EXPLAIN_GENERATE_PLAYBOOK)
+
+
 @group.command("generate-playbook")
 @click.option("--description", required=True, help="Natural language description of the playbook.")
 @pass_context
 def generate_playbook(ctx, description) -> None:
-    """Generate a Python playbook from a description.
-
-    Example:
-        limacharlie ai generate-playbook \\
-            --description "Collect process listing when a new detection fires"
-    """
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_playbook(description)
@@ -281,15 +235,21 @@ def generate_playbook(ctx, description) -> None:
 # summarize-detection
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_SUMMARIZE_DETECTION = """\
+Summarize a detection using AI.  Provide the detection ID and the
+command will fetch the detection data and produce a human-readable
+summary.
+
+Example:
+  limacharlie ai summarize-detection --detection-id <DETECTION_ID>
+"""
+register_explain("ai.summarize-detection", _EXPLAIN_SUMMARIZE_DETECTION)
+
+
 @group.command("summarize-detection")
 @click.option("--detection-id", required=True, help="Detection ID to summarize.")
 @pass_context
 def summarize_detection(ctx, detection_id) -> None:
-    """Summarize a detection using AI.
-
-    Example:
-        limacharlie ai summarize-detection --detection-id <DETECTION_ID>
-    """
     org = _get_org(ctx)
     # Fetch the detection data first, then summarize it.
     detection_data = org.get_detection_by_id(detection_id)

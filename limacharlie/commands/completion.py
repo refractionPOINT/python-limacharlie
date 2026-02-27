@@ -37,18 +37,6 @@ register_explain("completion", _EXPLAIN_COMPLETION)
 @click.command("completion")
 @click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
 def cmd(shell: str) -> None:
-    """Generate shell completion script.
-
-    Output a completion script for SHELL (bash, zsh, or fish).
-    Eval the output in your shell profile to enable tab-completion.
-
-    Examples:
-
-    \b
-        eval "$(limacharlie completion bash)"
-        eval "$(limacharlie completion zsh)"
-        limacharlie completion fish > ~/.config/fish/completions/limacharlie.fish
-    """
     # Import the root CLI group to generate completions for.
     from ..cli import cli as root_cli
 

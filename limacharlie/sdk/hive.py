@@ -43,6 +43,9 @@ class HiveRecord:
         Args:
             name: Record name/key.
             raw: Raw API response dict (has 'data', 'usr_mtd', 'sys_mtd').
+
+        Returns:
+            HiveRecord: Populated record instance.
         """
         data = raw.get("data")
         if data is not None and not isinstance(data, dict):

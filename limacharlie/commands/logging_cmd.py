@@ -20,57 +20,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List all log collection rules in the organization.  Each rule
-defines a set of log path patterns to collect from endpoints.
-
-Use --output json to get the full rule definitions for export.
-"""
-
-_EXPLAIN_CREATE = """\
-Create a new log collection rule.  The rule defines which log
-paths to collect from endpoints.  Collected logs are uploaded as
-artifacts and available via 'limacharlie artifact list'.
-
-Patterns are provided as a comma-separated list of file path
-patterns.  Glob wildcards (* and ?) are supported.
-
-Examples:
-  limacharlie logging create --name system-logs \\
-    --patterns "/var/log/syslog,/var/log/auth.log"
-
-  limacharlie logging create --name app-logs \\
-    --patterns "/opt/myapp/logs/*.log"
-
-  limacharlie logging create --name windows-evtx \\
-    --patterns "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx"
-"""
-
-_EXPLAIN_DELETE = """\
-Delete a log collection rule by name.  This stops collection of
-the associated log paths.  The --confirm flag is required to
-prevent accidental deletion.
-"""
-
-_EXPLAIN_GET = """\
-Get the details of a single log collection rule by name.
-Returns the rule definition including its log path patterns,
-tags, platform filters, and retention settings.
-
-Example:
-  limacharlie logging get --name system-logs
-"""
-
-register_explain("logging.list", _EXPLAIN_LIST)
-register_explain("logging.create", _EXPLAIN_CREATE)
-register_explain("logging.delete", _EXPLAIN_DELETE)
-register_explain("logging.get", _EXPLAIN_GET)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -103,14 +52,18 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List all log collection rules in the organization.  Each rule
+defines a set of log path patterns to collect from endpoints.
+
+Use --output json to get the full rule definitions for export.
+"""
+register_explain("logging.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @pass_context
 def list_rules(ctx) -> None:
-    """List log collection rules.
-
-    Example:
-        limacharlie logging list
-    """
     org = _get_org(ctx)
     sdk = LoggingRules(org)
     data = sdk.list()
@@ -121,6 +74,27 @@ def list_rules(ctx) -> None:
 # create
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_CREATE = """\
+Create a new log collection rule.  The rule defines which log
+paths to collect from endpoints.  Collected logs are uploaded as
+artifacts and available via 'limacharlie artifact list'.
+
+Patterns are provided as a comma-separated list of file path
+patterns.  Glob wildcards (* and ?) are supported.
+
+Examples:
+  limacharlie logging create --name system-logs \\
+    --patterns "/var/log/syslog,/var/log/auth.log"
+
+  limacharlie logging create --name app-logs \\
+    --patterns "/opt/myapp/logs/*.log"
+
+  limacharlie logging create --name windows-evtx \\
+    --patterns "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx"
+"""
+register_explain("logging.create", _EXPLAIN_CREATE)
+
+
 @group.command()
 @click.option("--name", required=True, help="Rule name.")
 @click.option(
@@ -129,15 +103,6 @@ def list_rules(ctx) -> None:
 )
 @pass_context
 def create(ctx, name, patterns) -> None:
-    """Create a log collection rule.
-
-    Examples:
-        limacharlie logging create --name system-logs \\
-            --patterns "/var/log/syslog,/var/log/auth.log"
-
-        limacharlie logging create --name app-logs \\
-            --patterns "/opt/myapp/logs/*.log"
-    """
     pattern_list = [p.strip() for p in patterns.split(",") if p.strip()]
     if not pattern_list:
         click.echo("Error: At least one pattern is required.", err=True)
@@ -156,18 +121,19 @@ def create(ctx, name, patterns) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete a log collection rule by name.  This stops collection of
+the associated log paths.  The --confirm flag is required to
+prevent accidental deletion.
+"""
+register_explain("logging.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--name", required=True, help="Rule name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx, name, confirm) -> None:
-    """Delete a log collection rule.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie logging delete --name system-logs --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"
@@ -189,15 +155,21 @@ def delete(ctx, name, confirm) -> None:
 # get
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GET = """\
+Get the details of a single log collection rule by name.
+Returns the rule definition including its log path patterns,
+tags, platform filters, and retention settings.
+
+Example:
+  limacharlie logging get --name system-logs
+"""
+register_explain("logging.get", _EXPLAIN_GET)
+
+
 @group.command()
 @click.option("--name", required=True, help="Rule name to retrieve.")
 @pass_context
 def get(ctx, name) -> None:
-    """Get a single log collection rule by name.
-
-    Example:
-        limacharlie logging get --name system-logs
-    """
     org = _get_org(ctx)
     sdk = LoggingRules(org)
     data = sdk.get(name)

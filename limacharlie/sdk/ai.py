@@ -25,6 +25,9 @@ class AI:
 
         Args:
             description: Natural language description of the desired rule.
+
+        Returns:
+            dict: Generated rule with detect and respond components.
         """
         return self.client.request("POST", "ai/dr",
                                    params={"query": description})
@@ -34,6 +37,9 @@ class AI:
 
         Args:
             description: Natural language description of the detection logic.
+
+        Returns:
+            dict: Generated detection component.
         """
         return self.client.request("POST", "ai/detection",
                                    params={"query": description})
@@ -43,6 +49,9 @@ class AI:
 
         Args:
             description: Natural language description of the response action.
+
+        Returns:
+            dict: Generated response component.
         """
         return self.client.request("POST", "ai/response",
                                    params={"query": description})
@@ -52,6 +61,9 @@ class AI:
 
         Args:
             description: Natural language description of the query.
+
+        Returns:
+            dict: Generated LCQL query.
         """
         return self.client.request("POST", "ai/lcql",
                                    params={"query": description})
@@ -61,6 +73,9 @@ class AI:
 
         Args:
             description: Natural language description of the target sensors.
+
+        Returns:
+            dict: Generated sensor selector expression.
         """
         return self.client.request("POST", "ai/sensor_selector",
                                    params={"query": description})
@@ -70,6 +85,9 @@ class AI:
 
         Args:
             description: Natural language description of the playbook logic.
+
+        Returns:
+            dict: Generated Python playbook code.
         """
         return self.client.request("POST", "ai/playbook/python",
                                    params={"query": description})
@@ -79,6 +97,9 @@ class AI:
 
         Args:
             detection_data: Detection data dict to summarize.
+
+        Returns:
+            dict: Human-readable summary.
         """
         return self.client.request("POST", "ai/det_summary",
                                    params={"query": json.dumps(detection_data)})

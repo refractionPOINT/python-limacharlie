@@ -20,7 +20,41 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _output(ctx: click.Context, data: Any) -> None:
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx: click.Context) -> Organization:
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    return Organization(client)
+
+
+def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
+    org = _get_org(ctx)
+    return Sensor(org, sid)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("sensor")
+def group() -> None:
+    """List, inspect, and manage sensors.
+
+    Sensors are the agents installed on endpoints.  Use these commands
+    to enumerate the fleet, check sensor status, and perform lifecycle
+    operations such as deletion.
+    """
+
+
+# ---------------------------------------------------------------------------
+# list
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LIST = """\
@@ -75,161 +109,8 @@ Combine --selector with --online for online Windows sensors:
 Related: 'limacharlie tag find' to find sensors by a specific tag,
 'limacharlie sensor get --sid <SID>' for detailed info on one sensor.
 """
-
-_EXPLAIN_GET = """\
-Get full details for a single sensor identified by its SID (Sensor ID).
-
-The SID is a UUID that uniquely identifies a sensor across the
-LimaCharlie platform.  You can obtain SIDs from 'limacharlie sensor list',
-'limacharlie tag find', or 'limacharlie search run'.
-
-The returned record includes:
-  sid, hostname, plat, arch, ext_ip, int_ip, alive, enroll_ts,
-  sensor_ver, tags, is_isolated, last_error, oid (organization ID),
-  and additional platform-specific fields.
-"""
-
-_EXPLAIN_DELETE = """\
-Permanently delete a sensor from the organization.  This removes the
-sensor record and all associated metadata.  The sensor will need to be
-re-enrolled if you want it back.  Historical telemetry for this sensor
-is retained according to your retention policy.
-
-This is a destructive operation.  You must pass --confirm to proceed.
-"""
-
-_EXPLAIN_WAIT_ONLINE = """\
-Block until a sensor comes online or the timeout expires.  This is
-useful in deployment scripts or automated workflows where you need to
-wait for a sensor to check in before sending tasks to it.
-
-The command polls the sensor status periodically.  Use --timeout to
-set the maximum wait time in seconds (default: 300).
-"""
-
-_EXPLAIN_UPGRADE = """\
-Upgrade sensors in the organization.  Optionally restrict to sensors
-matching a selector expression (bexpr).  When no selector is given,
-all sensors in the organization are upgraded.
-
-This triggers the sensor to download and apply the latest version
-configured for the organization.  Use 'limacharlie sensor set-version'
-to set the target version before upgrading.
-
-Related: 'limacharlie sensor set-version' to set the version branch,
-'limacharlie sensor list' to see current sensor versions.
-"""
-
-_EXPLAIN_SET_VERSION = """\
-Set the sensor version or branch for the organization.  This controls
-which sensor binary version endpoints will run.  Sensors pick up the
-new version on their next check-in or when explicitly upgraded.
-
-Provide --version with a specific version string (e.g., '4.29.0').
-Use --fallback to switch to the stable/fallback branch.
-Use --sleep to put sensors into dormant mode.
-
-Related: 'limacharlie sensor upgrade' to trigger sensors to apply
-the new version immediately.
-"""
-
-_EXPLAIN_EXPORT = """\
-Export the full sensor manifest for the organization.  Returns
-comprehensive data for every sensor including hostname, platform,
-architecture, version, IPs, tags, online status, and enrollment
-details.
-
-This is useful for fleet auditing, compliance reporting, and backup.
-Use --selector to restrict the export to sensors matching a bexpr
-expression.
-
-Related: 'limacharlie sensor list' for a lighter listing,
-'limacharlie sync pull' for full configuration export.
-"""
-
-_EXPLAIN_DUMP = """\
-Trigger a full memory dump on a sensor.  This sends a request to the
-LimaCharlie dumper service to collect a full memory image from the
-target endpoint.
-
-The dump is performed asynchronously.  Results are delivered as
-artifacts that can be retrieved via 'limacharlie artifact list'.
-
-This is a heavyweight operation.  Use --confirm to proceed.
-
-Related: 'limacharlie task send' for lighter data collection,
-'limacharlie artifact list' to retrieve the results.
-"""
-
-_EXPLAIN_SWEEP = """\
-Run a sweep on a sensor with a custom configuration.  Sweeps allow
-you to collect a broad set of forensic artifacts from an endpoint
-in a single operation.
-
-The --config parameter accepts either a JSON string or a path to a
-JSON file.  Each key is a sensor command; set to true to run with
-defaults, or provide a string/dict for parameters:
-
-    {
-      "os_processes": true,
-      "os_services": true,
-      "os_autoruns": true,
-      "netstat": true,
-      "dir_list": "/tmp"
-    }
-
-Related: 'limacharlie task send' for individual task commands,
-'limacharlie sensor dump' for full memory dumps.
-"""
-
 register_explain("sensor.list", _EXPLAIN_LIST)
-register_explain("sensor.get", _EXPLAIN_GET)
-register_explain("sensor.delete", _EXPLAIN_DELETE)
-register_explain("sensor.wait-online", _EXPLAIN_WAIT_ONLINE)
-register_explain("sensor.upgrade", _EXPLAIN_UPGRADE)
-register_explain("sensor.set-version", _EXPLAIN_SET_VERSION)
-register_explain("sensor.export", _EXPLAIN_EXPORT)
-register_explain("sensor.dump", _EXPLAIN_DUMP)
-register_explain("sensor.sweep", _EXPLAIN_SWEEP)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
-
-
-def _get_org(ctx: click.Context) -> Organization:
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
-    return Organization(client)
-
-
-def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
-    org = _get_org(ctx)
-    return Sensor(org, sid)
-
-
-# ---------------------------------------------------------------------------
-# Group
-# ---------------------------------------------------------------------------
-
-@click.group("sensor")
-def group() -> None:
-    """List, inspect, and manage sensors.
-
-    Sensors are the agents installed on endpoints.  Use these commands
-    to enumerate the fleet, check sensor status, and perform lifecycle
-    operations such as deletion.
-    """
-
-
-# ---------------------------------------------------------------------------
-# list
-# ---------------------------------------------------------------------------
 
 @group.command("list")
 @click.option("--selector", default=None, help="Sensor selector expression (bexpr) for server-side filtering. E.g. 'plat == windows', '\"prod\" in tags'.")
@@ -241,16 +122,6 @@ def group() -> None:
 @click.option("--offset", default=None, type=int, help="Pagination offset (not used directly; controls client-side skip).")
 @pass_context
 def list_sensors(ctx: click.Context, selector: str | None, online_only: bool, tag: str | None, hostname: str | None, ip: str | None, limit: int | None, offset: int | None) -> None:
-    """List sensors in the organization.
-
-    Examples:
-        limacharlie sensor list
-        limacharlie sensor list --online --selector 'plat == windows'
-        limacharlie sensor list --selector '"prod" in tags' --limit 50
-        limacharlie sensor list --tag production --limit 50
-        limacharlie sensor list --hostname web-server
-        limacharlie sensor list --ip 10.0.0.5
-    """
     org = _get_org(ctx)
 
     if tag:
@@ -291,15 +162,25 @@ def list_sensors(ctx: click.Context, selector: str | None, online_only: bool, ta
 # get
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GET = """\
+Get full details for a single sensor identified by its SID (Sensor ID).
+
+The SID is a UUID that uniquely identifies a sensor across the
+LimaCharlie platform.  You can obtain SIDs from 'limacharlie sensor list',
+'limacharlie tag find', or 'limacharlie search run'.
+
+The returned record includes:
+  sid, hostname, plat, arch, ext_ip, int_ip, alive, enroll_ts,
+  sensor_ver, tags, is_isolated, last_error, oid (organization ID),
+  and additional platform-specific fields.
+"""
+register_explain("sensor.get", _EXPLAIN_GET)
+
+
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
 @pass_context
 def get(ctx: click.Context, sid: str) -> None:
-    """Get full details for a sensor.
-
-    Example:
-        limacharlie sensor get --sid <SID>
-    """
     sensor = _get_sensor(ctx, sid)
     data = sensor.get_info()
     _output(ctx, data)
@@ -309,18 +190,22 @@ def get(ctx: click.Context, sid: str) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Permanently delete a sensor from the organization.  This removes the
+sensor record and all associated metadata.  The sensor will need to be
+re-enrolled if you want it back.  Historical telemetry for this sensor
+is retained according to your retention policy.
+
+This is a destructive operation.  You must pass --confirm to proceed.
+"""
+register_explain("sensor.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx: click.Context, sid: str, confirm: bool) -> None:
-    """Permanently delete a sensor.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie sensor delete --sid <SID> --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"
@@ -337,24 +222,26 @@ def delete(ctx: click.Context, sid: str, confirm: bool) -> None:
     _output(ctx, data)
 
 
-
 # ---------------------------------------------------------------------------
 # wait-online
 # ---------------------------------------------------------------------------
+
+_EXPLAIN_WAIT_ONLINE = """\
+Block until a sensor comes online or the timeout expires.  This is
+useful in deployment scripts or automated workflows where you need to
+wait for a sensor to check in before sending tasks to it.
+
+The command polls the sensor status periodically.  Use --timeout to
+set the maximum wait time in seconds (default: 300).
+"""
+register_explain("sensor.wait-online", _EXPLAIN_WAIT_ONLINE)
+
 
 @group.command("wait-online")
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
 @click.option("--timeout", default=300, type=int, help="Maximum seconds to wait (default: 300).")
 @pass_context
 def wait_online(ctx: click.Context, sid: str, timeout: int) -> None:
-    """Wait for a sensor to come online.
-
-    Blocks until the sensor is online or the timeout expires.
-    Exits with code 0 if the sensor came online, 1 if timed out.
-
-    Example:
-        limacharlie sensor wait-online --sid <SID> --timeout 120
-    """
     sensor = _get_sensor(ctx, sid)
     if not ctx.obj.quiet:
         click.echo(f"Waiting up to {timeout}s for sensor {sid} to come online...")
@@ -371,16 +258,24 @@ def wait_online(ctx: click.Context, sid: str, timeout: int) -> None:
 # upgrade
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_UPGRADE = """\
+Upgrade sensors in the organization.  Optionally restrict to sensors
+matching a selector expression (bexpr).  When no selector is given,
+all sensors in the organization are upgraded.
+
+This triggers the sensor to download and apply the latest version
+configured for the organization.  Use 'limacharlie sensor set-version'
+to set the target version before upgrading.
+
+Related: 'limacharlie sensor set-version' to set the version branch,
+'limacharlie sensor list' to see current sensor versions.
+"""
+register_explain("sensor.upgrade", _EXPLAIN_UPGRADE)
+
+
 @group.command()
 @pass_context
 def upgrade(ctx: click.Context) -> None:
-    """Upgrade sensors in the organization.
-
-    Triggers all sensors to download and apply the currently configured version.
-
-    Example:
-        limacharlie sensor upgrade
-    """
     org = _get_org(ctx)
     # Trigger upgrade by re-setting the current version (forces re-download).
     data = org.set_sensor_version()
@@ -393,22 +288,27 @@ def upgrade(ctx: click.Context) -> None:
 # set-version
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_SET_VERSION = """\
+Set the sensor version or branch for the organization.  This controls
+which sensor binary version endpoints will run.  Sensors pick up the
+new version on their next check-in or when explicitly upgraded.
+
+Provide --version with a specific version string (e.g., '4.29.0').
+Use --fallback to switch to the stable/fallback branch.
+Use --sleep to put sensors into dormant mode.
+
+Related: 'limacharlie sensor upgrade' to trigger sensors to apply
+the new version immediately.
+"""
+register_explain("sensor.set-version", _EXPLAIN_SET_VERSION)
+
+
 @group.command("set-version")
 @click.option("--version", "version_str", default=None, help="Specific sensor version string (e.g., '4.29.0').")
 @click.option("--fallback", is_flag=True, default=False, help="Use the stable/fallback version branch.")
 @click.option("--sleep", "is_sleep", is_flag=True, default=False, help="Put sensors into dormant mode.")
 @pass_context
 def set_version(ctx: click.Context, version_str: str | None, fallback: bool, is_sleep: bool) -> None:
-    """Set the sensor version for the organization.
-
-    Provide --version for a specific version, --fallback for the stable
-    branch, or --sleep to put sensors into dormant mode.
-
-    Examples:
-        limacharlie sensor set-version --version 4.29.0
-        limacharlie sensor set-version --fallback
-        limacharlie sensor set-version --sleep
-    """
     if not version_str and not fallback and not is_sleep:
         click.echo(
             "Error: At least one of --version, --fallback, or --sleep is required.",
@@ -437,19 +337,26 @@ def set_version(ctx: click.Context, version_str: str | None, fallback: bool, is_
 # export
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_EXPORT = """\
+Export the full sensor manifest for the organization.  Returns
+comprehensive data for every sensor including hostname, platform,
+architecture, version, IPs, tags, online status, and enrollment
+details.
+
+This is useful for fleet auditing, compliance reporting, and backup.
+Use --selector to restrict the export to sensors matching a bexpr
+expression.
+
+Related: 'limacharlie sensor list' for a lighter listing,
+'limacharlie sync pull' for full configuration export.
+"""
+register_explain("sensor.export", _EXPLAIN_EXPORT)
+
+
 @group.command("export")
 @click.option("--selector", default=None, help="Sensor selector expression (bexpr) to filter exported sensors.")
 @pass_context
 def export_sensors(ctx: click.Context, selector: str | None) -> None:
-    """Export full sensor data for the organization.
-
-    Lists all sensors and outputs their complete data.  Use --selector
-    to restrict to a subset of sensors.
-
-    Examples:
-        limacharlie sensor export
-        limacharlie sensor export --selector "`linux` in tags" --output json
-    """
     org = _get_org(ctx)
 
     if selector:
@@ -464,18 +371,27 @@ def export_sensors(ctx: click.Context, selector: str | None) -> None:
 # dump
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DUMP = """\
+Trigger a full memory dump on a sensor.  This sends a request to the
+LimaCharlie dumper service to collect a full memory image from the
+target endpoint.
+
+The dump is performed asynchronously.  Results are delivered as
+artifacts that can be retrieved via 'limacharlie artifact list'.
+
+This is a heavyweight operation.  Use --confirm to proceed.
+
+Related: 'limacharlie task send' for lighter data collection,
+'limacharlie artifact list' to retrieve the results.
+"""
+register_explain("sensor.dump", _EXPLAIN_DUMP)
+
+
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to dump.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm the memory dump (required).")
 @pass_context
 def dump(ctx: click.Context, sid: str, confirm: bool) -> None:
-    """Trigger a full memory dump on a sensor.
-
-    This is a heavyweight operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie sensor dump --sid <SID> --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Memory dump is a heavyweight operation and requires --confirm flag.\n"
@@ -496,6 +412,29 @@ def dump(ctx: click.Context, sid: str, confirm: bool) -> None:
 # sweep
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_SWEEP = """\
+Run a sweep on a sensor with a custom configuration.  Sweeps allow
+you to collect a broad set of forensic artifacts from an endpoint
+in a single operation.
+
+The --config parameter accepts either a JSON string or a path to a
+JSON file.  Each key is a sensor command; set to true to run with
+defaults, or provide a string/dict for parameters:
+
+    {
+      "os_processes": true,
+      "os_services": true,
+      "os_autoruns": true,
+      "netstat": true,
+      "dir_list": "/tmp"
+    }
+
+Related: 'limacharlie task send' for individual task commands,
+'limacharlie sensor dump' for full memory dumps.
+"""
+register_explain("sensor.sweep", _EXPLAIN_SWEEP)
+
+
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to sweep.")
 @click.option(
@@ -504,14 +443,6 @@ def dump(ctx: click.Context, sid: str, confirm: bool) -> None:
 )
 @pass_context
 def sweep(ctx: click.Context, sid: str, config_str: str) -> None:
-    """Run a sweep on a sensor with a custom configuration.
-
-    The --config value can be a JSON string or a path to a JSON file.
-
-    Examples:
-        limacharlie sensor sweep --sid <SID> --config '{"os_processes": true}'
-        limacharlie sensor sweep --sid <SID> --config sweep_config.json
-    """
     # Try loading as a file first, then as a JSON string.
     try:
         with open(config_str, "r") as f:

@@ -20,75 +20,6 @@ from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List artifacts stored in Insight for the organization.  Artifacts are
-log files and binary data collected from sensors or ingested externally.
-
-Types of artifacts:
-  - Files collected from endpoints via D&R response actions or the
-    Artifact extension
-  - Windows Event Log (WEL) streams captured via wel:// patterns
-  - Mac Unified Log (MUL) streams
-  - PCAP network captures (Linux only)
-  - Externally uploaded log files (syslog, JSON, pcap, prefetch, etc.)
-
-Use --sid to filter artifacts for a specific sensor.  Use --type to
-filter by artifact type.  Use --start/--end to filter by time range
-(Unix timestamps in seconds).
-
-The output includes artifact IDs, source info, type, and timestamps.
-Use the artifact ID with 'artifact download' to retrieve the data.
-"""
-
-
-_EXPLAIN_UPLOAD = """\
-Upload an artifact/log file to Insight.  The file is ingested and
-stored in the organization's data lake where it can be searched via
-LCQL and viewed in the web UI.
-
-The upload requires an ingestion key, provided via the LC_LOGS_TOKEN
-environment variable or passed to the SDK.
-
-Optional parameters:
-  --source          Label identifying the source system (e.g. hostname).
-  --hint            Parse hint telling Insight how to interpret the file.
-                    Supported hints: pcap, json, wel (Windows Event Log),
-                    prefetch, txt, evtx, xml, csv, clf (Common Log Format).
-  --retention-days  How long to keep the artifact (default: 30 days).
-  --original-path   Original file path on the source system (metadata).
-
-Artifacts are parsed according to the hint and become searchable
-telemetry.  For example, uploading a pcap with --hint pcap makes
-its network connections queryable.
-
-Examples:
-  limacharlie artifact upload --file /var/log/syslog --source my-server
-  limacharlie artifact upload --file data.pcap --hint pcap --retention-days 90
-  limacharlie artifact upload --file security.evtx --hint wel --source dc01
-"""
-
-_EXPLAIN_DOWNLOAD = """\
-Download an artifact by its ID.  Retrieves the original artifact data
-from Insight.  For small artifacts the data may be returned inline;
-for larger ones a signed download URL is returned.
-
-If --output-path is specified, the artifact is saved to that file.
-Otherwise, the download URL or inline data is printed to stdout.
-
-Examples:
-  limacharlie artifact download --id <ARTIFACT_ID>
-  limacharlie artifact download --id <ARTIFACT_ID> --output-path ./artifact.log
-"""
-
-register_explain("artifact.list", _EXPLAIN_LIST)
-register_explain("artifact.upload", _EXPLAIN_UPLOAD)
-register_explain("artifact.download", _EXPLAIN_DOWNLOAD)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -120,6 +51,28 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List artifacts stored in Insight for the organization.  Artifacts are
+log files and binary data collected from sensors or ingested externally.
+
+Types of artifacts:
+  - Files collected from endpoints via D&R response actions or the
+    Artifact extension
+  - Windows Event Log (WEL) streams captured via wel:// patterns
+  - Mac Unified Log (MUL) streams
+  - PCAP network captures (Linux only)
+  - Externally uploaded log files (syslog, JSON, pcap, prefetch, etc.)
+
+Use --sid to filter artifacts for a specific sensor.  Use --type to
+filter by artifact type.  Use --start/--end to filter by time range
+(Unix timestamps in seconds).
+
+The output includes artifact IDs, source info, type, and timestamps.
+Use the artifact ID with 'artifact download' to retrieve the data.
+"""
+register_explain("artifact.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @click.option("--sid", default=None, help="Filter by sensor ID.")
 @click.option("--type", "artifact_type", default=None, help="Filter by artifact type.")
@@ -128,13 +81,6 @@ def group() -> None:
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
 @pass_context
 def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
-    """List artifacts.
-
-    Examples:
-        limacharlie artifact list
-        limacharlie artifact list --sid <SID>
-        limacharlie artifact list --sid <SID> --output json
-    """
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
@@ -153,6 +99,34 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
 # upload
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_UPLOAD = """\
+Upload an artifact/log file to Insight.  The file is ingested and
+stored in the organization's data lake where it can be searched via
+LCQL and viewed in the web UI.
+
+The upload requires an ingestion key, provided via the LC_LOGS_TOKEN
+environment variable or passed to the SDK.
+
+Optional parameters:
+  --source          Label identifying the source system (e.g. hostname).
+  --hint            Parse hint telling Insight how to interpret the file.
+                    Supported hints: pcap, json, wel (Windows Event Log),
+                    prefetch, txt, evtx, xml, csv, clf (Common Log Format).
+  --retention-days  How long to keep the artifact (default: 30 days).
+  --original-path   Original file path on the source system (metadata).
+
+Artifacts are parsed according to the hint and become searchable
+telemetry.  For example, uploading a pcap with --hint pcap makes
+its network connections queryable.
+
+Examples:
+  limacharlie artifact upload --file /var/log/syslog --source my-server
+  limacharlie artifact upload --file data.pcap --hint pcap --retention-days 90
+  limacharlie artifact upload --file security.evtx --hint wel --source dc01
+"""
+register_explain("artifact.upload", _EXPLAIN_UPLOAD)
+
+
 @group.command()
 @click.option("--file", "file_path", required=True, type=click.Path(exists=True), help="Path to the file to upload.")
 @click.option("--source", default=None, help="Source identifier label.")
@@ -161,15 +135,6 @@ def list_artifacts(ctx, sid, artifact_type, start, end, limit) -> None:
 @click.option("--original-path", default=None, help="Original file path on the source system.")
 @pass_context
 def upload(ctx, file_path, source, hint, retention_days, original_path) -> None:
-    """Upload an artifact/log file.
-
-    Requires LC_LOGS_TOKEN environment variable to be set with an
-    ingestion key.
-
-    Examples:
-        limacharlie artifact upload --file /var/log/syslog --source my-server
-        limacharlie artifact upload --file data.pcap --hint pcap --retention-days 90
-    """
     org = _get_org(ctx)
     artifacts = Artifacts(org)
     data = artifacts.upload(
@@ -188,20 +153,26 @@ def upload(ctx, file_path, source, hint, retention_days, original_path) -> None:
 # download
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DOWNLOAD = """\
+Download an artifact by its ID.  Retrieves the original artifact data
+from Insight.  For small artifacts the data may be returned inline;
+for larger ones a signed download URL is returned.
+
+If --output-path is specified, the artifact is saved to that file.
+Otherwise, the download URL or inline data is printed to stdout.
+
+Examples:
+  limacharlie artifact download --id <ARTIFACT_ID>
+  limacharlie artifact download --id <ARTIFACT_ID> --output-path ./artifact.log
+"""
+register_explain("artifact.download", _EXPLAIN_DOWNLOAD)
+
+
 @group.command()
 @click.option("--id", "artifact_id", required=True, help="Artifact ID to download.")
 @click.option("--output-path", default=None, type=click.Path(), help="Local path to save the artifact to.")
 @pass_context
 def download(ctx, artifact_id, output_path) -> None:
-    """Download an artifact by ID.
-
-    If --output-path is given, saves to that file.  Otherwise prints
-    the download URL or inline data.
-
-    Examples:
-        limacharlie artifact download --id <ARTIFACT_ID>
-        limacharlie artifact download --id <ARTIFACT_ID> --output-path ./artifact.log
-    """
     org = _get_org(ctx)
     artifacts = Artifacts(org)
     data = artifacts.get_url(artifact_id)

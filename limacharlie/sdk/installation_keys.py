@@ -23,6 +23,9 @@ class InstallationKeys:
 
         Args:
             iid: Installation key ID.
+
+        Returns:
+            dict: API response.
         """
         return self._org.get_installation_key(iid)
 
@@ -33,6 +36,9 @@ class InstallationKeys:
             description: Human-readable description.
             tags: Tags to apply to sensors using this key.
             use_public_ca: Use the public CA for sensor enrollment.
+
+        Returns:
+            dict: API response.
         """
         return self._org.create_installation_key(description, tags=tags, use_public_ca=use_public_ca)
 
@@ -41,5 +47,8 @@ class InstallationKeys:
 
         Args:
             iid: Installation key ID.
+
+        Returns:
+            dict: API response.
         """
         return self._org.delete_installation_key(iid)

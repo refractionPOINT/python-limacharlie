@@ -29,6 +29,9 @@ class Jobs:
             end_time: Filter end time (unix seconds).
             limit: Maximum number of jobs to return.
             sid: Filter by sensor ID.
+
+        Returns:
+            list: API response.
         """
         return self._org.get_jobs(start_time=start_time, end_time=end_time,
                                   limit=limit, sid=sid)
@@ -38,6 +41,9 @@ class Jobs:
 
         Args:
             job_id: Job identifier.
+
+        Returns:
+            dict: API response.
         """
         return self.client.request("GET", f"job/{self._org.oid}/{job_id}")
 
@@ -46,6 +52,9 @@ class Jobs:
 
         Args:
             job_id: Job identifier.
+
+        Returns:
+            dict: API response.
         """
         return self.client.request("DELETE", f"job/{self._org.oid}/{job_id}")
 

@@ -44,6 +44,9 @@ class Yara:
             sources: List of YARA source names to include.
             tags: Optional sensor tag filter.
             platforms: Optional platform filter.
+
+        Returns:
+            dict: API response.
         """
         params: dict[str, Any] = {"action": "add_rule", "name": name, "sources": json.dumps(sources)}
         if tags:
@@ -57,6 +60,9 @@ class Yara:
 
         Args:
             name: Rule name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("yara", {"action": "remove_rule", "name": name})
 
@@ -69,6 +75,9 @@ class Yara:
 
         Args:
             name: Source name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("yara", {"action": "get_source", "name": name})
 
@@ -78,6 +87,9 @@ class Yara:
         Args:
             name: Source name.
             source: YARA rule content.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("yara", {"action": "add_source", "name": name, "source": source})
 
@@ -86,5 +98,8 @@ class Yara:
 
         Args:
             name: Source name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("yara", {"action": "remove_source", "name": name})

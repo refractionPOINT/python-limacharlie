@@ -60,74 +60,6 @@ _ADAPTER_FILENAMES = {
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_SENSOR = """\
-Download a sensor (EDR agent) installer for a specific platform and
-architecture.  Sensors are the endpoint agents that collect telemetry
-and respond to tasks from the LimaCharlie cloud.
-
-The downloaded binary is installed on an endpoint using an
-installation key:
-  ./lc_sensor_64 -i YOUR_INSTALLATION_KEY
-
-Supported targets:
-  windows   64, 32, arm64, msi64, msi32
-  linux     64, deb64, debarm64, alpine64
-  mac       64, arm64
-  chrome    (no arch needed)
-
-Use --list to see all available (platform, architecture) combinations
-with their download URLs.
-
-Examples:
-  limacharlie download sensor --platform linux --arch 64
-  limacharlie download sensor --platform windows --arch msi64 -o ./sensor.msi
-  limacharlie download sensor --platform mac --arch arm64
-  limacharlie download sensor --list
-"""
-
-_EXPLAIN_ADAPTER = """\
-Download an adapter (USP) binary for a specific platform and
-architecture.  Adapters allow LimaCharlie to ingest data from sources
-beyond the native sensor agent using the Universal Sensor Protocol.
-
-Supported targets:
-  linux     64, arm, arm64
-  windows   64
-  mac       64, arm64
-  aix       ppc64
-  freebsd   64
-  openbsd   64
-  netbsd    64
-  solaris   64
-
-The adapter is run with an ingestion key and a USP config file:
-  ./lc_adapter_linux_64 -k <INGESTION_KEY> -c adapter.yaml
-
-Examples:
-  limacharlie download adapter --platform linux --arch 64
-  limacharlie download adapter --platform mac --arch arm64 -o ./lc_adapter
-  limacharlie download adapter --list
-"""
-
-_EXPLAIN_LIST = """\
-List all available download targets for sensors and adapters.  Shows
-every supported (platform, architecture) combination and its download
-URL.
-
-Examples:
-  limacharlie download list
-  limacharlie download list --output json
-"""
-
-register_explain("download.sensor", _EXPLAIN_SENSOR)
-register_explain("download.adapter", _EXPLAIN_ADAPTER)
-register_explain("download.list", _EXPLAIN_LIST)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -186,6 +118,33 @@ def group() -> None:
 # download sensor
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_SENSOR = """\
+Download a sensor (EDR agent) installer for a specific platform and
+architecture.  Sensors are the endpoint agents that collect telemetry
+and respond to tasks from the LimaCharlie cloud.
+
+The downloaded binary is installed on an endpoint using an
+installation key:
+  ./lc_sensor_64 -i YOUR_INSTALLATION_KEY
+
+Supported targets:
+  windows   64, 32, arm64, msi64, msi32
+  linux     64, deb64, debarm64, alpine64
+  mac       64, arm64
+  chrome    (no arch needed)
+
+Use --list to see all available (platform, architecture) combinations
+with their download URLs.
+
+Examples:
+  limacharlie download sensor --platform linux --arch 64
+  limacharlie download sensor --platform windows --arch msi64 -o ./sensor.msi
+  limacharlie download sensor --platform mac --arch arm64
+  limacharlie download sensor --list
+"""
+register_explain("download.sensor", _EXPLAIN_SENSOR)
+
+
 @group.command("sensor")
 @click.option(
     "--platform", "platform",
@@ -209,17 +168,6 @@ def group() -> None:
 )
 @pass_context
 def sensor(ctx, platform, arch, output_path, show_list) -> None:
-    """Download a sensor (EDR) installer.
-
-    Downloads the sensor agent binary for a given platform and
-    architecture from downloads.limacharlie.io.
-
-    Examples:
-        limacharlie download sensor --list
-        limacharlie download sensor --platform linux --arch 64
-        limacharlie download sensor --platform windows --arch msi64 -o ./sensor.msi
-        limacharlie download sensor --platform mac --arch arm64
-    """
     if show_list:
         _output(ctx, list_sensor_targets())
         return
@@ -260,6 +208,32 @@ def sensor(ctx, platform, arch, output_path, show_list) -> None:
 # download adapter
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_ADAPTER = """\
+Download an adapter (USP) binary for a specific platform and
+architecture.  Adapters allow LimaCharlie to ingest data from sources
+beyond the native sensor agent using the Universal Sensor Protocol.
+
+Supported targets:
+  linux     64, arm, arm64
+  windows   64
+  mac       64, arm64
+  aix       ppc64
+  freebsd   64
+  openbsd   64
+  netbsd    64
+  solaris   64
+
+The adapter is run with an ingestion key and a USP config file:
+  ./lc_adapter_linux_64 -k <INGESTION_KEY> -c adapter.yaml
+
+Examples:
+  limacharlie download adapter --platform linux --arch 64
+  limacharlie download adapter --platform mac --arch arm64 -o ./lc_adapter
+  limacharlie download adapter --list
+"""
+register_explain("download.adapter", _EXPLAIN_ADAPTER)
+
+
 @group.command("adapter")
 @click.option(
     "--platform", "platform",
@@ -283,16 +257,6 @@ def sensor(ctx, platform, arch, output_path, show_list) -> None:
 )
 @pass_context
 def adapter(ctx, platform, arch, output_path, show_list) -> None:
-    """Download an adapter (USP) binary.
-
-    Downloads the adapter binary for a given platform and architecture
-    from downloads.limacharlie.io.
-
-    Examples:
-        limacharlie download adapter --list
-        limacharlie download adapter --platform linux --arch 64
-        limacharlie download adapter --platform mac --arch arm64 -o ./lc_adapter
-    """
     if show_list:
         _output(ctx, list_adapter_targets())
         return
@@ -330,17 +294,21 @@ def adapter(ctx, platform, arch, output_path, show_list) -> None:
 # download list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List all available download targets for sensors and adapters.  Shows
+every supported (platform, architecture) combination and its download
+URL.
+
+Examples:
+  limacharlie download list
+  limacharlie download list --output json
+"""
+register_explain("download.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @pass_context
 def list_targets(ctx) -> None:
-    """List all available download targets.
-
-    Shows every supported (platform, architecture) combination for both
-    sensors and adapters.
-
-    Example:
-        limacharlie download list
-    """
     sensors = list_sensor_targets()
     adapters = list_adapter_targets()
 

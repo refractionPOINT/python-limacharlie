@@ -19,43 +19,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_STATUS = """\
-Get the current billing status for the organization.  Shows the
-current plan, usage summary, and billing period information.
-"""
-
-_EXPLAIN_DETAILS = """\
-Get detailed billing information for the organization.  Includes
-per-SKU usage breakdown, costs, and quota information.
-
-SKUs include sensor-months, event volume, output volume, artifact
-storage, and add-on services.
-"""
-
-_EXPLAIN_INVOICE = """\
-Get the URL for a specific monthly invoice.  Provide --year and
---month to specify the billing period.
-
-Examples:
-  limacharlie billing invoice --year 2024 --month 6
-  limacharlie billing invoice --year 2025 --month 1
-"""
-
-_EXPLAIN_PLANS = """\
-List all available billing plans.  Shows plan names, pricing tiers,
-and included features for each plan level.
-"""
-
-register_explain("billing.status", _EXPLAIN_STATUS)
-register_explain("billing.details", _EXPLAIN_DETAILS)
-register_explain("billing.invoice", _EXPLAIN_INVOICE)
-register_explain("billing.plans", _EXPLAIN_PLANS)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -87,14 +50,16 @@ def group() -> None:
 # status
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_STATUS = """\
+Get the current billing status for the organization.  Shows the
+current plan, usage summary, and billing period information.
+"""
+register_explain("billing.status", _EXPLAIN_STATUS)
+
+
 @group.command()
 @pass_context
 def status(ctx) -> None:
-    """Get billing status.
-
-    Example:
-        limacharlie billing status
-    """
     org = _get_org(ctx)
     billing = BillingSDK(org)
     data = billing.get_status()
@@ -105,14 +70,19 @@ def status(ctx) -> None:
 # details
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DETAILS = """\
+Get detailed billing information for the organization.  Includes
+per-SKU usage breakdown, costs, and quota information.
+
+SKUs include sensor-months, event volume, output volume, artifact
+storage, and add-on services.
+"""
+register_explain("billing.details", _EXPLAIN_DETAILS)
+
+
 @group.command()
 @pass_context
 def details(ctx) -> None:
-    """Get detailed billing information.
-
-    Example:
-        limacharlie billing details
-    """
     org = _get_org(ctx)
     billing = BillingSDK(org)
     data = billing.get_details()
@@ -123,16 +93,22 @@ def details(ctx) -> None:
 # invoice
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_INVOICE = """\
+Get the URL for a specific monthly invoice.  Provide --year and
+--month to specify the billing period.
+
+Examples:
+  limacharlie billing invoice --year 2024 --month 6
+  limacharlie billing invoice --year 2025 --month 1
+"""
+register_explain("billing.invoice", _EXPLAIN_INVOICE)
+
+
 @group.command()
 @click.option("--year", required=True, type=int, help="Invoice year (e.g., 2024).")
 @click.option("--month", required=True, type=int, help="Invoice month (1-12).")
 @pass_context
 def invoice(ctx, year, month) -> None:
-    """Get invoice URL for a specific month.
-
-    Example:
-        limacharlie billing invoice --year 2024 --month 6
-    """
     org = _get_org(ctx)
     billing = BillingSDK(org)
     data = billing.get_invoice_url(year, month)
@@ -143,14 +119,16 @@ def invoice(ctx, year, month) -> None:
 # plans
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PLANS = """\
+List all available billing plans.  Shows plan names, pricing tiers,
+and included features for each plan level.
+"""
+register_explain("billing.plans", _EXPLAIN_PLANS)
+
+
 @group.command()
 @pass_context
 def plans(ctx) -> None:
-    """List available billing plans.
-
-    Example:
-        limacharlie billing plans
-    """
     org = _get_org(ctx)
     billing = BillingSDK(org)
     data = billing.get_plans()

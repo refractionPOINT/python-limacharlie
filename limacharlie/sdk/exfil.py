@@ -30,6 +30,9 @@ class Exfil:
             path: Event path (string with '/' separators or list of segments).
             tags: Optional sensor tag filter.
             platforms: Optional platform filter.
+
+        Returns:
+            dict: API response.
         """
         params: dict[str, Any] = {
             "action": "add_watch",
@@ -54,6 +57,9 @@ class Exfil:
             events: List of event types to monitor.
             tags: Optional sensor tag filter.
             platforms: Optional platform filter.
+
+        Returns:
+            dict: API response.
         """
         params: dict[str, Any] = {
             "action": "add_event_rule",
@@ -71,6 +77,9 @@ class Exfil:
 
         Args:
             name: Rule name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("exfil", {"action": "remove_event_rule", "name": name})
 
@@ -79,5 +88,8 @@ class Exfil:
 
         Args:
             name: Rule name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("exfil", {"action": "remove_watch", "name": name})

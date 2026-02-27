@@ -24,7 +24,41 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _output(ctx: click.Context, data: Any) -> None:
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx: click.Context) -> Organization:
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    return Organization(client)
+
+
+def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
+    org = _get_org(ctx)
+    return Sensor(org, sid)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("task")
+def group() -> None:
+    """Send tasks (commands) to sensors.
+
+    Tasks are the primary mechanism for interacting with endpoints.
+    Use 'limacharlie task send' to send a fire-and-forget command to a
+    sensor.
+    """
+
+
+# ---------------------------------------------------------------------------
+# send
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_SEND = """\
@@ -76,6 +110,31 @@ The --task value is the full command string.  Common task commands:
 This command does not wait for a response.  To see results, use
 'limacharlie task request' (synchronous) or 'limacharlie stream events'.
 """
+register_explain("task.send", _EXPLAIN_SEND)
+
+
+@group.command()
+@click.option("--sid", required=True, help="Sensor ID (UUID) to task.")
+@click.option(
+    "--task", required=True,
+    help="Task command string (e.g. 'os_processes', 'dir_list /tmp').",
+)
+@click.option(
+    "--investigation-id", default=None,
+    help="Optional investigation ID to associate with this task.",
+)
+@pass_context
+def send(ctx: click.Context, sid: str, task: str, investigation_id: str | None) -> None:
+    sensor = _get_sensor(ctx, sid)
+    data = sensor.task(task, inv_id=investigation_id)
+    if not ctx.obj.quiet:
+        click.echo(f"Task sent to sensor {sid}.", err=True)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# request
+# ---------------------------------------------------------------------------
 
 _EXPLAIN_REQUEST = """\
 Send a task command to a sensor and wait for the response.  Unlike
@@ -97,119 +156,8 @@ returns OS_PROCESSES_REP, dir_list returns DIR_LIST_REP, etc.
 Related: 'limacharlie task send' for fire-and-forget tasking,
 'limacharlie stream events' for continuous event streaming.
 """
-
-_EXPLAIN_RELIABLE_SEND = """\
-Send a task command with guaranteed delivery via the reliable-tasking
-service.  Unlike regular tasking, reliable tasks are persisted and
-will be delivered to the sensor even if it is currently offline.
-
-Tasks are retried until the sensor comes online and acknowledges
-receipt, or until the optional --ttl expires (default: one week).
-
-This is useful for scenarios where the endpoint may be powered off
-or disconnected, such as laptop fleets or intermittent systems.
-
-Use --investigation-id to associate the task with an investigation
-for tracking purposes.
-
-Related: 'limacharlie task reliable-list' to see pending tasks,
-'limacharlie task reliable-delete' to cancel a pending task.
-"""
-
-_EXPLAIN_RELIABLE_LIST = """\
-List pending reliable tasks for a sensor.  Shows tasks that have
-been submitted via 'task reliable-send' but have not yet been
-delivered and acknowledged by the sensor.
-
-Related: 'limacharlie task reliable-send' to submit a reliable task,
-'limacharlie task reliable-delete' to cancel a pending task.
-"""
-
-_EXPLAIN_RELIABLE_DELETE = """\
-Cancel a pending reliable task.  The task will be removed from the
-queue and will not be delivered to the sensor.
-
-You must provide the --task-id of the specific task to cancel.  Use
-'limacharlie task reliable-list' to find task IDs.
-
-Related: 'limacharlie task reliable-list' to find pending task IDs,
-'limacharlie task reliable-send' to submit a reliable task.
-"""
-
-register_explain("task.send", _EXPLAIN_SEND)
 register_explain("task.request", _EXPLAIN_REQUEST)
-register_explain("task.reliable-send", _EXPLAIN_RELIABLE_SEND)
-register_explain("task.reliable-list", _EXPLAIN_RELIABLE_LIST)
-register_explain("task.reliable-delete", _EXPLAIN_RELIABLE_DELETE)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
-
-
-def _get_org(ctx: click.Context) -> Organization:
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
-    return Organization(client)
-
-
-def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
-    org = _get_org(ctx)
-    return Sensor(org, sid)
-
-
-# ---------------------------------------------------------------------------
-# Group
-# ---------------------------------------------------------------------------
-
-@click.group("task")
-def group() -> None:
-    """Send tasks (commands) to sensors.
-
-    Tasks are the primary mechanism for interacting with endpoints.
-    Use 'limacharlie task send' to send a fire-and-forget command to a
-    sensor.
-    """
-
-
-# ---------------------------------------------------------------------------
-# send
-# ---------------------------------------------------------------------------
-
-@group.command()
-@click.option("--sid", required=True, help="Sensor ID (UUID) to task.")
-@click.option(
-    "--task", required=True,
-    help="Task command string (e.g. 'os_processes', 'dir_list /tmp').",
-)
-@click.option(
-    "--investigation-id", default=None,
-    help="Optional investigation ID to associate with this task.",
-)
-@pass_context
-def send(ctx: click.Context, sid: str, task: str, investigation_id: str | None) -> None:
-    """Send a task to a sensor (fire-and-forget).
-
-    Examples:
-        limacharlie task send --sid <SID> --task os_processes
-        limacharlie task send --sid <SID> --task "dir_list /tmp"
-        limacharlie task send --sid <SID> --task "file_get /etc/passwd" --investigation-id inv-001
-    """
-    sensor = _get_sensor(ctx, sid)
-    data = sensor.task(task, inv_id=investigation_id)
-    if not ctx.obj.quiet:
-        click.echo(f"Task sent to sensor {sid}.", err=True)
-    _output(ctx, data)
-
-
-# ---------------------------------------------------------------------------
-# request
-# ---------------------------------------------------------------------------
 
 @group.command()
 @click.option("--sid", required=True, help="Sensor ID (UUID) to task.")
@@ -223,15 +171,6 @@ def send(ctx: click.Context, sid: str, task: str, investigation_id: str | None) 
 )
 @pass_context
 def request(ctx: click.Context, sid: str, task_command: str, timeout: int) -> None:
-    """Send a task and wait for the response.
-
-    Opens a temporary event stream, sends the task, collects events
-    until the timeout expires, and outputs the results.
-
-    Examples:
-        limacharlie task request --sid <SID> --command os_processes
-        limacharlie task request --sid <SID> --command "dir_list /tmp" --timeout 60
-    """
     org = _get_org(ctx)
     sensor = Sensor(org, sid)
 
@@ -287,6 +226,26 @@ def request(ctx: click.Context, sid: str, task_command: str, timeout: int) -> No
 # reliable-send
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_RELIABLE_SEND = """\
+Send a task command with guaranteed delivery via the reliable-tasking
+service.  Unlike regular tasking, reliable tasks are persisted and
+will be delivered to the sensor even if it is currently offline.
+
+Tasks are retried until the sensor comes online and acknowledges
+receipt, or until the optional --ttl expires (default: one week).
+
+This is useful for scenarios where the endpoint may be powered off
+or disconnected, such as laptop fleets or intermittent systems.
+
+Use --investigation-id to associate the task with an investigation
+for tracking purposes.
+
+Related: 'limacharlie task reliable-list' to see pending tasks,
+'limacharlie task reliable-delete' to cancel a pending task.
+"""
+register_explain("task.reliable-send", _EXPLAIN_RELIABLE_SEND)
+
+
 @group.command("reliable-send")
 @click.option("--sid", required=True, help="Sensor ID (UUID) to task.")
 @click.option(
@@ -303,15 +262,6 @@ def request(ctx: click.Context, sid: str, task_command: str, timeout: int) -> No
 )
 @pass_context
 def reliable_send(ctx: click.Context, sid: str, task_command: str, investigation_id: str | None, ttl: int | None) -> None:
-    """Send a task with guaranteed delivery.
-
-    The task is persisted and will be delivered even if the sensor
-    is currently offline.
-
-    Examples:
-        limacharlie task reliable-send --sid <SID> --command os_processes
-        limacharlie task reliable-send --sid <SID> --command "file_get /etc/passwd" --ttl 3600
-    """
     org = _get_org(ctx)
     req = {
         "action": "task",
@@ -332,15 +282,21 @@ def reliable_send(ctx: click.Context, sid: str, task_command: str, investigation
 # reliable-list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_RELIABLE_LIST = """\
+List pending reliable tasks for a sensor.  Shows tasks that have
+been submitted via 'task reliable-send' but have not yet been
+delivered and acknowledged by the sensor.
+
+Related: 'limacharlie task reliable-send' to submit a reliable task,
+'limacharlie task reliable-delete' to cancel a pending task.
+"""
+register_explain("task.reliable-list", _EXPLAIN_RELIABLE_LIST)
+
+
 @group.command("reliable-list")
 @click.option("--sid", required=True, help="Sensor ID (UUID) to list pending tasks for.")
 @pass_context
 def reliable_list(ctx: click.Context, sid: str) -> None:
-    """List pending reliable tasks for a sensor.
-
-    Example:
-        limacharlie task reliable-list --sid <SID>
-    """
     org = _get_org(ctx)
     req = {
         "action": "list",
@@ -354,16 +310,24 @@ def reliable_list(ctx: click.Context, sid: str) -> None:
 # reliable-delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_RELIABLE_DELETE = """\
+Cancel a pending reliable task.  The task will be removed from the
+queue and will not be delivered to the sensor.
+
+You must provide the --task-id of the specific task to cancel.  Use
+'limacharlie task reliable-list' to find task IDs.
+
+Related: 'limacharlie task reliable-list' to find pending task IDs,
+'limacharlie task reliable-send' to submit a reliable task.
+"""
+register_explain("task.reliable-delete", _EXPLAIN_RELIABLE_DELETE)
+
+
 @group.command("reliable-delete")
 @click.option("--sid", required=True, help="Sensor ID (UUID).")
 @click.option("--task-id", required=True, help="Task ID to cancel.")
 @pass_context
 def reliable_delete(ctx: click.Context, sid: str, task_id: str) -> None:
-    """Cancel a pending reliable task.
-
-    Example:
-        limacharlie task reliable-delete --sid <SID> --task-id <TASK_ID>
-    """
     org = _get_org(ctx)
     req = {
         "action": "untask",
