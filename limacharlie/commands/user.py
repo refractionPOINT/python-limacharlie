@@ -18,99 +18,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List all users who have access to the organization.  The output
-includes email addresses and associated metadata.
-
-Example:
-  limacharlie user list
-"""
-
-_EXPLAIN_INVITE = """\
-Invite a user to the organization by email address.  The user will
-receive an invitation and, once accepted, will have access to the
-organization with the default permission set.
-
-Use 'limacharlie user permissions' commands to manage fine-grained
-permissions after the user has been added.
-
-Example:
-  limacharlie user invite --email user@example.com
-"""
-
-_EXPLAIN_REMOVE = """\
-Remove a user from the organization by email address.  The user will
-immediately lose access.  The --confirm flag is required to prevent
-accidental removal.
-
-Example:
-  limacharlie user remove --email user@example.com --confirm
-"""
-
-_EXPLAIN_PERM_LIST = """\
-List all user permissions in the organization.  Returns a mapping of
-user emails to their granted permissions.
-
-Example:
-  limacharlie user permissions list
-"""
-
-_EXPLAIN_PERM_ADD = """\
-Grant a specific permission to a user.  Permissions use the
-category.action convention.  Common permission strings:
-
-  org.get, org.conf.get, org.conf.set, org.del
-  sensor.list, sensor.get, sensor.task, sensor.del, sensor.tag
-  dr.list, dr.set, dr.del
-  dr.list.managed, dr.set.managed, dr.del.managed
-  fp.list, fp.set, fp.del
-  output.list, output.set, output.del
-  ikey.list, ikey.set, ikey.del
-  apikey.ctrl, user.ctrl, billing.ctrl
-  audit.get, hive.get, hive.set, hive.del
-
-Example:
-  limacharlie user permissions add --email user@example.com --permission dr.set
-"""
-
-_EXPLAIN_PERM_REMOVE = """\
-Revoke a specific permission from a user.  The permission is removed
-immediately.  If the user does not have the specified permission, the
-operation succeeds silently.
-
-Example:
-  limacharlie user permissions remove --email user@example.com --permission dr.set
-"""
-
-_EXPLAIN_PERM_SET_ROLE = """\
-Set a predefined role for a user, replacing all their current permissions
-with the permissions defined by the role.  This is a convenience
-operation that sets multiple permissions at once.
-
-Valid roles (most to least privileged):
-  - Owner: Full access to all features
-  - Administrator: Owner minus apikey.ctrl and billing.ctrl
-  - Operator: Operational access, no user/billing/apikey control
-  - Viewer: Read-only access
-  - Basic: Minimal access (org.get, sensor.list)
-
-Example:
-  limacharlie user permissions set-role --email user@example.com --role Operator
-"""
-
-register_explain("user.list", _EXPLAIN_LIST)
-register_explain("user.invite", _EXPLAIN_INVITE)
-register_explain("user.remove", _EXPLAIN_REMOVE)
-register_explain("user.permissions.list", _EXPLAIN_PERM_LIST)
-register_explain("user.permissions.add", _EXPLAIN_PERM_ADD)
-register_explain("user.permissions.remove", _EXPLAIN_PERM_REMOVE)
-register_explain("user.permissions.set-role", _EXPLAIN_PERM_SET_ROLE)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -141,14 +48,19 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PERM_LIST = """\
+List all user permissions in the organization.  Returns a mapping of
+user emails to their granted permissions.
+
+Example:
+  limacharlie user permissions list
+"""
+register_explain("user.permissions.list", _EXPLAIN_PERM_LIST)
+
+
 @group.command("list")
 @pass_context
 def list_users(ctx) -> None:
-    """List organization users.
-
-    Example:
-        limacharlie user list
-    """
     org = _get_org(ctx)
     users = Users(org)
     data = users.list()
@@ -159,15 +71,24 @@ def list_users(ctx) -> None:
 # invite
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_INVITE = """\
+Invite a user to the organization by email address.  The user will
+receive an invitation and, once accepted, will have access to the
+organization with the default permission set.
+
+Use 'limacharlie user permissions' commands to manage fine-grained
+permissions after the user has been added.
+
+Example:
+  limacharlie user invite --email user@example.com
+"""
+register_explain("user.invite", _EXPLAIN_INVITE)
+
+
 @group.command()
 @click.option("--email", required=True, help="Email address of the user to invite.")
 @pass_context
 def invite(ctx, email) -> None:
-    """Invite a user to the organization.
-
-    Example:
-        limacharlie user invite --email user@example.com
-    """
     org = _get_org(ctx)
     users = Users(org)
     data = users.invite(email)
@@ -180,18 +101,22 @@ def invite(ctx, email) -> None:
 # remove
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PERM_REMOVE = """\
+Revoke a specific permission from a user.  The permission is removed
+immediately.  If the user does not have the specified permission, the
+operation succeeds silently.
+
+Example:
+  limacharlie user permissions remove --email user@example.com --permission dr.set
+"""
+register_explain("user.permissions.remove", _EXPLAIN_PERM_REMOVE)
+
+
 @group.command()
 @click.option("--email", required=True, help="Email address of the user to remove.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm removal (required).")
 @pass_context
 def remove(ctx, email, confirm) -> None:
-    """Remove a user from the organization.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie user remove --email user@example.com --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"
@@ -230,11 +155,6 @@ def permissions() -> None:
 @permissions.command("list")
 @pass_context
 def perm_list(ctx) -> None:
-    """List user permissions.
-
-    Example:
-        limacharlie user permissions list
-    """
     org = _get_org(ctx)
     users = Users(org)
     data = users.list_permissions()
@@ -245,16 +165,31 @@ def perm_list(ctx) -> None:
 # permissions add
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PERM_ADD = """\
+Grant a specific permission to a user.  Permissions use the
+category.action convention.  Common permission strings:
+
+  org.get, org.conf.get, org.conf.set, org.del
+  sensor.list, sensor.get, sensor.task, sensor.del, sensor.tag
+  dr.list, dr.set, dr.del
+  dr.list.managed, dr.set.managed, dr.del.managed
+  fp.list, fp.set, fp.del
+  output.list, output.set, output.del
+  ikey.list, ikey.set, ikey.del
+  apikey.ctrl, user.ctrl, billing.ctrl
+  audit.get, hive.get, hive.set, hive.del
+
+Example:
+  limacharlie user permissions add --email user@example.com --permission dr.set
+"""
+register_explain("user.permissions.add", _EXPLAIN_PERM_ADD)
+
+
 @permissions.command()
 @click.option("--email", required=True, help="Email address of the user.")
 @click.option("--permission", required=True, help="Permission string to grant (e.g. 'dr.set').")
 @pass_context
 def add(ctx, email, permission) -> None:
-    """Grant a permission to a user.
-
-    Example:
-        limacharlie user permissions add --email user@example.com --permission dr.set
-    """
     org = _get_org(ctx)
     users = Users(org)
     data = users.add_permission(email, permission)
@@ -272,11 +207,6 @@ def add(ctx, email, permission) -> None:
 @click.option("--permission", required=True, help="Permission string to revoke (e.g. 'dr.set').")
 @pass_context
 def perm_remove(ctx, email, permission) -> None:
-    """Revoke a permission from a user.
-
-    Example:
-        limacharlie user permissions remove --email user@example.com --permission dr.set
-    """
     org = _get_org(ctx)
     users = Users(org)
     data = users.remove_permission(email, permission)
@@ -289,6 +219,24 @@ def perm_remove(ctx, email, permission) -> None:
 # permissions set-role
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PERM_SET_ROLE = """\
+Set a predefined role for a user, replacing all their current permissions
+with the permissions defined by the role.  This is a convenience
+operation that sets multiple permissions at once.
+
+Valid roles (most to least privileged):
+  - Owner: Full access to all features
+  - Administrator: Owner minus apikey.ctrl and billing.ctrl
+  - Operator: Operational access, no user/billing/apikey control
+  - Viewer: Read-only access
+  - Basic: Minimal access (org.get, sensor.list)
+
+Example:
+  limacharlie user permissions set-role --email user@example.com --role Operator
+"""
+register_explain("user.permissions.set-role", _EXPLAIN_PERM_SET_ROLE)
+
+
 @permissions.command("set-role")
 @click.option("--email", required=True, help="Email address of the user.")
 @click.option(
@@ -298,13 +246,6 @@ def perm_remove(ctx, email, permission) -> None:
 )
 @pass_context
 def set_role(ctx, email, role) -> None:
-    """Set a predefined role for a user.
-
-    Replaces all existing permissions with those defined by the role.
-
-    Example:
-        limacharlie user permissions set-role --email user@example.com --role Operator
-    """
     org = _get_org(ctx)
     users = Users(org)
     data = users.set_role(email, role)

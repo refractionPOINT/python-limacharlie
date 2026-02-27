@@ -696,7 +696,6 @@ class TestConvertRulesCommand:
     def test_help(self):
         result = self._invoke(["--help"])
         assert result.exit_code == 0
-        assert "Mass-convert" in result.output
         assert "--github" in result.output
         assert "--input-dir" in result.output
 

@@ -22,47 +22,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_VALIDATE = """\
-Validate a USP adapter configuration by sending test input data
-through the adapter's parsing pipeline.  This verifies that the
-adapter correctly parses and maps the input data before deploying
-to production.
-
-The --input-file should contain a YAML/JSON document with the
-adapter configuration.  Example structure:
-
-    mapping:
-      event_type_path: event_type
-      mappings:
-        field_a: src.field_a
-        field_b: src.field_b
-    text_input: |
-      sample log line here
-    # or for JSON-based adapters:
-    json_input:
-      event_type: my_event
-      src:
-        field_a: value1
-        field_b: value2
-
-The --platform identifies the adapter type:
-  text    - Line-delimited text logs (syslog, etc.)
-  json    - JSON-formatted logs
-  cef     - Common Event Format
-  syslog  - Syslog protocol
-  xml     - XML-formatted logs
-
-Example:
-  limacharlie usp validate --platform json --input-file adapter.yaml
-"""
-
-register_explain("usp.validate", _EXPLAIN_VALIDATE)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -106,6 +65,42 @@ def group() -> None:
 # validate
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_VALIDATE = """\
+Validate a USP adapter configuration by sending test input data
+through the adapter's parsing pipeline.  This verifies that the
+adapter correctly parses and maps the input data before deploying
+to production.
+
+The --input-file should contain a YAML/JSON document with the
+adapter configuration.  Example structure:
+
+    mapping:
+      event_type_path: event_type
+      mappings:
+        field_a: src.field_a
+        field_b: src.field_b
+    text_input: |
+      sample log line here
+    # or for JSON-based adapters:
+    json_input:
+      event_type: my_event
+      src:
+        field_a: value1
+        field_b: value2
+
+The --platform identifies the adapter type:
+  text    - Line-delimited text logs (syslog, etc.)
+  json    - JSON-formatted logs
+  cef     - Common Event Format
+  syslog  - Syslog protocol
+  xml     - XML-formatted logs
+
+Example:
+  limacharlie usp validate --platform json --input-file adapter.yaml
+"""
+register_explain("usp.validate", _EXPLAIN_VALIDATE)
+
+
 @group.command()
 @click.option("--platform", required=True, help="Adapter platform (e.g., text, json, cef, syslog).")
 @click.option(
@@ -114,11 +109,6 @@ def group() -> None:
 )
 @pass_context
 def validate(ctx, platform, input_file) -> None:
-    """Validate a USP adapter configuration.
-
-    Example:
-        limacharlie usp validate --platform json --input-file adapter.yaml
-    """
     adapter_data = _load_file(input_file)
     if not isinstance(adapter_data, dict):
         click.echo("Error: Input file must be a JSON or YAML object.", err=True)

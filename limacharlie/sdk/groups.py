@@ -23,6 +23,9 @@ class Groups:
 
         Args:
             group_id: Group identifier.
+
+        Returns:
+            dict: API response.
         """
         return self._org.get_group(group_id)
 
@@ -31,6 +34,9 @@ class Groups:
 
         Args:
             name: Group name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.create_group(name)
 
@@ -39,6 +45,9 @@ class Groups:
 
         Args:
             group_id: Group identifier.
+
+        Returns:
+            dict: API response.
         """
         return self._org.delete_group(group_id)
 
@@ -48,6 +57,9 @@ class Groups:
         Args:
             group_id: Group identifier.
             email: Email address of the user to add.
+
+        Returns:
+            dict: API response.
         """
         return self._org.add_group_member(group_id, email)
 
@@ -57,6 +69,9 @@ class Groups:
         Args:
             group_id: Group identifier.
             email: Email address of the user to remove.
+
+        Returns:
+            dict: API response.
         """
         return self._org.remove_group_member(group_id, email)
 
@@ -66,6 +81,9 @@ class Groups:
         Args:
             group_id: Group identifier.
             email: Email address of the user to make owner.
+
+        Returns:
+            dict: API response.
         """
         return self._org.add_group_owner(group_id, email)
 
@@ -75,6 +93,9 @@ class Groups:
         Args:
             group_id: Group identifier.
             email: Email address of the owner to remove.
+
+        Returns:
+            dict: API response.
         """
         return self._org.remove_group_owner(group_id, email)
 
@@ -84,6 +105,9 @@ class Groups:
         Args:
             group_id: Group identifier.
             permissions: List of permission strings.
+
+        Returns:
+            dict: API response.
         """
         return self._org.set_group_permissions(group_id, permissions)
 
@@ -92,6 +116,9 @@ class Groups:
 
         Args:
             group_id: Group identifier.
+
+        Returns:
+            dict: API response.
         """
         return self._org.get_group_logs(group_id)
 
@@ -101,6 +128,9 @@ class Groups:
         Args:
             group_id: Group identifier.
             oid: Organization ID to add.
+
+        Returns:
+            dict: API response.
         """
         return self._org.add_group_org(group_id, oid)
 
@@ -110,5 +140,8 @@ class Groups:
         Args:
             group_id: Group identifier.
             oid: Organization ID to remove.
+
+        Returns:
+            dict: API response.
         """
         return self._org.remove_group_org(group_id, oid)

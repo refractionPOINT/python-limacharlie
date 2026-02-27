@@ -14,51 +14,6 @@ from ..discovery import format_discovery, register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_TOPIC = """\
-Show an inline help topic.  Topics provide concept guides for
-LimaCharlie features such as D&R rules, hive data, LCQL queries,
-sensors, and more.
-
-Use without arguments to list all available topics.
-
-Examples:
-  limacharlie help topic
-  limacharlie help topic d&r-rules
-  limacharlie help topic lcql
-"""
-
-_EXPLAIN_DISCOVER = """\
-Discover available CLI commands grouped by use-case profile.
-Profiles organize commands by workflow (e.g., sensor management,
-detection engineering, live investigation).
-
-Use --profile to filter by a specific profile.
-
-Examples:
-  limacharlie help discover
-  limacharlie help discover --profile detection_engineering
-"""
-
-_EXPLAIN_CHEATSHEET = """\
-Show a quick-reference cheatsheet.  Cheatsheets provide common
-command examples for frequent workflows.
-
-Use without arguments to list all available cheatsheets.
-
-Examples:
-  limacharlie help cheatsheet
-  limacharlie help cheatsheet --name getting-started
-"""
-
-register_explain("help.topic", _EXPLAIN_TOPIC)
-register_explain("help.discover", _EXPLAIN_DISCOVER)
-register_explain("help.cheatsheet", _EXPLAIN_CHEATSHEET)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -83,15 +38,24 @@ def group(ctx) -> None:
 # topic
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_TOPIC = """\
+Show an inline help topic.  Topics provide concept guides for
+LimaCharlie features such as D&R rules, hive data, LCQL queries,
+sensors, and more.
+
+Use without arguments to list all available topics.
+
+Examples:
+  limacharlie help topic
+  limacharlie help topic d&r-rules
+  limacharlie help topic lcql
+"""
+register_explain("help.topic", _EXPLAIN_TOPIC)
+
+
 @group.command()
 @click.argument("name", required=False, default=None)
 def topic(name) -> None:
-    """Show a help topic (or list all topics).
-
-    Examples:
-        limacharlie help topic
-        limacharlie help topic d&r-rules
-    """
     if name is None:
         topics = list_help_topics()
         if not topics:
@@ -118,15 +82,23 @@ def topic(name) -> None:
 # discover
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DISCOVER = """\
+Discover available CLI commands grouped by use-case profile.
+Profiles organize commands by workflow (e.g., sensor management,
+detection engineering, live investigation).
+
+Use --profile to filter by a specific profile.
+
+Examples:
+  limacharlie help discover
+  limacharlie help discover --profile detection_engineering
+"""
+register_explain("help.discover", _EXPLAIN_DISCOVER)
+
+
 @group.command()
 @click.option("--profile", default=None, help="Filter by use-case profile name.")
 def discover(profile) -> None:
-    """Discover commands by use-case profile.
-
-    Examples:
-        limacharlie help discover
-        limacharlie help discover --profile detection_engineering
-    """
     click.echo(format_discovery(profile_name=profile))
 
 
@@ -134,15 +106,22 @@ def discover(profile) -> None:
 # cheatsheet
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_CHEATSHEET = """\
+Show a quick-reference cheatsheet.  Cheatsheets provide common
+command examples for frequent workflows.
+
+Use without arguments to list all available cheatsheets.
+
+Examples:
+  limacharlie help cheatsheet
+  limacharlie help cheatsheet --name getting-started
+"""
+register_explain("help.cheatsheet", _EXPLAIN_CHEATSHEET)
+
+
 @group.command()
 @click.option("--name", default=None, help="Cheatsheet name.")
 def cheatsheet(name) -> None:
-    """Show a cheatsheet (or list all cheatsheets).
-
-    Examples:
-        limacharlie help cheatsheet
-        limacharlie help cheatsheet --name getting-started
-    """
     if name is None:
         sheets = list_cheatsheets()
         if not sheets:

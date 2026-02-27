@@ -23,7 +23,46 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _output(ctx: click.Context, data: Any) -> None:
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx: click.Context) -> Organization:
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    return Organization(client)
+
+
+def _load_file(path: str) -> Any:
+    """Load a JSON or YAML file and return parsed content."""
+    with open(path, "r") as f:
+        content = f.read()
+    try:
+        return yaml.safe_load(content)
+    except Exception:
+        pass
+    return json.loads(content)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("output")
+def group() -> None:
+    """Manage output integrations.
+
+    Outputs forward telemetry data (events, detections, audit logs) to
+    external systems such as S3, syslog, GCS, Slack, and more.
+    """
+
+
+# ---------------------------------------------------------------------------
+# list
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LIST = """\
@@ -44,6 +83,21 @@ The four output stream types:
 Returns the full configuration for each output including module-specific
 parameters and any filtering rules (event_white_list, tag, cat, etc.).
 """
+register_explain("output.list", _EXPLAIN_LIST)
+
+
+@group.command("list")
+@pass_context
+def list_outputs(ctx: click.Context) -> None:
+    org = _get_org(ctx)
+    outputs = Outputs(org)
+    data = outputs.list()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
 
 _EXPLAIN_CREATE = """\
 Create a new output integration.  You must provide:
@@ -95,81 +149,8 @@ Examples:
   limacharlie output create --name my-s3 --module s3 --type detect \\
       --input-file s3-config.yaml
 """
-
-_EXPLAIN_DELETE = """\
-Delete an output integration by name.  This stops all data forwarding
-for this output immediately.  The --confirm flag is required to prevent
-accidental deletion.
-
-Example:
-  limacharlie output delete --name my-syslog --confirm
-"""
-
-register_explain("output.list", _EXPLAIN_LIST)
 register_explain("output.create", _EXPLAIN_CREATE)
-register_explain("output.delete", _EXPLAIN_DELETE)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
-
-
-def _get_org(ctx: click.Context) -> Organization:
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
-    return Organization(client)
-
-
-def _load_file(path: str) -> Any:
-    """Load a JSON or YAML file and return parsed content."""
-    with open(path, "r") as f:
-        content = f.read()
-    try:
-        return yaml.safe_load(content)
-    except Exception:
-        pass
-    return json.loads(content)
-
-
-# ---------------------------------------------------------------------------
-# Group
-# ---------------------------------------------------------------------------
-
-@click.group("output")
-def group() -> None:
-    """Manage output integrations.
-
-    Outputs forward telemetry data (events, detections, audit logs) to
-    external systems such as S3, syslog, GCS, Slack, and more.
-    """
-
-
-# ---------------------------------------------------------------------------
-# list
-# ---------------------------------------------------------------------------
-
-@group.command("list")
-@pass_context
-def list_outputs(ctx: click.Context) -> None:
-    """List configured outputs.
-
-    Example:
-        limacharlie output list
-    """
-    org = _get_org(ctx)
-    outputs = Outputs(org)
-    data = outputs.list()
-    _output(ctx, data)
-
-
-# ---------------------------------------------------------------------------
-# create
-# ---------------------------------------------------------------------------
 
 @group.command()
 @click.option("--name", required=True, help="Output name.")
@@ -178,15 +159,6 @@ def list_outputs(ctx: click.Context) -> None:
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to module-specific config (JSON or YAML).")
 @pass_context
 def create(ctx: click.Context, name: str, module: str, data_type: str, input_file: str | None) -> None:
-    """Create a new output integration.
-
-    Examples:
-        limacharlie output create --name my-syslog --module syslog \\
-            --type event --input-file syslog-config.yaml
-
-        limacharlie output create --name my-s3 --module s3 --type detect \\
-            --input-file s3-config.json
-    """
     extra_params = {}
     if input_file:
         extra_params = _load_file(input_file)
@@ -207,18 +179,22 @@ def create(ctx: click.Context, name: str, module: str, data_type: str, input_fil
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete an output integration by name.  This stops all data forwarding
+for this output immediately.  The --confirm flag is required to prevent
+accidental deletion.
+
+Example:
+  limacharlie output delete --name my-syslog --confirm
+"""
+register_explain("output.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--name", required=True, help="Output name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx: click.Context, name: str, confirm: bool) -> None:
-    """Delete an output integration.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie output delete --name my-syslog --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"

@@ -19,133 +19,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List all groups accessible to the current user.  Groups provide
-multi-tenancy by grouping multiple LimaCharlie organizations under
-a single management umbrella with shared permissions.
-
-A group has:
-  - Members: users who inherit the group's permissions on all
-    associated organizations
-  - Owners: users who can manage the group itself
-  - Organizations: the set of orgs the group's permissions apply to
-  - Permissions: the permission set inherited by members
-
-Use --output json to get the full group definitions for export.
-"""
-
-_EXPLAIN_GET = """\
-Get the details of a specific group by its ID.  Returns the group
-name, members, owners, associated organizations, and permissions.
-
-Use 'limacharlie group list' to find available group IDs.
-"""
-
-_EXPLAIN_CREATE = """\
-Create a new group.  Groups allow you to manage multiple
-organizations under a single umbrella with shared user permissions.
-
-After creating a group, use the LimaCharlie web UI or API to add
-members, owners, and organizations to the group.
-"""
-
-_EXPLAIN_DELETE = """\
-Delete a group by its ID.  This permanently removes the group and
-all associated membership and permission data.  The --confirm flag
-is required to prevent accidental deletion.
-
-This does NOT delete the organizations within the group.
-"""
-
-_EXPLAIN_MEMBER_ADD = """\
-Add a user as a member of a group.  Members inherit the group's
-permissions across all organizations associated with the group.
-
-Example:
-  limacharlie group member-add --gid <group-id> --email user@example.com
-"""
-
-_EXPLAIN_MEMBER_REMOVE = """\
-Remove a user from a group's member list.  The user will immediately
-lose any permissions inherited through this group membership.
-
-Example:
-  limacharlie group member-remove --gid <group-id> --email user@example.com
-"""
-
-_EXPLAIN_OWNER_ADD = """\
-Add a user as an owner of a group.  Owners can manage the group's
-membership, permissions, and associated organizations.
-
-Example:
-  limacharlie group owner-add --gid <group-id> --email user@example.com
-"""
-
-_EXPLAIN_OWNER_REMOVE = """\
-Remove a user from a group's owner list.  The user will lose the
-ability to manage the group but may retain member access if they
-are still listed as a member.
-
-Example:
-  limacharlie group owner-remove --gid <group-id> --email user@example.com
-"""
-
-_EXPLAIN_PERMISSIONS_SET = """\
-Set the permissions for a group.  This replaces all existing group
-permissions with the specified list.  Members of the group will
-inherit these permissions across all associated organizations.
-
-Permissions use the same category.action format as user permissions
-(e.g., sensor.list, dr.set, org.get).  See 'limacharlie user
-permissions add' explain text for the full list.
-
-Example:
-  limacharlie group permissions-set --gid <group-id> --permissions 'sensor.list,sensor.get,dr.list'
-"""
-
-_EXPLAIN_ORG_ADD = """\
-Associate an organization with a group.  Group members will gain
-the group's permissions on the specified organization.
-
-Example:
-  limacharlie group org-add --gid <group-id> --oid <org-id>
-"""
-
-_EXPLAIN_ORG_REMOVE = """\
-Remove an organization from a group.  Group members will lose
-the group's permissions on the specified organization.
-
-Example:
-  limacharlie group org-remove --gid <group-id> --oid <org-id>
-"""
-
-_EXPLAIN_LOGS = """\
-Get audit logs for a group.  Returns a list of actions performed
-on the group such as membership changes, permission updates, and
-organization associations.
-
-Example:
-  limacharlie group logs --gid <group-id>
-"""
-
-register_explain("group.list", _EXPLAIN_LIST)
-register_explain("group.get", _EXPLAIN_GET)
-register_explain("group.create", _EXPLAIN_CREATE)
-register_explain("group.delete", _EXPLAIN_DELETE)
-register_explain("group.member-add", _EXPLAIN_MEMBER_ADD)
-register_explain("group.member-remove", _EXPLAIN_MEMBER_REMOVE)
-register_explain("group.owner-add", _EXPLAIN_OWNER_ADD)
-register_explain("group.owner-remove", _EXPLAIN_OWNER_REMOVE)
-register_explain("group.permissions-set", _EXPLAIN_PERMISSIONS_SET)
-register_explain("group.org-add", _EXPLAIN_ORG_ADD)
-register_explain("group.org-remove", _EXPLAIN_ORG_REMOVE)
-register_explain("group.logs", _EXPLAIN_LOGS)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -178,14 +51,26 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List all groups accessible to the current user.  Groups provide
+multi-tenancy by grouping multiple LimaCharlie organizations under
+a single management umbrella with shared permissions.
+
+A group has:
+  - Members: users who inherit the group's permissions on all
+    associated organizations
+  - Owners: users who can manage the group itself
+  - Organizations: the set of orgs the group's permissions apply to
+  - Permissions: the permission set inherited by members
+
+Use --output json to get the full group definitions for export.
+"""
+register_explain("group.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @pass_context
 def list_groups(ctx) -> None:
-    """List all groups.
-
-    Example:
-        limacharlie group list
-    """
     org = _get_org(ctx)
     data = org.get_groups()
     _output(ctx, data)
@@ -195,15 +80,19 @@ def list_groups(ctx) -> None:
 # get
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GET = """\
+Get the details of a specific group by its ID.  Returns the group
+name, members, owners, associated organizations, and permissions.
+
+Use 'limacharlie group list' to find available group IDs.
+"""
+register_explain("group.get", _EXPLAIN_GET)
+
+
 @group.command()
 @click.option("--id", "group_id", required=True, help="Group ID.")
 @pass_context
 def get(ctx, group_id) -> None:
-    """Get details of a specific group.
-
-    Example:
-        limacharlie group get --id <group-id>
-    """
     org = _get_org(ctx)
     data = org.get_group(group_id)
     _output(ctx, data)
@@ -213,15 +102,20 @@ def get(ctx, group_id) -> None:
 # create
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_CREATE = """\
+Create a new group.  Groups allow you to manage multiple
+organizations under a single umbrella with shared user permissions.
+
+After creating a group, use the LimaCharlie web UI or API to add
+members, owners, and organizations to the group.
+"""
+register_explain("group.create", _EXPLAIN_CREATE)
+
+
 @group.command()
 @click.option("--name", required=True, help="Group name.")
 @pass_context
 def create(ctx, name) -> None:
-    """Create a new group.
-
-    Example:
-        limacharlie group create --name my-group
-    """
     org = _get_org(ctx)
     data = org.create_group(name)
     if not ctx.obj.quiet:
@@ -233,18 +127,21 @@ def create(ctx, name) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete a group by its ID.  This permanently removes the group and
+all associated membership and permission data.  The --confirm flag
+is required to prevent accidental deletion.
+
+This does NOT delete the organizations within the group.
+"""
+register_explain("group.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--id", "group_id", required=True, help="Group ID to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx, group_id, confirm) -> None:
-    """Delete a group.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie group delete --id <group-id> --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"
@@ -265,16 +162,21 @@ def delete(ctx, group_id, confirm) -> None:
 # member-add
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_MEMBER_ADD = """\
+Add a user as a member of a group.  Members inherit the group's
+permissions across all organizations associated with the group.
+
+Example:
+  limacharlie group member-add --gid <group-id> --email user@example.com
+"""
+register_explain("group.member-add", _EXPLAIN_MEMBER_ADD)
+
+
 @group.command("member-add")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the user to add as member.")
 @pass_context
 def member_add(ctx, gid, email) -> None:
-    """Add a member to a group.
-
-    Example:
-        limacharlie group member-add --gid <group-id> --email user@example.com
-    """
     org = _get_org(ctx)
     data = org.add_group_member(gid, email)
     if not ctx.obj.quiet:
@@ -286,16 +188,21 @@ def member_add(ctx, gid, email) -> None:
 # member-remove
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_MEMBER_REMOVE = """\
+Remove a user from a group's member list.  The user will immediately
+lose any permissions inherited through this group membership.
+
+Example:
+  limacharlie group member-remove --gid <group-id> --email user@example.com
+"""
+register_explain("group.member-remove", _EXPLAIN_MEMBER_REMOVE)
+
+
 @group.command("member-remove")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the member to remove.")
 @pass_context
 def member_remove(ctx, gid, email) -> None:
-    """Remove a member from a group.
-
-    Example:
-        limacharlie group member-remove --gid <group-id> --email user@example.com
-    """
     org = _get_org(ctx)
     data = org.remove_group_member(gid, email)
     if not ctx.obj.quiet:
@@ -307,16 +214,21 @@ def member_remove(ctx, gid, email) -> None:
 # owner-add
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_OWNER_ADD = """\
+Add a user as an owner of a group.  Owners can manage the group's
+membership, permissions, and associated organizations.
+
+Example:
+  limacharlie group owner-add --gid <group-id> --email user@example.com
+"""
+register_explain("group.owner-add", _EXPLAIN_OWNER_ADD)
+
+
 @group.command("owner-add")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the user to add as owner.")
 @pass_context
 def owner_add(ctx, gid, email) -> None:
-    """Add an owner to a group.
-
-    Example:
-        limacharlie group owner-add --gid <group-id> --email user@example.com
-    """
     org = _get_org(ctx)
     data = org.add_group_owner(gid, email)
     if not ctx.obj.quiet:
@@ -328,16 +240,22 @@ def owner_add(ctx, gid, email) -> None:
 # owner-remove
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_OWNER_REMOVE = """\
+Remove a user from a group's owner list.  The user will lose the
+ability to manage the group but may retain member access if they
+are still listed as a member.
+
+Example:
+  limacharlie group owner-remove --gid <group-id> --email user@example.com
+"""
+register_explain("group.owner-remove", _EXPLAIN_OWNER_REMOVE)
+
+
 @group.command("owner-remove")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--email", required=True, help="Email address of the owner to remove.")
 @pass_context
 def owner_remove(ctx, gid, email) -> None:
-    """Remove an owner from a group.
-
-    Example:
-        limacharlie group owner-remove --gid <group-id> --email user@example.com
-    """
     org = _get_org(ctx)
     data = org.remove_group_owner(gid, email)
     if not ctx.obj.quiet:
@@ -349,18 +267,26 @@ def owner_remove(ctx, gid, email) -> None:
 # permissions-set
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PERMISSIONS_SET = """\
+Set the permissions for a group.  This replaces all existing group
+permissions with the specified list.  Members of the group will
+inherit these permissions across all associated organizations.
+
+Permissions use the same category.action format as user permissions
+(e.g., sensor.list, dr.set, org.get).  See 'limacharlie user
+permissions add' explain text for the full list.
+
+Example:
+  limacharlie group permissions-set --gid <group-id> --permissions 'sensor.list,sensor.get,dr.list'
+"""
+register_explain("group.permissions-set", _EXPLAIN_PERMISSIONS_SET)
+
+
 @group.command("permissions-set")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--permissions", required=True, help="Comma-separated list of permissions (e.g. 'sensor.list,sensor.get,dr.list').")
 @pass_context
 def permissions_set(ctx, gid, permissions) -> None:
-    """Set permissions for a group.
-
-    Replaces all existing group permissions with the specified list.
-
-    Example:
-        limacharlie group permissions-set --gid <group-id> --permissions 'sensor.list,sensor.get,dr.list'
-    """
     perms = [p.strip() for p in permissions.split(",") if p.strip()]
     org = _get_org(ctx)
     data = org.set_group_permissions(gid, perms)
@@ -373,16 +299,21 @@ def permissions_set(ctx, gid, permissions) -> None:
 # org-add
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_ORG_ADD = """\
+Associate an organization with a group.  Group members will gain
+the group's permissions on the specified organization.
+
+Example:
+  limacharlie group org-add --gid <group-id> --oid <org-id>
+"""
+register_explain("group.org-add", _EXPLAIN_ORG_ADD)
+
+
 @group.command("org-add")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--oid", required=True, help="Organization ID to associate with the group.")
 @pass_context
 def org_add(ctx, gid, oid) -> None:
-    """Add an organization to a group.
-
-    Example:
-        limacharlie group org-add --gid <group-id> --oid <org-id>
-    """
     org = _get_org(ctx)
     data = org.add_group_org(gid, oid)
     if not ctx.obj.quiet:
@@ -394,16 +325,21 @@ def org_add(ctx, gid, oid) -> None:
 # org-remove
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_ORG_REMOVE = """\
+Remove an organization from a group.  Group members will lose
+the group's permissions on the specified organization.
+
+Example:
+  limacharlie group org-remove --gid <group-id> --oid <org-id>
+"""
+register_explain("group.org-remove", _EXPLAIN_ORG_REMOVE)
+
+
 @group.command("org-remove")
 @click.option("--gid", required=True, help="Group ID.")
 @click.option("--oid", required=True, help="Organization ID to remove from the group.")
 @pass_context
 def org_remove(ctx, gid, oid) -> None:
-    """Remove an organization from a group.
-
-    Example:
-        limacharlie group org-remove --gid <group-id> --oid <org-id>
-    """
     org = _get_org(ctx)
     data = org.remove_group_org(gid, oid)
     if not ctx.obj.quiet:
@@ -415,15 +351,21 @@ def org_remove(ctx, gid, oid) -> None:
 # logs
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LOGS = """\
+Get audit logs for a group.  Returns a list of actions performed
+on the group such as membership changes, permission updates, and
+organization associations.
+
+Example:
+  limacharlie group logs --gid <group-id>
+"""
+register_explain("group.logs", _EXPLAIN_LOGS)
+
+
 @group.command()
 @click.option("--gid", required=True, help="Group ID.")
 @pass_context
 def logs(ctx, gid) -> None:
-    """Get audit logs for a group.
-
-    Example:
-        limacharlie group logs --gid <group-id>
-    """
     org = _get_org(ctx)
     data = org.get_group_logs(gid)
     _output(ctx, data)

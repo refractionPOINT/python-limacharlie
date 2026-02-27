@@ -43,6 +43,9 @@ class Integrity:
             patterns: File path patterns to monitor.
             tags: Optional sensor tag filter.
             platforms: Optional platform filter.
+
+        Returns:
+            dict: API response.
         """
         params: dict[str, Any] = {"action": "add_rule", "name": name, "patterns": patterns}
         if tags:
@@ -56,5 +59,8 @@ class Integrity:
 
         Args:
             name: Rule name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("integrity", {"action": "remove_rule", "name": name})

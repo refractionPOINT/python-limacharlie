@@ -25,6 +25,9 @@ class ApiKeys:
             name: Key name.
             permissions: List of permission strings to grant.
             ip_range: Optional CIDR IP range restriction.
+
+        Returns:
+            dict: New key details including the key value.
         """
         return self._org.add_api_key(name, permissions, ip_range=ip_range)
 
@@ -33,5 +36,8 @@ class ApiKeys:
 
         Args:
             key_hash: Hash of the API key to delete.
+
+        Returns:
+            dict: API response.
         """
         return self._org.remove_api_key(key_hash)

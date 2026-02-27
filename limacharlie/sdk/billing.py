@@ -36,6 +36,9 @@ class Billing:
             year: Invoice year.
             month: Invoice month (1-12).
             fmt: Optional format (e.g. 'pdf').
+
+        Returns:
+            dict: Invoice URL data.
         """
         year = str(int(year))
         month = str(int(month)).zfill(2)

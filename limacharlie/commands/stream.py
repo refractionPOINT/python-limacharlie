@@ -20,113 +20,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_EVENTS = """\
-Stream sensor events in real-time.  Opens a pull-mode connection
-(spout) to stream.limacharlie.io and prints each event as JSON.
-
-Each event has the standard two-level structure:
-  routing:  oid, sid, event_type, event_time, hostname, ext_ip, int_ip, tags
-  event:    payload fields vary by event_type
-
-Common event types you will see:
-  NEW_PROCESS, DNS_REQUEST, NETWORK_CONNECTIONS, FILE_CREATE,
-  MODULE_LOAD, CODE_IDENTITY, REGISTRY_WRITE, WEL
-
-Use filters to narrow the stream:
-  --tag     Only events from sensors with this tag.
-  --sid     Only events from a specific sensor (by SID).
-  --inv-id  Only events with a specific investigation ID.
-
-Press Ctrl+C to stop streaming.
-
-Examples:
-  limacharlie stream events
-  limacharlie stream events --tag server
-  limacharlie stream events --sid <sensor-id>
-"""
-
-_EXPLAIN_DETECTIONS = """\
-Stream D&R detections in real-time.  Opens a pull-mode connection
-(spout) and prints each detection as JSON.
-
-Detection structure:
-  cat          - detection name/category
-  source       - rule source (dr-general, dr-managed, fp)
-  detect_id    - unique detection identifier
-  routing      - inherited from triggering event (sid, hostname, etc.)
-  detect       - copy of the event data that triggered the detection
-  detect_data  - structured IOCs extracted by the rule (optional)
-  priority     - detection priority 0-10 (optional)
-  source_rule  - name of the D&R rule that generated this
-
-Use filters to narrow the stream:
-  --cat  Only detections of a specific category.
-  --sid  Only detections from a specific sensor.
-
-Press Ctrl+C to stop streaming.
-
-Examples:
-  limacharlie stream detections
-  limacharlie stream detections --cat lateral-movement
-"""
-
-_EXPLAIN_AUDIT = """\
-Stream audit logs in real-time.  Shows all administrative actions
-performed on the organization as they happen.
-
-Audit log structure:
-  oid    - organization ID
-  ts     - ISO 8601 timestamp
-  etype  - event type (config_change, api_call, user_action, error)
-  msg    - human-readable description
-  origin - source of action (api, ui, cli, system)
-  ident  - identity performing the action (email or API key name)
-  entity - object acted upon (type, name, hive)
-  mtd    - action metadata (action type, source IP, user agent)
-
-Press Ctrl+C to stop streaming.
-
-Example:
-  limacharlie stream audit
-"""
-
-_EXPLAIN_FIREHOSE = """\
-Start a push-mode firehose listener.  Creates a TLS server that
-LimaCharlie connects to and pushes data in real-time.  This is the
-inverse of pull-mode spouts: instead of polling, LC pushes data to
-your server.
-
-The firehose auto-registers itself as an output in LimaCharlie and
-cleans up on shutdown.  Data arrives in the same JSON structures as
-described in 'stream events' / 'stream detections' / 'stream audit'.
-
-Parameters:
-  --listen       Interface and port to bind (e.g., "0.0.0.0:4444").
-  --data-type    Stream type: event (default), detect, or audit.
-  --name         Output name registered in LC (default: cli-firehose).
-  --public-dest  Public IP:port for LC to connect to (auto-detected
-                 if omitted, but set this if behind NAT/firewall).
-  --tls-cert/--tls-key  PEM certificate and key files.  If omitted,
-                 a self-signed certificate is generated automatically.
-
-Press Ctrl+C to stop and de-register the output.
-
-Examples:
-  limacharlie stream firehose --listen 0.0.0.0:4444
-  limacharlie stream firehose --listen 0.0.0.0:443 --tls-cert cert.pem --tls-key key.pem
-  limacharlie stream firehose --listen 0.0.0.0:4444 --data-type detect
-"""
-
-register_explain("stream.events", _EXPLAIN_EVENTS)
-register_explain("stream.detections", _EXPLAIN_DETECTIONS)
-register_explain("stream.audit", _EXPLAIN_AUDIT)
-register_explain("stream.firehose", _EXPLAIN_FIREHOSE)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -165,19 +58,39 @@ def group() -> None:
 # events
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_EVENTS = """\
+Stream sensor events in real-time.  Opens a pull-mode connection
+(spout) to stream.limacharlie.io and prints each event as JSON.
+
+Each event has the standard two-level structure:
+  routing:  oid, sid, event_type, event_time, hostname, ext_ip, int_ip, tags
+  event:    payload fields vary by event_type
+
+Common event types you will see:
+  NEW_PROCESS, DNS_REQUEST, NETWORK_CONNECTIONS, FILE_CREATE,
+  MODULE_LOAD, CODE_IDENTITY, REGISTRY_WRITE, WEL
+
+Use filters to narrow the stream:
+  --tag     Only events from sensors with this tag.
+  --sid     Only events from a specific sensor (by SID).
+  --inv-id  Only events with a specific investigation ID.
+
+Press Ctrl+C to stop streaming.
+
+Examples:
+  limacharlie stream events
+  limacharlie stream events --tag server
+  limacharlie stream events --sid <sensor-id>
+"""
+register_explain("stream.events", _EXPLAIN_EVENTS)
+
+
 @group.command()
 @click.option("--tag", default=None, help="Only events from sensors with this tag.")
 @click.option("--sid", default=None, help="Only events from this sensor ID.")
 @click.option("--inv-id", default=None, help="Only events with this investigation ID.")
 @pass_context
 def events(ctx: click.Context, tag: str | None, sid: str | None, inv_id: str | None) -> None:
-    """Stream sensor events in real-time.
-
-    Examples:
-        limacharlie stream events
-        limacharlie stream events --tag server
-        limacharlie stream events --sid <sensor-id>
-    """
     org = _get_org(ctx)
     spout = Spout(org, "event", tag=tag, sid=sid, inv_id=inv_id)
     if not ctx.obj.quiet:
@@ -189,17 +102,38 @@ def events(ctx: click.Context, tag: str | None, sid: str | None, inv_id: str | N
 # detections
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DETECTIONS = """\
+Stream D&R detections in real-time.  Opens a pull-mode connection
+(spout) and prints each detection as JSON.
+
+Detection structure:
+  cat          - detection name/category
+  source       - rule source (dr-general, dr-managed, fp)
+  detect_id    - unique detection identifier
+  routing      - inherited from triggering event (sid, hostname, etc.)
+  detect       - copy of the event data that triggered the detection
+  detect_data  - structured IOCs extracted by the rule (optional)
+  priority     - detection priority 0-10 (optional)
+  source_rule  - name of the D&R rule that generated this
+
+Use filters to narrow the stream:
+  --cat  Only detections of a specific category.
+  --sid  Only detections from a specific sensor.
+
+Press Ctrl+C to stop streaming.
+
+Examples:
+  limacharlie stream detections
+  limacharlie stream detections --cat lateral-movement
+"""
+register_explain("stream.detections", _EXPLAIN_DETECTIONS)
+
+
 @group.command()
 @click.option("--cat", default=None, help="Only detections of this category.")
 @click.option("--sid", default=None, help="Only detections from this sensor ID.")
 @pass_context
 def detections(ctx: click.Context, cat: str | None, sid: str | None) -> None:
-    """Stream detections in real-time.
-
-    Examples:
-        limacharlie stream detections
-        limacharlie stream detections --cat lateral-movement
-    """
     org = _get_org(ctx)
     spout = Spout(org, "detect", cat=cat, sid=sid)
     if not ctx.obj.quiet:
@@ -211,14 +145,31 @@ def detections(ctx: click.Context, cat: str | None, sid: str | None) -> None:
 # audit
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_AUDIT = """\
+Stream audit logs in real-time.  Shows all administrative actions
+performed on the organization as they happen.
+
+Audit log structure:
+  oid    - organization ID
+  ts     - ISO 8601 timestamp
+  etype  - event type (config_change, api_call, user_action, error)
+  msg    - human-readable description
+  origin - source of action (api, ui, cli, system)
+  ident  - identity performing the action (email or API key name)
+  entity - object acted upon (type, name, hive)
+  mtd    - action metadata (action type, source IP, user agent)
+
+Press Ctrl+C to stop streaming.
+
+Example:
+  limacharlie stream audit
+"""
+register_explain("stream.audit", _EXPLAIN_AUDIT)
+
+
 @group.command()
 @pass_context
 def audit(ctx: click.Context) -> None:
-    """Stream audit logs in real-time.
-
-    Example:
-        limacharlie stream audit
-    """
     org = _get_org(ctx)
     spout = Spout(org, "audit")
     if not ctx.obj.quiet:
@@ -229,6 +180,35 @@ def audit(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 # firehose
 # ---------------------------------------------------------------------------
+
+_EXPLAIN_FIREHOSE = """\
+Start a push-mode firehose listener.  Creates a TLS server that
+LimaCharlie connects to and pushes data in real-time.  This is the
+inverse of pull-mode spouts: instead of polling, LC pushes data to
+your server.
+
+The firehose auto-registers itself as an output in LimaCharlie and
+cleans up on shutdown.  Data arrives in the same JSON structures as
+described in 'stream events' / 'stream detections' / 'stream audit'.
+
+Parameters:
+  --listen       Interface and port to bind (e.g., "0.0.0.0:4444").
+  --data-type    Stream type: event (default), detect, or audit.
+  --name         Output name registered in LC (default: cli-firehose).
+  --public-dest  Public IP:port for LC to connect to (auto-detected
+                 if omitted, but set this if behind NAT/firewall).
+  --tls-cert/--tls-key  PEM certificate and key files.  If omitted,
+                 a self-signed certificate is generated automatically.
+
+Press Ctrl+C to stop and de-register the output.
+
+Examples:
+  limacharlie stream firehose --listen 0.0.0.0:4444
+  limacharlie stream firehose --listen 0.0.0.0:443 --tls-cert cert.pem --tls-key key.pem
+  limacharlie stream firehose --listen 0.0.0.0:4444 --data-type detect
+"""
+register_explain("stream.firehose", _EXPLAIN_FIREHOSE)
+
 
 def _firehose_loop(fh: Firehose) -> None:
     """Read from firehose queue and print each message until interrupted."""
@@ -256,16 +236,6 @@ def _firehose_loop(fh: Firehose) -> None:
 @click.option("--public-dest", default=None, help="Public IP:port for LC to connect to (auto-detected if omitted).")
 @pass_context
 def firehose(ctx: click.Context, listen: str, tls_cert: str | None, tls_key: str | None, data_type: str, name: str | None, public_dest: str | None) -> None:
-    """Start a push-mode firehose listener.
-
-    Creates a TLS server that LimaCharlie connects to and pushes
-    data in real-time.  Press Ctrl+C to stop.
-
-    Examples:
-        limacharlie stream firehose --listen 0.0.0.0:4444
-        limacharlie stream firehose --listen 0.0.0.0:443 \\
-            --tls-cert cert.pem --tls-key key.pem
-    """
     org = _get_org(ctx)
     # Use a default name based on CLI if not specified.
     fh_name = name or "cli-firehose"

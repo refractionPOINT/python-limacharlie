@@ -23,6 +23,9 @@ class Users:
 
         Args:
             email: Email address of the user to invite.
+
+        Returns:
+            dict: API response.
         """
         return self._org.add_user(email)
 
@@ -31,6 +34,9 @@ class Users:
 
         Args:
             email: Email address of the user to remove.
+
+        Returns:
+            dict: API response.
         """
         return self._org.remove_user(email)
 
@@ -44,6 +50,9 @@ class Users:
         Args:
             email: User email address.
             permission: Permission string to grant.
+
+        Returns:
+            dict: API response.
         """
         return self._org.add_user_permission(email, permission)
 
@@ -53,6 +62,9 @@ class Users:
         Args:
             email: User email address.
             permission: Permission string to revoke.
+
+        Returns:
+            dict: API response.
         """
         return self._org.remove_user_permission(email, permission)
 
@@ -62,5 +74,8 @@ class Users:
         Args:
             email: User email address.
             role: Role name to assign.
+
+        Returns:
+            dict: API response.
         """
         return self._org.set_user_role(email, role)

@@ -24,6 +24,12 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
+@click.group("spotcheck")
+def group() -> None:
+    """Run ad-hoc fleet-wide spotcheck queries."""
+    pass
+
+
 _EXPLAIN_RUN = """\
 Run a spotcheck task across sensors.  Spotcheck executes a sensor command
 across multiple sensors matching a selector or tag and collects the
@@ -44,11 +50,7 @@ more complex bexpr expressions.
 Example:
   limacharlie spotcheck run --task os_processes --tag production
 """
-
-@click.group("spotcheck")
-def group() -> None:
-    """Run ad-hoc fleet-wide spotcheck queries."""
-    pass
+register_explain("spotcheck.run", _EXPLAIN_RUN)
 
 
 @group.command("run")
@@ -57,7 +59,6 @@ def group() -> None:
 @click.option("--selector", default=None, help="Sensor selector expression.")
 @pass_context
 def run_cmd(ctx, task, tag, selector) -> None:
-    """Run a spotcheck across sensors."""
     org = _get_org(ctx)
     params = {"action": "spotcheck", "task": task}
     if tag:
@@ -66,6 +67,3 @@ def run_cmd(ctx, task, tag, selector) -> None:
         params["selector"] = selector
     result = org.service_request("spotcheck", params)
     _output(ctx, result)
-
-
-register_explain("spotcheck.run", _EXPLAIN_RUN)

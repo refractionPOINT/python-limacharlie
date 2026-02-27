@@ -26,6 +26,9 @@ class Outputs:
             module: Output module type (e.g. 's3', 'scp', 'slack').
             data_type: Data type to output (e.g. 'event', 'detect', 'audit').
             **kwargs: Additional module-specific parameters.
+
+        Returns:
+            dict: API response.
         """
         return self._org.add_output(name, module, data_type, **kwargs)
 
@@ -34,5 +37,8 @@ class Outputs:
 
         Args:
             name: Output name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.delete_output(name)
