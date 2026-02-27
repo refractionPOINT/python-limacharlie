@@ -155,14 +155,16 @@ def get_key(ctx, iid) -> None:
 @group.command()
 @click.option("--description", required=True, help="Key description.")
 @click.option("--tags", default=None, help="Comma-separated tags to apply to enrolled sensors.")
+@click.option("--get", "get_after", is_flag=True, default=False, help="Fetch the full key details after creation.")
 @pass_context
-def create(ctx, description, tags) -> None:
+def create(ctx, description, tags, get_after) -> None:
     """Create a new installation key.
 
     Examples:
         limacharlie installation-key create --description "production linux"
         limacharlie installation-key create --description "staging" \\
             --tags "env:staging,os:windows"
+        limacharlie installation-key create --description "prod" --get
     """
     tag_list = None
     if tags:
@@ -173,6 +175,12 @@ def create(ctx, description, tags) -> None:
     data = keys.create(description, tags=tag_list)
     if not ctx.obj.quiet:
         click.echo("Installation key created.")
+
+    if get_after:
+        iid = data.get("iid") if isinstance(data, dict) else None
+        if iid:
+            data = keys.get(iid)
+
     _output(ctx, data)
 
 
