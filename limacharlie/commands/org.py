@@ -12,6 +12,7 @@ import click
 
 from ..cli import pass_context
 from ..client import Client
+from ..config import load_config, save_config
 from ..sdk.organization import Organization
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
@@ -378,13 +379,15 @@ def urls(ctx: click.Context) -> None:
 @click.option("--name", required=True, help="Name for the new organization.")
 @click.option("--location", default="auto", help="Data center location (usa, canada, europe, uk, india, australia, auto). Defaults to auto.")
 @click.option("--template", default=None, help="Optional template name to bootstrap the organization.")
+@click.option("--use", is_flag=True, default=False, help="Set the new organization as the default for subsequent commands.")
 @pass_context
-def create(ctx: click.Context, name: str, location: str, template: str | None) -> None:
+def create(ctx: click.Context, name: str, location: str, template: str | None, use: bool) -> None:
     """Create a new organization.
 
     Example:
         limacharlie org create --name my-org --location usa
         limacharlie org create --name my-org --location europe --template default
+        limacharlie org create --name my-org --use
     """
     client = _get_client(ctx)
     data = Organization.create_org(client, name, location, template)
@@ -403,6 +406,19 @@ def create(ctx: click.Context, name: str, location: str, template: str | None) -
             pass
     if oid and not ctx.obj.quiet:
         click.echo(f"\nOrganization URL: https://app.limacharlie.io/orgs/{oid}")
+
+    if use and oid:
+        env_name = ctx.obj.environment or "default"
+        config = load_config() or {}
+        if env_name == "default":
+            config["oid"] = oid
+        else:
+            config.setdefault("env", {})
+            config["env"].setdefault(env_name, {})
+            config["env"][env_name]["oid"] = oid
+        save_config(config)
+        if not ctx.obj.quiet:
+            click.echo(f"Default organization set to {oid} (environment '{env_name}').")
 
 
 # ---------------------------------------------------------------------------
