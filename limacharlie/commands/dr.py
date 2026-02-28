@@ -39,7 +39,48 @@ def _hive_name(namespace: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _output(ctx: click.Context, data: Any) -> None:
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx: click.Context) -> Organization:
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    return Organization(client)
+
+
+def _load_file(path: str) -> Any:
+    """Load a JSON or YAML file and return parsed content."""
+    with open(path, "r") as f:
+        content = f.read()
+    try:
+        return yaml.safe_load(content)
+    except Exception:
+        pass
+    return json.loads(content)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("dr")
+def group() -> None:
+    """Manage Detection & Response rules.
+
+    D&R rules are the core detection mechanism in LimaCharlie.  Each
+    rule has a detection component (what to look for in sensor telemetry)
+    and a response component (what actions to take when a match occurs).
+    Rules are stored in hives (dr-general, dr-managed, dr-service).
+    """
+
+
+# ---------------------------------------------------------------------------
+# list
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LIST = """\
@@ -68,6 +109,26 @@ Examples:
   limacharlie dr list --namespace managed
   limacharlie dr list --namespace service
 """
+register_explain("dr.list", _EXPLAIN_LIST)
+
+
+@group.command("list")
+@click.option(
+    "--namespace", default=None, type=_NS_CHOICES,
+    help="Namespace (default: general).",
+)
+@pass_context
+def list_rules(ctx, namespace) -> None:
+    org = _get_org(ctx)
+    hive = Hive(org, _hive_name(namespace))
+    records = hive.list()
+    data = {name: rec.to_dict() for name, rec in records.items()}
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# get
+# ---------------------------------------------------------------------------
 
 _EXPLAIN_GET = """\
 Get the full definition of a single D&R rule by key.  Returns the
@@ -100,6 +161,26 @@ Examples:
   limacharlie dr get --key my-rule
   limacharlie dr get --key some-managed-rule --namespace managed
 """
+register_explain("dr.get", _EXPLAIN_GET)
+
+
+@group.command()
+@click.option("--key", required=True, help="Rule key name.")
+@click.option(
+    "--namespace", default=None, type=_NS_CHOICES,
+    help="Namespace (default: general).",
+)
+@pass_context
+def get(ctx, key, namespace) -> None:
+    org = _get_org(ctx)
+    hive = Hive(org, _hive_name(namespace))
+    record = hive.get(key)
+    _output(ctx, record.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# set
+# ---------------------------------------------------------------------------
 
 _EXPLAIN_SET = """\
 Create or update a D&R rule.  Provide rule data via --input-file
@@ -178,298 +259,8 @@ Examples:
   cat rule.json | limacharlie dr set --key my-rule
   limacharlie dr set --key my-rule --namespace managed --input-file rule.yaml
 """
-
-_EXPLAIN_DELETE = """\
-Delete a D&R rule by key.  This permanently removes the rule and stops
-all detections based on it.  The --confirm flag is required to prevent
-accidental deletion.
-
-If the rule is in the 'managed' or 'service' namespace, pass
---namespace accordingly.
-
-Examples:
-  limacharlie dr delete --key my-rule --confirm
-  limacharlie dr delete --key some-managed-rule --namespace managed --confirm
-"""
-
-_EXPLAIN_TEST = """\
-Test a D&R rule against sample events without deploying it live.  This
-sends the events through the rule engine and returns which ones matched
-along with the actions that would fire.
-
-You can test an existing deployed rule by --name, or provide an ad-hoc
-rule file via --input-file containing 'detect' and 'respond' keys.
-
-The --events parameter accepts a path to a JSON file containing:
-  - A single event object  {"event": {...}, "routing": {...}}
-  - A JSON array of events [{"event": {...}}, ...]
-  - Newline-delimited JSON (one event per line)
-
-Events should match the structure LimaCharlie uses internally:
-
-  {
-    "event": {
-      "FILE_PATH": "C:\\temp\\evil.exe",
-      "COMMAND_LINE": "evil.exe --payload",
-      "PROCESS_ID": 1234
-    },
-    "routing": {
-      "event_type": "NEW_PROCESS",
-      "hostname": "workstation-1",
-      "sid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    }
-  }
-
-Use --trace for a detailed step-by-step evaluation trace showing
-which operators matched or failed, useful for debugging rules.
-
-The response includes num_evals, eval_time, num_events, responses
-(list of actions that would fire), and errors.
-
-Examples:
-  limacharlie dr test --name my-rule --events events.json
-  limacharlie dr test --input-file rule.yaml --events events.json
-  limacharlie dr test --input-file rule.yaml --events events.json --trace
-"""
-
-_EXPLAIN_REPLAY = """\
-Replay a D&R rule against historical sensor data.  This evaluates
-the rule against past events stored in Insight without deploying the
-rule live.  Replay is billed based on data volume processed; use
---dry-run first to estimate cost.
-
-The --start and --end times are Unix timestamps in seconds.  Use
---sid to limit replay to a specific sensor, or --selector for a
-sensor selector expression (boolean expression filtering sensors
-by tags, platform, hostname, etc.).
-
-Use --trace to include a detailed step-by-step evaluation trace.
-Use --dry-run to estimate the evaluation cost without running.
-
-The response includes num_evals, eval_time, num_events, responses
-(detections that would have been generated), and errors.
-
-Note: stateful rules are forward-looking only.  Changing a stateful
-rule resets its state, so the parent event must be re-seen before
-child matches apply.
-
-Examples:
-  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000
-  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --sid <SID>
-  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --dry-run
-  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --trace
-"""
-
-_EXPLAIN_VALIDATE = """\
-Validate D&R rule components without deploying.  Checks that the
-detection and response components compile correctly: verifies
-operators are known, paths are well-formed, and response actions
-are valid.  Returns success: true if valid.
-
-Provide separate files for the detection and response components:
-
-  detection file (detect.yaml):
-    event: NEW_PROCESS
-    op: ends with
-    path: event/FILE_PATH
-    value: .scr
-
-  response file (respond.yaml):
-    - action: report
-      name: suspicious-screensaver
-
-This is useful for CI/CD validation before pushing rules.
-
-Examples:
-  limacharlie dr validate --detect detect.yaml --respond respond.yaml
-"""
-
-_EXPLAIN_EXPORT = """\
-Export all D&R rules as YAML.  Useful for backup, version control,
-or migration between organizations.
-
-The output is a YAML mapping of rule names to their full hive
-records (data + usr_mtd).  This format is compatible with
-'limacharlie dr import'.
-
-Use --namespace to export only rules from a specific namespace
-(general, managed, or service).  Defaults to general.
-
-Examples:
-  limacharlie dr export
-  limacharlie dr export --namespace managed
-  limacharlie dr export > rules-backup.yaml
-"""
-
-_EXPLAIN_IMPORT = """\
-Import D&R rules from a YAML or JSON file.  The file should contain
-a mapping of rule names to rule definitions.  Rules are upserted
-(existing rules with the same name are overwritten).
-
-The file format is a mapping of rule-key to rule definition:
-
-  my-rule-1:
-    detect:
-      event: NEW_PROCESS
-      op: contains
-      path: event/COMMAND_LINE
-      value: evil
-    respond:
-      - action: report
-        name: evil-detected
-
-  my-rule-2:
-    detect: { ... }
-    respond: [ ... ]
-
-The full hive record format (with 'data' wrapper and 'usr_mtd') is
-also accepted:
-
-  my-rule-1:
-    data:
-      detect: { ... }
-      respond: [ ... ]
-    usr_mtd:
-      enabled: true
-      tags: [production]
-
-Use --dry-run to preview what would be imported without making changes.
-
-Examples:
-  limacharlie dr import --input-file rules.yaml
-  limacharlie dr import --input-file rules.yaml --dry-run
-  limacharlie dr import --input-file rules.yaml --namespace managed
-"""
-
-_EXPLAIN_CONVERT_RULES = """\
-Mass-convert external detection rules to LimaCharlie D&R format using
-AI-powered translation.  Reads rules from a local directory or a GitHub
-repository, converts each to LC D&R format, and optionally creates
-them in the dr-general hive.
-
-The AI backend auto-detects the source format and platform — Sigma,
-Splunk SPL, Elastic KQL, CrowdStrike, and many more are supported
-without any format hint.
-
-The GitHub crawler intelligently identifies rule files by extension
-(.yml, .yaml, .json, .sigma, .spl, .kql, .toml) and filters out
-non-rule files (README, LICENSE, CI configs, etc.).
-
-Rules are created disabled by default for safety.  Use --enabled to
-create them enabled.  Use --dry-run to preview conversions without
-creating hive records.
-
-Examples:
-  limacharlie dr convert-rules --github SigmaHQ/sigma \\
-      --github-path rules/windows/process_creation
-  limacharlie dr convert-rules --input-dir ./splunk-rules --dry-run
-  limacharlie dr convert-rules --github elastic/detection-rules \\
-      --parallel 10 --tag migrated
-"""
-
-register_explain("dr.list", _EXPLAIN_LIST)
-register_explain("dr.get", _EXPLAIN_GET)
 register_explain("dr.set", _EXPLAIN_SET)
-register_explain("dr.delete", _EXPLAIN_DELETE)
-register_explain("dr.test", _EXPLAIN_TEST)
-register_explain("dr.replay", _EXPLAIN_REPLAY)
-register_explain("dr.validate", _EXPLAIN_VALIDATE)
-register_explain("dr.export", _EXPLAIN_EXPORT)
-register_explain("dr.import", _EXPLAIN_IMPORT)
-register_explain("dr.convert-rules", _EXPLAIN_CONVERT_RULES)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
-
-
-def _get_org(ctx: click.Context) -> Organization:
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
-    return Organization(client)
-
-
-def _load_file(path: str) -> Any:
-    """Load a JSON or YAML file and return parsed content."""
-    with open(path, "r") as f:
-        content = f.read()
-    try:
-        return yaml.safe_load(content)
-    except Exception:
-        pass
-    return json.loads(content)
-
-
-# ---------------------------------------------------------------------------
-# Group
-# ---------------------------------------------------------------------------
-
-@click.group("dr")
-def group() -> None:
-    """Manage Detection & Response rules.
-
-    D&R rules are the core detection mechanism in LimaCharlie.  Each
-    rule has a detection component (what to look for in sensor telemetry)
-    and a response component (what actions to take when a match occurs).
-    Rules are stored in hives (dr-general, dr-managed, dr-service).
-    """
-
-
-# ---------------------------------------------------------------------------
-# list
-# ---------------------------------------------------------------------------
-
-@group.command("list")
-@click.option(
-    "--namespace", default=None, type=_NS_CHOICES,
-    help="Namespace (default: general).",
-)
-@pass_context
-def list_rules(ctx, namespace) -> None:
-    """List D&R rules.
-
-    Examples:
-        limacharlie dr list
-        limacharlie dr list --namespace managed
-    """
-    org = _get_org(ctx)
-    hive = Hive(org, _hive_name(namespace))
-    records = hive.list()
-    data = {name: rec.to_dict() for name, rec in records.items()}
-    _output(ctx, data)
-
-
-# ---------------------------------------------------------------------------
-# get
-# ---------------------------------------------------------------------------
-
-@group.command()
-@click.option("--key", required=True, help="Rule key name.")
-@click.option(
-    "--namespace", default=None, type=_NS_CHOICES,
-    help="Namespace (default: general).",
-)
-@pass_context
-def get(ctx, key, namespace) -> None:
-    """Get the full definition of a D&R rule.
-
-    Example:
-        limacharlie dr get --key my-detection-rule
-    """
-    org = _get_org(ctx)
-    hive = Hive(org, _hive_name(namespace))
-    record = hive.get(key)
-    _output(ctx, record.to_dict())
-
-
-# ---------------------------------------------------------------------------
-# set
-# ---------------------------------------------------------------------------
 
 @group.command("set")
 @click.option("--key", required=True, help="Rule key name.")
@@ -483,12 +274,6 @@ def get(ctx, key, namespace) -> None:
 )
 @pass_context
 def set_cmd(ctx, key, input_file, namespace) -> None:
-    """Create or update a D&R rule.
-
-    Examples:
-        limacharlie dr set --key my-rule --input-file rule.yaml
-        cat rule.json | limacharlie dr set --key my-rule
-    """
     if input_file:
         with open(input_file, "r") as f:
             content = f.read()
@@ -526,6 +311,21 @@ def set_cmd(ctx, key, input_file, namespace) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete a D&R rule by key.  This permanently removes the rule and stops
+all detections based on it.  The --confirm flag is required to prevent
+accidental deletion.
+
+If the rule is in the 'managed' or 'service' namespace, pass
+--namespace accordingly.
+
+Examples:
+  limacharlie dr delete --key my-rule --confirm
+  limacharlie dr delete --key some-managed-rule --namespace managed --confirm
+"""
+register_explain("dr.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--key", required=True, help="Rule key name to delete.")
 @click.option(
@@ -535,13 +335,6 @@ def set_cmd(ctx, key, input_file, namespace) -> None:
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx, key, namespace, confirm) -> None:
-    """Delete a D&R rule.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie dr delete --key my-rule --confirm
-    """
     if not confirm:
         raise click.UsageError("Destructive operation requires --confirm flag.")
 
@@ -588,6 +381,48 @@ def _load_events(events_path: str) -> list[dict[str, Any]]:
 # test
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_TEST = """\
+Test a D&R rule against sample events without deploying it live.  This
+sends the events through the rule engine and returns which ones matched
+along with the actions that would fire.
+
+You can test an existing deployed rule by --name, or provide an ad-hoc
+rule file via --input-file containing 'detect' and 'respond' keys.
+
+The --events parameter accepts a path to a JSON file containing:
+  - A single event object  {"event": {...}, "routing": {...}}
+  - A JSON array of events [{"event": {...}}, ...]
+  - Newline-delimited JSON (one event per line)
+
+Events should match the structure LimaCharlie uses internally:
+
+  {
+    "event": {
+      "FILE_PATH": "C:\\temp\\evil.exe",
+      "COMMAND_LINE": "evil.exe --payload",
+      "PROCESS_ID": 1234
+    },
+    "routing": {
+      "event_type": "NEW_PROCESS",
+      "hostname": "workstation-1",
+      "sid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    }
+  }
+
+Use --trace for a detailed step-by-step evaluation trace showing
+which operators matched or failed, useful for debugging rules.
+
+The response includes num_evals, eval_time, num_events, responses
+(list of actions that would fire), and errors.
+
+Examples:
+  limacharlie dr test --name my-rule --events events.json
+  limacharlie dr test --input-file rule.yaml --events events.json
+  limacharlie dr test --input-file rule.yaml --events events.json --trace
+"""
+register_explain("dr.test", _EXPLAIN_TEST)
+
+
 @group.command("test")
 @click.option("--name", default=None, help="Existing rule name to test.")
 @click.option("--events", "events_path", required=True, type=click.Path(exists=True), help="Path to JSON file with events.")
@@ -599,15 +434,6 @@ def _load_events(events_path: str) -> list[dict[str, Any]]:
 )
 @pass_context
 def test(ctx, name, events_path, input_file, trace, namespace) -> None:
-    """Test a rule against sample events.
-
-    Provide --name for an existing rule, or --input-file for a rule
-    definition with 'detect' and 'respond' keys.
-
-    Examples:
-        limacharlie dr test --name my-rule --events events.json
-        limacharlie dr test --input-file rule.yaml --events events.json
-    """
     rule_content = None
 
     if name is None:
@@ -642,6 +468,36 @@ def test(ctx, name, events_path, input_file, trace, namespace) -> None:
 # replay
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_REPLAY = """\
+Replay a D&R rule against historical sensor data.  This evaluates
+the rule against past events stored in Insight without deploying the
+rule live.  Replay is billed based on data volume processed; use
+--dry-run first to estimate cost.
+
+The --start and --end times are Unix timestamps in seconds.  Use
+--sid to limit replay to a specific sensor, or --selector for a
+sensor selector expression (boolean expression filtering sensors
+by tags, platform, hostname, etc.).
+
+Use --trace to include a detailed step-by-step evaluation trace.
+Use --dry-run to estimate the evaluation cost without running.
+
+The response includes num_evals, eval_time, num_events, responses
+(detections that would have been generated), and errors.
+
+Note: stateful rules are forward-looking only.  Changing a stateful
+rule resets its state, so the parent event must be re-seen before
+child matches apply.
+
+Examples:
+  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000
+  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --sid <SID>
+  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --dry-run
+  limacharlie dr replay --name my-rule --start 1700000000 --end 1700100000 --trace
+"""
+register_explain("dr.replay", _EXPLAIN_REPLAY)
+
+
 @group.command()
 @click.option("--name", required=True, help="Rule name to replay.")
 @click.option("--start", required=True, type=int, help="Start time (Unix seconds).")
@@ -656,15 +512,6 @@ def test(ctx, name, events_path, input_file, trace, namespace) -> None:
 )
 @pass_context
 def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace) -> None:
-    """Replay a rule against historical sensor data.
-
-    Examples:
-        limacharlie dr replay --name my-rule \\
-            --start 1700000000 --end 1700100000
-
-        limacharlie dr replay --name my-rule \\
-            --start 1700000000 --end 1700100000 --sid <SID> --trace
-    """
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
@@ -685,16 +532,37 @@ def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace) -> N
 # validate
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_VALIDATE = """\
+Validate D&R rule components without deploying.  Checks that the
+detection and response components compile correctly: verifies
+operators are known, paths are well-formed, and response actions
+are valid.  Returns success: true if valid.
+
+Provide separate files for the detection and response components:
+
+  detection file (detect.yaml):
+    event: NEW_PROCESS
+    op: ends with
+    path: event/FILE_PATH
+    value: .scr
+
+  response file (respond.yaml):
+    - action: report
+      name: suspicious-screensaver
+
+This is useful for CI/CD validation before pushing rules.
+
+Examples:
+  limacharlie dr validate --detect detect.yaml --respond respond.yaml
+"""
+register_explain("dr.validate", _EXPLAIN_VALIDATE)
+
+
 @group.command()
 @click.option("--detect", "detect_path", required=True, type=click.Path(exists=True), help="Path to detection component (JSON or YAML file).")
 @click.option("--respond", "respond_path", required=True, type=click.Path(exists=True), help="Path to response component (JSON or YAML file).")
 @pass_context
 def validate(ctx, detect_path, respond_path) -> None:
-    """Validate D&R rule components without deploying.
-
-    Examples:
-        limacharlie dr validate --detect detect.yaml --respond respond.yaml
-    """
     detection = _load_file(detect_path)
     response = _load_file(respond_path)
 
@@ -716,6 +584,25 @@ def validate(ctx, detect_path, respond_path) -> None:
 # export
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_EXPORT = """\
+Export all D&R rules as YAML.  Useful for backup, version control,
+or migration between organizations.
+
+The output is a YAML mapping of rule names to their full hive
+records (data + usr_mtd).  This format is compatible with
+'limacharlie dr import'.
+
+Use --namespace to export only rules from a specific namespace
+(general, managed, or service).  Defaults to general.
+
+Examples:
+  limacharlie dr export
+  limacharlie dr export --namespace managed
+  limacharlie dr export > rules-backup.yaml
+"""
+register_explain("dr.export", _EXPLAIN_EXPORT)
+
+
 @group.command("export")
 @click.option(
     "--namespace", default=None, type=_NS_CHOICES,
@@ -723,13 +610,6 @@ def validate(ctx, detect_path, respond_path) -> None:
 )
 @pass_context
 def export_rules(ctx, namespace) -> None:
-    """Export all D&R rules as YAML.
-
-    Examples:
-        limacharlie dr export
-        limacharlie dr export --namespace managed
-        limacharlie dr export > rules-backup.yaml
-    """
     org = _get_org(ctx)
     hive = Hive(org, _hive_name(namespace))
     records = hive.list()
@@ -741,6 +621,48 @@ def export_rules(ctx, namespace) -> None:
 # import
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_IMPORT = """\
+Import D&R rules from a YAML or JSON file.  The file should contain
+a mapping of rule names to rule definitions.  Rules are upserted
+(existing rules with the same name are overwritten).
+
+The file format is a mapping of rule-key to rule definition:
+
+  my-rule-1:
+    detect:
+      event: NEW_PROCESS
+      op: contains
+      path: event/COMMAND_LINE
+      value: evil
+    respond:
+      - action: report
+        name: evil-detected
+
+  my-rule-2:
+    detect: { ... }
+    respond: [ ... ]
+
+The full hive record format (with 'data' wrapper and 'usr_mtd') is
+also accepted:
+
+  my-rule-1:
+    data:
+      detect: { ... }
+      respond: [ ... ]
+    usr_mtd:
+      enabled: true
+      tags: [production]
+
+Use --dry-run to preview what would be imported without making changes.
+
+Examples:
+  limacharlie dr import --input-file rules.yaml
+  limacharlie dr import --input-file rules.yaml --dry-run
+  limacharlie dr import --input-file rules.yaml --namespace managed
+"""
+register_explain("dr.import", _EXPLAIN_IMPORT)
+
+
 @group.command("import")
 @click.option("--input-file", required=True, type=click.Path(exists=True), help="Path to YAML or JSON file with rules to import.")
 @click.option(
@@ -750,16 +672,6 @@ def export_rules(ctx, namespace) -> None:
 @click.option("--dry-run", is_flag=True, default=False, help="Preview changes without importing.")
 @pass_context
 def import_rules(ctx, input_file, namespace, dry_run) -> None:
-    """Import D&R rules from a YAML or JSON file.
-
-    The file should contain a mapping of rule names to rule definitions,
-    each with 'detect' and 'respond' keys.
-
-    Examples:
-        limacharlie dr import --input-file rules.yaml
-        limacharlie dr import --input-file rules.yaml --dry-run
-        limacharlie dr import --input-file rules.yaml --namespace managed
-    """
     rules_data = _load_file(input_file)
 
     if not isinstance(rules_data, dict):
@@ -816,6 +728,34 @@ def import_rules(ctx, input_file, namespace, dry_run) -> None:
 # convert-rules
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_CONVERT_RULES = """\
+Mass-convert external detection rules to LimaCharlie D&R format using
+AI-powered translation.  Reads rules from a local directory or a GitHub
+repository, converts each to LC D&R format, and optionally creates
+them in the dr-general hive.
+
+The AI backend auto-detects the source format and platform — Sigma,
+Splunk SPL, Elastic KQL, CrowdStrike, and many more are supported
+without any format hint.
+
+The GitHub crawler intelligently identifies rule files by extension
+(.yml, .yaml, .json, .sigma, .spl, .kql, .toml) and filters out
+non-rule files (README, LICENSE, CI configs, etc.).
+
+Rules are created disabled by default for safety.  Use --enabled to
+create them enabled.  Use --dry-run to preview conversions without
+creating hive records.
+
+Examples:
+  limacharlie dr convert-rules --github SigmaHQ/sigma \\
+      --github-path rules/windows/process_creation
+  limacharlie dr convert-rules --input-dir ./splunk-rules --dry-run
+  limacharlie dr convert-rules --github elastic/detection-rules \\
+      --parallel 10 --tag migrated
+"""
+register_explain("dr.convert-rules", _EXPLAIN_CONVERT_RULES)
+
+
 @group.command("convert-rules")
 @click.option(
     "--input-dir", type=click.Path(exists=True, file_okay=False), default=None,
@@ -853,22 +793,6 @@ def import_rules(ctx, input_file, namespace, dry_run) -> None:
 def convert_rules(ctx, input_dir, github_repo, github_path, github_ref,
                   github_token, dry_run, output_dir, parallel, prefix,
                   tags, enabled) -> None:
-    """Mass-convert external detection rules to LC D&R format.
-
-    Converts rules from local files or a GitHub repository using
-    AI-powered translation, then creates them in dr-general.
-
-    The AI auto-detects the source format (Sigma, Splunk, Elastic, etc.).
-
-    Examples:
-        limacharlie dr convert-rules --github SigmaHQ/sigma \\
-            --github-path rules/windows/process_creation
-
-        limacharlie dr convert-rules --input-dir ./my-rules --dry-run
-
-        limacharlie dr convert-rules --github elastic/detection-rules \\
-            --parallel 10 --tag migrated --disabled
-    """
     from ._dr_convert import (
         GitHubCrawler, LocalCrawler, ConversionPipeline, ProgressDisplay,
     )

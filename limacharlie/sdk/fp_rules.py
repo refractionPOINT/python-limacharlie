@@ -50,6 +50,9 @@ class FPRules:
         Args:
             name: Rule name.
             data: Rule definition.
+
+        Returns:
+            dict: API response.
         """
         hive = Hive(self._org, "fp")
         record = HiveRecord(name, data=data)
@@ -60,6 +63,9 @@ class FPRules:
 
         Args:
             name: Rule name.
+
+        Returns:
+            dict: API response.
         """
         hive = Hive(self._org, "fp")
         return hive.delete(name)

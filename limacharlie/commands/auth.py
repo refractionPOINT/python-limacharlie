@@ -25,7 +25,43 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _output(ctx: click.Context, data: Any) -> None:
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_client(ctx: click.Context, oid_override: str | None = None) -> Client:
+    return Client(
+        oid=oid_override or ctx.obj.oid,
+        environment=ctx.obj.environment,
+    )
+
+
+def _get_org(ctx: click.Context) -> Organization:
+    client = _get_client(ctx)
+    return Organization(client)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("auth")
+def group() -> None:
+    """Manage authentication credentials and identity.
+
+    Store, test, and switch LimaCharlie credentials.  Credentials are
+    persisted in ~/.limacharlie and can be organized into named
+    environments for multi-org workflows.
+    """
+
+
+# ---------------------------------------------------------------------------
+# login
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LOGIN = """\
@@ -71,136 +107,8 @@ Environment variables for CI/CD (no file write needed):
   LC_CURRENT_ENV  - Override active named environment
   LC_EPHEMERAL_CREDS - If set, login refuses to write to disk
 """
-
-_EXPLAIN_LOGOUT = """\
-Remove stored credentials from the local configuration file.  By default
-the 'default' environment credentials are cleared.  Pass --env to clear
-a specific named environment instead.
-
-This does NOT revoke the API key on the server side.  To revoke, use
-'limacharlie api-key delete'.
-"""
-
-_EXPLAIN_WHOAMI = """\
-Display the identity, permissions, and accessible organizations for the
-currently configured credentials.  This calls the /who API endpoint and
-shows the result.  Useful for verifying which API key or user account is
-active, what permissions it has, and which organizations it can access.
-"""
-
-_EXPLAIN_USE_ORG = """\
-Set the default organization ID (OID) in your credential file so that
-subsequent commands do not require --oid on every invocation.  This
-updates the 'default' environment (or the environment specified by
---env on the top-level CLI).
-
-If you work with multiple organizations, consider using named
-environments instead: 'limacharlie auth login --env prod --oid ... --api-key ...'.
-"""
-
-_EXPLAIN_TEST = """\
-Test whether the currently configured credentials are valid by attempting
-to generate a JWT token.  Returns a success/failure status.  This is a
-lightweight check that does not query any org-specific resources, so it
-works even if the API key has minimal permissions.
-"""
-
-_EXPLAIN_USE_ENV = """\
-Switch the active named environment in the configuration file.  Once
-set, subsequent commands will use the credentials from the specified
-environment without needing --env on every invocation.  This is
-equivalent to setting LC_CURRENT_ENV but persists across shell sessions.
-
-Use 'limacharlie auth list-envs' to see available environments.
-"""
-
-_EXPLAIN_LIST_ENVS = """\
-List all named environments configured in the credential file.  Each
-environment stores a separate set of credentials (OID, API key, UID).
-The 'default' environment is shown if top-level credentials exist.
-
-Use 'limacharlie auth login --env <name>' to create a new environment
-and 'limacharlie auth use-env <name>' to switch between them.
-"""
-
-_EXPLAIN_LIST_ORGS = """\
-List all organizations accessible to the current credentials.  This
-queries the LimaCharlie API for organizations the authenticated user
-or API key can access.  Use --filter to search by name substring.
-
-Unlike 'limacharlie org list', this command does not require an OID
-to already be configured, making it useful for initial setup.
-"""
-
-_EXPLAIN_SIGNUP = """\
-Create a brand new LimaCharlie account through OAuth, directly from
-the CLI.  This command performs the full onboarding flow:
-
-  1. Authenticate via browser-based OAuth (Google or Microsoft).
-  2. Create a LimaCharlie user profile.
-  3. Create a new organization.
-  4. Save credentials so the CLI is ready to use.
-
-If you already have an account, use 'limacharlie auth login --oauth'
-instead.
-
-Examples:
-  limacharlie auth signup
-  limacharlie auth signup --provider microsoft
-  limacharlie auth signup --org-name "My Company"
-  limacharlie auth signup --no-browser
-"""
-
 register_explain("auth.login", _EXPLAIN_LOGIN)
-register_explain("auth.logout", _EXPLAIN_LOGOUT)
-register_explain("auth.whoami", _EXPLAIN_WHOAMI)
-register_explain("auth.use-org", _EXPLAIN_USE_ORG)
-register_explain("auth.test", _EXPLAIN_TEST)
-register_explain("auth.use-env", _EXPLAIN_USE_ENV)
-register_explain("auth.list-envs", _EXPLAIN_LIST_ENVS)
-register_explain("auth.list-orgs", _EXPLAIN_LIST_ORGS)
-register_explain("auth.signup", _EXPLAIN_SIGNUP)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
-
-
-def _get_client(ctx: click.Context, oid_override: str | None = None) -> Client:
-    return Client(
-        oid=oid_override or ctx.obj.oid,
-        environment=ctx.obj.environment,
-    )
-
-
-def _get_org(ctx: click.Context) -> Organization:
-    client = _get_client(ctx)
-    return Organization(client)
-
-
-# ---------------------------------------------------------------------------
-# Group
-# ---------------------------------------------------------------------------
-
-@click.group("auth")
-def group() -> None:
-    """Manage authentication credentials and identity.
-
-    Store, test, and switch LimaCharlie credentials.  Credentials are
-    persisted in ~/.limacharlie and can be organized into named
-    environments for multi-org workflows.
-    """
-
-
-# ---------------------------------------------------------------------------
-# login
-# ---------------------------------------------------------------------------
 
 @group.command()
 @click.option("--oid", default=None, help="Organization ID (UUID).")
@@ -218,21 +126,6 @@ def group() -> None:
 @click.option("--no-browser", is_flag=True, default=False, help="Print the OAuth URL instead of opening a browser. Only used with --oauth.")
 @pass_context
 def login(ctx: click.Context, oid: str | None, api_key: str | None, environment: str | None, uid: str | None, oauth: bool, provider: str, no_browser: bool) -> None:
-    """Store credentials in the local configuration file.
-
-    Supports two authentication methods:
-
-    \b
-    API Key:
-        limacharlie auth login --oid <OID> --api-key <KEY>
-
-    \b
-    OAuth (browser-based):
-        limacharlie auth login --oauth
-        limacharlie auth login --oauth --oid <OID>
-        limacharlie auth login --oauth --provider microsoft
-        limacharlie auth login --oauth --no-browser
-    """
     env_name = environment or ctx.obj.environment or "default"
 
     if oauth:
@@ -311,6 +204,17 @@ def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: s
 # logout
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LOGOUT = """\
+Remove stored credentials from the local configuration file.  By default
+the 'default' environment credentials are cleared.  Pass --env to clear
+a specific named environment instead.
+
+This does NOT revoke the API key on the server side.  To revoke, use
+'limacharlie api-key delete'.
+"""
+register_explain("auth.logout", _EXPLAIN_LOGOUT)
+
+
 @group.command()
 @click.option(
     "--env", "environment", default=None,
@@ -318,12 +222,6 @@ def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: s
 )
 @pass_context
 def logout(ctx: click.Context, environment: str | None) -> None:
-    """Remove stored credentials from the local configuration file.
-
-    Example:
-        limacharlie auth logout
-        limacharlie auth logout --env staging
-    """
     if is_ephemeral():
         click.echo("Ephemeral mode active -- nothing to clear.", err=True)
         ctx.exit(1)
@@ -348,14 +246,18 @@ def logout(ctx: click.Context, environment: str | None) -> None:
 # whoami
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_WHOAMI = """\
+Display the identity, permissions, and accessible organizations for the
+currently configured credentials.  This calls the /who API endpoint and
+shows the result.  Useful for verifying which API key or user account is
+active, what permissions it has, and which organizations it can access.
+"""
+register_explain("auth.whoami", _EXPLAIN_WHOAMI)
+
+
 @group.command()
 @pass_context
 def whoami(ctx: click.Context) -> None:
-    """Show the current identity and permissions.
-
-    Example:
-        limacharlie auth whoami
-    """
     org = _get_org(ctx)
     data = org.who_am_i()
     _output(ctx, data)
@@ -365,15 +267,22 @@ def whoami(ctx: click.Context) -> None:
 # use-org
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_USE_ORG = """\
+Set the default organization ID (OID) in your credential file so that
+subsequent commands do not require --oid on every invocation.  This
+updates the 'default' environment (or the environment specified by
+--env on the top-level CLI).
+
+If you work with multiple organizations, consider using named
+environments instead: 'limacharlie auth login --env prod --oid ... --api-key ...'.
+"""
+register_explain("auth.use-org", _EXPLAIN_USE_ORG)
+
+
 @group.command("use-org")
 @click.argument("oid")
 @pass_context
 def use_org(ctx: click.Context, oid: str) -> None:
-    """Set the default organization for subsequent commands.
-
-    Example:
-        limacharlie auth use-org <OID>
-    """
     env_name = ctx.obj.environment or "default"
     config = load_config() or {}
 
@@ -393,16 +302,18 @@ def use_org(ctx: click.Context, oid: str) -> None:
 # test
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_TEST = """\
+Test whether the currently configured credentials are valid by attempting
+to generate a JWT token.  Returns a success/failure status.  This is a
+lightweight check that does not query any org-specific resources, so it
+works even if the API key has minimal permissions.
+"""
+register_explain("auth.test", _EXPLAIN_TEST)
+
+
 @group.command()
 @pass_context
 def test(ctx: click.Context) -> None:
-    """Test whether the current credentials are valid.
-
-    Attempts to generate a JWT.  Exits with code 0 on success, 2 on failure.
-
-    Example:
-        limacharlie auth test
-    """
     try:
         client = _get_client(ctx)
         client.refresh_jwt()
@@ -418,16 +329,21 @@ def test(ctx: click.Context) -> None:
 # use-env
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_USE_ENV = """\
+Switch the active named environment in the configuration file.  Once
+set, subsequent commands will use the credentials from the specified
+environment without needing --env on every invocation.  This is
+equivalent to setting LC_CURRENT_ENV but persists across shell sessions.
+
+Use 'limacharlie auth list-envs' to see available environments.
+"""
+register_explain("auth.use-env", _EXPLAIN_USE_ENV)
+
+
 @group.command("use-env")
 @click.argument("name")
 @pass_context
 def use_env(ctx: click.Context, name: str) -> None:
-    """Switch the active named environment.
-
-    Example:
-        limacharlie auth use-env production
-        limacharlie auth use-env staging
-    """
     config = load_config() or {}
 
     # Verify the environment exists
@@ -450,14 +366,20 @@ def use_env(ctx: click.Context, name: str) -> None:
 # list-envs
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST_ENVS = """\
+List all named environments configured in the credential file.  Each
+environment stores a separate set of credentials (OID, API key, UID).
+The 'default' environment is shown if top-level credentials exist.
+
+Use 'limacharlie auth login --env <name>' to create a new environment
+and 'limacharlie auth use-env <name>' to switch between them.
+"""
+register_explain("auth.list-envs", _EXPLAIN_LIST_ENVS)
+
+
 @group.command("list-envs")
 @pass_context
 def list_envs(ctx: click.Context) -> None:
-    """List configured environments.
-
-    Example:
-        limacharlie auth list-envs
-    """
     envs = list_environments()
     if not envs:
         if not ctx.obj.quiet:
@@ -478,16 +400,21 @@ def list_envs(ctx: click.Context) -> None:
 # list-orgs
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST_ORGS = """\
+List all organizations accessible to the current credentials.  This
+queries the LimaCharlie API for organizations the authenticated user
+or API key can access.  Use --filter to search by name substring.
+
+Unlike 'limacharlie org list', this command does not require an OID
+to already be configured, making it useful for initial setup.
+"""
+register_explain("auth.list-orgs", _EXPLAIN_LIST_ORGS)
+
+
 @group.command("list-orgs")
 @click.option("--filter", "filter_text", default=None, help="Case-insensitive name filter.")
 @pass_context
 def list_orgs(ctx: click.Context, filter_text: str | None) -> None:
-    """List organizations accessible to the current credentials.
-
-    Example:
-        limacharlie auth list-orgs
-        limacharlie auth list-orgs --filter production
-    """
     org = _get_org(ctx)
     data = org.list_accessible_orgs(filter_text=filter_text)
 
@@ -500,6 +427,27 @@ def list_orgs(ctx: click.Context, filter_text: str | None) -> None:
 # ---------------------------------------------------------------------------
 # signup
 # ---------------------------------------------------------------------------
+
+_EXPLAIN_SIGNUP = """\
+Create a brand new LimaCharlie account through OAuth, directly from
+the CLI.  This command performs the full onboarding flow:
+
+  1. Authenticate via browser-based OAuth (Google or Microsoft).
+  2. Create a LimaCharlie user profile.
+  3. Create a new organization.
+  4. Save credentials so the CLI is ready to use.
+
+If you already have an account, use 'limacharlie auth login --oauth'
+instead.
+
+Examples:
+  limacharlie auth signup
+  limacharlie auth signup --provider microsoft
+  limacharlie auth signup --org-name "My Company"
+  limacharlie auth signup --no-browser
+"""
+register_explain("auth.signup", _EXPLAIN_SIGNUP)
+
 
 @group.command()
 @click.option(
@@ -514,17 +462,6 @@ def list_orgs(ctx: click.Context, filter_text: str | None) -> None:
 )
 @pass_context
 def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | None, environment: str | None) -> None:
-    """Create a new LimaCharlie account and set up an organization.
-
-    Performs the full onboarding flow: OAuth authentication, account
-    creation, and optional organization setup.
-
-    \b
-    Examples:
-        limacharlie auth signup
-        limacharlie auth signup --provider microsoft
-        limacharlie auth signup --org-name "My Company"
-    """
     env_name = environment or ctx.obj.environment or "default"
 
     # ------------------------------------------------------------------

@@ -20,7 +20,35 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _output(ctx: click.Context, data: Any) -> None:
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx: click.Context) -> Organization:
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    return Organization(client)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("arl")
+def group() -> None:
+    """Resolve Authenticated Resource Locators.
+
+    ARLs are secure URLs used by LimaCharlie to reference payloads,
+    artifacts, and other stored resources.
+    """
+
+
+# ---------------------------------------------------------------------------
+# get
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_GET = """\
@@ -64,51 +92,13 @@ extensions to fetch external rule/data sources.
 Example:
   limacharlie arl get --url "[https,example.com/data.json]"
 """
-
 register_explain("arl.get", _EXPLAIN_GET)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
-
-
-def _get_org(ctx: click.Context) -> Organization:
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
-    return Organization(client)
-
-
-# ---------------------------------------------------------------------------
-# Group
-# ---------------------------------------------------------------------------
-
-@click.group("arl")
-def group() -> None:
-    """Resolve Authenticated Resource Locators.
-
-    ARLs are secure URLs used by LimaCharlie to reference payloads,
-    artifacts, and other stored resources.
-    """
-
-
-# ---------------------------------------------------------------------------
-# get
-# ---------------------------------------------------------------------------
 
 @group.command()
 @click.option("--url", required=True, help="ARL URL to resolve.")
 @pass_context
 def get(ctx, url) -> None:
-    """Resolve an ARL and return the data.
-
-    Example:
-        limacharlie arl get --url "lcr://my-resource/path"
-    """
     org = _get_org(ctx)
     sdk = ARLSDK(org)
     data = sdk.get(url)

@@ -110,5 +110,8 @@ class Payloads:
 
         Args:
             name: Payload name.
+
+        Returns:
+            dict: API response.
         """
         return self.client.request("DELETE", f"payload/{self._org.oid}/{name}")

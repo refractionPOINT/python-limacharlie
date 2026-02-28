@@ -23,190 +23,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List all records in a specific hive.  Hives are key-value stores that
-hold configuration data.  Common hive names include:
-
-  dr-general       - D&R rules (general namespace)
-  dr-managed       - D&R rules (managed namespace)
-  dr-service       - D&R rules (service namespace)
-  fp               - False positive rules
-  secret           - Secrets (data format: {secret: "value"})
-  lookup           - Lookup tables
-  yara             - YARA rule sources (data format: {rule: "yara content"})
-  extension_config - Extension configurations
-  external_adapter - External adapter configs (syslog, file, cloud connectors)
-  cloud_sensor     - Cloud sensor configurations
-  query            - Saved LCQL queries
-  playbook         - Playbooks
-  sop              - Standard operating procedures
-  note             - Organization notes
-  ai_agent         - AI agent configurations
-
-Each record returned contains:
-  data     - The record payload (structure varies by hive type)
-  usr_mtd  - User metadata: enabled (bool), expiry (epoch int, 0=never),
-             tags (list of strings), comment (string)
-  sys_mtd  - System metadata: etag (concurrency token), guid, created/updated
-             timestamps, author
-
-Use --output json to get the full record data for export or backup.
-"""
-
-_EXPLAIN_GET = """\
-Get a single record from a hive by its key.  Returns the full record
-including:
-
-  data     - The record payload (structure varies by hive type)
-  usr_mtd  - User-controlled metadata:
-               enabled: true/false
-               expiry: unix epoch (0 = never expires)
-               tags: [list, of, strings]
-               comment: "free-text description"
-  sys_mtd  - System metadata:
-               etag: concurrency token for optimistic locking
-               guid: globally unique record ID
-               created_at / updated_at: timestamps
-               created_by / updated_by: author identity
-
-Use the etag value in a subsequent "set" call to do compare-and-swap
-updates, preventing concurrent modification conflicts.
-"""
-
-_EXPLAIN_SET = """\
-Create or update a record in a hive.  The record data is read from
---input-file or from stdin if no file is specified.  The input should
-be a JSON or YAML document.
-
-Full record format (YAML):
-
-    data:
-      key: value          # payload varies by hive type
-    usr_mtd:
-      enabled: true       # optional, default true
-      expiry: 0           # optional, unix epoch (0 = never)
-      tags:               # optional
-        - my-tag
-      comment: "note"     # optional
-    etag: "abc123"        # optional, for compare-and-swap updates
-
-If the input has no "data" key, the entire input is treated as the
-record data payload.
-
-Data payload examples per hive type:
-  secret:  {secret: "my-api-key"}
-  yara:    {rule: "rule MyRule { ... }"}
-  lookup:  {lookup_data: {"1.2.3.4": {info: "bad"}}}
-           or {newline_content: "val1\\nval2\\nval3"}
-
-Examples:
-  echo '{"data": {"key": "value"}}' | limacharlie hive set \\
-      --hive-name lookup --key my-lookup
-
-  limacharlie hive set --hive-name lookup --key my-lookup \\
-      --input-file record.yaml
-"""
-
-_EXPLAIN_DELETE = """\
-Delete a record from a hive.  This permanently removes the record
-and any data or metadata associated with it.  The --confirm flag
-is required to prevent accidental deletion.
-
-Any D&R rules, outputs, or extensions that reference this record
-(e.g. via hive://secret/my-key) will break after deletion.
-"""
-
-_EXPLAIN_VALIDATE = """\
-Validate a record against a hive's schema without saving it.  Useful
-for checking whether record data is well-formed before pushing changes.
-The data format is the same as for the 'set' command.
-"""
-
-_EXPLAIN_RENAME = """\
-Rename a record within a hive.  The record data and metadata are
-preserved; only the key name changes.
-"""
-
-_EXPLAIN_LIST_TYPES = """\
-List all known hive type names that can be used with hive commands.
-
-Hives are key-value stores that hold different types of configuration
-data for a LimaCharlie organization.  Each hive type stores a specific
-kind of data.  Known types: dr-general, dr-managed, dr-service, fp,
-cloud_sensor, extension_config, yara, lookup, secret, query, playbook,
-ai_agent, external_adapter, sop, note.
-
-Use these names with --hive-name in other hive commands.  Some hive
-types also have dedicated shortcut commands (e.g. "limacharlie lookup",
-"limacharlie secret", "limacharlie yara").
-"""
-
-_EXPLAIN_EXPORT = """\
-Export all records from a hive as YAML output.  This is useful for
-backup, migration, or version control of hive contents.
-
-Each record is exported with its full structure:
-
-    record-name:
-      data: { ... }       # record payload
-      usr_mtd:
-        enabled: true
-        expiry: 0
-        tags: [tag1]
-        comment: ""
-      sys_mtd:
-        etag: "..."
-        guid: "..."
-
-The output can be saved to a file and later imported with
-'limacharlie hive import'.  Use --partition-key to export from a
-non-default partition.
-
-Related: 'limacharlie hive import' to restore records from a YAML file,
-'limacharlie sync pull' for full organization config export.
-"""
-
-_EXPLAIN_IMPORT = """\
-Import records into a hive from a YAML file.  Each top-level key in
-the YAML file is treated as a record name.  Expected format:
-
-    my-record-1:
-      data:
-        key: value
-      usr_mtd:
-        enabled: true
-        expiry: 0
-        tags: [tag1]
-        comment: ""
-    my-record-2:
-      data:
-        key: other-value
-
-Only "data" is required; "usr_mtd" is optional.  Use --dry-run to
-preview what would be imported without making changes.
-
-The format matches the output of 'limacharlie hive export', so you
-can round-trip data between export and import.
-
-Related: 'limacharlie hive export' to export records,
-'limacharlie sync push' for full organization config push.
-"""
-
-register_explain("hive.list", _EXPLAIN_LIST)
-register_explain("hive.get", _EXPLAIN_GET)
-register_explain("hive.set", _EXPLAIN_SET)
-register_explain("hive.delete", _EXPLAIN_DELETE)
-register_explain("hive.validate", _EXPLAIN_VALIDATE)
-register_explain("hive.rename", _EXPLAIN_RENAME)
-register_explain("hive.list-types", _EXPLAIN_LIST_TYPES)
-register_explain("hive.export", _EXPLAIN_EXPORT)
-register_explain("hive.import", _EXPLAIN_IMPORT)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -301,16 +117,42 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List all records in a specific hive.  Hives are key-value stores that
+hold configuration data.  Common hive names include:
+
+  dr-general       - D&R rules (general namespace)
+  dr-managed       - D&R rules (managed namespace)
+  dr-service       - D&R rules (service namespace)
+  fp               - False positive rules
+  secret           - Secrets (data format: {secret: "value"})
+  lookup           - Lookup tables
+  yara             - YARA rule sources (data format: {rule: "yara content"})
+  extension_config - Extension configurations
+  external_adapter - External adapter configs (syslog, file, cloud connectors)
+  cloud_sensor     - Cloud sensor configurations
+  query            - Saved LCQL queries
+  playbook         - Playbooks
+  sop              - Standard operating procedures
+  note             - Organization notes
+  ai_agent         - AI agent configurations
+
+Each record returned contains:
+  data     - The record payload (structure varies by hive type)
+  usr_mtd  - User metadata: enabled (bool), expiry (epoch int, 0=never),
+             tags (list of strings), comment (string)
+  sys_mtd  - System metadata: etag (concurrency token), guid, created/updated
+             timestamps, author
+
+Use --output json to get the full record data for export or backup.
+"""
+register_explain("hive.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @click.option("--hive-name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
 @pass_context
 def list_records(ctx, hive_name) -> None:
-    """List records in a hive.
-
-    Examples:
-        limacharlie hive list --hive-name dr-general
-        limacharlie hive list --hive-name lookup --output json
-    """
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
     records = hive.list()
@@ -322,16 +164,33 @@ def list_records(ctx, hive_name) -> None:
 # get
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GET = """\
+Get a single record from a hive by its key.  Returns the full record
+including:
+
+  data     - The record payload (structure varies by hive type)
+  usr_mtd  - User-controlled metadata:
+               enabled: true/false
+               expiry: unix epoch (0 = never expires)
+               tags: [list, of, strings]
+               comment: "free-text description"
+  sys_mtd  - System metadata:
+               etag: concurrency token for optimistic locking
+               guid: globally unique record ID
+               created_at / updated_at: timestamps
+               created_by / updated_by: author identity
+
+Use the etag value in a subsequent "set" call to do compare-and-swap
+updates, preventing concurrent modification conflicts.
+"""
+register_explain("hive.get", _EXPLAIN_GET)
+
+
 @group.command()
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key.")
 @pass_context
 def get(ctx, hive_name, key) -> None:
-    """Get a hive record by key.
-
-    Example:
-        limacharlie hive get --hive-name lookup --key my-lookup
-    """
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
     record = hive.get(key)
@@ -342,23 +201,48 @@ def get(ctx, hive_name, key) -> None:
 # set
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_SET = """\
+Create or update a record in a hive.  The record data is read from
+--input-file or from stdin if no file is specified.  The input should
+be a JSON or YAML document.
+
+Full record format (YAML):
+
+    data:
+      key: value          # payload varies by hive type
+    usr_mtd:
+      enabled: true       # optional, default true
+      expiry: 0           # optional, unix epoch (0 = never)
+      tags:               # optional
+        - my-tag
+      comment: "note"     # optional
+    etag: "abc123"        # optional, for compare-and-swap updates
+
+If the input has no "data" key, the entire input is treated as the
+record data payload.
+
+Data payload examples per hive type:
+  secret:  {secret: "my-api-key"}
+  yara:    {rule: "rule MyRule { ... }"}
+  lookup:  {lookup_data: {"1.2.3.4": {info: "bad"}}}
+           or {newline_content: "val1\\nval2\\nval3"}
+
+Examples:
+  echo '{"data": {"key": "value"}}' | limacharlie hive set \\
+      --hive-name lookup --key my-lookup
+
+  limacharlie hive set --hive-name lookup --key my-lookup \\
+      --input-file record.yaml
+"""
+register_explain("hive.set", _EXPLAIN_SET)
+
+
 @group.command("set")
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
 @pass_context
 def set_record(ctx, hive_name, key, input_file) -> None:
-    """Set (create or update) a hive record.
-
-    Record data is read from --input-file or stdin.
-
-    Examples:
-        limacharlie hive set --hive-name lookup --key my-lookup \\
-            --input-file record.yaml
-
-        echo '{"data": {"key": "value"}}' | \\
-            limacharlie hive set --hive-name lookup --key my-lookup
-    """
     data = _load_input(input_file)
     if data is None:
         click.echo(
@@ -382,19 +266,23 @@ def set_record(ctx, hive_name, key, input_file) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete a record from a hive.  This permanently removes the record
+and any data or metadata associated with it.  The --confirm flag
+is required to prevent accidental deletion.
+
+Any D&R rules, outputs, or extensions that reference this record
+(e.g. via hive://secret/my-key) will break after deletion.
+"""
+register_explain("hive.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx, hive_name, key, confirm) -> None:
-    """Delete a hive record.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie hive delete --hive-name lookup --key my-lookup --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"
@@ -416,18 +304,20 @@ def delete(ctx, hive_name, key, confirm) -> None:
 # validate
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_VALIDATE = """\
+Validate a record against a hive's schema without saving it.  Useful
+for checking whether record data is well-formed before pushing changes.
+The data format is the same as for the 'set' command.
+"""
+register_explain("hive.validate", _EXPLAIN_VALIDATE)
+
+
 @group.command()
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key to validate as.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
 @pass_context
 def validate(ctx, hive_name, key, input_file) -> None:
-    """Validate a hive record without saving.
-
-    Example:
-        limacharlie hive validate --hive-name lookup --key my-lookup \\
-            --input-file record.yaml
-    """
     data = _load_input(input_file)
     if data is None:
         click.echo(
@@ -449,17 +339,19 @@ def validate(ctx, hive_name, key, input_file) -> None:
 # rename
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_RENAME = """\
+Rename a record within a hive.  The record data and metadata are
+preserved; only the key name changes.
+"""
+register_explain("hive.rename", _EXPLAIN_RENAME)
+
+
 @group.command()
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Current record key.")
 @click.option("--new-name", required=True, help="New record key.")
 @pass_context
 def rename(ctx, hive_name, key, new_name) -> None:
-    """Rename a hive record.
-
-    Example:
-        limacharlie hive rename --hive-name lookup --key old-name --new-name new-name
-    """
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
     result = hive.rename(key, new_name)
@@ -472,17 +364,25 @@ def rename(ctx, hive_name, key, new_name) -> None:
 # list-types
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST_TYPES = """\
+List all known hive type names that can be used with hive commands.
+
+Hives are key-value stores that hold different types of configuration
+data for a LimaCharlie organization.  Each hive type stores a specific
+kind of data.  Known types: dr-general, dr-managed, dr-service, fp,
+cloud_sensor, extension_config, yara, lookup, secret, query, playbook,
+ai_agent, external_adapter, sop, note.
+
+Use these names with --hive-name in other hive commands.  Some hive
+types also have dedicated shortcut commands (e.g. "limacharlie lookup",
+"limacharlie secret", "limacharlie yara").
+"""
+register_explain("hive.list-types", _EXPLAIN_LIST_TYPES)
+
+
 @group.command("list-types")
 @pass_context
 def list_types(ctx) -> None:
-    """List known hive type names.
-
-    Outputs a static list of all known hive types that can be used
-    with the --hive-name option in other hive commands.
-
-    Example:
-        limacharlie hive list-types
-    """
     _output(ctx, _KNOWN_HIVE_TYPES)
 
 
@@ -490,18 +390,38 @@ def list_types(ctx) -> None:
 # export
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_EXPORT = """\
+Export all records from a hive as YAML output.  This is useful for
+backup, migration, or version control of hive contents.
+
+Each record is exported with its full structure:
+
+    record-name:
+      data: { ... }       # record payload
+      usr_mtd:
+        enabled: true
+        expiry: 0
+        tags: [tag1]
+        comment: ""
+      sys_mtd:
+        etag: "..."
+        guid: "..."
+
+The output can be saved to a file and later imported with
+'limacharlie hive import'.  Use --partition-key to export from a
+non-default partition.
+
+Related: 'limacharlie hive import' to restore records from a YAML file,
+'limacharlie sync pull' for full organization config export.
+"""
+register_explain("hive.export", _EXPLAIN_EXPORT)
+
+
 @group.command("export")
 @click.option("--hive-name", "name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
 @click.option("--partition-key", default=None, help="Optional partition key (defaults to org OID).")
 @pass_context
 def export_records(ctx, name, partition_key) -> None:
-    """Export all records from a hive as YAML.
-
-    Examples:
-        limacharlie hive export --hive-name dr-general
-        limacharlie hive export --hive-name lookup --output yaml > lookups.yaml
-        limacharlie hive export --hive-name secret --partition-key custom-key
-    """
     org = _get_org(ctx)
     hive = Hive(org, name, partition_key=partition_key)
     records = hive.list()
@@ -520,6 +440,34 @@ def export_records(ctx, name, partition_key) -> None:
 # import
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_IMPORT = """\
+Import records into a hive from a YAML file.  Each top-level key in
+the YAML file is treated as a record name.  Expected format:
+
+    my-record-1:
+      data:
+        key: value
+      usr_mtd:
+        enabled: true
+        expiry: 0
+        tags: [tag1]
+        comment: ""
+    my-record-2:
+      data:
+        key: other-value
+
+Only "data" is required; "usr_mtd" is optional.  Use --dry-run to
+preview what would be imported without making changes.
+
+The format matches the output of 'limacharlie hive export', so you
+can round-trip data between export and import.
+
+Related: 'limacharlie hive export' to export records,
+'limacharlie sync push' for full organization config push.
+"""
+register_explain("hive.import", _EXPLAIN_IMPORT)
+
+
 @group.command("import")
 @click.option("--hive-name", "name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
 @click.option("--input-file", required=True, type=click.Path(exists=True), help="Path to YAML or JSON file to import.")
@@ -527,15 +475,6 @@ def export_records(ctx, name, partition_key) -> None:
 @click.option("--dry-run", is_flag=True, default=False, help="Preview changes without applying them.")
 @pass_context
 def import_records(ctx, name, input_file, partition_key, dry_run) -> None:
-    """Import records into a hive from a YAML or JSON file.
-
-    Each top-level key in the file is a record name.  The value
-    should have at minimum a 'data' key.
-
-    Examples:
-        limacharlie hive import --hive-name lookup --input-file lookups.yaml
-        limacharlie hive import --hive-name dr-general --input-file rules.yaml --dry-run
-    """
     data = _load_file(input_file)
     if not isinstance(data, dict):
         click.echo(

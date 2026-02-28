@@ -189,6 +189,9 @@ class Configs:
         Args:
             file_path: Path to save the config file.
             **kwargs: Same as fetch().
+
+        Returns:
+            dict: API response.
         """
         config = self.fetch(**kwargs)
         with open(os.path.abspath(file_path), "wb") as f:

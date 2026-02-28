@@ -29,6 +29,9 @@ class DRRules:
 
         Args:
             namespace: Rule namespace ('general', 'managed', or 'service'). Defaults to 'general'.
+
+        Returns:
+            dict: Rule name to rule data mapping.
         """
         hive = Hive(self._org, _hive_name(namespace))
         records = hive.list()
@@ -60,6 +63,9 @@ class DRRules:
             name: Rule name.
             data: Rule definition (detect and respond components).
             namespace: Rule namespace. Defaults to 'general'.
+
+        Returns:
+            dict: API response.
         """
         hive = Hive(self._org, _hive_name(namespace))
         record = HiveRecord(name, data=data)
@@ -72,6 +78,9 @@ class DRRules:
             name: Rule name.
             data: Updated rule definition.
             namespace: Rule namespace. Defaults to 'general'.
+
+        Returns:
+            dict: API response.
         """
         return self.create(name, data, namespace=namespace)
 
@@ -81,6 +90,9 @@ class DRRules:
         Args:
             name: Rule name.
             namespace: Rule namespace. Defaults to 'general'.
+
+        Returns:
+            dict: API response.
         """
         hive = Hive(self._org, _hive_name(namespace))
         return hive.delete(name)

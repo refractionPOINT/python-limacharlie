@@ -46,6 +46,9 @@ class LoggingRules:
             platforms: Optional platform filter.
             retention_days: Log retention period in days.
             delete_after: Delete source file after collection.
+
+        Returns:
+            dict: API response.
         """
         params: dict[str, Any] = {"action": "add_rule", "name": name, "patterns": patterns}
         if tags:
@@ -63,5 +66,8 @@ class LoggingRules:
 
         Args:
             name: Rule name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.service_request("logging", {"action": "remove_rule", "name": name})

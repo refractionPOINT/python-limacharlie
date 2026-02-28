@@ -19,70 +19,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List all installation keys for the organization.  Installation keys
-are Base64-encoded strings used to enroll new sensors and adapters.
-
-Each key contains four components:
-  OID   - Organization ID the sensor enrolls into
-  IID   - Installer ID (auto-generated, unique per key)
-  tags  - List of tags automatically applied at enrollment
-  desc  - Human-readable description of the key's purpose
-
-The output includes the key ID (IID), description, tags, and
-creation date.  Use separate keys per deployment segment (e.g.,
-'production-linux', 'staging-windows') so tags automatically
-classify sensors at enrollment time.
-"""
-
-_EXPLAIN_CREATE = """\
-Create a new installation key.  The --description is required and
-should identify the purpose of the key (e.g., 'production-linux',
-'staging-windows').
-
-Use --tags to apply tags to sensors enrolled with this key.  Multiple
-tags can be comma-separated.  Tags are applied automatically at
-enrollment and can be used in sensor selectors, D&R rule targeting,
-and fleet filtering.
-
-The returned output includes the full Base64-encoded installation key
-string that should be provided to the sensor installer:
-  ./lc_sensor_64 -i <INSTALLATION_KEY>
-
-Examples:
-  limacharlie installation-key create --description "production linux"
-  limacharlie installation-key create --description "staging" --tags "env:staging,os:windows"
-"""
-
-_EXPLAIN_GET = """\
-Get a specific installation key by its IID.  Returns the key's
-description, tags, creation date, and the full Base64-encoded
-installation key string.
-
-Example:
-  limacharlie installation-key get --iid <IID>
-"""
-
-_EXPLAIN_DELETE = """\
-Delete an installation key by its IID.  Sensors already enrolled
-with this key will not be affected, but no new sensors can enroll
-using it.  The --confirm flag is required to prevent accidental
-deletion.
-
-Example:
-  limacharlie installation-key delete --iid <IID> --confirm
-"""
-
-register_explain("installation-key.list", _EXPLAIN_LIST)
-register_explain("installation-key.get", _EXPLAIN_GET)
-register_explain("installation-key.create", _EXPLAIN_CREATE)
-register_explain("installation-key.delete", _EXPLAIN_DELETE)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -115,14 +51,27 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List all installation keys for the organization.  Installation keys
+are Base64-encoded strings used to enroll new sensors and adapters.
+
+Each key contains four components:
+  OID   - Organization ID the sensor enrolls into
+  IID   - Installer ID (auto-generated, unique per key)
+  tags  - List of tags automatically applied at enrollment
+  desc  - Human-readable description of the key's purpose
+
+The output includes the key ID (IID), description, tags, and
+creation date.  Use separate keys per deployment segment (e.g.,
+'production-linux', 'staging-windows') so tags automatically
+classify sensors at enrollment time.
+"""
+register_explain("installation-key.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @pass_context
 def list_keys(ctx) -> None:
-    """List installation keys.
-
-    Example:
-        limacharlie installation-key list
-    """
     org = _get_org(ctx)
     keys = InstallationKeys(org)
     data = keys.list()
@@ -133,15 +82,21 @@ def list_keys(ctx) -> None:
 # get
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GET = """\
+Get a specific installation key by its IID.  Returns the key's
+description, tags, creation date, and the full Base64-encoded
+installation key string.
+
+Example:
+  limacharlie installation-key get --iid <IID>
+"""
+register_explain("installation-key.get", _EXPLAIN_GET)
+
+
 @group.command("get")
 @click.option("--iid", required=True, help="Installation key ID.")
 @pass_context
 def get_key(ctx, iid) -> None:
-    """Get a specific installation key.
-
-    Example:
-        limacharlie installation-key get --iid <IID>
-    """
     org = _get_org(ctx)
     keys = InstallationKeys(org)
     data = keys.get(iid)
@@ -152,20 +107,33 @@ def get_key(ctx, iid) -> None:
 # create
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_CREATE = """\
+Create a new installation key.  The --description is required and
+should identify the purpose of the key (e.g., 'production-linux',
+'staging-windows').
+
+Use --tags to apply tags to sensors enrolled with this key.  Multiple
+tags can be comma-separated.  Tags are applied automatically at
+enrollment and can be used in sensor selectors, D&R rule targeting,
+and fleet filtering.
+
+The returned output includes the full Base64-encoded installation key
+string that should be provided to the sensor installer:
+  ./lc_sensor_64 -i <INSTALLATION_KEY>
+
+Examples:
+  limacharlie installation-key create --description "production linux"
+  limacharlie installation-key create --description "staging" --tags "env:staging,os:windows"
+"""
+register_explain("installation-key.create", _EXPLAIN_CREATE)
+
+
 @group.command()
 @click.option("--description", required=True, help="Key description.")
 @click.option("--tags", default=None, help="Comma-separated tags to apply to enrolled sensors.")
 @click.option("--get", "get_after", is_flag=True, default=False, help="Fetch the full key details after creation.")
 @pass_context
 def create(ctx, description, tags, get_after) -> None:
-    """Create a new installation key.
-
-    Examples:
-        limacharlie installation-key create --description "production linux"
-        limacharlie installation-key create --description "staging" \\
-            --tags "env:staging,os:windows"
-        limacharlie installation-key create --description "prod" --get
-    """
     tag_list = None
     if tags:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
@@ -188,18 +156,23 @@ def create(ctx, description, tags, get_after) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete an installation key by its IID.  Sensors already enrolled
+with this key will not be affected, but no new sensors can enroll
+using it.  The --confirm flag is required to prevent accidental
+deletion.
+
+Example:
+  limacharlie installation-key delete --iid <IID> --confirm
+"""
+register_explain("installation-key.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--iid", required=True, help="Installation key ID to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx, iid, confirm) -> None:
-    """Delete an installation key.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie installation-key delete --iid <IID> --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"

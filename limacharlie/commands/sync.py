@@ -26,113 +26,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_PULL = """\
-Fetch the current organization configuration from the cloud and
-save it to a local YAML file.  This enables Infrastructure-as-Code
-workflows where the entire org configuration is version-controlled.
-
-The saved YAML file uses version 3 format with top-level keys for
-each resource type:
-
-    version: 3
-    outputs:
-      my-syslog-output:
-        module: syslog
-        dest_host: 10.0.0.1
-        ...
-    integrity:
-      my-fim-rule:
-        patterns:
-          - /etc/passwd
-        ...
-    hives:
-      dr-general:
-        my-dr-rule:
-          detect:
-            ...
-          respond:
-            ...
-      fp:
-        my-fp-rule:
-          ...
-    installation_keys:
-      - desc: production linux
-        tags:
-          - production
-          - linux
-
-Resource type flags:
-  --outputs              Output configurations
-  --integrity            Integrity monitoring rules
-  --exfil                Exfil prevention rules
-  --artifact             Artifact/logging rules
-  --resources            Resource subscriptions (marketplace add-ons)
-  --extensions           Extension subscriptions
-  --org-values           Organization config values
-  --installation-keys    Installation keys
-  --yara                 YARA rules and sources
-
-Hive flags (for syncing hive-based resources):
-  --hive-dr-general      D&R rules (general namespace)
-  --hive-dr-managed      D&R rules (managed namespace)
-  --hive-dr-service      D&R rules (service namespace)
-  --hive-fp              False positive rules
-  --hive-cloud-sensor    Cloud sensor configs
-  --hive-extension-config  Extension configs
-  --hive-yara            YARA rules (hive)
-  --hive-lookup          Lookups
-  --hive-secret          Secrets
-  --hive-query           Saved queries
-  --hive-playbook        Playbooks
-  --hive-ai-agent        AI agents
-  --hive-external-adapter  External adapters
-
-Examples:
-  limacharlie sync pull --config-file org.yaml --all
-  limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
-  limacharlie sync pull --config-file outputs.yaml --outputs
-"""
-
-_EXPLAIN_PUSH = """\
-Push a local YAML configuration file to the cloud.  Use --all to push
-everything in the file, or use specific flags to push only certain
-resource types.
-
-The YAML file must use version 3 format (same as produced by pull):
-
-    version: 3
-    hives:
-      dr-general:
-        my-dr-rule:
-          detect:
-            op: ends with
-            event: NEW_PROCESS
-            path: event/FILE_PATH
-            value: evil.exe
-          respond:
-            - action: report
-              name: evil-process-detected
-
-Use --dry-run to preview changes without applying them.  The output
-shows which resources would be added, modified, or removed.
-
-Use --force to remove cloud resources not present in the local file.
-Without --force, push only adds or updates; it never removes.
-
-Examples:
-  limacharlie sync push --config-file org.yaml --all
-  limacharlie sync push --config-file org.yaml --all --dry-run
-  limacharlie sync push --config-file org.yaml --hive-dr-general --force
-"""
-
-register_explain("sync.pull", _EXPLAIN_PULL)
-register_explain("sync.push", _EXPLAIN_PUSH)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -249,6 +142,75 @@ def group() -> None:
 # pull
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PULL = """\
+Fetch the current organization configuration from the cloud and
+save it to a local YAML file.  This enables Infrastructure-as-Code
+workflows where the entire org configuration is version-controlled.
+
+The saved YAML file uses version 3 format with top-level keys for
+each resource type:
+
+    version: 3
+    outputs:
+      my-syslog-output:
+        module: syslog
+        dest_host: 10.0.0.1
+        ...
+    integrity:
+      my-fim-rule:
+        patterns:
+          - /etc/passwd
+        ...
+    hives:
+      dr-general:
+        my-dr-rule:
+          detect:
+            ...
+          respond:
+            ...
+      fp:
+        my-fp-rule:
+          ...
+    installation_keys:
+      - desc: production linux
+        tags:
+          - production
+          - linux
+
+Resource type flags:
+  --outputs              Output configurations
+  --integrity            Integrity monitoring rules
+  --exfil                Exfil prevention rules
+  --artifact             Artifact/logging rules
+  --resources            Resource subscriptions (marketplace add-ons)
+  --extensions           Extension subscriptions
+  --org-values           Organization config values
+  --installation-keys    Installation keys
+  --yara                 YARA rules and sources
+
+Hive flags (for syncing hive-based resources):
+  --hive-dr-general      D&R rules (general namespace)
+  --hive-dr-managed      D&R rules (managed namespace)
+  --hive-dr-service      D&R rules (service namespace)
+  --hive-fp              False positive rules
+  --hive-cloud-sensor    Cloud sensor configs
+  --hive-extension-config  Extension configs
+  --hive-yara            YARA rules (hive)
+  --hive-lookup          Lookups
+  --hive-secret          Secrets
+  --hive-query           Saved queries
+  --hive-playbook        Playbooks
+  --hive-ai-agent        AI agents
+  --hive-external-adapter  External adapters
+
+Examples:
+  limacharlie sync pull --config-file org.yaml --all
+  limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
+  limacharlie sync pull --config-file outputs.yaml --outputs
+"""
+register_explain("sync.pull", _EXPLAIN_PULL)
+
+
 @group.command()
 @click.option(
     "--config-file", required=True, type=click.Path(),
@@ -263,12 +225,6 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_external_adapter) -> None:
-    """Fetch configuration from the cloud.
-
-    Examples:
-        limacharlie sync pull --config-file org.yaml --all
-        limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
-    """
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
@@ -309,6 +265,40 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
 # push
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_PUSH = """\
+Push a local YAML configuration file to the cloud.  Use --all to push
+everything in the file, or use specific flags to push only certain
+resource types.
+
+The YAML file must use version 3 format (same as produced by pull):
+
+    version: 3
+    hives:
+      dr-general:
+        my-dr-rule:
+          detect:
+            op: ends with
+            event: NEW_PROCESS
+            path: event/FILE_PATH
+            value: evil.exe
+          respond:
+            - action: report
+              name: evil-process-detected
+
+Use --dry-run to preview changes without applying them.  The output
+shows which resources would be added, modified, or removed.
+
+Use --force to remove cloud resources not present in the local file.
+Without --force, push only adds or updates; it never removes.
+
+Examples:
+  limacharlie sync push --config-file org.yaml --all
+  limacharlie sync push --config-file org.yaml --all --dry-run
+  limacharlie sync push --config-file org.yaml --hive-dr-general --force
+"""
+register_explain("sync.push", _EXPLAIN_PUSH)
+
+
 @group.command()
 @click.option(
     "--config-file", required=True, type=click.Path(exists=True),
@@ -325,13 +315,6 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_external_adapter) -> None:
-    """Push configuration to the cloud.
-
-    Examples:
-        limacharlie sync push --config-file org.yaml --all
-        limacharlie sync push --config-file org.yaml --all --dry-run
-        limacharlie sync push --config-file org.yaml --hive-dr-general --force
-    """
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,

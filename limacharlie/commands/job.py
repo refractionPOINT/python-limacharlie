@@ -20,56 +20,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List service jobs in the organization.  Jobs track asynchronous
-operations performed by LimaCharlie services such as YARA scans,
-D&R rule replays, and bulk export operations.
-
-Each job entry contains:
-  job_id     - Unique job identifier
-  status     - Current state (pending, running, completed, failed)
-  progress   - Completion percentage (if available)
-  type       - Job type / service that created it
-
-Use --output json to get the full job data for scripting.
-"""
-
-_EXPLAIN_GET = """\
-Get the full details and status of a specific job by its ID.
-Returns the job type, status, progress, and any result data.
-
-Example:
-  limacharlie job get --id <job-id>
-"""
-
-_EXPLAIN_DELETE = """\
-Delete a job by its ID.  This removes the job record from the
-organization.  The --confirm flag is required to prevent accidental
-deletion.
-
-Note: Deleting a running job does not cancel its execution.
-"""
-
-_EXPLAIN_WAIT = """\
-Wait for a job to complete, polling at regular intervals.  Returns
-the final job status when the job completes or the timeout expires.
-
-Use --timeout to set the maximum wait time in seconds (default: 300).
-
-Example:
-  limacharlie job wait --id <job-id> --timeout 600
-"""
-
-register_explain("job.list", _EXPLAIN_LIST)
-register_explain("job.get", _EXPLAIN_GET)
-register_explain("job.delete", _EXPLAIN_DELETE)
-register_explain("job.wait", _EXPLAIN_WAIT)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -102,14 +52,25 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List service jobs in the organization.  Jobs track asynchronous
+operations performed by LimaCharlie services such as YARA scans,
+D&R rule replays, and bulk export operations.
+
+Each job entry contains:
+  job_id     - Unique job identifier
+  status     - Current state (pending, running, completed, failed)
+  progress   - Completion percentage (if available)
+  type       - Job type / service that created it
+
+Use --output json to get the full job data for scripting.
+"""
+register_explain("job.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @pass_context
 def list_jobs(ctx) -> None:
-    """List service jobs.
-
-    Example:
-        limacharlie job list
-    """
     org = _get_org(ctx)
     sdk = JobsSDK(org)
     data = sdk.list()
@@ -120,15 +81,20 @@ def list_jobs(ctx) -> None:
 # get
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_GET = """\
+Get the full details and status of a specific job by its ID.
+Returns the job type, status, progress, and any result data.
+
+Example:
+  limacharlie job get --id <job-id>
+"""
+register_explain("job.get", _EXPLAIN_GET)
+
+
 @group.command()
 @click.option("--id", "job_id", required=True, help="Job ID.")
 @pass_context
 def get(ctx, job_id) -> None:
-    """Get job details.
-
-    Example:
-        limacharlie job get --id <job-id>
-    """
     org = _get_org(ctx)
     sdk = JobsSDK(org)
     data = sdk.get(job_id)
@@ -139,18 +105,21 @@ def get(ctx, job_id) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete a job by its ID.  This removes the job record from the
+organization.  The --confirm flag is required to prevent accidental
+deletion.
+
+Note: Deleting a running job does not cancel its execution.
+"""
+register_explain("job.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--id", "job_id", required=True, help="Job ID to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx, job_id, confirm) -> None:
-    """Delete a job.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie job delete --id <job-id> --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"
@@ -172,18 +141,23 @@ def delete(ctx, job_id, confirm) -> None:
 # wait
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_WAIT = """\
+Wait for a job to complete, polling at regular intervals.  Returns
+the final job status when the job completes or the timeout expires.
+
+Use --timeout to set the maximum wait time in seconds (default: 300).
+
+Example:
+  limacharlie job wait --id <job-id> --timeout 600
+"""
+register_explain("job.wait", _EXPLAIN_WAIT)
+
+
 @group.command()
 @click.option("--id", "job_id", required=True, help="Job ID to wait for.")
 @click.option("--timeout", default=300, type=int, help="Maximum wait time in seconds (default: 300).")
 @pass_context
 def wait(ctx, job_id, timeout) -> None:
-    """Wait for a job to complete.
-
-    Polls the job status until it completes or the timeout expires.
-
-    Example:
-        limacharlie job wait --id <job-id> --timeout 600
-    """
     if not ctx.obj.quiet:
         click.echo(f"Waiting for job '{job_id}' (timeout: {timeout}s)...", err=True)
 

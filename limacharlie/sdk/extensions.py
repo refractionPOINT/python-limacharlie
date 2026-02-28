@@ -26,6 +26,9 @@ class Extensions:
 
         Args:
             name: Extension name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.client.request(
             "POST", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
@@ -36,6 +39,9 @@ class Extensions:
 
         Args:
             name: Extension name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.client.request(
             "DELETE", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}
@@ -46,6 +52,9 @@ class Extensions:
 
         Args:
             name: Extension name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.client.request(
             "PATCH", f"orgs/{self._org.oid}/subscription/extension/{name}", params={}

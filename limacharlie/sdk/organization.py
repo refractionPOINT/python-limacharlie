@@ -806,28 +806,99 @@ class Organization:
         return self._client.request("DELETE", f"groups/{group_id}")
 
     def add_group_owner(self, group_id: str, email: str) -> dict[str, Any]:
+        """Add an owner to a group.
+
+        Args:
+            group_id: Group ID.
+            email: Email address of the user to make owner.
+
+        Returns:
+            dict: API response.
+        """
         return self._client.request("POST", f"groups/{group_id}/owners", params={"member_email": email})
 
     def remove_group_owner(self, group_id: str, email: str) -> dict[str, Any]:
+        """Remove an owner from a group.
+
+        Args:
+            group_id: Group ID.
+            email: Email address of the owner to remove.
+
+        Returns:
+            dict: API response.
+        """
         return self._client.request("DELETE", f"groups/{group_id}/owners", params={"member_email": email})
 
     def add_group_member(self, group_id: str, email: str) -> dict[str, Any]:
+        """Add a member to a group.
+
+        Args:
+            group_id: Group ID.
+            email: Email address of the user to add.
+
+        Returns:
+            dict: API response.
+        """
         return self._client.request("POST", f"groups/{group_id}/users", params={"member_email": email})
 
     def remove_group_member(self, group_id: str, email: str) -> dict[str, Any]:
+        """Remove a member from a group.
+
+        Args:
+            group_id: Group ID.
+            email: Email address of the user to remove.
+
+        Returns:
+            dict: API response.
+        """
         return self._client.request("DELETE", f"groups/{group_id}/users", params={"member_email": email})
 
     def set_group_permissions(self, group_id: str, permissions: list[str]) -> dict[str, Any]:
+        """Set permissions for a group.
+
+        Args:
+            group_id: Group ID.
+            permissions: List of permission strings.
+
+        Returns:
+            dict: API response.
+        """
         return self._client.request("POST", f"groups/{group_id}/permissions",
                                     params={"perm": permissions})
 
     def get_group_logs(self, group_id: str) -> dict[str, Any]:
+        """Get audit logs for a group.
+
+        Args:
+            group_id: Group ID.
+
+        Returns:
+            dict: Audit log entries.
+        """
         return self._client.request("GET", f"groups/{group_id}/logs")
 
     def add_group_org(self, group_id: str, oid: str) -> dict[str, Any]:
+        """Add an organization to a group.
+
+        Args:
+            group_id: Group ID.
+            oid: Organization ID to add.
+
+        Returns:
+            dict: API response.
+        """
         return self._client.request("POST", f"groups/{group_id}/orgs", params={"oid": oid})
 
     def remove_group_org(self, group_id: str, oid: str) -> dict[str, Any]:
+        """Remove an organization from a group.
+
+        Args:
+            group_id: Group ID.
+            oid: Organization ID to remove.
+
+        Returns:
+            dict: API response.
+        """
         return self._client.request("DELETE", f"groups/{group_id}/orgs", params={"oid": oid})
 
     # --- Extensions ---
@@ -842,11 +913,27 @@ class Organization:
         return data.get("resources", None)
 
     def subscribe_to_extension(self, name: str) -> dict[str, Any]:
+        """Subscribe to an extension.
+
+        Args:
+            name: Extension name in 'category/name' format.
+
+        Returns:
+            dict: API response.
+        """
         res_cat, res_name = name.split("/", 1)
         return self._client.request("POST", f"orgs/{self.oid}/resources",
                                     params={"res_cat": res_cat, "res_name": res_name})
 
     def unsubscribe_from_extension(self, name: str) -> dict[str, Any]:
+        """Unsubscribe from an extension.
+
+        Args:
+            name: Extension name in 'category/name' format.
+
+        Returns:
+            dict: API response.
+        """
         res_cat, res_name = name.split("/", 1)
         return self._client.request("DELETE", f"orgs/{self.oid}/resources",
                                     params={"res_cat": res_cat, "res_name": res_name})

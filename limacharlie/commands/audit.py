@@ -20,36 +20,6 @@ from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List audit logs for the organization.  Audit logs record all
-administrative actions including rule changes, user management,
-sensor operations, and API key usage.
-
-Each audit entry contains:
-  ts         - Timestamp of the action
-  who        - Email or API key hash of the actor
-  action     - Action performed (e.g. dr.set, sensor.del)
-  target     - Resource affected
-  details    - Action-specific context
-
-Time range is specified with --start and --end as Unix timestamps
-in seconds.  If not provided, defaults to the last 24 hours.
-
-Use --limit to cap the number of results returned.
-
-Examples:
-  limacharlie audit list
-  limacharlie audit list --start 1700000000 --end 1700100000
-  limacharlie audit list --limit 50
-"""
-
-register_explain("audit.list", _EXPLAIN_LIST)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -82,6 +52,31 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List audit logs for the organization.  Audit logs record all
+administrative actions including rule changes, user management,
+sensor operations, and API key usage.
+
+Each audit entry contains:
+  ts         - Timestamp of the action
+  who        - Email or API key hash of the actor
+  action     - Action performed (e.g. dr.set, sensor.del)
+  target     - Resource affected
+  details    - Action-specific context
+
+Time range is specified with --start and --end as Unix timestamps
+in seconds.  If not provided, defaults to the last 24 hours.
+
+Use --limit to cap the number of results returned.
+
+Examples:
+  limacharlie audit list
+  limacharlie audit list --start 1700000000 --end 1700100000
+  limacharlie audit list --limit 50
+"""
+register_explain("audit.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @click.option(
     "--start", default=None, type=int,
@@ -94,13 +89,6 @@ def group() -> None:
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
 @pass_context
 def list_audit(ctx, start, end, limit) -> None:
-    """List audit logs.
-
-    Examples:
-        limacharlie audit list
-        limacharlie audit list --start 1700000000 --end 1700100000
-        limacharlie audit list --limit 50
-    """
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
 

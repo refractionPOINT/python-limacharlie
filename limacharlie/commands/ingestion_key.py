@@ -21,44 +21,6 @@ from ..discovery import register_explain
 
 
 # ---------------------------------------------------------------------------
-# Explain texts
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_LIST = """\
-List all ingestion keys for the organization.  Ingestion keys are
-used to authenticate external data sources pushing telemetry into
-LimaCharlie via USP (Universal Sensor Protocol) or the ingestion API.
-
-Unlike installation keys (for endpoint sensors), ingestion keys are
-used for third-party log sources such as AWS CloudTrail, syslog
-forwarders, or custom integrations via the adapter binary.
-
-The output includes key names and associated configuration.
-"""
-
-_EXPLAIN_CREATE = """\
-Create a new ingestion key.  The --name is required and should
-identify the data source (e.g., 'aws-cloudtrail', 'zeek-logs').
-
-Example:
-  limacharlie ingestion-key create --name aws-cloudtrail
-"""
-
-_EXPLAIN_DELETE = """\
-Delete an ingestion key by name.  External sources using this key
-will immediately lose the ability to push data.  The --confirm flag
-is required to prevent accidental deletion.
-
-Example:
-  limacharlie ingestion-key delete --name aws-cloudtrail --confirm
-"""
-
-register_explain("ingestion-key.list", _EXPLAIN_LIST)
-register_explain("ingestion-key.create", _EXPLAIN_CREATE)
-register_explain("ingestion-key.delete", _EXPLAIN_DELETE)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -90,14 +52,23 @@ def group() -> None:
 # list
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_LIST = """\
+List all ingestion keys for the organization.  Ingestion keys are
+used to authenticate external data sources pushing telemetry into
+LimaCharlie via USP (Universal Sensor Protocol) or the ingestion API.
+
+Unlike installation keys (for endpoint sensors), ingestion keys are
+used for third-party log sources such as AWS CloudTrail, syslog
+forwarders, or custom integrations via the adapter binary.
+
+The output includes key names and associated configuration.
+"""
+register_explain("ingestion-key.list", _EXPLAIN_LIST)
+
+
 @group.command("list")
 @pass_context
 def list_keys(ctx) -> None:
-    """List ingestion keys.
-
-    Example:
-        limacharlie ingestion-key list
-    """
     org = _get_org(ctx)
     keys = IngestionKeys(org)
     data = keys.list()
@@ -108,15 +79,20 @@ def list_keys(ctx) -> None:
 # create
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_CREATE = """\
+Create a new ingestion key.  The --name is required and should
+identify the data source (e.g., 'aws-cloudtrail', 'zeek-logs').
+
+Example:
+  limacharlie ingestion-key create --name aws-cloudtrail
+"""
+register_explain("ingestion-key.create", _EXPLAIN_CREATE)
+
+
 @group.command()
 @click.option("--name", required=True, help="Ingestion key name.")
 @pass_context
 def create(ctx, name) -> None:
-    """Create a new ingestion key.
-
-    Example:
-        limacharlie ingestion-key create --name aws-cloudtrail
-    """
     org = _get_org(ctx)
     keys = IngestionKeys(org)
     data = keys.create(name)
@@ -129,18 +105,22 @@ def create(ctx, name) -> None:
 # delete
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_DELETE = """\
+Delete an ingestion key by name.  External sources using this key
+will immediately lose the ability to push data.  The --confirm flag
+is required to prevent accidental deletion.
+
+Example:
+  limacharlie ingestion-key delete --name aws-cloudtrail --confirm
+"""
+register_explain("ingestion-key.delete", _EXPLAIN_DELETE)
+
+
 @group.command()
 @click.option("--name", required=True, help="Ingestion key name to delete.")
 @click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
 @pass_context
 def delete(ctx, name, confirm) -> None:
-    """Delete an ingestion key.
-
-    This is a destructive operation.  Pass --confirm to proceed.
-
-    Example:
-        limacharlie ingestion-key delete --name aws-cloudtrail --confirm
-    """
     if not confirm:
         click.echo(
             "Error: Destructive operation requires --confirm flag.\n"

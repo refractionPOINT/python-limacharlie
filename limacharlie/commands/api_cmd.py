@@ -35,37 +35,6 @@ _TARGETS = {
 
 
 # ---------------------------------------------------------------------------
-# Explain text
-# ---------------------------------------------------------------------------
-
-_EXPLAIN_API = """\
-Make authenticated HTTP requests to any LimaCharlie API endpoint.
-
-This is an escape-hatch command for accessing endpoints that are not yet
-wrapped by dedicated CLI commands, for scripting, or for debugging.
-
-The positional ENDPOINT argument is a relative API path.  Use {oid} as a
-placeholder and it will be replaced with the resolved organization ID:
-
-    limacharlie api orgs/{oid}/sensors
-
-Request body fields can be provided via -f (string) or -F (typed) flags.
-Multiple flags build a form-encoded body (the default for LimaCharlie APIs).
-Use --json to send a JSON body instead.  -F coerces bools, ints, and supports
-@file for reading values from files.  Alternatively, use --input to send
-a raw body from a file or stdin.
-
-Target aliases: api (default), billing, jwt, stream, downloads, ticketing.
-Any other value is treated as a raw https:// URL.
-
-Non-200 responses are NOT errors: the raw response body is printed and the
-exit code reflects the HTTP status (0 for 2xx, 4 for 4xx, 5 for 5xx).
-"""
-
-register_explain("api", _EXPLAIN_API)
-
-
-# ---------------------------------------------------------------------------
 # Field parsing helpers
 # ---------------------------------------------------------------------------
 
@@ -163,6 +132,32 @@ def _exit_code_for_status(status: int) -> int:
 # Command
 # ---------------------------------------------------------------------------
 
+_EXPLAIN_API = """\
+Make authenticated HTTP requests to any LimaCharlie API endpoint.
+
+This is an escape-hatch command for accessing endpoints that are not yet
+wrapped by dedicated CLI commands, for scripting, or for debugging.
+
+The positional ENDPOINT argument is a relative API path.  Use {oid} as a
+placeholder and it will be replaced with the resolved organization ID:
+
+    limacharlie api orgs/{oid}/sensors
+
+Request body fields can be provided via -f (string) or -F (typed) flags.
+Multiple flags build a form-encoded body (the default for LimaCharlie APIs).
+Use --json to send a JSON body instead.  -F coerces bools, ints, and supports
+@file for reading values from files.  Alternatively, use --input to send
+a raw body from a file or stdin.
+
+Target aliases: api (default), billing, jwt, stream, downloads, ticketing.
+Any other value is treated as a raw https:// URL.
+
+Non-200 responses are NOT errors: the raw response body is printed and the
+exit code reflects the HTTP status (0 for 2xx, 4 for 4xx, 5 for 5xx).
+"""
+register_explain("api", _EXPLAIN_API)
+
+
 @click.command("api")
 @click.argument("endpoint")
 @click.option("-X", "--method", default=None, help="HTTP method (default: GET, or POST if body provided).")
@@ -181,22 +176,6 @@ def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[
         field: tuple[str, ...], use_json: bool, input_file: str | None,
         content_type_override: str | None, target: str,
         include_status: bool, silent: bool, no_auth: bool, header: tuple[str, ...]) -> None:
-    """Make an authenticated API request to any LimaCharlie endpoint.
-
-    ENDPOINT is a relative API path.  Use {oid} as a placeholder for the
-    organization ID.
-
-    Fields provided via -f/-F are sent as a form-encoded body by default
-    (matching LC API conventions).  Use --json to send as a JSON body instead.
-
-    \b
-    Examples:
-        limacharlie api orgs/{oid}/sensors
-        limacharlie api orgs/{oid}/sensors -X POST -f hostname=test
-        limacharlie api orgs/{oid} -X POST --json -F enabled=true
-        limacharlie api --target billing orgs/{oid}/status
-        limacharlie api orgs/{oid}/sensors --no-auth
-    """
     # --- Validate mutual exclusivity ---
     if input_file and (raw_field or field):
         raise click.UsageError("--input cannot be combined with -f/--raw-field or -F/--field.")

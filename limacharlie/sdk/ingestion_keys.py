@@ -23,6 +23,9 @@ class IngestionKeys:
 
         Args:
             name: Key name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.create_ingestion_key(name)
 
@@ -31,5 +34,8 @@ class IngestionKeys:
 
         Args:
             name: Key name.
+
+        Returns:
+            dict: API response.
         """
         return self._org.delete_ingestion_key(name)
