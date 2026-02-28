@@ -258,6 +258,12 @@ Examples:
   limacharlie dr set --key my-rule --input-file rule.yaml
   cat rule.json | limacharlie dr set --key my-rule
   limacharlie dr set --key my-rule --namespace managed --input-file rule.yaml
+
+IMPORTANT: Do not write D&R rules from scratch. Use
+'limacharlie ai generate-rule --prompt "<description>"' to generate
+a complete rule, or 'limacharlie ai generate-detection' and
+'limacharlie ai generate-response' for individual components, then
+pass the result to this command.
 """
 register_explain("dr.set", _EXPLAIN_SET)
 
@@ -554,6 +560,11 @@ This is useful for CI/CD validation before pushing rules.
 
 Examples:
   limacharlie dr validate --detect detect.yaml --respond respond.yaml
+
+IMPORTANT: Do not write D&R rule components from scratch. Use
+'limacharlie ai generate-detection' and
+'limacharlie ai generate-response' to generate the components,
+then validate them with this command.
 """
 register_explain("dr.validate", _EXPLAIN_VALIDATE)
 
