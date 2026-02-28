@@ -1,7 +1,7 @@
 """Tests for limacharlie.sdk.ticketing module."""
 
 import json
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, patch, call
 import pytest
 
 from limacharlie.sdk.ticketing import Ticketing
@@ -59,6 +59,62 @@ class TestTicketingInit:
 
     def test_oid_property(self, ticketing):
         assert ticketing.oid == "test-oid"
+
+
+# ---------------------------------------------------------------------------
+# Create Ticket (via extension request)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateTicket:
+    def test_calls_extension_request(self, ticketing, mock_org):
+        with patch("limacharlie.sdk.ticketing.Extensions") as MockExt:
+            mock_ext = MagicMock()
+            MockExt.return_value = mock_ext
+            mock_ext.request.return_value = {"created": 1, "ticket_id": "tid-new"}
+            result = ticketing.create_ticket("det-1")
+            MockExt.assert_called_once_with(mock_org)
+            mock_ext.request.assert_called_once_with(
+                "ext-ticketing", "create_ticket",
+                data={"detection_id": "det-1"},
+            )
+            assert result["ticket_id"] == "tid-new"
+
+    def test_all_optional_fields(self, ticketing, mock_org):
+        with patch("limacharlie.sdk.ticketing.Extensions") as MockExt:
+            mock_ext = MagicMock()
+            MockExt.return_value = mock_ext
+            mock_ext.request.return_value = {"created": 1}
+            ticketing.create_ticket(
+                "det-1",
+                detection_cat="lateral_movement",
+                severity="high",
+                detection_source="dr-general",
+                detection_priority=7,
+                sensor_id="sid-1",
+                hostname="ws-01",
+            )
+            call_data = mock_ext.request.call_args[1]["data"]
+            assert call_data == {
+                "detection_id": "det-1",
+                "detection_cat": "lateral_movement",
+                "severity": "high",
+                "detection_source": "dr-general",
+                "detection_priority": 7,
+                "sensor_id": "sid-1",
+                "hostname": "ws-01",
+            }
+
+    def test_none_optional_fields_excluded(self, ticketing, mock_org):
+        with patch("limacharlie.sdk.ticketing.Extensions") as MockExt:
+            mock_ext = MagicMock()
+            MockExt.return_value = mock_ext
+            mock_ext.request.return_value = {"created": 1}
+            ticketing.create_ticket("det-1", severity=None, hostname=None)
+            call_data = mock_ext.request.call_args[1]["data"]
+            assert call_data == {"detection_id": "det-1"}
+            assert "severity" not in call_data
+            assert "hostname" not in call_data
 
 
 # ---------------------------------------------------------------------------

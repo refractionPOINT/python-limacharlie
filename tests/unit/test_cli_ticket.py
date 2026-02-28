@@ -32,6 +32,7 @@ def _invoke(args, mock_ticketing_cls, return_value=None):
         mock_t.return_value = return_value
         # Set specific SDK methods that our commands call.
         for name in [
+            "create_ticket",
             "list_tickets", "get_ticket", "update_ticket", "add_note",
             "bulk_update", "merge",
             "list_detections", "add_detection", "remove_detection",
@@ -59,7 +60,7 @@ class TestTicketHelp:
         result = runner.invoke(cli, ["ticket", "--help"])
         assert result.exit_code == 0
         assert "Manage SOC tickets" in result.output
-        for cmd in ["list", "get", "update", "add-note", "merge",
+        for cmd in ["create", "list", "get", "update", "add-note", "merge",
                      "entity", "telemetry", "artifact", "detection",
                      "report", "dashboard", "config-get", "config-set",
                      "assignees", "bulk-update"]:
@@ -92,6 +93,70 @@ class TestTicketHelp:
         assert result.exit_code == 0
         for cmd in ["list", "add", "remove"]:
             assert cmd in result.output
+
+
+# ---------------------------------------------------------------------------
+# ticket create
+# ---------------------------------------------------------------------------
+
+
+class TestTicketCreate:
+    def test_create_minimal(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "create", "--detection-id", "det-abc"],
+                mock_t_cls,
+                return_value={"created": 1, "ticket_id": "tid-new"},
+            )
+            assert result.exit_code == 0
+            mock_t.create_ticket.assert_called_once_with(
+                "det-abc",
+                detection_cat=None,
+                severity=None,
+                detection_source=None,
+                detection_priority=None,
+                sensor_id=None,
+                hostname=None,
+            )
+
+    def test_create_all_fields(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "create",
+                 "--detection-id", "det-abc",
+                 "--detection-cat", "lateral_movement",
+                 "--severity", "high",
+                 "--detection-source", "dr-general",
+                 "--detection-priority", "7",
+                 "--sensor-id", "sid-123",
+                 "--hostname", "ws-01"],
+                mock_t_cls,
+                return_value={"created": 1, "ticket_id": "tid-new"},
+            )
+            assert result.exit_code == 0
+            mock_t.create_ticket.assert_called_once_with(
+                "det-abc",
+                detection_cat="lateral_movement",
+                severity="high",
+                detection_source="dr-general",
+                detection_priority=7,
+                sensor_id="sid-123",
+                hostname="ws-01",
+            )
+
+    def test_create_requires_detection_id(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["ticket", "create"])
+        assert result.exit_code != 0
+
+    def test_create_invalid_severity_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "ticket", "create", "--detection-id", "det-1", "--severity", "extreme",
+        ])
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------

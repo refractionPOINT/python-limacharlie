@@ -363,6 +363,26 @@ Example:
   limacharlie ticket assignees
 """
 
+_EXPLAIN_CREATE = """\
+Create a new SOC ticket from a detection.  This calls the ext-ticketing
+extension to create a ticket and returns the new ticket ID.
+
+A detection_id is required.  Additional metadata (category, severity,
+sensor, hostname) can be provided to enrich the ticket.
+
+If --severity is omitted the extension defaults to 'medium'.  Valid
+severities: critical, high, medium, low.
+
+Examples:
+  limacharlie ticket create --detection-id <DETECTION_ID>
+  limacharlie ticket create --detection-id <DETECTION_ID> \\
+      --detection-cat "lateral_movement" --severity high \\
+      --sensor-id <SID> --hostname ws-01
+  limacharlie ticket create --detection-id <DETECTION_ID> \\
+      --detection-source dr-general --detection-priority 7
+"""
+
+register_explain("ticket.create", _EXPLAIN_CREATE)
 register_explain("ticket.list", _EXPLAIN_LIST)
 register_explain("ticket.get", _EXPLAIN_GET)
 register_explain("ticket.update", _EXPLAIN_UPDATE)
@@ -454,6 +474,41 @@ def group() -> None:
     and resolution.  Supports entities (IOCs), telemetry linking,
     forensic artifacts, reporting, and configuration.
     """
+
+
+# ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--detection-id", required=True, help="Detection ID to create the ticket for.")
+@click.option("--detection-cat", default=None, help="Detection category / rule name.")
+@click.option("--severity", default=None, type=_SEVERITY_CHOICES, help="Ticket severity (default: medium).")
+@click.option("--detection-source", default=None, help="Detection source (e.g. dr-general).")
+@click.option("--detection-priority", default=None, type=int, help="Detection priority (0-10).")
+@click.option("--sensor-id", default=None, help="Sensor ID.")
+@click.option("--hostname", default=None, help="Hostname.")
+@pass_context
+def create(ctx, detection_id, detection_cat, severity, detection_source,
+           detection_priority, sensor_id, hostname) -> None:
+    """Create a new ticket from a detection.
+
+    Examples:
+        limacharlie ticket create --detection-id <DET_ID>
+        limacharlie ticket create --detection-id <DET_ID> \\
+            --severity high --hostname ws-01
+    """
+    t = _get_ticketing(ctx)
+    data = t.create_ticket(
+        detection_id,
+        detection_cat=detection_cat,
+        severity=severity,
+        detection_source=detection_source,
+        detection_priority=detection_priority,
+        sensor_id=sensor_id,
+        hostname=hostname,
+    )
+    _output(ctx, data)
 
 
 # ---------------------------------------------------------------------------

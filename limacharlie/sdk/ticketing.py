@@ -14,6 +14,8 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from .organization import Organization
 
+from .extensions import Extensions
+
 _DEFAULT_API_ROOT = "https://ext-ticketing-api-ackbwtk5nq-uc.a.run.app"
 
 
@@ -29,6 +31,54 @@ class Ticketing:
     @property
     def oid(self) -> str:
         return self._org.oid
+
+    # ------------------------------------------------------------------
+    # Extension name for ticket creation via the LC extension API.
+    # ------------------------------------------------------------------
+
+    _EXTENSION_NAME = "ext-ticketing"
+
+    def create_ticket(
+        self,
+        detection_id: str,
+        *,
+        detection_cat: str | None = None,
+        severity: str | None = None,
+        detection_source: str | None = None,
+        detection_priority: int | None = None,
+        sensor_id: str | None = None,
+        hostname: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new ticket via the ext-ticketing extension.
+
+        Ticket creation goes through the LimaCharlie extension request
+        mechanism (``create_ticket`` action) rather than the ticketing
+        REST API.
+
+        Args:
+            detection_id: Detection ID to create the ticket for (required).
+            detection_cat: Detection category / rule name.
+            severity: Ticket severity (critical, high, medium, low).
+            detection_source: Detection source (e.g. dr-general).
+            detection_priority: Detection priority (0-10).
+            sensor_id: Sensor ID from the triggering event.
+            hostname: Hostname from the triggering event.
+        """
+        data: dict[str, Any] = {"detection_id": detection_id}
+        if detection_cat is not None:
+            data["detection_cat"] = detection_cat
+        if severity is not None:
+            data["severity"] = severity
+        if detection_source is not None:
+            data["detection_source"] = detection_source
+        if detection_priority is not None:
+            data["detection_priority"] = detection_priority
+        if sensor_id is not None:
+            data["sensor_id"] = sensor_id
+        if hostname is not None:
+            data["hostname"] = hostname
+        ext = Extensions(self._org)
+        return ext.request(self._EXTENSION_NAME, "create_ticket", data=data)
 
     def _request(
         self,
