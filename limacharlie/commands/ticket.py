@@ -637,6 +637,11 @@ def export(ctx, ticket_id, output_dir) -> None:
     _export_with_data(ctx, t, data, output_dir)
 
 
+def _safe_filename(name: str) -> str:
+    """Sanitize a string for use as a filename (strip path separators)."""
+    return os.path.basename(name).replace("\x00", "_")
+
+
 def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
                       output_dir: str) -> None:
     """Write ticket export to a directory with full data."""
@@ -658,7 +663,8 @@ def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
                 continue
             try:
                 det_data = org.get_detection_by_id(det_id)
-                with open(os.path.join(det_dir, f"{det_id}.json"), "w") as f:
+                fname = f"{_safe_filename(det_id)}.json"
+                with open(os.path.join(det_dir, fname), "w") as f:
                     json.dump(det_data, f, indent=2)
             except Exception as e:
                 click.echo(f"Warning: could not fetch detection {det_id}: {e}", err=True)
@@ -676,7 +682,8 @@ def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
             try:
                 sensor = Sensor(org, sid)
                 event_data = sensor.get_event_by_atom(atom)
-                with open(os.path.join(tel_dir, f"{atom}.json"), "w") as f:
+                fname = f"{_safe_filename(atom)}.json"
+                with open(os.path.join(tel_dir, fname), "w") as f:
                     json.dump(event_data, f, indent=2)
             except Exception as e:
                 click.echo(f"Warning: could not fetch event {atom}: {e}", err=True)
@@ -693,7 +700,7 @@ def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
                 continue
             try:
                 url_data = artifacts_sdk.get_url(art_id)
-                dest = os.path.join(art_dir, f"{art_id}.bin")
+                dest = os.path.join(art_dir, f"{_safe_filename(art_id)}.bin")
                 if "payload" in url_data:
                     payload = url_data["payload"]
                     raw = base64.b64decode(payload) if isinstance(payload, str) else payload

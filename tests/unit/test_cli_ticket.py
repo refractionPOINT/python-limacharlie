@@ -434,6 +434,93 @@ class TestTicketExport:
             with open(os.path.join(out_dir, "artifacts", "art-url.bin"), "rb") as f:
                 assert f.read() == b"artifact-binary-data"
 
+    def test_export_with_data_telemetry_fetch_error(self, tmp_path):
+        out_dir = str(tmp_path / "export-tel-err")
+        export_data = {
+            "ticket": {"ticket_id": "tid-1"},
+            "events": [],
+            "detections": {"detections": []},
+            "entities": {"entities": []},
+            "telemetry": {"telemetry": [{"atom": "atom-bad", "sid": "sid-1"}]},
+            "artifacts": {"artifacts": []},
+        }
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls, \
+             patch("limacharlie.commands.ticket.Sensor") as MockSensor:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t._org = MagicMock()
+            mock_t.export_ticket.return_value = export_data
+            mock_sensor = MagicMock()
+            MockSensor.return_value = mock_sensor
+            mock_sensor.get_event_by_atom.side_effect = Exception("event expired")
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                      "--with-data", out_dir],
+            )
+            assert result.exit_code == 0
+            assert not os.path.isfile(os.path.join(out_dir, "telemetry", "atom-bad.json"))
+            assert "Warning" in result.output
+
+    def test_export_with_data_artifact_fetch_error(self, tmp_path):
+        out_dir = str(tmp_path / "export-art-err")
+        export_data = {
+            "ticket": {"ticket_id": "tid-1"},
+            "events": [],
+            "detections": {"detections": []},
+            "entities": {"entities": []},
+            "telemetry": {"telemetry": []},
+            "artifacts": {"artifacts": [{"artifact_id": "art-bad"}]},
+        }
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls, \
+             patch("limacharlie.commands.ticket.Artifacts") as MockArtifacts:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t._org = MagicMock()
+            mock_t.export_ticket.return_value = export_data
+            mock_artifacts = MagicMock()
+            MockArtifacts.return_value = mock_artifacts
+            mock_artifacts.get_url.side_effect = Exception("artifact gone")
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                      "--with-data", out_dir],
+            )
+            assert result.exit_code == 0
+            assert not os.path.isfile(os.path.join(out_dir, "artifacts", "art-bad.bin"))
+            assert "Warning" in result.output
+
+    def test_export_with_data_skips_empty_ids(self, tmp_path):
+        """Entries missing detection_id/atom/sid/artifact_id are skipped."""
+        out_dir = str(tmp_path / "export-empty")
+        export_data = {
+            "ticket": {"ticket_id": "tid-1"},
+            "events": [],
+            "detections": {"detections": [{"other_field": "x"}]},
+            "entities": {"entities": []},
+            "telemetry": {"telemetry": [{"atom": "a1"}, {"sid": "s1"}]},
+            "artifacts": {"artifacts": [{}]},
+        }
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t._org = MagicMock()
+            mock_t.export_ticket.return_value = export_data
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                      "--with-data", out_dir],
+            )
+            assert result.exit_code == 0
+            # No SDK fetch methods should have been called.
+            mock_t._org.get_detection_by_id.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # ticket update
