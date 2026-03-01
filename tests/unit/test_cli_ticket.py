@@ -233,12 +233,12 @@ class TestTicketGet:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "get", "--id", "tid-1"],
+                ["ticket", "get", "--id", "42"],
                 mock_t_cls,
                 return_value={"ticket": {"ticket_id": "tid-1"}, "events": []},
             )
             assert result.exit_code == 0
-            mock_t.get_ticket.assert_called_once_with("tid-1")
+            mock_t.get_ticket.assert_called_once_with(42)
 
     def test_get_requires_id(self):
         runner = CliRunner()
@@ -264,12 +264,12 @@ class TestTicketExport:
                 "artifacts": {"artifacts": []},
             }
             result, mock_t = _invoke(
-                ["ticket", "export", "--id", "tid-1"],
+                ["ticket", "export", "--id", "42"],
                 mock_t_cls,
                 return_value=export_data,
             )
             assert result.exit_code == 0
-            mock_t.export_ticket.assert_called_once_with("tid-1")
+            mock_t.export_ticket.assert_called_once_with(42)
             parsed = json.loads(result.output)
             assert "ticket" in parsed
 
@@ -308,7 +308,7 @@ class TestTicketExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                cli, ["--output", "json", "ticket", "export", "--id", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0, result.output
@@ -358,7 +358,7 @@ class TestTicketExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                cli, ["--output", "json", "ticket", "export", "--id", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -386,7 +386,7 @@ class TestTicketExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--quiet", "ticket", "export", "--id", "tid-1",
+                cli, ["--quiet", "ticket", "export", "--id", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -426,7 +426,7 @@ class TestTicketExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                cli, ["--output", "json", "ticket", "export", "--id", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -457,7 +457,7 @@ class TestTicketExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                cli, ["--output", "json", "ticket", "export", "--id", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -487,7 +487,7 @@ class TestTicketExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                cli, ["--output", "json", "ticket", "export", "--id", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -514,7 +514,7 @@ class TestTicketExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                cli, ["--output", "json", "ticket", "export", "--id", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -532,18 +532,18 @@ class TestTicketUpdate:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "update", "--id", "tid-1", "--status", "acknowledged"],
+                ["ticket", "update", "--id", "42", "--status", "acknowledged"],
                 mock_t_cls,
                 return_value={"ticket": {}},
             )
             assert result.exit_code == 0
-            mock_t.update_ticket.assert_called_once_with("tid-1", status="acknowledged")
+            mock_t.update_ticket.assert_called_once_with(42, status="acknowledged")
 
     def test_update_multiple_fields(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "update", "--id", "tid-1",
+                ["ticket", "update", "--id", "42",
                  "--status", "resolved",
                  "--classification", "true_positive",
                  "--assignee", "bob@example.com"],
@@ -552,7 +552,7 @@ class TestTicketUpdate:
             )
             assert result.exit_code == 0
             mock_t.update_ticket.assert_called_once_with(
-                "tid-1",
+                42,
                 status="resolved",
                 classification="true_positive",
                 assignee="bob@example.com",
@@ -562,7 +562,7 @@ class TestTicketUpdate:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "update", "--id", "tid-1"],
+                ["ticket", "update", "--id", "42"],
                 mock_t_cls,
             )
             assert result.exit_code != 0
@@ -570,7 +570,7 @@ class TestTicketUpdate:
 
     def test_update_invalid_status_rejected(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["ticket", "update", "--id", "t1", "--status", "invalid"])
+        result = runner.invoke(cli, ["ticket", "update", "--id", "1", "--status", "invalid"])
         assert result.exit_code != 0
 
 
@@ -584,23 +584,23 @@ class TestTicketAddNote:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "add-note", "--id", "tid-1", "--content", "Triage complete"],
+                ["ticket", "add-note", "--id", "42", "--content", "Triage complete"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.add_note.assert_called_once_with("tid-1", "Triage complete", note_type=None)
+            mock_t.add_note.assert_called_once_with(42, "Triage complete", note_type=None)
 
     def test_add_note_with_type(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "add-note", "--id", "tid-1", "--content", "Analysis", "--type", "analysis"],
+                ["ticket", "add-note", "--id", "42", "--content", "Analysis", "--type", "analysis"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.add_note.assert_called_once_with("tid-1", "Analysis", note_type="analysis")
+            mock_t.add_note.assert_called_once_with(42, "Analysis", note_type="analysis")
 
     def test_add_note_from_stdin(self):
         p1, p2, p3 = _patch_ticketing()
@@ -611,16 +611,16 @@ class TestTicketAddNote:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "ticket", "add-note", "--id", "tid-1"],
+                ["--output", "json", "ticket", "add-note", "--id", "42"],
                 input="Piped content\n",
             )
             assert result.exit_code == 0
-            mock_t.add_note.assert_called_once_with("tid-1", "Piped content", note_type=None)
+            mock_t.add_note.assert_called_once_with(42, "Piped content", note_type=None)
 
     def test_add_note_invalid_type_rejected(self):
         runner = CliRunner()
         result = runner.invoke(cli, [
-            "ticket", "add-note", "--id", "t1", "--content", "x", "--type", "invalid",
+            "ticket", "add-note", "--id", "1", "--content", "x", "--type", "invalid",
         ])
         assert result.exit_code != 0
 
@@ -631,22 +631,22 @@ class TestTicketAddNote:
 
 
 class TestTicketBulkUpdate:
-    def test_bulk_update_with_ids(self):
+    def test_bulk_update_with_numbers(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "bulk-update", "--ids", "t1,t2,t3", "--status", "closed"],
+                ["ticket", "bulk-update", "--numbers", "1,2,3", "--status", "closed"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
             mock_t.bulk_update.assert_called_once_with(
-                ["t1", "t2", "t3"], status="closed",
+                [1, 2, 3], status="closed",
             )
 
     def test_bulk_update_with_file(self, tmp_path):
-        id_file = tmp_path / "ids.txt"
-        id_file.write_text("t1\nt2\nt3\n")
+        id_file = tmp_path / "numbers.txt"
+        id_file.write_text("1\n2\n3\n")
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
@@ -657,12 +657,12 @@ class TestTicketBulkUpdate:
             )
             assert result.exit_code == 0
             mock_t.bulk_update.assert_called_once_with(
-                ["t1", "t2", "t3"], classification="false_positive",
+                [1, 2, 3], classification="false_positive",
             )
 
     def test_bulk_update_json_array_file(self, tmp_path):
-        id_file = tmp_path / "ids.json"
-        id_file.write_text('["t1", "t2"]')
+        id_file = tmp_path / "numbers.json"
+        id_file.write_text('[1, 2]')
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
@@ -671,9 +671,9 @@ class TestTicketBulkUpdate:
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.bulk_update.assert_called_once_with(["t1", "t2"], status="closed")
+            mock_t.bulk_update.assert_called_once_with([1, 2], status="closed")
 
-    def test_bulk_update_no_ids_error(self):
+    def test_bulk_update_no_numbers_error(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, _ = _invoke(
@@ -686,7 +686,7 @@ class TestTicketBulkUpdate:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, _ = _invoke(
-                ["ticket", "bulk-update", "--ids", "t1"],
+                ["ticket", "bulk-update", "--numbers", "1"],
                 mock_t_cls,
             )
             assert result.exit_code != 0
@@ -703,21 +703,21 @@ class TestTicketMerge:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "merge", "--target", "target-1", "--sources", "src-1,src-2"],
+                ["ticket", "merge", "--target", "10", "--sources", "11,12"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.merge.assert_called_once_with("target-1", ["src-1", "src-2"])
+            mock_t.merge.assert_called_once_with(10, [11, 12])
 
     def test_merge_requires_target(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["ticket", "merge", "--sources", "s1"])
+        result = runner.invoke(cli, ["ticket", "merge", "--sources", "1"])
         assert result.exit_code != 0
 
     def test_merge_requires_sources(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["ticket", "merge", "--target", "t1"])
+        result = runner.invoke(cli, ["ticket", "merge", "--target", "1"])
         assert result.exit_code != 0
 
 
@@ -731,25 +731,25 @@ class TestTicketEntity:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "entity", "list", "--ticket", "tid-1"],
+                ["ticket", "entity", "list", "--ticket", "42"],
                 mock_t_cls,
                 return_value={"entities": []},
             )
             assert result.exit_code == 0
-            mock_t.list_entities.assert_called_once_with("tid-1")
+            mock_t.list_entities.assert_called_once_with(42)
 
     def test_entity_add(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "entity", "add", "--ticket", "tid-1",
+                ["ticket", "entity", "add", "--ticket", "42",
                  "--type", "ip", "--value", "10.0.0.1", "--verdict", "malicious"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
             mock_t.add_entity.assert_called_once_with(
-                "tid-1", "ip", "10.0.0.1",
+                42, "ip", "10.0.0.1",
                 name=None, verdict="malicious", context=None,
                 first_seen=None, last_seen=None,
             )
@@ -757,7 +757,7 @@ class TestTicketEntity:
     def test_entity_add_invalid_type_rejected(self):
         runner = CliRunner()
         result = runner.invoke(cli, [
-            "ticket", "entity", "add", "--ticket", "t1",
+            "ticket", "entity", "add", "--ticket", "1",
             "--type", "invalid", "--value", "x",
         ])
         assert result.exit_code != 0
@@ -766,19 +766,19 @@ class TestTicketEntity:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "entity", "update", "--ticket", "tid-1",
+                ["ticket", "entity", "update", "--ticket", "42",
                  "--entity-id", "eid-1", "--verdict", "benign"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.update_entity.assert_called_once_with("tid-1", "eid-1", verdict="benign")
+            mock_t.update_entity.assert_called_once_with(42, "eid-1", verdict="benign")
 
     def test_entity_update_no_fields_error(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, _ = _invoke(
-                ["ticket", "entity", "update", "--ticket", "t1", "--entity-id", "e1"],
+                ["ticket", "entity", "update", "--ticket", "1", "--entity-id", "e1"],
                 mock_t_cls,
             )
             assert result.exit_code != 0
@@ -787,12 +787,12 @@ class TestTicketEntity:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "entity", "remove", "--ticket", "tid-1", "--entity-id", "eid-1"],
+                ["ticket", "entity", "remove", "--ticket", "42", "--entity-id", "eid-1"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.remove_entity.assert_called_once_with("tid-1", "eid-1")
+            mock_t.remove_entity.assert_called_once_with(42, "eid-1")
 
     def test_entity_search(self):
         p1, p2, p3 = _patch_ticketing()
@@ -816,18 +816,18 @@ class TestTicketTelemetry:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "telemetry", "list", "--ticket", "tid-1"],
+                ["ticket", "telemetry", "list", "--ticket", "42"],
                 mock_t_cls,
                 return_value={"telemetry": []},
             )
             assert result.exit_code == 0
-            mock_t.list_telemetry.assert_called_once_with("tid-1")
+            mock_t.list_telemetry.assert_called_once_with(42)
 
     def test_telemetry_add(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "telemetry", "add", "--ticket", "tid-1",
+                ["ticket", "telemetry", "add", "--ticket", "42",
                  "--atom", "atom-1", "--sid", "sid-1",
                  "--event-type", "NEW_PROCESS", "--verdict", "suspicious"],
                 mock_t_cls,
@@ -835,7 +835,7 @@ class TestTicketTelemetry:
             )
             assert result.exit_code == 0
             mock_t.add_telemetry.assert_called_once_with(
-                "tid-1", "atom-1", "sid-1",
+                42, "atom-1", "sid-1",
                 event_type="NEW_PROCESS", event_summary=None,
                 verdict="suspicious", relevance=None,
             )
@@ -844,19 +844,19 @@ class TestTicketTelemetry:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "telemetry", "update", "--ticket", "tid-1",
+                ["ticket", "telemetry", "update", "--ticket", "42",
                  "--telemetry-id", "tel-1", "--verdict", "malicious"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.update_telemetry.assert_called_once_with("tid-1", "tel-1", verdict="malicious")
+            mock_t.update_telemetry.assert_called_once_with(42, "tel-1", verdict="malicious")
 
     def test_telemetry_update_no_fields_error(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, _ = _invoke(
-                ["ticket", "telemetry", "update", "--ticket", "t1", "--telemetry-id", "tel-1"],
+                ["ticket", "telemetry", "update", "--ticket", "1", "--telemetry-id", "tel-1"],
                 mock_t_cls,
             )
             assert result.exit_code != 0
@@ -865,12 +865,12 @@ class TestTicketTelemetry:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "telemetry", "remove", "--ticket", "tid-1", "--telemetry-id", "tel-1"],
+                ["ticket", "telemetry", "remove", "--ticket", "42", "--telemetry-id", "tel-1"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.remove_telemetry.assert_called_once_with("tid-1", "tel-1")
+            mock_t.remove_telemetry.assert_called_once_with(42, "tel-1")
 
 
 # ---------------------------------------------------------------------------
@@ -883,18 +883,18 @@ class TestTicketArtifact:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "artifact", "list", "--ticket", "tid-1"],
+                ["ticket", "artifact", "list", "--ticket", "42"],
                 mock_t_cls,
                 return_value={"artifacts": []},
             )
             assert result.exit_code == 0
-            mock_t.list_artifacts.assert_called_once_with("tid-1")
+            mock_t.list_artifacts.assert_called_once_with(42)
 
     def test_artifact_add(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "artifact", "add", "--ticket", "tid-1",
+                ["ticket", "artifact", "add", "--ticket", "42",
                  "--type", "pcap", "--description", "Network capture",
                  "--verdict", "suspicious"],
                 mock_t_cls,
@@ -902,7 +902,7 @@ class TestTicketArtifact:
             )
             assert result.exit_code == 0
             mock_t.add_artifact.assert_called_once_with(
-                "tid-1", "pcap",
+                42, "pcap",
                 description="Network capture", verdict="suspicious",
             )
 
@@ -910,12 +910,12 @@ class TestTicketArtifact:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "artifact", "remove", "--ticket", "tid-1", "--artifact-id", "art-1"],
+                ["ticket", "artifact", "remove", "--ticket", "42", "--artifact-id", "art-1"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.remove_artifact.assert_called_once_with("tid-1", "art-1")
+            mock_t.remove_artifact.assert_called_once_with(42, "art-1")
 
 
 # ---------------------------------------------------------------------------
@@ -928,25 +928,25 @@ class TestTicketDetection:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "detection", "list", "--ticket", "tid-1"],
+                ["ticket", "detection", "list", "--ticket", "42"],
                 mock_t_cls,
                 return_value={"detections": []},
             )
             assert result.exit_code == 0
-            mock_t.list_detections.assert_called_once_with("tid-1")
+            mock_t.list_detections.assert_called_once_with(42)
 
     def test_detection_add(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "detection", "add", "--ticket", "tid-1",
+                ["ticket", "detection", "add", "--ticket", "42",
                  "--detection-id", "det-1", "--detection-cat", "lateral_movement"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
             mock_t.add_detection.assert_called_once_with(
-                "tid-1", "det-1",
+                42, "det-1",
                 detection_cat="lateral_movement",
                 detection_source=None,
                 detection_priority=None,
@@ -958,13 +958,13 @@ class TestTicketDetection:
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "detection", "remove", "--ticket", "tid-1",
+                ["ticket", "detection", "remove", "--ticket", "42",
                  "--detection-id", "det-1"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.remove_detection.assert_called_once_with("tid-1", "det-1")
+            mock_t.remove_detection.assert_called_once_with(42, "det-1")
 
 
 # ---------------------------------------------------------------------------

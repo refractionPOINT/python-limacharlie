@@ -135,15 +135,15 @@ class Ticketing:
             qp["page_token"] = page_token
         return self._request("GET", "tickets", query_params=qp)
 
-    def get_ticket(self, ticket_id: str) -> dict[str, Any]:
+    def get_ticket(self, ticket_number: int) -> dict[str, Any]:
         """Get a single ticket with its full event timeline."""
         return self._request(
             "GET",
-            f"tickets/{ticket_id}",
+            f"tickets/{ticket_number}",
             query_params={"oid": self.oid},
         )
 
-    def update_ticket(self, ticket_id: str, **fields: Any) -> dict[str, Any]:
+    def update_ticket(self, ticket_number: int, **fields: Any) -> dict[str, Any]:
         """Update a ticket.
 
         Accepted fields: status, assignee, classification,
@@ -151,14 +151,14 @@ class Ticketing:
         """
         return self._request(
             "PATCH",
-            f"tickets/{ticket_id}",
+            f"tickets/{ticket_number}",
             query_params={"oid": self.oid},
             body={k: v for k, v in fields.items() if v is not None},
         )
 
     def add_note(
         self,
-        ticket_id: str,
+        ticket_number: int,
         content: str,
         note_type: str | None = None,
     ) -> dict[str, Any]:
@@ -168,28 +168,28 @@ class Ticketing:
             body["note_type"] = note_type
         return self._request(
             "POST",
-            f"tickets/{ticket_id}/notes",
+            f"tickets/{ticket_number}/notes",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def bulk_update(
         self,
-        ticket_ids: list[str],
+        ticket_numbers: list[int],
         **fields: Any,
     ) -> dict[str, Any]:
         """Bulk update up to 200 tickets."""
         body: dict[str, Any] = {
             "oid": self.oid,
-            "ticket_ids": ticket_ids,
+            "ticket_numbers": ticket_numbers,
             "update": {k: v for k, v in fields.items() if v is not None},
         }
         return self._request("POST", "tickets/bulk-update", body=body)
 
     def merge(
         self,
-        target_ticket_id: str,
-        source_ticket_ids: list[str],
+        target_ticket_number: int,
+        source_ticket_numbers: list[int],
     ) -> dict[str, Any]:
         """Merge source tickets into a target ticket."""
         return self._request(
@@ -197,8 +197,8 @@ class Ticketing:
             "tickets/merge",
             body={
                 "oid": self.oid,
-                "target_ticket_id": target_ticket_id,
-                "source_ticket_ids": source_ticket_ids,
+                "target_ticket_number": target_ticket_number,
+                "source_ticket_numbers": source_ticket_numbers,
             },
         )
 
@@ -206,17 +206,17 @@ class Ticketing:
     # Detections
     # ------------------------------------------------------------------
 
-    def list_detections(self, ticket_id: str) -> dict[str, Any]:
+    def list_detections(self, ticket_number: int) -> dict[str, Any]:
         """List detections linked to a ticket."""
         return self._request(
             "GET",
-            f"tickets/{ticket_id}/detections",
+            f"tickets/{ticket_number}/detections",
             query_params={"oid": self.oid},
         )
 
     def add_detection(
         self,
-        ticket_id: str,
+        ticket_number: int,
         detection_id: str,
         **fields: Any,
     ) -> dict[str, Any]:
@@ -225,20 +225,20 @@ class Ticketing:
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
-            f"tickets/{ticket_id}/detections",
+            f"tickets/{ticket_number}/detections",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def remove_detection(
         self,
-        ticket_id: str,
+        ticket_number: int,
         detection_id: str,
     ) -> dict[str, Any]:
         """Remove a detection link from a ticket."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_id}/detections/{detection_id}",
+            f"tickets/{ticket_number}/detections/{detection_id}",
             query_params={"oid": self.oid},
         )
 
@@ -246,17 +246,17 @@ class Ticketing:
     # Entities (IOCs)
     # ------------------------------------------------------------------
 
-    def list_entities(self, ticket_id: str) -> dict[str, Any]:
+    def list_entities(self, ticket_number: int) -> dict[str, Any]:
         """List entities on a ticket."""
         return self._request(
             "GET",
-            f"tickets/{ticket_id}/entities",
+            f"tickets/{ticket_number}/entities",
             query_params={"oid": self.oid},
         )
 
     def add_entity(
         self,
-        ticket_id: str,
+        ticket_number: int,
         entity_type: str,
         entity_value: str,
         **fields: Any,
@@ -269,34 +269,34 @@ class Ticketing:
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
-            f"tickets/{ticket_id}/entities",
+            f"tickets/{ticket_number}/entities",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def update_entity(
         self,
-        ticket_id: str,
+        ticket_number: int,
         entity_id: str,
         **fields: Any,
     ) -> dict[str, Any]:
         """Update an entity on a ticket."""
         return self._request(
             "PATCH",
-            f"tickets/{ticket_id}/entities/{entity_id}",
+            f"tickets/{ticket_number}/entities/{entity_id}",
             query_params={"oid": self.oid},
             body={k: v for k, v in fields.items() if v is not None},
         )
 
     def remove_entity(
         self,
-        ticket_id: str,
+        ticket_number: int,
         entity_id: str,
     ) -> dict[str, Any]:
         """Remove an entity from a ticket."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_id}/entities/{entity_id}",
+            f"tickets/{ticket_number}/entities/{entity_id}",
             query_params={"oid": self.oid},
         )
 
@@ -320,17 +320,17 @@ class Ticketing:
     # Telemetry
     # ------------------------------------------------------------------
 
-    def list_telemetry(self, ticket_id: str) -> dict[str, Any]:
+    def list_telemetry(self, ticket_number: int) -> dict[str, Any]:
         """List telemetry references on a ticket."""
         return self._request(
             "GET",
-            f"tickets/{ticket_id}/telemetry",
+            f"tickets/{ticket_number}/telemetry",
             query_params={"oid": self.oid},
         )
 
     def add_telemetry(
         self,
-        ticket_id: str,
+        ticket_number: int,
         atom: str,
         sid: str,
         **fields: Any,
@@ -340,34 +340,34 @@ class Ticketing:
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
-            f"tickets/{ticket_id}/telemetry",
+            f"tickets/{ticket_number}/telemetry",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def update_telemetry(
         self,
-        ticket_id: str,
+        ticket_number: int,
         telemetry_id: str,
         **fields: Any,
     ) -> dict[str, Any]:
         """Update a telemetry reference on a ticket."""
         return self._request(
             "PATCH",
-            f"tickets/{ticket_id}/telemetry/{telemetry_id}",
+            f"tickets/{ticket_number}/telemetry/{telemetry_id}",
             query_params={"oid": self.oid},
             body={k: v for k, v in fields.items() if v is not None},
         )
 
     def remove_telemetry(
         self,
-        ticket_id: str,
+        ticket_number: int,
         telemetry_id: str,
     ) -> dict[str, Any]:
         """Remove a telemetry reference from a ticket."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_id}/telemetry/{telemetry_id}",
+            f"tickets/{ticket_number}/telemetry/{telemetry_id}",
             query_params={"oid": self.oid},
         )
 
@@ -375,17 +375,17 @@ class Ticketing:
     # Artifacts
     # ------------------------------------------------------------------
 
-    def list_artifacts(self, ticket_id: str) -> dict[str, Any]:
+    def list_artifacts(self, ticket_number: int) -> dict[str, Any]:
         """List artifacts on a ticket."""
         return self._request(
             "GET",
-            f"tickets/{ticket_id}/artifacts",
+            f"tickets/{ticket_number}/artifacts",
             query_params={"oid": self.oid},
         )
 
     def add_artifact(
         self,
-        ticket_id: str,
+        ticket_number: int,
         artifact_type: str,
         **fields: Any,
     ) -> dict[str, Any]:
@@ -394,20 +394,20 @@ class Ticketing:
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
-            f"tickets/{ticket_id}/artifacts",
+            f"tickets/{ticket_number}/artifacts",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def remove_artifact(
         self,
-        ticket_id: str,
+        ticket_number: int,
         artifact_id: str,
     ) -> dict[str, Any]:
         """Remove an artifact from a ticket."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_id}/artifacts/{artifact_id}",
+            f"tickets/{ticket_number}/artifacts/{artifact_id}",
             query_params={"oid": self.oid},
         )
 
@@ -415,17 +415,17 @@ class Ticketing:
     # Export
     # ------------------------------------------------------------------
 
-    def export_ticket(self, ticket_id: str) -> dict[str, Any]:
+    def export_ticket(self, ticket_number: int) -> dict[str, Any]:
         """Export a ticket with all its components in a single object.
 
         Fetches the ticket (with event timeline), detections, entities,
         telemetry, and artifacts, and returns them combined.
         """
-        result = self.get_ticket(ticket_id)
-        result["detections"] = self.list_detections(ticket_id)
-        result["entities"] = self.list_entities(ticket_id)
-        result["telemetry"] = self.list_telemetry(ticket_id)
-        result["artifacts"] = self.list_artifacts(ticket_id)
+        result = self.get_ticket(ticket_number)
+        result["detections"] = self.list_detections(ticket_number)
+        result["entities"] = self.list_entities(ticket_number)
+        result["telemetry"] = self.list_telemetry(ticket_number)
+        result["artifacts"] = self.list_artifacts(ticket_number)
         return result
 
     # ------------------------------------------------------------------

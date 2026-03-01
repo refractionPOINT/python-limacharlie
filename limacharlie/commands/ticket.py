@@ -69,7 +69,7 @@ The event timeline provides a full audit trail of the ticket's
 lifecycle including who made each change and when.
 
 Examples:
-  limacharlie ticket get --id <TICKET_ID>
+  limacharlie ticket get --id 42
 """
 
 _EXPLAIN_UPDATE = """\
@@ -95,9 +95,9 @@ Status transitions follow a state machine:
   closed -> (terminal)
 
 Examples:
-  limacharlie ticket update --id <ID> --status acknowledged
-  limacharlie ticket update --id <ID> --assignee alice@example.com
-  limacharlie ticket update --id <ID> --status resolved \\
+  limacharlie ticket update --id 42 --status acknowledged
+  limacharlie ticket update --id 42 --assignee alice@example.com
+  limacharlie ticket update --id 42 --status resolved \\
       --classification true_positive \\
       --conclusion "Contained via network isolation"
 """
@@ -116,23 +116,23 @@ Note types:
 Provide content via --content, --input-file, or stdin.
 
 Examples:
-  limacharlie ticket add-note --id <ID> --content "Initial triage complete"
-  limacharlie ticket add-note --id <ID> --type analysis \\
+  limacharlie ticket add-note --id 42 --content "Initial triage complete"
+  limacharlie ticket add-note --id 42 --type analysis \\
       --content "Confirmed C2 beacon to 10.0.0.1"
-  echo "Handoff notes" | limacharlie ticket add-note --id <ID> --type handoff
+  echo "Handoff notes" | limacharlie ticket add-note --id 42 --type handoff
 """
 
 _EXPLAIN_BULK_UPDATE = """\
-Batch update up to 200 tickets at once.  Provide ticket IDs as a
-comma-separated list or via --input-file (one ID per line or JSON
+Batch update up to 200 tickets at once.  Provide ticket numbers as a
+comma-separated list or via --input-file (one number per line or JSON
 array).
 
 Only status and classification can be set in bulk.
 
 Examples:
-  limacharlie ticket bulk-update --ids <ID1>,<ID2>,<ID3> \\
+  limacharlie ticket bulk-update --numbers 1,2,3 \\
       --status closed --classification false_positive
-  limacharlie ticket bulk-update --input-file ticket_ids.txt --status resolved
+  limacharlie ticket bulk-update --input-file ticket_numbers.txt --status resolved
 """
 
 _EXPLAIN_MERGE = """\
@@ -145,8 +145,7 @@ This is useful for consolidating duplicate tickets created from
 related detections.
 
 Examples:
-  limacharlie ticket merge --target <TARGET_ID> \\
-      --sources <ID1>,<ID2>,<ID3>
+  limacharlie ticket merge --target 10 --sources 11,12,13
 """
 
 _EXPLAIN_ENTITY_LIST = """\
@@ -160,7 +159,7 @@ Each entity has a verdict: malicious, suspicious, benign, unknown,
 informational.
 
 Example:
-  limacharlie ticket entity list --ticket <TICKET_ID>
+  limacharlie ticket entity list --ticket 42
 """
 
 _EXPLAIN_ENTITY_ADD = """\
@@ -174,9 +173,9 @@ Entity values are normalized (lowercased) for IP, domain, hash, and
 email types.
 
 Examples:
-  limacharlie ticket entity add --ticket <ID> \\
+  limacharlie ticket entity add --ticket 42 \\
       --type ip --value "10.0.0.1" --verdict malicious
-  limacharlie ticket entity add --ticket <ID> \\
+  limacharlie ticket entity add --ticket 42 \\
       --type hash --value "d41d8cd98f00b204e9800998ecf8427e" \\
       --verdict suspicious --context "Found in startup folder"
 """
@@ -187,7 +186,7 @@ Update an existing entity on a ticket.
 Updatable fields: --name, --verdict, --context, --first-seen, --last-seen.
 
 Example:
-  limacharlie ticket entity update --ticket <ID> --entity-id <EID> \\
+  limacharlie ticket entity update --ticket 42 --entity-id <EID> \\
       --verdict malicious --context "Confirmed C2 server"
 """
 
@@ -195,7 +194,7 @@ _EXPLAIN_ENTITY_REMOVE = """\
 Remove an entity from a ticket.
 
 Example:
-  limacharlie ticket entity remove --ticket <ID> --entity-id <EID>
+  limacharlie ticket entity remove --ticket 42 --entity-id <EID>
 """
 
 _EXPLAIN_ENTITY_SEARCH = """\
@@ -214,7 +213,7 @@ List telemetry event references linked to a ticket.  These reference
 LimaCharlie events by atom+sid without storing the full payload.
 
 Example:
-  limacharlie ticket telemetry list --ticket <TICKET_ID>
+  limacharlie ticket telemetry list --ticket 42
 """
 
 _EXPLAIN_TELEMETRY_ADD = """\
@@ -225,7 +224,7 @@ Required: --atom and --sid.  Optional: --event-type, --event-summary,
 --verdict, --relevance.
 
 Examples:
-  limacharlie ticket telemetry add --ticket <ID> \\
+  limacharlie ticket telemetry add --ticket 42 \\
       --atom <ATOM_UUID> --sid <SENSOR_ID> \\
       --event-type NEW_PROCESS --verdict suspicious
 """
@@ -236,7 +235,7 @@ Update a telemetry reference on a ticket.
 Updatable fields: --event-summary, --verdict, --relevance.
 
 Example:
-  limacharlie ticket telemetry update --ticket <ID> \\
+  limacharlie ticket telemetry update --ticket 42 \\
       --telemetry-id <TID> --verdict malicious
 """
 
@@ -244,7 +243,7 @@ _EXPLAIN_TELEMETRY_REMOVE = """\
 Remove a telemetry reference from a ticket.
 
 Example:
-  limacharlie ticket telemetry remove --ticket <ID> --telemetry-id <TID>
+  limacharlie ticket telemetry remove --ticket 42 --telemetry-id <TID>
 """
 
 _EXPLAIN_ARTIFACT_LIST = """\
@@ -253,7 +252,7 @@ external forensic data (PCAPs, memory dumps, disk images, etc.)
 without storing the actual files.
 
 Example:
-  limacharlie ticket artifact list --ticket <TICKET_ID>
+  limacharlie ticket artifact list --ticket 42
 """
 
 _EXPLAIN_ARTIFACT_ADD = """\
@@ -263,9 +262,9 @@ The --type field is free-form (e.g., pcap, memory_dump, disk_image,
 log_export).  Optional: --description, --verdict.
 
 Examples:
-  limacharlie ticket artifact add --ticket <ID> \\
+  limacharlie ticket artifact add --ticket 42 \\
       --type pcap --description "Network capture during incident"
-  limacharlie ticket artifact add --ticket <ID> \\
+  limacharlie ticket artifact add --ticket 42 \\
       --type memory_dump --verdict suspicious \\
       --description "Process memory from PID 1234"
 """
@@ -274,23 +273,23 @@ _EXPLAIN_ARTIFACT_REMOVE = """\
 Remove a forensic artifact reference from a ticket.
 
 Example:
-  limacharlie ticket artifact remove --ticket <ID> --artifact-id <AID>
+  limacharlie ticket artifact remove --ticket 42 --artifact-id <AID>
 """
 
 _EXPLAIN_DETECTION_LIST = """\
 List detections linked to a ticket.
 
 Example:
-  limacharlie ticket detection list --ticket <TICKET_ID>
+  limacharlie ticket detection list --ticket 42
 """
 
 _EXPLAIN_DETECTION_ADD = """\
 Link an additional detection to a ticket.
 
 Examples:
-  limacharlie ticket detection add --ticket <ID> \\
+  limacharlie ticket detection add --ticket 42 \\
       --detection-id <DETECTION_ID>
-  limacharlie ticket detection add --ticket <ID> \\
+  limacharlie ticket detection add --ticket 42 \\
       --detection-id <DETECTION_ID> \\
       --detection-cat "lateral_movement" --hostname "ws-01"
 """
@@ -299,7 +298,7 @@ _EXPLAIN_DETECTION_REMOVE = """\
 Remove a detection link from a ticket.
 
 Example:
-  limacharlie ticket detection remove --ticket <ID> \\
+  limacharlie ticket detection remove --ticket 42 \\
       --detection-id <DETECTION_ID>
 """
 
@@ -394,9 +393,9 @@ Fetches that fail (e.g. expired data) emit a warning on stderr and
 are skipped.
 
 Examples:
-  limacharlie ticket export --id <TICKET_ID>
-  limacharlie ticket export --id <TICKET_ID> --output json > ticket.json
-  limacharlie ticket export --id <TICKET_ID> --with-data ./ticket-export
+  limacharlie ticket export --id 42
+  limacharlie ticket export --id 42 --output json > ticket.json
+  limacharlie ticket export --id 42 --with-data ./ticket-export
 """
 
 _EXPLAIN_CREATE = """\
@@ -593,16 +592,16 @@ def list_tickets(ctx, status, severity, classification, assignee, search,
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "ticket_id", required=True, help="Ticket ID.")
+@click.option("--id", "ticket_number", required=True, type=int, help="Ticket number.")
 @pass_context
-def get(ctx, ticket_id) -> None:
+def get(ctx, ticket_number) -> None:
     """Get a ticket with its event timeline.
 
     Example:
-        limacharlie ticket get --id <TICKET_ID>
+        limacharlie ticket get --id 42
     """
     t = _get_ticketing(ctx)
-    data = t.get_ticket(ticket_id)
+    data = t.get_ticket(ticket_number)
     _output(ctx, data)
 
 
@@ -611,11 +610,11 @@ def get(ctx, ticket_id) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "ticket_id", required=True, help="Ticket ID.")
+@click.option("--id", "ticket_number", required=True, type=int, help="Ticket number.")
 @click.option("--with-data", "output_dir", default=None, type=click.Path(),
               help="Export with full data to a directory.")
 @pass_context
-def export(ctx, ticket_id, output_dir) -> None:
+def export(ctx, ticket_number, output_dir) -> None:
     """Export a ticket with all its components.
 
     Without --with-data, prints combined JSON to stdout.
@@ -624,11 +623,11 @@ def export(ctx, ticket_id, output_dir) -> None:
     artifact binaries.
 
     Examples:
-        limacharlie ticket export --id <TICKET_ID>
-        limacharlie ticket export --id <TICKET_ID> --with-data ./out
+        limacharlie ticket export --id 42
+        limacharlie ticket export --id 42 --with-data ./out
     """
     t = _get_ticketing(ctx)
-    data = t.export_ticket(ticket_id)
+    data = t.export_ticket(ticket_number)
 
     if output_dir is None:
         _output(ctx, data)
@@ -726,7 +725,7 @@ def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "ticket_id", required=True, help="Ticket ID.")
+@click.option("--id", "ticket_number", required=True, type=int, help="Ticket number.")
 @click.option("--status", default=None, type=_STATUS_CHOICES, help="New status.")
 @click.option("--assignee", default=None, help="Assignee email.")
 @click.option("--classification", default=None, type=_CLASSIFICATION_CHOICES, help="Classification.")
@@ -735,16 +734,16 @@ def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
 @click.option("--summary", default=None, help="Investigation summary (max 8192 chars).")
 @click.option("--conclusion", default=None, help="Root cause & remediation (max 8192 chars).")
 @pass_context
-def update(ctx, ticket_id, status, assignee, classification,
+def update(ctx, ticket_number, status, assignee, classification,
            escalation_group, investigation_id, summary, conclusion) -> None:
     """Update a ticket.
 
     Only provided fields are changed.
 
     Examples:
-        limacharlie ticket update --id <ID> --status acknowledged
-        limacharlie ticket update --id <ID> --assignee alice@example.com
-        limacharlie ticket update --id <ID> --status resolved \\
+        limacharlie ticket update --id 42 --status acknowledged
+        limacharlie ticket update --id 42 --assignee alice@example.com
+        limacharlie ticket update --id 42 --status resolved \\
             --classification true_positive
     """
     fields = {
@@ -762,7 +761,7 @@ def update(ctx, ticket_id, status, assignee, classification,
         raise click.UsageError("Provide at least one field to update.")
 
     t = _get_ticketing(ctx)
-    data = t.update_ticket(ticket_id, **fields)
+    data = t.update_ticket(ticket_number, **fields)
     _output(ctx, data)
 
 
@@ -771,22 +770,22 @@ def update(ctx, ticket_id, status, assignee, classification,
 # ---------------------------------------------------------------------------
 
 @group.command("add-note")
-@click.option("--id", "ticket_id", required=True, help="Ticket ID.")
+@click.option("--id", "ticket_number", required=True, type=int, help="Ticket number.")
 @click.option("--content", default=None, help="Note content.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Read note content from file.")
 @click.option("--type", "note_type", default=None, type=_NOTE_TYPE_CHOICES,
               help="Note type (default: general).")
 @pass_context
-def add_note(ctx, ticket_id, content, input_file, note_type) -> None:
+def add_note(ctx, ticket_number, content, input_file, note_type) -> None:
     """Add a note to a ticket.
 
     Provide content via --content, --input-file, or stdin.
 
     Examples:
-        limacharlie ticket add-note --id <ID> --content "Triage complete"
-        limacharlie ticket add-note --id <ID> --type analysis \\
+        limacharlie ticket add-note --id 42 --content "Triage complete"
+        limacharlie ticket add-note --id 42 --type analysis \\
             --content "Confirmed C2 beacon"
-        echo "notes" | limacharlie ticket add-note --id <ID>
+        echo "notes" | limacharlie ticket add-note --id 42
     """
     if content:
         text = content
@@ -799,7 +798,7 @@ def add_note(ctx, ticket_id, content, input_file, note_type) -> None:
         raise click.UsageError("Provide content via --content, --input-file, or stdin.")
 
     t = _get_ticketing(ctx)
-    data = t.add_note(ticket_id, text.strip(), note_type=note_type)
+    data = t.add_note(ticket_number, text.strip(), note_type=note_type)
     _output(ctx, data)
 
 
@@ -808,26 +807,26 @@ def add_note(ctx, ticket_id, content, input_file, note_type) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("bulk-update")
-@click.option("--ids", default=None, help="Comma-separated ticket IDs.")
+@click.option("--numbers", default=None, help="Comma-separated ticket numbers.")
 @click.option("--input-file", default=None, type=click.Path(exists=True),
-              help="File with ticket IDs (one per line or JSON array).")
+              help="File with ticket numbers (one per line or JSON array).")
 @click.option("--status", default=None, type=_STATUS_CHOICES, help="New status for all tickets.")
 @click.option("--classification", default=None, type=_CLASSIFICATION_CHOICES,
               help="New classification for all tickets.")
 @pass_context
-def bulk_update(ctx, ids, input_file, status, classification) -> None:
+def bulk_update(ctx, numbers, input_file, status, classification) -> None:
     """Bulk update up to 200 tickets.
 
-    Provide IDs via --ids or --input-file.
+    Provide ticket numbers via --numbers or --input-file.
 
     Examples:
-        limacharlie ticket bulk-update --ids <ID1>,<ID2> --status closed
-        limacharlie ticket bulk-update --input-file ids.txt \\
+        limacharlie ticket bulk-update --numbers 1,2,3 --status closed
+        limacharlie ticket bulk-update --input-file numbers.txt \\
             --classification false_positive
     """
-    ticket_ids = _parse_id_list(ids, input_file)
-    if not ticket_ids:
-        raise click.UsageError("Provide ticket IDs via --ids or --input-file.")
+    ticket_numbers = _parse_number_list(numbers, input_file)
+    if not ticket_numbers:
+        raise click.UsageError("Provide ticket numbers via --numbers or --input-file.")
 
     fields: dict[str, Any] = {}
     if status:
@@ -838,14 +837,14 @@ def bulk_update(ctx, ids, input_file, status, classification) -> None:
         raise click.UsageError("Provide at least --status or --classification.")
 
     t = _get_ticketing(ctx)
-    data = t.bulk_update(ticket_ids, **fields)
+    data = t.bulk_update(ticket_numbers, **fields)
     _output(ctx, data)
 
 
-def _parse_id_list(ids_str: str | None, input_file: str | None) -> list[str]:
-    """Parse ticket IDs from comma-separated string or file."""
-    if ids_str:
-        return [i.strip() for i in ids_str.split(",") if i.strip()]
+def _parse_number_list(numbers_str: str | None, input_file: str | None) -> list[int]:
+    """Parse ticket numbers from comma-separated string or file."""
+    if numbers_str:
+        return [int(i.strip()) for i in numbers_str.split(",") if i.strip()]
     if input_file:
         with open(input_file, "r") as f:
             content = f.read().strip()
@@ -853,20 +852,20 @@ def _parse_id_list(ids_str: str | None, input_file: str | None) -> list[str]:
         try:
             parsed = json.loads(content)
             if isinstance(parsed, list):
-                return [str(i).strip() for i in parsed]
+                return [int(i) for i in parsed]
         except (json.JSONDecodeError, ValueError):
             pass
         # Fall back to one-per-line
-        return [line.strip() for line in content.splitlines() if line.strip()]
+        return [int(line.strip()) for line in content.splitlines() if line.strip()]
     if not sys.stdin.isatty():
         content = sys.stdin.read().strip()
         try:
             parsed = json.loads(content)
             if isinstance(parsed, list):
-                return [str(i).strip() for i in parsed]
+                return [int(i) for i in parsed]
         except (json.JSONDecodeError, ValueError):
             pass
-        return [line.strip() for line in content.splitlines() if line.strip()]
+        return [int(line.strip()) for line in content.splitlines() if line.strip()]
     return []
 
 
@@ -875,8 +874,8 @@ def _parse_id_list(ids_str: str | None, input_file: str | None) -> list[str]:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--target", required=True, help="Target ticket ID (receives merged content).")
-@click.option("--sources", required=True, help="Comma-separated source ticket IDs to merge.")
+@click.option("--target", required=True, type=int, help="Target ticket number (receives merged content).")
+@click.option("--sources", required=True, help="Comma-separated source ticket numbers to merge.")
 @pass_context
 def merge(ctx, target, sources) -> None:
     """Merge source tickets into a target ticket.
@@ -884,15 +883,14 @@ def merge(ctx, target, sources) -> None:
     Investigation content is copied; source tickets become 'merged'.
 
     Example:
-        limacharlie ticket merge --target <TARGET_ID> \\
-            --sources <ID1>,<ID2>
+        limacharlie ticket merge --target 10 --sources 11,12
     """
-    source_ids = [s.strip() for s in sources.split(",") if s.strip()]
-    if not source_ids:
-        raise click.UsageError("Provide at least one source ticket ID.")
+    source_numbers = [int(s.strip()) for s in sources.split(",") if s.strip()]
+    if not source_numbers:
+        raise click.UsageError("Provide at least one source ticket number.")
 
     t = _get_ticketing(ctx)
-    data = t.merge(target, source_ids)
+    data = t.merge(target, source_numbers)
     _output(ctx, data)
 
 
@@ -910,13 +908,13 @@ def entity_group() -> None:
 
 
 @entity_group.command("list")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @pass_context
 def entity_list(ctx, ticket) -> None:
     """List entities on a ticket.
 
     Example:
-        limacharlie ticket entity list --ticket <TICKET_ID>
+        limacharlie ticket entity list --ticket 42
     """
     t = _get_ticketing(ctx)
     data = t.list_entities(ticket)
@@ -924,7 +922,7 @@ def entity_list(ctx, ticket) -> None:
 
 
 @entity_group.command("add")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--type", "entity_type", required=True, type=_ENTITY_TYPE_CHOICES, help="Entity type.")
 @click.option("--value", "entity_value", required=True, help="Entity value (max 1024 chars).")
 @click.option("--name", default=None, help="Display name.")
@@ -938,9 +936,9 @@ def entity_add(ctx, ticket, entity_type, entity_value, name, verdict,
     """Add an entity to a ticket.
 
     Examples:
-        limacharlie ticket entity add --ticket <ID> \\
+        limacharlie ticket entity add --ticket 42 \\
             --type ip --value "10.0.0.1" --verdict malicious
-        limacharlie ticket entity add --ticket <ID> \\
+        limacharlie ticket entity add --ticket 42 \\
             --type hash --value "d41d8..." --context "In startup folder"
     """
     t = _get_ticketing(ctx)
@@ -953,7 +951,7 @@ def entity_add(ctx, ticket, entity_type, entity_value, name, verdict,
 
 
 @entity_group.command("update")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--entity-id", required=True, help="Entity ID to update.")
 @click.option("--name", default=None, help="Display name.")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
@@ -966,7 +964,7 @@ def entity_update(ctx, ticket, entity_id, name, verdict, context,
     """Update an entity on a ticket.
 
     Example:
-        limacharlie ticket entity update --ticket <ID> \\
+        limacharlie ticket entity update --ticket 42 \\
             --entity-id <EID> --verdict malicious
     """
     fields = {
@@ -983,14 +981,14 @@ def entity_update(ctx, ticket, entity_id, name, verdict, context,
 
 
 @entity_group.command("remove")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--entity-id", required=True, help="Entity ID to remove.")
 @pass_context
 def entity_remove(ctx, ticket, entity_id) -> None:
     """Remove an entity from a ticket.
 
     Example:
-        limacharlie ticket entity remove --ticket <ID> --entity-id <EID>
+        limacharlie ticket entity remove --ticket 42 --entity-id <EID>
     """
     t = _get_ticketing(ctx)
     data = t.remove_entity(ticket, entity_id)
@@ -1027,13 +1025,13 @@ def telemetry_group() -> None:
 
 
 @telemetry_group.command("list")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @pass_context
 def telemetry_list(ctx, ticket) -> None:
     """List telemetry references on a ticket.
 
     Example:
-        limacharlie ticket telemetry list --ticket <TICKET_ID>
+        limacharlie ticket telemetry list --ticket 42
     """
     t = _get_ticketing(ctx)
     data = t.list_telemetry(ticket)
@@ -1041,7 +1039,7 @@ def telemetry_list(ctx, ticket) -> None:
 
 
 @telemetry_group.command("add")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--atom", required=True, help="LC event atom (UUID).")
 @click.option("--sid", required=True, help="LC sensor ID (UUID).")
 @click.option("--event-type", default=None, help="Event type (e.g., NEW_PROCESS).")
@@ -1054,7 +1052,7 @@ def telemetry_add(ctx, ticket, atom, sid, event_type, event_summary,
     """Link a telemetry event to a ticket.
 
     Examples:
-        limacharlie ticket telemetry add --ticket <ID> \\
+        limacharlie ticket telemetry add --ticket 42 \\
             --atom <ATOM> --sid <SID> --event-type NEW_PROCESS
     """
     t = _get_ticketing(ctx)
@@ -1067,7 +1065,7 @@ def telemetry_add(ctx, ticket, atom, sid, event_type, event_summary,
 
 
 @telemetry_group.command("update")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--telemetry-id", required=True, help="Telemetry reference ID.")
 @click.option("--event-summary", default=None, help="Human-readable event summary.")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
@@ -1078,7 +1076,7 @@ def telemetry_update(ctx, ticket, telemetry_id, event_summary, verdict,
     """Update a telemetry reference on a ticket.
 
     Example:
-        limacharlie ticket telemetry update --ticket <ID> \\
+        limacharlie ticket telemetry update --ticket 42 \\
             --telemetry-id <TID> --verdict malicious
     """
     fields = {
@@ -1096,14 +1094,14 @@ def telemetry_update(ctx, ticket, telemetry_id, event_summary, verdict,
 
 
 @telemetry_group.command("remove")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--telemetry-id", required=True, help="Telemetry reference ID.")
 @pass_context
 def telemetry_remove(ctx, ticket, telemetry_id) -> None:
     """Remove a telemetry reference from a ticket.
 
     Example:
-        limacharlie ticket telemetry remove --ticket <ID> \\
+        limacharlie ticket telemetry remove --ticket 42 \\
             --telemetry-id <TID>
     """
     t = _get_ticketing(ctx)
@@ -1125,13 +1123,13 @@ def artifact_group() -> None:
 
 
 @artifact_group.command("list")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @pass_context
 def artifact_list(ctx, ticket) -> None:
     """List artifacts on a ticket.
 
     Example:
-        limacharlie ticket artifact list --ticket <TICKET_ID>
+        limacharlie ticket artifact list --ticket 42
     """
     t = _get_ticketing(ctx)
     data = t.list_artifacts(ticket)
@@ -1139,7 +1137,7 @@ def artifact_list(ctx, ticket) -> None:
 
 
 @artifact_group.command("add")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--type", "artifact_type", required=True,
               help="Artifact type (e.g., pcap, memory_dump, disk_image, log_export).")
 @click.option("--description", default=None, help="Description (max 2048 chars).")
@@ -1149,9 +1147,9 @@ def artifact_add(ctx, ticket, artifact_type, description, verdict) -> None:
     """Add a forensic artifact reference to a ticket.
 
     Examples:
-        limacharlie ticket artifact add --ticket <ID> \\
+        limacharlie ticket artifact add --ticket 42 \\
             --type pcap --description "Network capture"
-        limacharlie ticket artifact add --ticket <ID> \\
+        limacharlie ticket artifact add --ticket 42 \\
             --type memory_dump --verdict suspicious
     """
     t = _get_ticketing(ctx)
@@ -1163,14 +1161,14 @@ def artifact_add(ctx, ticket, artifact_type, description, verdict) -> None:
 
 
 @artifact_group.command("remove")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--artifact-id", required=True, help="Artifact ID to remove.")
 @pass_context
 def artifact_remove(ctx, ticket, artifact_id) -> None:
     """Remove an artifact from a ticket.
 
     Example:
-        limacharlie ticket artifact remove --ticket <ID> \\
+        limacharlie ticket artifact remove --ticket 42 \\
             --artifact-id <AID>
     """
     t = _get_ticketing(ctx)
@@ -1192,13 +1190,13 @@ def detection_group() -> None:
 
 
 @detection_group.command("list")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @pass_context
 def detection_list(ctx, ticket) -> None:
     """List detections linked to a ticket.
 
     Example:
-        limacharlie ticket detection list --ticket <TICKET_ID>
+        limacharlie ticket detection list --ticket 42
     """
     t = _get_ticketing(ctx)
     data = t.list_detections(ticket)
@@ -1206,7 +1204,7 @@ def detection_list(ctx, ticket) -> None:
 
 
 @detection_group.command("add")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--detection-id", required=True, help="Detection ID to link.")
 @click.option("--detection-cat", default=None, help="Detection category/rule name.")
 @click.option("--detection-source", default=None, help="Detection source (e.g., dr-general).")
@@ -1219,9 +1217,9 @@ def detection_add(ctx, ticket, detection_id, detection_cat, detection_source,
     """Link a detection to a ticket.
 
     Examples:
-        limacharlie ticket detection add --ticket <ID> \\
+        limacharlie ticket detection add --ticket 42 \\
             --detection-id <DET_ID>
-        limacharlie ticket detection add --ticket <ID> \\
+        limacharlie ticket detection add --ticket 42 \\
             --detection-id <DET_ID> --detection-cat lateral_movement
     """
     t = _get_ticketing(ctx)
@@ -1237,14 +1235,14 @@ def detection_add(ctx, ticket, detection_id, detection_cat, detection_source,
 
 
 @detection_group.command("remove")
-@click.option("--ticket", required=True, help="Ticket ID.")
+@click.option("--ticket", required=True, type=int, help="Ticket number.")
 @click.option("--detection-id", required=True, help="Detection ID to unlink.")
 @pass_context
 def detection_remove(ctx, ticket, detection_id) -> None:
     """Remove a detection link from a ticket.
 
     Example:
-        limacharlie ticket detection remove --ticket <ID> \\
+        limacharlie ticket detection remove --ticket 42 \\
             --detection-id <DET_ID>
     """
     t = _get_ticketing(ctx)
