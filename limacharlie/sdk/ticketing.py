@@ -412,6 +412,23 @@ class Ticketing:
         )
 
     # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
+    def export_ticket(self, ticket_id: str) -> dict[str, Any]:
+        """Export a ticket with all its components in a single object.
+
+        Fetches the ticket (with event timeline), detections, entities,
+        telemetry, and artifacts, and returns them combined.
+        """
+        result = self.get_ticket(ticket_id)
+        result["detections"] = self.list_detections(ticket_id)
+        result["entities"] = self.list_entities(ticket_id)
+        result["telemetry"] = self.list_telemetry(ticket_id)
+        result["artifacts"] = self.list_artifacts(ticket_id)
+        return result
+
+    # ------------------------------------------------------------------
     # Reports
     # ------------------------------------------------------------------
 

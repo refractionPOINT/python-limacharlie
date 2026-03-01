@@ -1,6 +1,7 @@
 """Tests for limacharlie ticket CLI commands."""
 
 import json
+import os
 from unittest.mock import patch, MagicMock
 
 from click.testing import CliRunner
@@ -33,7 +34,8 @@ def _invoke(args, mock_ticketing_cls, return_value=None):
         # Set specific SDK methods that our commands call.
         for name in [
             "create_ticket",
-            "list_tickets", "get_ticket", "update_ticket", "add_note",
+            "list_tickets", "get_ticket", "export_ticket",
+            "update_ticket", "add_note",
             "bulk_update", "merge",
             "list_detections", "add_detection", "remove_detection",
             "list_entities", "add_entity", "update_entity", "remove_entity",
@@ -60,7 +62,7 @@ class TestTicketHelp:
         result = runner.invoke(cli, ["ticket", "--help"])
         assert result.exit_code == 0
         assert "Manage SOC tickets" in result.output
-        for cmd in ["create", "list", "get", "update", "add-note", "merge",
+        for cmd in ["create", "list", "get", "export", "update", "add-note", "merge",
                      "entity", "telemetry", "artifact", "detection",
                      "report", "dashboard", "config-get", "config-set",
                      "assignees", "bulk-update"]:
@@ -242,6 +244,195 @@ class TestTicketGet:
         runner = CliRunner()
         result = runner.invoke(cli, ["ticket", "get"])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# ticket export
+# ---------------------------------------------------------------------------
+
+
+class TestTicketExport:
+    def test_export_by_id(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            export_data = {
+                "ticket": {"ticket_id": "tid-1", "status": "new"},
+                "events": [{"type": "created"}],
+                "detections": {"detections": [{"detection_id": "det-1"}]},
+                "entities": {"entities": [{"entity_type": "ip"}]},
+                "telemetry": {"telemetry": []},
+                "artifacts": {"artifacts": []},
+            }
+            result, mock_t = _invoke(
+                ["ticket", "export", "--id", "tid-1"],
+                mock_t_cls,
+                return_value=export_data,
+            )
+            assert result.exit_code == 0
+            mock_t.export_ticket.assert_called_once_with("tid-1")
+            parsed = json.loads(result.output)
+            assert "ticket" in parsed
+
+    def test_export_requires_id(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["ticket", "export"])
+        assert result.exit_code != 0
+
+    def test_export_with_data_creates_directory(self, tmp_path):
+        out_dir = str(tmp_path / "export-out")
+        export_data = {
+            "ticket": {"ticket_id": "tid-1"},
+            "events": [],
+            "detections": {"detections": [{"detection_id": "det-1"}]},
+            "entities": {"entities": []},
+            "telemetry": {"telemetry": [{"atom": "atom-1", "sid": "sid-1"}]},
+            "artifacts": {"artifacts": [{"artifact_id": "art-1"}]},
+        }
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls, \
+             patch("limacharlie.commands.ticket.Sensor") as MockSensor, \
+             patch("limacharlie.commands.ticket.Artifacts") as MockArtifacts:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t._org = MagicMock()
+            mock_t.export_ticket.return_value = export_data
+            mock_t._org.get_detection_by_id.return_value = {"cat": "lateral", "detect": {}}
+
+            mock_sensor = MagicMock()
+            MockSensor.return_value = mock_sensor
+            mock_sensor.get_event_by_atom.return_value = {"event": {"EVENT_TYPE": "NEW_PROCESS"}}
+
+            mock_artifacts = MagicMock()
+            MockArtifacts.return_value = mock_artifacts
+            mock_artifacts.get_url.return_value = {"payload": "aGVsbG8="}  # base64("hello")
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                      "--with-data", out_dir],
+            )
+            assert result.exit_code == 0, result.output
+
+            # Verify directory structure.
+            assert os.path.isfile(os.path.join(out_dir, "ticket.json"))
+            assert os.path.isfile(os.path.join(out_dir, "detections", "det-1.json"))
+            assert os.path.isfile(os.path.join(out_dir, "telemetry", "atom-1.json"))
+            assert os.path.isfile(os.path.join(out_dir, "artifacts", "art-1.bin"))
+
+            # Verify ticket.json contents.
+            with open(os.path.join(out_dir, "ticket.json")) as f:
+                ticket_json = json.load(f)
+            assert ticket_json["ticket"]["ticket_id"] == "tid-1"
+
+            # Verify detection content was fetched.
+            mock_t._org.get_detection_by_id.assert_called_once_with("det-1")
+            with open(os.path.join(out_dir, "detections", "det-1.json")) as f:
+                det_json = json.load(f)
+            assert det_json["cat"] == "lateral"
+
+            # Verify telemetry event was fetched.
+            MockSensor.assert_called_once_with(mock_t._org, "sid-1")
+            mock_sensor.get_event_by_atom.assert_called_once_with("atom-1")
+
+            # Verify artifact was downloaded (base64 inline payload).
+            with open(os.path.join(out_dir, "artifacts", "art-1.bin"), "rb") as f:
+                assert f.read() == b"hello"
+
+    def test_export_with_data_skips_on_fetch_error(self, tmp_path):
+        out_dir = str(tmp_path / "export-err")
+        export_data = {
+            "ticket": {"ticket_id": "tid-1"},
+            "events": [],
+            "detections": {"detections": [{"detection_id": "det-bad"}]},
+            "entities": {"entities": []},
+            "telemetry": {"telemetry": []},
+            "artifacts": {"artifacts": []},
+        }
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t._org = MagicMock()
+            mock_t.export_ticket.return_value = export_data
+            mock_t._org.get_detection_by_id.side_effect = Exception("not found")
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                      "--with-data", out_dir],
+            )
+            assert result.exit_code == 0
+            assert os.path.isfile(os.path.join(out_dir, "ticket.json"))
+            # Detection dir may exist but file should not.
+            assert not os.path.isfile(os.path.join(out_dir, "detections", "det-bad.json"))
+            assert "Warning" in result.output
+
+    def test_export_with_data_quiet_mode(self, tmp_path):
+        out_dir = str(tmp_path / "export-quiet")
+        export_data = {
+            "ticket": {"ticket_id": "tid-1"},
+            "events": [],
+            "detections": {"detections": []},
+            "entities": {"entities": []},
+            "telemetry": {"telemetry": []},
+            "artifacts": {"artifacts": []},
+        }
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t._org = MagicMock()
+            mock_t.export_ticket.return_value = export_data
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--quiet", "ticket", "export", "--id", "tid-1",
+                      "--with-data", out_dir],
+            )
+            assert result.exit_code == 0
+            assert "exported" not in result.output
+            assert os.path.isfile(os.path.join(out_dir, "ticket.json"))
+
+    def test_export_with_data_artifact_export_url(self, tmp_path):
+        """Test artifact download via signed export URL."""
+        out_dir = str(tmp_path / "export-url")
+        export_data = {
+            "ticket": {"ticket_id": "tid-1"},
+            "events": [],
+            "detections": {"detections": []},
+            "entities": {"entities": []},
+            "telemetry": {"telemetry": []},
+            "artifacts": {"artifacts": [{"artifact_id": "art-url"}]},
+        }
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls, \
+             patch("limacharlie.commands.ticket.Artifacts") as MockArtifacts, \
+             patch("limacharlie.commands.ticket.urlopen") as mock_urlopen:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t._org = MagicMock()
+            mock_t.export_ticket.return_value = export_data
+
+            mock_artifacts = MagicMock()
+            MockArtifacts.return_value = mock_artifacts
+            mock_artifacts.get_url.return_value = {"export": "https://signed-url.example.com/art"}
+
+            # Mock the urlopen context manager to return binary data.
+            mock_resp = MagicMock()
+            mock_resp.read.side_effect = [b"artifact-binary-data", b""]
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_urlopen.return_value = mock_resp
+
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "ticket", "export", "--id", "tid-1",
+                      "--with-data", out_dir],
+            )
+            assert result.exit_code == 0
+            mock_urlopen.assert_called_once_with("https://signed-url.example.com/art")
+            with open(os.path.join(out_dir, "artifacts", "art-url.bin"), "rb") as f:
+                assert f.read() == b"artifact-binary-data"
 
 
 # ---------------------------------------------------------------------------

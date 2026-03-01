@@ -481,6 +481,49 @@ class TestRemoveArtifact:
 
 
 # ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+
+class TestExportTicket:
+    def test_calls_all_endpoints(self, ticketing, mock_org):
+        ticket_data = {"ticket": {"ticket_id": "tid-1"}, "events": []}
+        detections_data = {"detections": [{"detection_id": "det-1"}]}
+        entities_data = {"entities": [{"entity_type": "ip", "entity_value": "10.0.0.1"}]}
+        telemetry_data = {"telemetry": []}
+        artifacts_data = {"artifacts": []}
+
+        mock_org.client.request.side_effect = [
+            ticket_data,
+            detections_data,
+            entities_data,
+            telemetry_data,
+            artifacts_data,
+        ]
+        result = ticketing.export_ticket("tid-1")
+
+        assert mock_org.client.request.call_count == 5
+        assert result["ticket"] == {"ticket_id": "tid-1"}
+        assert result["events"] == []
+        assert result["detections"] == detections_data
+        assert result["entities"] == entities_data
+        assert result["telemetry"] == telemetry_data
+        assert result["artifacts"] == artifacts_data
+
+    def test_calls_correct_paths(self, ticketing, mock_org):
+        mock_org.client.request.return_value = {}
+        ticketing.export_ticket("tid-1")
+
+        calls = mock_org.client.request.call_args_list
+        paths = [c[0][1] for c in calls]
+        assert "api/v1/tickets/tid-1" in paths
+        assert "api/v1/tickets/tid-1/detections" in paths
+        assert "api/v1/tickets/tid-1/entities" in paths
+        assert "api/v1/tickets/tid-1/telemetry" in paths
+        assert "api/v1/tickets/tid-1/artifacts" in paths
+
+
+# ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
 

@@ -7,16 +7,21 @@ via the LimaCharlie Ticketing extension.
 
 from __future__ import annotations
 
+import base64
 import json
+import os
 import sys
 from typing import Any
+from urllib.request import urlopen
 
 import click
 import yaml
 
 from ..cli import pass_context
 from ..client import Client
+from ..sdk.artifacts import Artifacts
 from ..sdk.organization import Organization
+from ..sdk.sensor import Sensor
 from ..sdk.ticketing import Ticketing
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
@@ -363,6 +368,37 @@ Example:
   limacharlie ticket assignees
 """
 
+_EXPLAIN_EXPORT = """\
+Export a ticket with all its components in a single JSON object.
+Fetches the ticket record (with event timeline), linked detections,
+entities (IOCs), telemetry references, and forensic artifacts in one
+call.
+
+This is a convenience command that aggregates data from multiple
+endpoints into a single output for backup, migration, or offline
+analysis.
+
+Without --with-data the combined JSON is printed to stdout.
+
+With --with-data <DIR> the command creates a directory with the full
+ticket data including the actual detection records, telemetry events,
+and artifact binaries:
+
+  <DIR>/
+    ticket.json        ticket record, timeline, entities
+    detections/        one JSON file per linked detection
+    telemetry/         one JSON file per linked telemetry event
+    artifacts/         downloaded artifact binaries
+
+Fetches that fail (e.g. expired data) emit a warning on stderr and
+are skipped.
+
+Examples:
+  limacharlie ticket export --id <TICKET_ID>
+  limacharlie ticket export --id <TICKET_ID> --output json > ticket.json
+  limacharlie ticket export --id <TICKET_ID> --with-data ./ticket-export
+"""
+
 _EXPLAIN_CREATE = """\
 Create a new SOC ticket from a detection.  This calls the ext-ticketing
 extension to create a ticket and returns the new ticket ID.
@@ -409,6 +445,7 @@ register_explain("ticket.dashboard", _EXPLAIN_DASHBOARD)
 register_explain("ticket.config-get", _EXPLAIN_CONFIG_GET)
 register_explain("ticket.config-set", _EXPLAIN_CONFIG_SET)
 register_explain("ticket.assignees", _EXPLAIN_ASSIGNEES)
+register_explain("ticket.export", _EXPLAIN_EXPORT)
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +604,114 @@ def get(ctx, ticket_id) -> None:
     t = _get_ticketing(ctx)
     data = t.get_ticket(ticket_id)
     _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# export
+# ---------------------------------------------------------------------------
+
+@group.command()
+@click.option("--id", "ticket_id", required=True, help="Ticket ID.")
+@click.option("--with-data", "output_dir", default=None, type=click.Path(),
+              help="Export with full data to a directory.")
+@pass_context
+def export(ctx, ticket_id, output_dir) -> None:
+    """Export a ticket with all its components.
+
+    Without --with-data, prints combined JSON to stdout.
+    With --with-data <DIR>, writes a directory containing the ticket
+    metadata plus actual detection records, telemetry events, and
+    artifact binaries.
+
+    Examples:
+        limacharlie ticket export --id <TICKET_ID>
+        limacharlie ticket export --id <TICKET_ID> --with-data ./out
+    """
+    t = _get_ticketing(ctx)
+    data = t.export_ticket(ticket_id)
+
+    if output_dir is None:
+        _output(ctx, data)
+        return
+
+    _export_with_data(ctx, t, data, output_dir)
+
+
+def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
+                      output_dir: str) -> None:
+    """Write ticket export to a directory with full data."""
+    org = t._org
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Write ticket.json (core metadata + timeline + entities).
+    with open(os.path.join(output_dir, "ticket.json"), "w") as f:
+        json.dump(data, f, indent=2)
+
+    # Fetch actual detection records.
+    detections = data.get("detections", {}).get("detections", [])
+    if detections:
+        det_dir = os.path.join(output_dir, "detections")
+        os.makedirs(det_dir, exist_ok=True)
+        for det in detections:
+            det_id = det.get("detection_id")
+            if not det_id:
+                continue
+            try:
+                det_data = org.get_detection_by_id(det_id)
+                with open(os.path.join(det_dir, f"{det_id}.json"), "w") as f:
+                    json.dump(det_data, f, indent=2)
+            except Exception as e:
+                click.echo(f"Warning: could not fetch detection {det_id}: {e}", err=True)
+
+    # Fetch actual telemetry events.
+    telemetry = data.get("telemetry", {}).get("telemetry", [])
+    if telemetry:
+        tel_dir = os.path.join(output_dir, "telemetry")
+        os.makedirs(tel_dir, exist_ok=True)
+        for tel in telemetry:
+            atom = tel.get("atom")
+            sid = tel.get("sid")
+            if not atom or not sid:
+                continue
+            try:
+                sensor = Sensor(org, sid)
+                event_data = sensor.get_event_by_atom(atom)
+                with open(os.path.join(tel_dir, f"{atom}.json"), "w") as f:
+                    json.dump(event_data, f, indent=2)
+            except Exception as e:
+                click.echo(f"Warning: could not fetch event {atom}: {e}", err=True)
+
+    # Download artifact content.
+    artifacts = data.get("artifacts", {}).get("artifacts", [])
+    if artifacts:
+        art_dir = os.path.join(output_dir, "artifacts")
+        os.makedirs(art_dir, exist_ok=True)
+        artifacts_sdk = Artifacts(org)
+        for art in artifacts:
+            art_id = art.get("artifact_id")
+            if not art_id:
+                continue
+            try:
+                url_data = artifacts_sdk.get_url(art_id)
+                dest = os.path.join(art_dir, f"{art_id}.bin")
+                if "payload" in url_data:
+                    payload = url_data["payload"]
+                    raw = base64.b64decode(payload) if isinstance(payload, str) else payload
+                    with open(dest, "wb") as f:
+                        f.write(raw)
+                elif "export" in url_data:
+                    with urlopen(url_data["export"]) as resp:
+                        with open(dest, "wb") as f:
+                            while True:
+                                chunk = resp.read(1024 * 1024 * 5)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+            except Exception as e:
+                click.echo(f"Warning: could not fetch artifact {art_id}: {e}", err=True)
+
+    if not ctx.obj.quiet:
+        click.echo(f"Ticket exported to '{output_dir}'.")
 
 
 # ---------------------------------------------------------------------------
