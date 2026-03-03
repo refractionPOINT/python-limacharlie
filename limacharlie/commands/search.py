@@ -61,16 +61,32 @@ You must provide a time range via --start and --end (unix epoch
 seconds).  Use --stream to specify the data stream ('event', 'detect',
 'audit').  Use --limit to cap the number of results.
 
-LCQL query syntax (the --query value corresponds to the filter and
-projection portions of LCQL):
+LCQL query format:
+
+  The --query value is a full LCQL query string.  LCQL uses a
+  pipe-separated format:
+
+    [SENSOR_SELECTOR] | [EVENT_TYPES] | FILTER [| PROJECTION]
+
+  The time range is provided separately via --start/--end (any time
+  range already in the query is overridden).
+
+  Sensor selector (optional, defaults to all sensors):
+    plat == windows
+    plat == linux and hostname matches '^web-'
+
+  Event types (optional, defaults to all):
+    NEW_PROCESS DNS_REQUEST          - space-separated list
+    *                                - all event types
 
   Filter operators:
-    ==, !=, contains, not contains, starts with, ends with,
-    is, is not, matches (regex), <, >, <=, >=
+    ==, !=, contains, not contains, starts with, not starts with,
+    ends with, not ends with, is, is not, matches (regex),
+    not matches, <, >, cidr, exists
 
   Logical operators:  and, or, not  (parentheses supported)
 
-  Paths use slash notation:  event/FILE_PATH, routing/hostname,
+  Paths use slash or dot notation:  event/FILE_PATH, routing/hostname,
     event/PARENT/FILE_PATH, event/EVENT/EventData/LogonType
 
   Projections (after a pipe |):
@@ -78,11 +94,13 @@ projection portions of LCQL):
     COUNT(event) as total            - count events
     COUNT_UNIQUE(routing/sid) as n   - count distinct values
     GROUP BY(field1 field2)          - group results
+    ORDER BY(field ASC)              - sort results
+    LIMIT n                          - cap results
 
 Example queries:
-  "event/COMMAND_LINE contains 'powershell'"
-  "event/DOMAIN_NAME contains 'google' | event/DOMAIN_NAME as domain COUNT(event) as count GROUP BY(domain)"
-  "event/EVENT/System/EventID == '4625'"
+  "* | NEW_PROCESS | event/COMMAND_LINE contains 'powershell'"
+  "plat == windows | DNS_REQUEST | event/DOMAIN_NAME contains 'google' | event/DOMAIN_NAME as domain COUNT(event) as count GROUP BY(domain)"
+  "plat == windows | WEL | event/EVENT/System/EventID == '4625'"
 
 Streams:
   event   - sensor telemetry (NEW_PROCESS, DNS_REQUEST, etc.)
@@ -90,10 +108,12 @@ Streams:
   audit   - platform management logs (has etype, msg, ident fields)
 
 Examples:
-  limacharlie search run --query "event_type == 'NEW_PROCESS'" \\
+  limacharlie search run \\
+      --query "* | NEW_PROCESS | event/COMMAND_LINE contains 'powershell'" \\
       --start 1700000000 --end 1700086400
 
-  limacharlie search run --query "event/DOMAIN_NAME contains 'example'" \\
+  limacharlie search run \\
+      --query "plat == windows | DNS_REQUEST | event/DOMAIN_NAME contains 'example'" \\
       --start 1700000000 --end 1700086400 --stream event --limit 100
 """
 register_explain("search.run", _EXPLAIN_RUN)
@@ -124,12 +144,13 @@ Validate LCQL query syntax without executing it.  Returns quickly
 and does not consume billing credits.  Use this to check for syntax
 errors before running expensive queries.
 
-The query string follows LCQL filter syntax, e.g.:
-  "event/COMMAND_LINE contains 'powershell'"
-  "event/DOMAIN_NAME starts with 'evil'"
+The query string follows LCQL syntax (see 'search run --explain'), e.g.:
+  "* | NEW_PROCESS | event/COMMAND_LINE contains 'powershell'"
+  "plat == windows | DNS_REQUEST | event/DOMAIN_NAME starts with 'evil'"
 
 Example:
-  limacharlie search validate --query "event_type == 'NEW_PROCESS'"
+  limacharlie search validate \\
+      --query "* | NEW_PROCESS | event/COMMAND_LINE contains 'powershell'"
 """
 register_explain("search.validate", _EXPLAIN_VALIDATE)
 
@@ -157,7 +178,8 @@ Use this before running expensive queries to understand costs.
 You must provide --start and --end (unix epoch seconds).
 
 Example:
-  limacharlie search estimate --query "event_type == 'NEW_PROCESS'" \\
+  limacharlie search estimate \\
+      --query "* | NEW_PROCESS | event/COMMAND_LINE contains 'powershell'" \\
       --start 1700000000 --end 1700086400
 """
 register_explain("search.estimate", _EXPLAIN_ESTIMATE)

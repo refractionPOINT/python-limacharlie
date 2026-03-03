@@ -97,25 +97,25 @@ LCQL is the query language for searching historical telemetry stored in
 LimaCharlie. It supports structured queries with filtering, aggregation,
 and time-range scoping.
 
-Basic syntax:
-  event_type(<type>) AND <field> = <value>
+Query format (pipe-separated components):
+  [SENSOR_SELECTOR] | [EVENT_TYPES] | FILTER [| PROJECTION]
+
+  The time range is provided via --start/--end (unix epoch seconds) in
+  the CLI, or as the first component in the full LCQL format (e.g. -24h).
 
 Examples:
-  event_type(NEW_PROCESS) AND event/FILE_PATH contains "cmd.exe"
-  event_type(DNS_REQUEST) AND event/DOMAIN_NAME = "evil.com"
-  event_type(NEW_PROCESS) AND event/COMMAND_LINE contains "powershell"
-
-Time ranges:
-  Queries require a time range specified as --start and --end timestamps.
-  Format: ISO 8601 (2024-01-15T00:00:00Z) or Unix epoch seconds.
+  * | NEW_PROCESS | event/FILE_PATH contains "cmd.exe"
+  plat == windows | DNS_REQUEST | event/DOMAIN_NAME == "evil.com"
+  * | NEW_PROCESS | event/COMMAND_LINE contains "powershell"
+  plat == windows | DNS_REQUEST | event/DOMAIN_NAME contains 'google' | event/DOMAIN_NAME as domain COUNT(event) as count GROUP BY(domain)
 
 Pagination:
   Large result sets are paginated. The SDK handles this automatically.
   Use --limit to control page size.
 
 CLI usage:
-  limacharlie search run --query 'event_type(NEW_PROCESS)' --start 2024-01-01 --end 2024-01-02
-  limacharlie search validate --query 'event_type(NEW_PROCESS)'
+  limacharlie search run --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"' --start 1700000000 --end 1700086400
+  limacharlie search validate --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"'
   limacharlie ai generate-query --description "find all PowerShell executions"
 
 Related commands: search, event, detection, ai generate-query
@@ -363,7 +363,7 @@ Each event contains:
 
 Querying events:
   limacharlie event list --sid <sid> --event-type NEW_PROCESS --limit 50
-  limacharlie search run --query 'event_type(NEW_PROCESS)' --start ... --end ...
+  limacharlie search run --query '* | NEW_PROCESS | event/FILE_PATH exists' --start 1700000000 --end 1700086400
 
 Related commands: event, search, detection, stream
 """
@@ -533,15 +533,13 @@ Timestamps
 LimaCharlie uses Unix epoch timestamps (seconds since 1970-01-01 UTC) in
 most API interactions.
 
-The CLI accepts these formats:
-  - Unix epoch seconds:  1704067200
-  - ISO 8601:           2024-01-01T00:00:00Z
-  - Relative:           -24h, -7d, -30m (from now)
-
-Examples:
-  limacharlie search run --start -24h --end now
+The CLI --start and --end flags accept Unix epoch seconds (integers):
+  limacharlie search run --start 1704067200 --end 1704153600
   limacharlie event list --start 1704067200 --end 1704153600
-  limacharlie replay run --start 2024-01-01T00:00:00Z --end 2024-01-02T00:00:00Z
+
+LCQL queries support relative time ranges (e.g. -24h, -7d, -30m) as
+the first component of the query string itself, but the CLI --start/--end
+flags require integer timestamps.
 
 All timestamps in API responses are Unix epoch seconds (integers).
 """
@@ -637,7 +635,7 @@ limacharlie rule create --name my-rule --detect '{"op":"is","event":"NEW_PROCESS
 limacharlie rule delete --name my-rule
 
 # Search
-limacharlie search run --query 'event_type(NEW_PROCESS)' --start -24h --end now
+limacharlie search run --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"' --start 1700000000 --end 1700086400
 
 # Outputs
 limacharlie output list
@@ -718,7 +716,7 @@ limacharlie ioc search --type ip --value <ip_address>
 limacharlie ioc search --type domain --value <domain>
 
 # Search historical telemetry
-limacharlie search run --query 'event_type(NEW_PROCESS) AND event/COMMAND_LINE contains "powershell"' --start -7d --end now
+limacharlie search run --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"' --start 1700000000 --end 1700086400
 
 # Stream live events from sensor
 limacharlie stream events --tag incident-2024-01
@@ -814,19 +812,19 @@ Searching Cheatsheet
 =====================
 
 # Basic LCQL search
-limacharlie search run --query 'event_type(NEW_PROCESS)' --start -24h --end now
+limacharlie search run --query '* | NEW_PROCESS | event/FILE_PATH exists' --start 1700000000 --end 1700086400
 
 # Search with field filters
-limacharlie search run --query 'event_type(NEW_PROCESS) AND event/FILE_PATH contains "cmd.exe"' --start -7d --end now
+limacharlie search run --query '* | NEW_PROCESS | event/FILE_PATH contains "cmd.exe"' --start 1700000000 --end 1700086400
 
 # DNS queries
-limacharlie search run --query 'event_type(DNS_REQUEST) AND event/DOMAIN_NAME = "evil.com"' --start -30d --end now
+limacharlie search run --query '* | DNS_REQUEST | event/DOMAIN_NAME == "evil.com"' --start 1700000000 --end 1700086400
 
 # Network connections
-limacharlie search run --query 'event_type(NEW_TCP4_CONNECTION) AND event/IP_ADDRESS = "10.0.0.1"' --start -7d --end now
+limacharlie search run --query '* | NEW_TCP4_CONNECTION | event/IP_ADDRESS == "10.0.0.1"' --start 1700000000 --end 1700086400
 
 # Validate query syntax
-limacharlie search validate --query 'event_type(NEW_PROCESS)'
+limacharlie search validate --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"'
 
 # IOC searches
 limacharlie ioc search --type file_hash --value abc123...
@@ -843,7 +841,7 @@ limacharlie ai generate-query --description "find all SSH connections from exter
 limacharlie event list --sid <sid> --event-type NEW_PROCESS --limit 100
 
 # Output as JSON for piping
-limacharlie search run --query '...' --start -24h --end now --output json | jq '.events[]'
+limacharlie search run --query '* | NEW_PROCESS | event/FILE_PATH exists' --start 1700000000 --end 1700086400 --output json | jq '.events[]'
 """
 
 

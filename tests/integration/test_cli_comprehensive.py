@@ -254,7 +254,7 @@ class TestCliFP:
 class TestCliSearch:
     def test_validate(self, oid, key):
         result, _ = _invoke(oid, key, [
-            "search", "validate", "--query", "event_type = 'NEW_PROCESS'",
+            "search", "validate", "--query", "* | NEW_PROCESS | event/FILE_PATH exists",
         ])
         assert result.exit_code == 0
 
