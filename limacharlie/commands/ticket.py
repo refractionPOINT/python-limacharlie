@@ -538,11 +538,14 @@ _ORDER_CHOICES = click.Choice(["asc", "desc"], case_sensitive=False)
 
 @click.group("ticket")
 def group() -> None:
-    """Manage SOC tickets.
+    """Manage SOC tickets (closed beta — contact LimaCharlie for access).
 
     Full ticket lifecycle management including triage, investigation,
     and resolution.  Supports entities (IOCs), telemetry linking,
     forensic artifacts, reporting, and configuration.
+
+    NOTE: Ticketing is currently in closed beta. Please contact
+    LimaCharlie to request access.
     """
 
 
