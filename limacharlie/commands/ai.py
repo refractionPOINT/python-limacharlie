@@ -256,3 +256,40 @@ def summarize_detection(ctx, detection_id) -> None:
     sdk = AISDK(org)
     data = sdk.summarize_detection(detection_data)
     _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# start-session
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_START_SESSION = """\
+Start an AI session using an ai_agent Hive definition.  The definition
+contains the full session configuration including prompt, model,
+credentials (as hive://secret/ references), tool permissions, and
+MCP server configs.
+
+All hive://secret/ references in the definition are resolved
+automatically before the session is created.
+
+Example:
+  limacharlie ai start-session --definition my-security-analyst
+
+  limacharlie ai start-session --definition my-agent \\
+    --prompt "Investigate this specific alert" \\
+    --name "Alert investigation"
+"""
+register_explain("ai.start-session", _EXPLAIN_START_SESSION)
+
+
+@group.command("start-session")
+@click.option("--definition", required=True, help="Name of the ai_agent hive record to use.")
+@click.option("--prompt", default=None, help="Override the prompt from the definition.")
+@click.option("--name", default=None, help="Override the session name.")
+@click.option("--idempotent-key", default=None, help="Deduplication key for the session.")
+@pass_context
+def start_session(ctx, definition, prompt, name, idempotent_key) -> None:
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.start_session(definition, prompt=prompt, name=name,
+                             idempotent_key=idempotent_key)
+    _output(ctx, data)
