@@ -20,7 +20,7 @@ def test_v2_search_validate(oid, key):
     search = Search(org)
 
     # Use a simple, syntactically valid LCQL query
-    result = search.validate("event_type = 'NEW_PROCESS'")
+    result = search.validate("* | NEW_PROCESS | event/FILE_PATH exists")
     assert isinstance(result, dict), (
         f"Expected dict from search.validate(), got {type(result).__name__}"
     )

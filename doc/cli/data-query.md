@@ -7,13 +7,12 @@ Commands for searching historical telemetry, IOC lookups, event retrieval, and l
 ## search
 
 ```bash
-limacharlie search run --query 'event NEW_PROCESS' --start 2024-01-01 --end 2024-01-02
-limacharlie search validate --query 'event NEW_PROCESS'
-limacharlie search estimate --query 'event NEW_PROCESS' --start 2024-01-01 --end 2024-01-02
-limacharlie search interactive                      # Interactive REPL
+limacharlie search run --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"' --start 1704067200 --end 1704153600
+limacharlie search validate --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"'
+limacharlie search estimate --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"' --start 1704067200 --end 1704153600
 limacharlie search saved-list                        # Saved queries
-limacharlie search saved-create --name my-query --query 'event NEW_PROCESS'
-limacharlie search saved-run --name my-query --start 2024-01-01 --end 2024-01-02
+limacharlie search saved-create --name my-query --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"'
+limacharlie search saved-run --name my-query
 ```
 
 ## ioc
