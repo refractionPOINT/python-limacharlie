@@ -110,16 +110,28 @@ class AI:
         if profile:
             request_body["profile"] = profile
 
+        extra = {"X-LC-OID": self.client._oid}
+
+        # Use the raw API key when available (works with current and future
+        # ai-sessions deployments).  Fall back to JWT auth for OAuth users
+        # (requires OrgDualAuthMiddleware on the server side).
+        if self.client._api_key is not None:
+            extra["Authorization"] = f"Bearer {self.client._api_key}"
+            return self.client.request(
+                "POST", "v1/api/sessions",
+                raw_body=json.dumps(request_body).encode(),
+                content_type="application/json",
+                is_no_auth=True,
+                alt_root=_AI_SESSIONS_URL,
+                extra_headers=extra,
+            )
+
         return self.client.request(
             "POST", "v1/api/sessions",
             raw_body=json.dumps(request_body).encode(),
             content_type="application/json",
-            is_no_auth=True,
             alt_root=_AI_SESSIONS_URL,
-            extra_headers={
-                "Authorization": f"Bearer {self.client._api_key}",
-                "X-LC-OID": self.client._oid,
-            },
+            extra_headers=extra,
         )
 
     def generate_dr_rule(self, description: str) -> dict[str, Any]:
