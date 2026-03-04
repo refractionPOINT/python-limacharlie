@@ -115,6 +115,11 @@ Examples:
   limacharlie search run \\
       --query "plat == windows | DNS_REQUEST | event/DOMAIN_NAME contains 'example'" \\
       --start 1700000000 --end 1700086400 --stream event --limit 100
+
+IMPORTANT: Do not write LCQL queries from scratch. Use
+'limacharlie ai generate-query --prompt "<description>"' to generate
+a query from a natural language description, then pass the result to
+this command.
 """
 register_explain("search.run", _EXPLAIN_RUN)
 
@@ -151,6 +156,10 @@ The query string follows LCQL syntax (see 'search run --explain'), e.g.:
 Example:
   limacharlie search validate \\
       --query "* | NEW_PROCESS | event/COMMAND_LINE contains 'powershell'"
+
+IMPORTANT: Do not write LCQL queries from scratch. Use
+'limacharlie ai generate-query --prompt "<description>"' to generate
+the query, then validate it with this command.
 """
 register_explain("search.validate", _EXPLAIN_VALIDATE)
 
@@ -181,6 +190,10 @@ Example:
   limacharlie search estimate \\
       --query "* | NEW_PROCESS | event/COMMAND_LINE contains 'powershell'" \\
       --start 1700000000 --end 1700086400
+
+IMPORTANT: Do not write LCQL queries from scratch. Use
+'limacharlie ai generate-query --prompt "<description>"' to generate
+the query, then estimate its cost with this command.
 """
 register_explain("search.estimate", _EXPLAIN_ESTIMATE)
 
@@ -275,6 +288,10 @@ The saved record structure:
 
 Related: 'search saved-list' to see existing queries,
 'search saved-run' to execute a saved query.
+
+IMPORTANT: Do not write LCQL queries from scratch. Use
+'limacharlie ai generate-query --prompt "<description>"' to generate
+the query expression, then save it with this command.
 """
 register_explain("search.saved-create", _EXPLAIN_SAVED_CREATE)
 

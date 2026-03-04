@@ -108,6 +108,11 @@ Combine --selector with --online for online Windows sensors:
 
 Related: 'limacharlie tag find' to find sensors by a specific tag,
 'limacharlie sensor get --sid <SID>' for detailed info on one sensor.
+
+IMPORTANT: Do not write sensor selector expressions from scratch. Use
+'limacharlie ai generate-selector --description "<description>"' to
+generate a selector from a natural language description, then pass the
+result to --selector.
 """
 register_explain("sensor.list", _EXPLAIN_LIST)
 

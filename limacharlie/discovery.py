@@ -62,6 +62,8 @@ PROFILES = {
             "task send", "task request",
             "sensor dump", "sensor sweep",
             "yara scan",
+            "ticket list", "ticket get", "ticket update", "ticket add-note",
+            "ticket entity add", "ticket entity search",
         ],
     },
     "fleet_management": {
@@ -94,6 +96,23 @@ PROFILES = {
             "ai generate-rule", "ai generate-detection", "ai generate-response",
             "ai generate-query", "ai generate-selector", "ai generate-playbook",
             "ai summarize-detection",
+        ],
+    },
+    "ticketing": {
+        "description": "SOC ticket lifecycle, investigation tracking, and reporting",
+        "commands": [
+            "ticket list", "ticket get", "ticket update",
+            "ticket add-note", "ticket bulk-update", "ticket merge",
+            "ticket entity list", "ticket entity add", "ticket entity update",
+            "ticket entity remove", "ticket entity search",
+            "ticket telemetry list", "ticket telemetry add",
+            "ticket telemetry update", "ticket telemetry remove",
+            "ticket artifact list", "ticket artifact add", "ticket artifact remove",
+            "ticket detection list", "ticket detection add", "ticket detection remove",
+            "ticket tag set", "ticket tag add", "ticket tag remove",
+            "ticket report", "ticket dashboard",
+            "ticket config-get", "ticket config-set",
+            "ticket assignees",
         ],
     },
 }
