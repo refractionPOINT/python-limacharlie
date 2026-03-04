@@ -109,6 +109,7 @@ PROFILES = {
             "ticket telemetry update", "ticket telemetry remove",
             "ticket artifact list", "ticket artifact add", "ticket artifact remove",
             "ticket detection list", "ticket detection add", "ticket detection remove",
+            "ticket tag set", "ticket tag add", "ticket tag remove",
             "ticket report", "ticket dashboard",
             "ticket config-get", "ticket config-set",
             "ticket assignees",

@@ -41,6 +41,7 @@ Filters (all repeatable/comma-separated):
   --classification  pending, true_positive, false_positive
   --assignee  filter by assignee email
   --search    full-text search in detection_cat and hostname
+  --tag       filter by tag (repeat for AND logic)
 
 Sorting:
   --sort      created_at (default), severity, ticket_number
@@ -58,6 +59,7 @@ Examples:
   limacharlie ticket list --status new,acknowledged --severity critical,high
   limacharlie ticket list --assignee alice@example.com --sort severity
   limacharlie ticket list --search "mimikatz" --limit 20
+  limacharlie ticket list --tag phishing --tag urgent
 """
 
 _EXPLAIN_GET = """\
@@ -446,6 +448,37 @@ register_explain("ticket.config-set", _EXPLAIN_CONFIG_SET)
 register_explain("ticket.assignees", _EXPLAIN_ASSIGNEES)
 register_explain("ticket.export", _EXPLAIN_EXPORT)
 
+_EXPLAIN_TAG_SET = """\
+Replace all tags on a ticket.  Any existing tags are removed and
+replaced with the provided set.  Use --tag/-t for each tag value.
+
+Examples:
+  limacharlie ticket tag set --id 42 --tag phishing
+  limacharlie ticket tag set --id 42 -t phishing -t urgent
+"""
+
+_EXPLAIN_TAG_ADD = """\
+Add one or more tags to a ticket, merging with any existing tags.
+Duplicate tags are automatically deduplicated.
+
+Examples:
+  limacharlie ticket tag add --id 42 --tag new-tag
+  limacharlie ticket tag add --id 42 -t phishing -t urgent
+"""
+
+_EXPLAIN_TAG_REMOVE = """\
+Remove one or more tags from a ticket.  Tags not currently on the
+ticket are silently ignored.
+
+Examples:
+  limacharlie ticket tag remove --id 42 --tag old-tag
+  limacharlie ticket tag remove --id 42 -t phishing -t urgent
+"""
+
+register_explain("ticket.tag.set", _EXPLAIN_TAG_SET)
+register_explain("ticket.tag.add", _EXPLAIN_TAG_ADD)
+register_explain("ticket.tag.remove", _EXPLAIN_TAG_REMOVE)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -557,13 +590,14 @@ def create(ctx, detection_id, detection_cat, severity, detection_source,
 @click.option("--classification", multiple=True, type=_CLASSIFICATION_CHOICES, help="Filter by classification (repeatable).")
 @click.option("--assignee", default=None, help="Filter by assignee email.")
 @click.option("--search", default=None, help="Full-text search (detection_cat, hostname).")
+@click.option("--tag", multiple=True, help="Filter by tag (repeat for AND logic).")
 @click.option("--sort", default=None, type=_SORT_CHOICES, help="Sort field (default: created_at).")
 @click.option("--order", default=None, type=_ORDER_CHOICES, help="Sort order (default: desc).")
 @click.option("--limit", default=None, type=click.IntRange(1, 200), help="Page size (1-200, default 50).")
 @click.option("--cursor", default=None, help="Page token for next page.")
 @pass_context
 def list_tickets(ctx, status, severity, classification, assignee, search,
-                 sort, order, limit, cursor) -> None:
+                 tag, sort, order, limit, cursor) -> None:
     """List tickets.
 
     Examples:
@@ -571,6 +605,7 @@ def list_tickets(ctx, status, severity, classification, assignee, search,
         limacharlie ticket list --status new --status acknowledged
         limacharlie ticket list --severity critical --severity high
         limacharlie ticket list --search "mimikatz" --limit 20
+        limacharlie ticket list --tag phishing --tag urgent
     """
     t = _get_ticketing(ctx)
     data = t.list_tickets(
@@ -579,6 +614,7 @@ def list_tickets(ctx, status, severity, classification, assignee, search,
         classification=list(classification) or None,
         assignee=assignee,
         search=search,
+        tag=list(tag) or None,
         sort=sort,
         order=order,
         page_size=limit,
@@ -733,9 +769,10 @@ def _export_with_data(ctx: click.Context, t: Ticketing, data: dict[str, Any],
 @click.option("--investigation-id", default=None, help="LC investigation ID to link.")
 @click.option("--summary", default=None, help="Investigation summary (max 8192 chars).")
 @click.option("--conclusion", default=None, help="Root cause & remediation (max 8192 chars).")
+@click.option("--tag", multiple=True, help="Set tags (replaces all existing tags; repeat for multiple).")
 @pass_context
 def update(ctx, ticket_number, status, assignee, classification,
-           escalation_group, investigation_id, summary, conclusion) -> None:
+           escalation_group, investigation_id, summary, conclusion, tag) -> None:
     """Update a ticket.
 
     Only provided fields are changed.
@@ -745,6 +782,7 @@ def update(ctx, ticket_number, status, assignee, classification,
         limacharlie ticket update --id 42 --assignee alice@example.com
         limacharlie ticket update --id 42 --status resolved \\
             --classification true_positive
+        limacharlie ticket update --id 42 --tag phishing --tag urgent
     """
     fields = {
         "status": status,
@@ -757,6 +795,8 @@ def update(ctx, ticket_number, status, assignee, classification,
     }
     # Filter out None values
     fields = {k: v for k, v in fields.items() if v is not None}
+    if tag:
+        fields["tags"] = list(tag)
     if not fields:
         raise click.UsageError("Provide at least one field to update.")
 
@@ -1369,4 +1409,72 @@ def assignees(ctx) -> None:
     """
     t = _get_ticketing(ctx)
     data = t.list_assignees()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# tag (nested group)
+# ---------------------------------------------------------------------------
+
+@group.group("tag")
+def tag_group() -> None:
+    """Manage ticket tags.
+
+    Set, add, or remove tags on tickets.  Tags are free-form strings
+    used for categorization and filtering.
+    """
+
+
+@tag_group.command("set")
+@click.option("--id", "ticket_number", required=True, type=int, help="Ticket number.")
+@click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value (repeatable).")
+@pass_context
+def tag_set(ctx, ticket_number, tags) -> None:
+    """Replace all tags on a ticket.
+
+    Examples:
+        limacharlie ticket tag set --id 42 --tag phishing
+        limacharlie ticket tag set --id 42 -t phishing -t urgent
+    """
+    t = _get_ticketing(ctx)
+    data = t.update_ticket(ticket_number, tags=list(tags))
+    _output(ctx, data)
+
+
+@tag_group.command("add")
+@click.option("--id", "ticket_number", required=True, type=int, help="Ticket number.")
+@click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value to add (repeatable).")
+@pass_context
+def tag_add(ctx, ticket_number, tags) -> None:
+    """Add tags to a ticket (merged with existing).
+
+    Examples:
+        limacharlie ticket tag add --id 42 --tag new-tag
+        limacharlie ticket tag add --id 42 -t phishing -t urgent
+    """
+    t = _get_ticketing(ctx)
+    current = t.get_ticket(ticket_number)
+    existing = current.get("ticket", current).get("tags") or []
+    merged = list(dict.fromkeys(existing + list(tags)))
+    data = t.update_ticket(ticket_number, tags=merged)
+    _output(ctx, data)
+
+
+@tag_group.command("remove")
+@click.option("--id", "ticket_number", required=True, type=int, help="Ticket number.")
+@click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value to remove (repeatable).")
+@pass_context
+def tag_remove(ctx, ticket_number, tags) -> None:
+    """Remove tags from a ticket.
+
+    Examples:
+        limacharlie ticket tag remove --id 42 --tag old-tag
+        limacharlie ticket tag remove --id 42 -t phishing -t urgent
+    """
+    tk = _get_ticketing(ctx)
+    current = tk.get_ticket(ticket_number)
+    existing = current.get("ticket", current).get("tags") or []
+    to_remove = set(tags)
+    remaining = [t for t in existing if t not in to_remove]
+    data = tk.update_ticket(ticket_number, tags=remaining)
     _output(ctx, data)
