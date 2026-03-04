@@ -63,7 +63,7 @@ class TestTicketHelp:
         assert result.exit_code == 0
         assert "Manage SOC tickets" in result.output
         for cmd in ["create", "list", "get", "export", "update", "add-note", "merge",
-                     "entity", "telemetry", "artifact", "detection",
+                     "entity", "telemetry", "artifact", "detection", "tag",
                      "report", "dashboard", "config-get", "config-set",
                      "assignees", "bulk-update"]:
             assert cmd in result.output
@@ -1135,3 +1135,213 @@ class TestTicketQuietMode:
             )
             assert result.exit_code == 0
             assert "updated" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# ticket list --tag
+# ---------------------------------------------------------------------------
+
+
+class TestTicketListTag:
+    def test_list_with_single_tag(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "list", "--tag", "phishing"],
+                mock_t_cls,
+                return_value={"tickets": [], "total_counts": {}},
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_t.list_tickets.call_args[1]
+            assert call_kwargs["tag"] == ["phishing"]
+
+    def test_list_with_multiple_tags(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "list", "--tag", "phishing", "--tag", "urgent"],
+                mock_t_cls,
+                return_value={"tickets": [], "total_counts": {}},
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_t.list_tickets.call_args[1]
+            assert call_kwargs["tag"] == ["phishing", "urgent"]
+
+    def test_list_without_tag(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "list"],
+                mock_t_cls,
+                return_value={"tickets": [], "total_counts": {}},
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_t.list_tickets.call_args[1]
+            assert call_kwargs["tag"] is None
+
+
+# ---------------------------------------------------------------------------
+# ticket update --tag
+# ---------------------------------------------------------------------------
+
+
+class TestTicketUpdateTag:
+    def test_update_with_tags(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "update", "--id", "1", "--tag", "phishing", "--tag", "urgent"],
+                mock_t_cls,
+                return_value={"ticket": {}},
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(
+                1, tags=["phishing", "urgent"],
+            )
+
+    def test_update_with_tags_and_status(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "update", "--id", "1", "--status", "acknowledged",
+                 "--tag", "phishing"],
+                mock_t_cls,
+                return_value={"ticket": {}},
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(
+                1, status="acknowledged", tags=["phishing"],
+            )
+
+
+# ---------------------------------------------------------------------------
+# ticket tag subcommands
+# ---------------------------------------------------------------------------
+
+
+class TestTicketTagSubcommands:
+    def test_tag_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["ticket", "tag", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["set", "add", "remove"]:
+            assert cmd in result.output
+
+    def test_tag_set(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "tag", "set", "--id", "1", "--tag", "phishing"],
+                mock_t_cls,
+                return_value={"ticket": {}},
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(1, tags=["phishing"])
+
+    def test_tag_set_multiple(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "tag", "set", "--id", "1", "-t", "phishing", "-t", "urgent"],
+                mock_t_cls,
+                return_value={"ticket": {}},
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(1, tags=["phishing", "urgent"])
+
+    def test_tag_add_merges_with_existing(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_ticket.return_value = {
+                "ticket": {"ticket_number": 1, "tags": ["existing"]},
+            }
+            mock_t.update_ticket.return_value = {"ticket": {}}
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ticket", "tag", "add", "--id", "1", "--tag", "new-tag"],
+            )
+            assert result.exit_code == 0
+            mock_t.get_ticket.assert_called_once_with(1)
+            mock_t.update_ticket.assert_called_once_with(1, tags=["existing", "new-tag"])
+
+    def test_tag_add_deduplicates(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_ticket.return_value = {
+                "ticket": {"ticket_number": 1, "tags": ["phishing"]},
+            }
+            mock_t.update_ticket.return_value = {"ticket": {}}
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ticket", "tag", "add", "--id", "1", "--tag", "phishing"],
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(1, tags=["phishing"])
+
+    def test_tag_add_with_no_existing_tags(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_ticket.return_value = {
+                "ticket": {"ticket_number": 1},
+            }
+            mock_t.update_ticket.return_value = {"ticket": {}}
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ticket", "tag", "add", "--id", "1", "--tag", "new-tag"],
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(1, tags=["new-tag"])
+
+    def test_tag_remove(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_ticket.return_value = {
+                "ticket": {"ticket_number": 1, "tags": ["old-tag", "keep-tag"]},
+            }
+            mock_t.update_ticket.return_value = {"ticket": {}}
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ticket", "tag", "remove", "--id", "1", "--tag", "old-tag"],
+            )
+            assert result.exit_code == 0
+            mock_t.get_ticket.assert_called_once_with(1)
+            mock_t.update_ticket.assert_called_once_with(1, tags=["keep-tag"])
+
+    def test_tag_remove_nonexistent_tag(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_ticket.return_value = {
+                "ticket": {"ticket_number": 1, "tags": ["keep-tag"]},
+            }
+            mock_t.update_ticket.return_value = {"ticket": {}}
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ticket", "tag", "remove", "--id", "1", "--tag", "no-such-tag"],
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(1, tags=["keep-tag"])
+
+    def test_tag_set_requires_id(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["ticket", "tag", "set", "--tag", "x"])
+        assert result.exit_code != 0
+
+    def test_tag_set_requires_tag(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["ticket", "tag", "set", "--id", "1"])
+        assert result.exit_code != 0

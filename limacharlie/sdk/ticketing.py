@@ -108,6 +108,7 @@ class Ticketing:
         classification: list[str] | None = None,
         assignee: str | None = None,
         search: str | None = None,
+        tag: list[str] | None = None,
         sort: str | None = None,
         order: str | None = None,
         page_size: int | None = None,
@@ -125,6 +126,8 @@ class Ticketing:
             qp["assignee"] = assignee
         if search:
             qp["search"] = search
+        if tag:
+            qp["tag"] = ",".join(tag)
         if sort:
             qp["sort"] = sort
         if order:
@@ -147,7 +150,7 @@ class Ticketing:
         """Update a ticket.
 
         Accepted fields: status, assignee, classification,
-        escalation_group, investigation_id, summary, conclusion.
+        escalation_group, investigation_id, summary, conclusion, tags.
         """
         return self._request(
             "PATCH",
