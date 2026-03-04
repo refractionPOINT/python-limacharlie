@@ -1336,6 +1336,43 @@ class TestTicketTagSubcommands:
             assert result.exit_code == 0
             mock_t.update_ticket.assert_called_once_with(1, tags=["keep-tag"])
 
+    def test_tag_add_case_insensitive_dedup(self):
+        """Adding PHISHING when 'phishing' already exists should NOT add a duplicate."""
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_ticket.return_value = {
+                "ticket": {"ticket_number": 1, "tags": ["phishing"]},
+            }
+            mock_t.update_ticket.return_value = {"ticket": {}}
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ticket", "tag", "add", "--id", "1", "--tag", "PHISHING"],
+            )
+            assert result.exit_code == 0
+            # The existing 'phishing' wins; no duplicate added.
+            mock_t.update_ticket.assert_called_once_with(1, tags=["phishing"])
+
+    def test_tag_remove_case_insensitive(self):
+        """Removing PHISHING should remove existing 'Phishing' (case-insensitive)."""
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            mock_t = MagicMock()
+            mock_t_cls.return_value = mock_t
+            mock_t.get_ticket.return_value = {
+                "ticket": {"ticket_number": 1, "tags": ["Phishing", "keep-tag"]},
+            }
+            mock_t.update_ticket.return_value = {"ticket": {}}
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ticket", "tag", "remove", "--id", "1", "--tag", "PHISHING"],
+            )
+            assert result.exit_code == 0
+            mock_t.update_ticket.assert_called_once_with(1, tags=["keep-tag"])
+
     def test_tag_set_requires_id(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["ticket", "tag", "set", "--tag", "x"])

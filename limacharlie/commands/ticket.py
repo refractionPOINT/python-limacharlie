@@ -87,6 +87,7 @@ Updatable fields:
   --investigation-id link to a LimaCharlie investigation
   --summary          investigation findings (max 8192 chars)
   --conclusion       root cause & remediation (max 8192 chars)
+  --tag              add/replace tags (repeatable; see ticket tag subcommand)
 
 Status transitions follow a state machine:
   new -> acknowledged, in_progress, escalated, closed
@@ -1452,11 +1453,16 @@ def tag_add(ctx, ticket_number, tags) -> None:
         limacharlie ticket tag add --id 42 --tag new-tag
         limacharlie ticket tag add --id 42 -t phishing -t urgent
     """
-    t = _get_ticketing(ctx)
-    current = t.get_ticket(ticket_number)
+    tk = _get_ticketing(ctx)
+    current = tk.get_ticket(ticket_number)
     existing = current.get("ticket", current).get("tags") or []
-    merged = list(dict.fromkeys(existing + list(tags)))
-    data = t.update_ticket(ticket_number, tags=merged)
+    seen = {}
+    for tag in existing + list(tags):
+        key = tag.lower()
+        if key not in seen:
+            seen[key] = tag
+    merged = list(seen.values())
+    data = tk.update_ticket(ticket_number, tags=merged)
     _output(ctx, data)
 
 
@@ -1474,7 +1480,7 @@ def tag_remove(ctx, ticket_number, tags) -> None:
     tk = _get_ticketing(ctx)
     current = tk.get_ticket(ticket_number)
     existing = current.get("ticket", current).get("tags") or []
-    to_remove = set(tags)
-    remaining = [t for t in existing if t not in to_remove]
+    to_remove = {t.lower() for t in tags}
+    remaining = [t for t in existing if t.lower() not in to_remove]
     data = tk.update_ticket(ticket_number, tags=remaining)
     _output(ctx, data)
