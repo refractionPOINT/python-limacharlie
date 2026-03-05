@@ -258,9 +258,30 @@ register_explain("auth.whoami", _EXPLAIN_WHOAMI)
 @group.command()
 @pass_context
 def whoami(ctx: click.Context) -> None:
-    org = _get_org(ctx)
+    client = _get_client(ctx)
+    org = Organization(client)
     data = org.who_am_i()
-    _output(ctx, data)
+
+    # Prepend stored credential info like the old CLI did.
+    cred_info = {}
+    if client.oid:
+        cred_info["oid"] = client.oid
+    if client.uid:
+        cred_info["uid"] = client.uid
+
+    # Expand list fields (like perms) so they display in full
+    # instead of being truncated to "[N items]" in table mode.
+    for key in ("perms", "user_perms"):
+        val = data.get(key)
+        if isinstance(val, list):
+            data[key] = ", ".join(str(v) for v in val)
+        elif isinstance(val, dict):
+            # user_perms is {oid: [perms]} — expand each sub-list.
+            data[key] = {k: ", ".join(str(p) for p in v) if isinstance(v, list) else v
+                         for k, v in val.items()}
+
+    merged = {**cred_info, **data}
+    _output(ctx, merged)
 
 
 # ---------------------------------------------------------------------------

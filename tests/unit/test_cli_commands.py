@@ -76,23 +76,60 @@ class TestCLIGlobalOptions:
             output_mod._filter_expr = original
 
 
+class TestHelpTopicFallthrough:
+    def test_help_topic_shortcut(self):
+        """limacharlie help auth should work like limacharlie help topic auth."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["help", "auth"])
+        assert result.exit_code == 0
+        assert "Authentication" in result.output
+
+    def test_help_topic_explicit(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["help", "topic", "auth"])
+        assert result.exit_code == 0
+        assert "Authentication" in result.output
+
+    def test_help_unknown_topic(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["help", "nonexistent_xyz"])
+        assert result.exit_code != 0
+
+    def test_help_subcommands_still_work(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["help", "discover"])
+        assert result.exit_code == 0
+
+
 class TestAuthCommands:
     @patch("limacharlie.commands.auth.Client")
     @patch("limacharlie.commands.auth.Organization")
     def test_whoami(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = "test-uid"
+        mock_client_cls.return_value = mock_client
+
         mock_org = MagicMock()
-        mock_org.who_am_i.return_value = {"ident": "user@test.com"}
+        mock_org.who_am_i.return_value = {"ident": "user@test.com", "perms": ["a", "b"]}
         mock_org_cls.return_value = mock_org
 
         runner = CliRunner()
         result = runner.invoke(cli, ["auth", "whoami"])
         assert result.exit_code == 0
         assert "user@test.com" in result.output
+        assert "test-oid" in result.output
+        assert "test-uid" in result.output
         mock_org.who_am_i.assert_called_once()
 
     @patch("limacharlie.commands.auth.Client")
     @patch("limacharlie.commands.auth.Organization")
     def test_whoami_quiet(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = None
+        mock_client_cls.return_value = mock_client
+
         mock_org = MagicMock()
         mock_org.who_am_i.return_value = {"ident": "user@test.com"}
         mock_org_cls.return_value = mock_org
@@ -105,8 +142,13 @@ class TestAuthCommands:
     @patch("limacharlie.commands.auth.Client")
     @patch("limacharlie.commands.auth.Organization")
     def test_whoami_json(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = "test-uid"
+        mock_client_cls.return_value = mock_client
+
         mock_org = MagicMock()
-        mock_org.who_am_i.return_value = {"ident": "user@test.com"}
+        mock_org.who_am_i.return_value = {"ident": "user@test.com", "perms": ["p1", "p2"]}
         mock_org_cls.return_value = mock_org
 
         runner = CliRunner()
@@ -114,6 +156,28 @@ class TestAuthCommands:
         assert result.exit_code == 0
         parsed = json.loads(result.output)
         assert parsed["ident"] == "user@test.com"
+        assert parsed["oid"] == "test-oid"
+        assert parsed["uid"] == "test-uid"
+
+    @patch("limacharlie.commands.auth.Client")
+    @patch("limacharlie.commands.auth.Organization")
+    def test_whoami_expands_perms(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = None
+        mock_client_cls.return_value = mock_client
+
+        mock_org = MagicMock()
+        perms = [f"perm{i}" for i in range(100)]
+        mock_org.who_am_i.return_value = {"ident": "user@test.com", "perms": perms}
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["auth", "whoami"])
+        assert result.exit_code == 0
+        # Perms should be expanded, not shown as "[100 items]"
+        assert "[100 items]" not in result.output
+        assert "perm0" in result.output
 
     @patch("limacharlie.commands.auth.Client")
     def test_auth_test_success(self, mock_client_cls):
