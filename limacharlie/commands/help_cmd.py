@@ -21,12 +21,45 @@ from ..discovery import format_discovery, register_explain
 # Group
 # ---------------------------------------------------------------------------
 
-@click.group("help", invoke_without_command=True)
+class _HelpGroup(click.Group):
+    """Help group that falls through to topic lookup for unknown subcommands.
+
+    This allows ``limacharlie help auth`` to work as a shortcut for
+    ``limacharlie help topic auth``.
+    """
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        # Try real subcommands first (topic, discover, cheatsheet).
+        rv = super().get_command(ctx, cmd_name)
+        if rv is not None:
+            return rv
+
+        # Fall through: treat the name as a help topic.
+        content = get_help_topic(cmd_name)
+        if content is not None:
+            @click.command(cmd_name, hidden=True)
+            def _show_topic() -> None:
+                click.echo(content)
+            return _show_topic
+
+        return None
+
+    def resolve_command(self, ctx: click.Context, args: list[str]) -> tuple:
+        # Override so Click doesn't reject unknown names before get_command runs.
+        cmd_name = click.utils.make_str(args[0]) if args else None
+        if cmd_name and super().get_command(ctx, cmd_name) is None:
+            cmd = self.get_command(ctx, cmd_name)
+            if cmd is not None:
+                return cmd_name, cmd, args[1:]
+        return super().resolve_command(ctx, args)
+
+
+@click.group("help", cls=_HelpGroup, invoke_without_command=True)
 @click.pass_context
 def group(ctx) -> None:
     """Inline help topics, command discovery, and cheatsheets.
 
-    Use 'limacharlie help topic <name>' for concept guides.
+    Use 'limacharlie help <name>' for a concept guide (e.g. auth, hive, lcql).
     Use 'limacharlie help discover' to explore commands by use-case.
     Use 'limacharlie help cheatsheet' for quick-reference examples.
     """

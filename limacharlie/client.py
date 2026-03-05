@@ -212,6 +212,11 @@ class Client:
         if expiry is not None:
             auth_data["expiry"] = int(expiry)
 
+        self._debug(
+            f"JWT request: oid={effective_oid}, uid={'set' if self._uid else 'not set'}, "
+            f"key={self._api_key[:8]}..."
+        )
+
         self._jwt = self._call_jwt_endpoint(auth_data)
 
         if self._on_refresh_auth is not None:

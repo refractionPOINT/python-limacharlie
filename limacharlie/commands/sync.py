@@ -36,7 +36,15 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 def _get_org(ctx: click.Context) -> Organization:
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    debug_fn = None
+    if ctx.obj.debug:
+        import sys
+        debug_fn = lambda msg: print(msg, file=sys.stderr)
+    client = Client(
+        oid=ctx.obj.oid,
+        environment=ctx.obj.environment,
+        print_debug_fn=debug_fn,
+    )
     return Organization(client)
 
 
