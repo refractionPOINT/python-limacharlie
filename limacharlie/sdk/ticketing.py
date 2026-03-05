@@ -108,6 +108,7 @@ class Ticketing:
         classification: list[str] | None = None,
         assignee: str | None = None,
         search: str | None = None,
+        sensor_id: str | None = None,
         tag: list[str] | None = None,
         sort: str | None = None,
         order: str | None = None,
@@ -126,6 +127,8 @@ class Ticketing:
             qp["assignee"] = assignee
         if search:
             qp["search"] = search
+        if sensor_id:
+            qp["sensor_id"] = sensor_id
         if tag:
             qp["tag"] = ",".join(tag)
         if sort:
