@@ -41,6 +41,7 @@ Filters (all repeatable/comma-separated):
   --classification  pending, true_positive, false_positive
   --assignee  filter by assignee email
   --search    full-text search in detection_cat and hostname
+  --sid       filter to tickets with any detection from this sensor ID
   --tag       filter by tag (repeat for AND logic)
 
 Sorting:
@@ -594,6 +595,7 @@ def create(ctx, detection_id, detection_cat, severity, detection_source,
 @click.option("--classification", multiple=True, type=_CLASSIFICATION_CHOICES, help="Filter by classification (repeatable).")
 @click.option("--assignee", default=None, help="Filter by assignee email.")
 @click.option("--search", default=None, help="Full-text search (detection_cat, hostname).")
+@click.option("--sid", default=None, help="Filter to tickets with any detection from this sensor ID.")
 @click.option("--tag", multiple=True, help="Filter by tag (repeat for AND logic).")
 @click.option("--sort", default=None, type=_SORT_CHOICES, help="Sort field (default: created_at).")
 @click.option("--order", default=None, type=_ORDER_CHOICES, help="Sort order (default: desc).")
@@ -601,7 +603,7 @@ def create(ctx, detection_id, detection_cat, severity, detection_source,
 @click.option("--cursor", default=None, help="Page token for next page.")
 @pass_context
 def list_tickets(ctx, status, severity, classification, assignee, search,
-                 tag, sort, order, limit, cursor) -> None:
+                 sid, tag, sort, order, limit, cursor) -> None:
     """List tickets.
 
     Examples:
@@ -610,6 +612,7 @@ def list_tickets(ctx, status, severity, classification, assignee, search,
         limacharlie ticket list --severity critical --severity high
         limacharlie ticket list --search "mimikatz" --limit 20
         limacharlie ticket list --tag phishing --tag urgent
+        limacharlie ticket list --sid 8f4b1c2e-...
     """
     t = _get_ticketing(ctx)
     data = t.list_tickets(
@@ -618,6 +621,7 @@ def list_tickets(ctx, status, severity, classification, assignee, search,
         classification=list(classification) or None,
         assignee=assignee,
         search=search,
+        sensor_id=sid,
         tag=list(tag) or None,
         sort=sort,
         order=order,

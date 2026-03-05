@@ -1181,6 +1181,50 @@ class TestTicketListTag:
 
 
 # ---------------------------------------------------------------------------
+# ticket list --sid
+# ---------------------------------------------------------------------------
+
+
+class TestTicketListSid:
+    def test_list_with_sid(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "list", "--sid", "abc-sensor-123"],
+                mock_t_cls,
+                return_value={"tickets": [], "total_counts": {}},
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_t.list_tickets.call_args[1]
+            assert call_kwargs["sensor_id"] == "abc-sensor-123"
+
+    def test_list_without_sid(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "list"],
+                mock_t_cls,
+                return_value={"tickets": [], "total_counts": {}},
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_t.list_tickets.call_args[1]
+            assert call_kwargs["sensor_id"] is None
+
+    def test_list_sid_combined_with_status(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "list", "--sid", "abc-sensor-123", "--status", "new"],
+                mock_t_cls,
+                return_value={"tickets": [], "total_counts": {}},
+            )
+            assert result.exit_code == 0
+            call_kwargs = mock_t.list_tickets.call_args[1]
+            assert call_kwargs["sensor_id"] == "abc-sensor-123"
+            assert call_kwargs["status"] == ["new"]
+
+
+# ---------------------------------------------------------------------------
 # ticket update --tag
 # ---------------------------------------------------------------------------
 

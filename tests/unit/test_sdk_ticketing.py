@@ -164,6 +164,20 @@ class TestListTickets:
         assert "status" not in qp
         assert "severity" not in qp
 
+    def test_sensor_id_filter(self, ticketing, mock_org):
+        mock_org.client.request.return_value = {"tickets": []}
+        ticketing.list_tickets(sensor_id="abc-sensor-123")
+        _, kwargs = _extract_call(mock_org)
+        qp = kwargs["query_params"]
+        assert qp["sensor_id"] == "abc-sensor-123"
+
+    def test_sensor_id_none_omitted(self, ticketing, mock_org):
+        mock_org.client.request.return_value = {"tickets": []}
+        ticketing.list_tickets(sensor_id=None)
+        _, kwargs = _extract_call(mock_org)
+        qp = kwargs["query_params"]
+        assert "sensor_id" not in qp
+
 
 class TestGetTicket:
     def test_path_and_query(self, ticketing, mock_org):
