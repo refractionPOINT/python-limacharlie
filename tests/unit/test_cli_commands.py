@@ -268,11 +268,22 @@ class TestDRCommands:
 
 
 class TestHiveEnableDisable:
+    @staticmethod
+    def _existing_record(name="my-rule", enabled=True):
+        """Return an HiveRecord simulating existing metadata."""
+        from limacharlie.sdk.hive import HiveRecord
+        return HiveRecord(
+            name=name, enabled=enabled,
+            tags=["keep-me"], expiry=1234, comment="preserve this",
+            etag="old-etag",
+        )
+
     @patch("limacharlie.commands.hive.Client")
     @patch("limacharlie.commands.hive.Organization")
     @patch("limacharlie.commands.hive.Hive")
     def test_hive_enable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
         mock_hive = MagicMock()
+        mock_hive.get_metadata.return_value = self._existing_record(enabled=False)
         mock_hive.set.return_value = {"etag": "new"}
         mock_hive_cls.return_value = mock_hive
 
@@ -282,12 +293,16 @@ class TestHiveEnableDisable:
         record = mock_hive.set.call_args[0][0]
         assert record.enabled is True
         assert record.data is None  # only metadata update
+        assert record.tags == ["keep-me"]
+        assert record.expiry == 1234
+        assert record.comment == "preserve this"
 
     @patch("limacharlie.commands.hive.Client")
     @patch("limacharlie.commands.hive.Organization")
     @patch("limacharlie.commands.hive.Hive")
     def test_hive_disable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
         mock_hive = MagicMock()
+        mock_hive.get_metadata.return_value = self._existing_record(enabled=True)
         mock_hive.set.return_value = {"etag": "new"}
         mock_hive_cls.return_value = mock_hive
 
@@ -297,12 +312,14 @@ class TestHiveEnableDisable:
         record = mock_hive.set.call_args[0][0]
         assert record.enabled is False
         assert record.data is None
+        assert record.tags == ["keep-me"]
 
     @patch("limacharlie.commands._hive_shortcut.Client")
     @patch("limacharlie.commands._hive_shortcut.Organization")
     @patch("limacharlie.commands._hive_shortcut.Hive")
     def test_shortcut_enable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
         mock_hive = MagicMock()
+        mock_hive.get_metadata.return_value = self._existing_record("my-secret", enabled=False)
         mock_hive.set.return_value = {"etag": "new"}
         mock_hive_cls.return_value = mock_hive
 
@@ -311,12 +328,14 @@ class TestHiveEnableDisable:
         assert result.exit_code == 0
         record = mock_hive.set.call_args[0][0]
         assert record.enabled is True
+        assert record.tags == ["keep-me"]
 
     @patch("limacharlie.commands._hive_shortcut.Client")
     @patch("limacharlie.commands._hive_shortcut.Organization")
     @patch("limacharlie.commands._hive_shortcut.Hive")
     def test_shortcut_disable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
         mock_hive = MagicMock()
+        mock_hive.get_metadata.return_value = self._existing_record("my-secret", enabled=True)
         mock_hive.set.return_value = {"etag": "new"}
         mock_hive_cls.return_value = mock_hive
 
@@ -325,5 +344,6 @@ class TestHiveEnableDisable:
         assert result.exit_code == 0
         record = mock_hive.set.call_args[0][0]
         assert record.enabled is False
+        assert record.tags == ["keep-me"]
 
 
