@@ -304,20 +304,44 @@ class TestTestAuth:
 
 
 class TestListAccessibleOrgs:
-    def test_list_accessible_orgs_basic(self, org, mock_client):
+    def test_list_accessible_orgs_auto_paginates(self, org, mock_client):
+        """Without offset/limit the SDK should fetch all pages."""
+        mock_client.request.side_effect = [
+            {
+                "orgs": [
+                    {"oid": "oid-1", "name": "Org One"},
+                    {"oid": "oid-2", "name": "Org Two"},
+                ],
+                "total": 3,
+            },
+            {
+                "orgs": [
+                    {"oid": "oid-3", "name": "Org Three"},
+                ],
+                "total": 3,
+            },
+        ]
+        result = org.list_accessible_orgs()
+        mock_client.refresh_jwt.assert_called_once_with(oid_override="-")
+        assert mock_client.request.call_count == 2
+        assert result["orgs"] == ["oid-1", "oid-2", "oid-3"]
+        assert result["names"]["oid-1"] == "Org One"
+        assert result["names"]["oid-3"] == "Org Three"
+
+    def test_list_accessible_orgs_single_page(self, org, mock_client):
+        """When all results fit in one page, only one request is made."""
         mock_client.request.return_value = {
             "orgs": [
                 {"oid": "oid-1", "name": "Org One"},
-                {"oid": "oid-2", "name": "Org Two"},
-            ]
+            ],
+            "total": 1,
         }
         result = org.list_accessible_orgs()
-        mock_client.refresh_jwt.assert_called_once_with(oid_override="-")
-        mock_client.request.assert_called_once_with("GET", "user/orgs", query_params=None)
-        assert result["orgs"] == ["oid-1", "oid-2"]
-        assert result["names"]["oid-1"] == "Org One"
+        assert mock_client.request.call_count == 1
+        assert result["orgs"] == ["oid-1"]
 
-    def test_list_accessible_orgs_with_pagination(self, org, mock_client):
+    def test_list_accessible_orgs_with_explicit_pagination(self, org, mock_client):
+        """With explicit offset/limit a single page is returned."""
         mock_client.request.return_value = {"orgs": []}
         org.list_accessible_orgs(offset=10, limit=5, filter_text="test")
         mock_client.request.assert_called_once_with(
@@ -328,7 +352,7 @@ class TestListAccessibleOrgs:
     def test_list_accessible_orgs_restores_jwt(self, org, mock_client):
         original_jwt = "original-jwt-token"
         mock_client._jwt = original_jwt
-        mock_client.request.return_value = {"orgs": []}
+        mock_client.request.return_value = {"orgs": [], "total": 0}
         org.list_accessible_orgs()
         assert mock_client._jwt == original_jwt
 
