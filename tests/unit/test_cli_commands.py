@@ -267,3 +267,63 @@ class TestDRCommands:
         mock_hive.list.assert_called_once()
 
 
+class TestHiveEnableDisable:
+    @patch("limacharlie.commands.hive.Client")
+    @patch("limacharlie.commands.hive.Organization")
+    @patch("limacharlie.commands.hive.Hive")
+    def test_hive_enable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["hive", "enable", "--hive-name", "dr-general", "--key", "my-rule"])
+        assert result.exit_code == 0
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+        assert record.data is None  # only metadata update
+
+    @patch("limacharlie.commands.hive.Client")
+    @patch("limacharlie.commands.hive.Organization")
+    @patch("limacharlie.commands.hive.Hive")
+    def test_hive_disable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["hive", "disable", "--hive-name", "dr-general", "--key", "my-rule"])
+        assert result.exit_code == 0
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is False
+        assert record.data is None
+
+    @patch("limacharlie.commands._hive_shortcut.Client")
+    @patch("limacharlie.commands._hive_shortcut.Organization")
+    @patch("limacharlie.commands._hive_shortcut.Hive")
+    def test_shortcut_enable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["secret", "enable", "--key", "my-secret"])
+        assert result.exit_code == 0
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+
+    @patch("limacharlie.commands._hive_shortcut.Client")
+    @patch("limacharlie.commands._hive_shortcut.Organization")
+    @patch("limacharlie.commands._hive_shortcut.Hive")
+    def test_shortcut_disable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["secret", "disable", "--key", "my-secret"])
+        assert result.exit_code == 0
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is False
+
+

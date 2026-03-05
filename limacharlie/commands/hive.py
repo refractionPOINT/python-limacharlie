@@ -301,6 +301,57 @@ def delete(ctx, hive_name, key, confirm) -> None:
 
 
 # ---------------------------------------------------------------------------
+# enable / disable
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_ENABLE = """\
+Enable a hive record by setting its usr_mtd.enabled flag to true.
+Only the metadata is updated; the record data is left unchanged.
+
+This is a shortcut for:
+  echo '{"usr_mtd": {"enabled": true}}' | limacharlie hive set ...
+"""
+register_explain("hive.enable", _EXPLAIN_ENABLE)
+
+_EXPLAIN_DISABLE = """\
+Disable a hive record by setting its usr_mtd.enabled flag to false.
+Only the metadata is updated; the record data is left unchanged.
+
+This is a shortcut for:
+  echo '{"usr_mtd": {"enabled": false}}' | limacharlie hive set ...
+"""
+register_explain("hive.disable", _EXPLAIN_DISABLE)
+
+
+def _set_enabled(ctx: click.Context, hive_name: str, key: str, enabled: bool) -> None:
+    """Toggle the enabled flag on a hive record."""
+    org = _get_org(ctx)
+    hive = Hive(org, hive_name)
+    record = HiveRecord(key, enabled=enabled)
+    result = hive.set(record)
+    state = "enabled" if enabled else "disabled"
+    if not ctx.obj.quiet:
+        click.echo(f"Record '{key}' {state} in hive '{hive_name}'.")
+    _output(ctx, result)
+
+
+@group.command()
+@click.option("--hive-name", required=True, help="Hive name.")
+@click.option("--key", required=True, help="Record key.")
+@pass_context
+def enable(ctx, hive_name, key) -> None:
+    _set_enabled(ctx, hive_name, key, True)
+
+
+@group.command()
+@click.option("--hive-name", required=True, help="Hive name.")
+@click.option("--key", required=True, help="Record key.")
+@pass_context
+def disable(ctx, hive_name, key) -> None:
+    _set_enabled(ctx, hive_name, key, False)
+
+
+# ---------------------------------------------------------------------------
 # validate
 # ---------------------------------------------------------------------------
 

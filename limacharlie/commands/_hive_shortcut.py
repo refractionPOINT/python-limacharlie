@@ -125,10 +125,32 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         result = hive.delete(key)
         _output(ctx, result)
 
+    @grp.command("enable", help=f"Enable {article} {noun_singular}.")
+    @click.option("--key", required=True, help="Record key name.")
+    @pass_context
+    def enable_cmd(ctx, key) -> None:
+        org = _get_org(ctx)
+        hive = Hive(org, hive_name)
+        record = HiveRecord(key, enabled=True)
+        result = hive.set(record)
+        _output(ctx, result)
+
+    @grp.command("disable", help=f"Disable {article} {noun_singular}.")
+    @click.option("--key", required=True, help="Record key name.")
+    @pass_context
+    def disable_cmd(ctx, key) -> None:
+        org = _get_org(ctx)
+        hive = Hive(org, hive_name)
+        record = HiveRecord(key, enabled=False)
+        result = hive.set(record)
+        _output(ctx, result)
+
     # Register explain texts.
     register_explain(f"{group_name}.list", explain_list)
     register_explain(f"{group_name}.get", explain_get)
     register_explain(f"{group_name}.set", explain_set)
     register_explain(f"{group_name}.delete", explain_delete)
+    register_explain(f"{group_name}.enable", f"Enable {article} {noun_singular} by key (sets usr_mtd.enabled to true).")
+    register_explain(f"{group_name}.disable", f"Disable {article} {noun_singular} by key (sets usr_mtd.enabled to false).")
 
     return grp
