@@ -242,6 +242,11 @@ class Organization:
     def list_accessible_orgs(self, offset: int | None = None, limit: int | None = None, filter_text: str | None = None) -> dict[str, Any]:
         """List organizations accessible to the current user.
 
+        When neither *offset* nor *limit* is provided the method
+        auto-paginates and returns **all** accessible organizations.
+        When either is set explicitly a single page is returned so
+        callers can paginate manually.
+
         Args:
             offset: Pagination offset.
             limit: Maximum number of results.
@@ -250,7 +255,9 @@ class Organization:
         Returns:
             dict: Organization list with 'orgs' and 'names' keys.
         """
-        qp = {}
+        auto_paginate = offset is None and limit is None
+
+        qp: dict[str, str] = {}
         if offset is not None:
             qp["offset"] = str(offset)
         if limit is not None:
@@ -262,14 +269,39 @@ class Organization:
         original_jwt = self._client._jwt
         try:
             self._client.refresh_jwt(oid_override="-")
-            resp = self._client.request("GET", "user/orgs", query_params=qp or None)
+
+            all_oids: list[str] = []
+            all_names: dict[str, str] = {}
+
+            if not auto_paginate:
+                resp = self._client.request("GET", "user/orgs", query_params=qp or None)
+                for org in resp.get("orgs", []):
+                    oid = org.get("oid")
+                    if oid:
+                        all_oids.append(oid)
+                        all_names[oid] = org.get("name", "")
+            else:
+                # Fetch pages until we have all results.
+                page_size = 50
+                current_offset = 0
+                while True:
+                    qp["offset"] = str(current_offset)
+                    qp["limit"] = str(page_size)
+                    resp = self._client.request("GET", "user/orgs", query_params=qp)
+                    orgs_page = resp.get("orgs", [])
+                    for org in orgs_page:
+                        oid = org.get("oid")
+                        if oid:
+                            all_oids.append(oid)
+                            all_names[oid] = org.get("name", "")
+                    total = resp.get("total")
+                    current_offset += len(orgs_page)
+                    if not orgs_page or (total is not None and current_offset >= total):
+                        break
         finally:
             self._client._jwt = original_jwt
 
-        orgs_list = resp.get("orgs", [])
-        oids = [org.get("oid") for org in orgs_list if org.get("oid")]
-        names = {org.get("oid"): org.get("name") for org in orgs_list if org.get("oid")}
-        return {"orgs": oids, "names": names}
+        return {"orgs": all_oids, "names": all_names}
 
     @staticmethod
     def create_org(client: Client, name: str, location: str | None = None, template: str | None = None) -> dict[str, Any]:
