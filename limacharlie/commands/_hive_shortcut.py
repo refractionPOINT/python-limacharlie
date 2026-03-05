@@ -131,7 +131,8 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     def enable_cmd(ctx, key) -> None:
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
-        record = HiveRecord(key, enabled=True)
+        record = hive.get_metadata(key)
+        record.enabled = True
         result = hive.set(record)
         _output(ctx, result)
 
@@ -141,7 +142,8 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     def disable_cmd(ctx, key) -> None:
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
-        record = HiveRecord(key, enabled=False)
+        record = hive.get_metadata(key)
+        record.enabled = False
         result = hive.set(record)
         _output(ctx, result)
 
