@@ -114,6 +114,7 @@ class TestTicketCreate:
             assert result.exit_code == 0
             mock_t.create_ticket.assert_called_once_with(
                 "det-abc",
+                detection=None,
                 detection_cat=None,
                 severity=None,
                 detection_source=None,
@@ -140,6 +141,7 @@ class TestTicketCreate:
             assert result.exit_code == 0
             mock_t.create_ticket.assert_called_once_with(
                 "det-abc",
+                detection=None,
                 detection_cat="lateral_movement",
                 severity="high",
                 detection_source="dr-general",
@@ -947,6 +949,7 @@ class TestTicketDetection:
             assert result.exit_code == 0
             mock_t.add_detection.assert_called_once_with(
                 42, "det-1",
+                detection=None,
                 detection_cat="lateral_movement",
                 detection_source=None,
                 detection_priority=None,
