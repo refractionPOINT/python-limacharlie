@@ -103,60 +103,85 @@ class TestTicketHelp:
 
 
 class TestTicketCreate:
-    def test_create_minimal(self):
+    _SAMPLE_DETECTION = json.dumps({
+        "detect_id": "det-abc",
+        "cat": "lateral_movement",
+        "source": "dr-general",
+        "routing": {"sid": "sid-123", "hostname": "ws-01"},
+        "detect_mtd": {"level": "high"},
+    })
+
+    def test_create_with_detection(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["ticket", "create", "--detection-id", "det-abc"],
+                ["ticket", "create", "--detection", self._SAMPLE_DETECTION],
                 mock_t_cls,
                 return_value={"created": 1, "ticket_id": "tid-new"},
             )
             assert result.exit_code == 0
             mock_t.create_ticket.assert_called_once_with(
-                "det-abc",
-                detection_cat=None,
+                json.loads(self._SAMPLE_DETECTION),
                 severity=None,
-                detection_source=None,
-                detection_priority=None,
-                sensor_id=None,
-                hostname=None,
             )
 
-    def test_create_all_fields(self):
+    def test_create_with_severity_override(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
                 ["ticket", "create",
-                 "--detection-id", "det-abc",
-                 "--detection-cat", "lateral_movement",
-                 "--severity", "high",
-                 "--detection-source", "dr-general",
-                 "--detection-priority", "7",
-                 "--sensor-id", "sid-123",
-                 "--hostname", "ws-01"],
+                 "--detection", self._SAMPLE_DETECTION,
+                 "--severity", "critical"],
                 mock_t_cls,
                 return_value={"created": 1, "ticket_id": "tid-new"},
             )
             assert result.exit_code == 0
             mock_t.create_ticket.assert_called_once_with(
-                "det-abc",
-                detection_cat="lateral_movement",
-                severity="high",
-                detection_source="dr-general",
-                detection_priority=7,
-                sensor_id="sid-123",
-                hostname="ws-01",
+                json.loads(self._SAMPLE_DETECTION),
+                severity="critical",
             )
 
-    def test_create_requires_detection_id(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["ticket", "create"])
-        assert result.exit_code != 0
+    def test_create_without_detection(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "create"],
+                mock_t_cls,
+                return_value={"created": 1, "ticket_id": "tid-new"},
+            )
+            assert result.exit_code == 0
+            mock_t.create_ticket.assert_called_once_with(
+                None,
+                severity=None,
+            )
+
+    def test_create_without_detection_with_severity(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "create", "--severity", "medium"],
+                mock_t_cls,
+                return_value={"created": 1, "ticket_id": "tid-new"},
+            )
+            assert result.exit_code == 0
+            mock_t.create_ticket.assert_called_once_with(
+                None,
+                severity="medium",
+            )
 
     def test_create_invalid_severity_rejected(self):
         runner = CliRunner()
         result = runner.invoke(cli, [
-            "ticket", "create", "--detection-id", "det-1", "--severity", "extreme",
+            "ticket", "create",
+            "--detection", self._SAMPLE_DETECTION,
+            "--severity", "extreme",
+        ])
+        assert result.exit_code != 0
+
+    def test_create_invalid_json_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "ticket", "create", "--detection", "not-json",
         ])
         assert result.exit_code != 0
 
@@ -812,6 +837,14 @@ class TestTicketEntity:
 
 
 class TestTicketTelemetry:
+    _SAMPLE_EVENT = json.dumps({
+        "routing": {
+            "this": "atom-1",
+            "sid": "sid-1",
+            "event_type": "NEW_PROCESS",
+        },
+    })
+
     def test_telemetry_list(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
@@ -828,16 +861,50 @@ class TestTicketTelemetry:
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
                 ["ticket", "telemetry", "add", "--ticket", "42",
-                 "--atom", "atom-1", "--sid", "sid-1",
-                 "--event-type", "NEW_PROCESS", "--verdict", "suspicious"],
+                 "--event", self._SAMPLE_EVENT,
+                 "--verdict", "suspicious"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
             mock_t.add_telemetry.assert_called_once_with(
-                42, "atom-1", "sid-1",
-                event_type="NEW_PROCESS", event_summary=None,
+                42, json.loads(self._SAMPLE_EVENT),
+                event_summary=None,
                 verdict="suspicious", relevance=None,
+            )
+
+    def test_telemetry_add_requires_event(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "ticket", "telemetry", "add", "--ticket", "42",
+        ])
+        assert result.exit_code != 0
+
+    def test_telemetry_add_invalid_json_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "ticket", "telemetry", "add", "--ticket", "42",
+            "--event", "not-json",
+        ])
+        assert result.exit_code != 0
+
+    def test_telemetry_add_with_all_optional_fields(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "telemetry", "add", "--ticket", "42",
+                 "--event", self._SAMPLE_EVENT,
+                 "--event-summary", "Process spawned",
+                 "--verdict", "malicious",
+                 "--relevance", "Key evidence"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code == 0
+            mock_t.add_telemetry.assert_called_once_with(
+                42, json.loads(self._SAMPLE_EVENT),
+                event_summary="Process spawned",
+                verdict="malicious", relevance="Key evidence",
             )
 
     def test_telemetry_update(self):
@@ -924,6 +991,14 @@ class TestTicketArtifact:
 
 
 class TestTicketDetection:
+    _SAMPLE_DETECTION = json.dumps({
+        "detect_id": "det-1",
+        "cat": "lateral_movement",
+        "source": "dr-general",
+        "routing": {"sid": "sid-1", "hostname": "ws-01"},
+        "detect_mtd": {"level": "high"},
+    })
+
     def test_detection_list(self):
         p1, p2, p3 = _patch_ticketing()
         with p1, p2, p3 as mock_t_cls:
@@ -940,19 +1015,29 @@ class TestTicketDetection:
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
                 ["ticket", "detection", "add", "--ticket", "42",
-                 "--detection-id", "det-1", "--detection-cat", "lateral_movement"],
+                 "--detection", self._SAMPLE_DETECTION],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
             mock_t.add_detection.assert_called_once_with(
-                42, "det-1",
-                detection_cat="lateral_movement",
-                detection_source=None,
-                detection_priority=None,
-                sensor_id=None,
-                hostname=None,
+                42, json.loads(self._SAMPLE_DETECTION),
             )
+
+    def test_detection_add_requires_detection(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "ticket", "detection", "add", "--ticket", "42",
+        ])
+        assert result.exit_code != 0
+
+    def test_detection_add_invalid_json_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "ticket", "detection", "add", "--ticket", "42",
+            "--detection", "not-json",
+        ])
+        assert result.exit_code != 0
 
     def test_detection_remove(self):
         p1, p2, p3 = _patch_ticketing()

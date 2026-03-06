@@ -67,16 +67,24 @@ class TestTicketingInit:
 
 
 class TestCreateTicket:
+    _SAMPLE_DETECTION = {
+        "detect_id": "det-1",
+        "cat": "lateral_movement",
+        "source": "dr-general",
+        "routing": {"sid": "sid-1", "hostname": "ws-01"},
+        "detect_mtd": {"level": "high"},
+    }
+
     def test_calls_extension_request(self, ticketing, mock_org):
         with patch("limacharlie.sdk.ticketing.Extensions") as MockExt:
             mock_ext = MagicMock()
             MockExt.return_value = mock_ext
             mock_ext.request.return_value = {"created": 1, "ticket_id": "tid-new"}
-            result = ticketing.create_ticket("det-1")
+            result = ticketing.create_ticket(self._SAMPLE_DETECTION)
             MockExt.assert_called_once_with(mock_org)
             mock_ext.request.assert_called_once_with(
                 "ext-ticketing", "create_ticket",
-                data={"detection_id": "det-1"},
+                data={"detection": json.dumps(self._SAMPLE_DETECTION)},
             )
             assert result["ticket_id"] == "tid-new"
 
@@ -85,24 +93,11 @@ class TestCreateTicket:
             mock_ext = MagicMock()
             MockExt.return_value = mock_ext
             mock_ext.request.return_value = {"created": 1}
-            ticketing.create_ticket(
-                "det-1",
-                detection_cat="lateral_movement",
-                severity="high",
-                detection_source="dr-general",
-                detection_priority=7,
-                sensor_id="sid-1",
-                hostname="ws-01",
-            )
+            ticketing.create_ticket(self._SAMPLE_DETECTION, severity="high")
             call_data = mock_ext.request.call_args[1]["data"]
             assert call_data == {
-                "detection_id": "det-1",
-                "detection_cat": "lateral_movement",
+                "detection": json.dumps(self._SAMPLE_DETECTION),
                 "severity": "high",
-                "detection_source": "dr-general",
-                "detection_priority": 7,
-                "sensor_id": "sid-1",
-                "hostname": "ws-01",
             }
 
     def test_none_optional_fields_excluded(self, ticketing, mock_org):
@@ -110,11 +105,27 @@ class TestCreateTicket:
             mock_ext = MagicMock()
             MockExt.return_value = mock_ext
             mock_ext.request.return_value = {"created": 1}
-            ticketing.create_ticket("det-1", severity=None, hostname=None)
+            ticketing.create_ticket(self._SAMPLE_DETECTION, severity=None)
             call_data = mock_ext.request.call_args[1]["data"]
-            assert call_data == {"detection_id": "det-1"}
             assert "severity" not in call_data
-            assert "hostname" not in call_data
+
+    def test_without_detection(self, ticketing, mock_org):
+        with patch("limacharlie.sdk.ticketing.Extensions") as MockExt:
+            mock_ext = MagicMock()
+            MockExt.return_value = mock_ext
+            mock_ext.request.return_value = {"created": 1}
+            ticketing.create_ticket()
+            call_data = mock_ext.request.call_args[1]["data"]
+            assert call_data == {}
+
+    def test_without_detection_with_severity(self, ticketing, mock_org):
+        with patch("limacharlie.sdk.ticketing.Extensions") as MockExt:
+            mock_ext = MagicMock()
+            MockExt.return_value = mock_ext
+            mock_ext.request.return_value = {"created": 1}
+            ticketing.create_ticket(severity="medium")
+            call_data = mock_ext.request.call_args[1]["data"]
+            assert call_data == {"severity": "medium"}
 
 
 # ---------------------------------------------------------------------------
@@ -283,25 +294,27 @@ class TestListDetections:
 
 
 class TestAddDetection:
+    _SAMPLE_DETECTION = {
+        "detect_id": "det-1",
+        "cat": "lateral_movement",
+        "source": "dr-general",
+        "routing": {"sid": "sid-1", "hostname": "ws-01"},
+    }
+
     def test_minimal(self, ticketing, mock_org):
         mock_org.client.request.return_value = {}
-        ticketing.add_detection(42, "det-1")
+        det = {"detect_id": "det-1"}
+        ticketing.add_detection(42, det)
         args, kwargs = _extract_call(mock_org)
         assert args == ("POST", "api/v1/tickets/42/detections")
         body = json.loads(kwargs["raw_body"])
-        assert body == {"detection_id": "det-1"}
+        assert body == {"detection": det}
 
-    def test_with_optional_fields(self, ticketing, mock_org):
+    def test_with_full_detection(self, ticketing, mock_org):
         mock_org.client.request.return_value = {}
-        ticketing.add_detection(
-            42, "det-1",
-            detection_cat="lateral_movement",
-            hostname="ws-01",
-        )
+        ticketing.add_detection(42, self._SAMPLE_DETECTION)
         body = _extract_body(mock_org)
-        assert body["detection_id"] == "det-1"
-        assert body["detection_cat"] == "lateral_movement"
-        assert body["hostname"] == "ws-01"
+        assert body == {"detection": self._SAMPLE_DETECTION}
 
 
 class TestRemoveDetection:
@@ -411,24 +424,30 @@ class TestListTelemetry:
 
 
 class TestAddTelemetry:
+    _SAMPLE_EVENT = {
+        "routing": {
+            "this": "atom-uuid",
+            "sid": "sid-uuid",
+            "event_type": "NEW_PROCESS",
+        },
+    }
+
     def test_required_fields(self, ticketing, mock_org):
         mock_org.client.request.return_value = {}
-        ticketing.add_telemetry(42, "atom-uuid", "sid-uuid")
+        ticketing.add_telemetry(42, self._SAMPLE_EVENT)
         body = _extract_body(mock_org)
-        assert body["atom"] == "atom-uuid"
-        assert body["sid"] == "sid-uuid"
+        assert body == {"event": self._SAMPLE_EVENT}
 
     def test_with_optional_fields(self, ticketing, mock_org):
         mock_org.client.request.return_value = {}
         ticketing.add_telemetry(
-            42, "atom-uuid", "sid-uuid",
-            event_type="NEW_PROCESS",
+            42, self._SAMPLE_EVENT,
             event_summary="Suspicious process",
             verdict="suspicious",
             relevance="Related to C2",
         )
         body = _extract_body(mock_org)
-        assert body["event_type"] == "NEW_PROCESS"
+        assert body["event"] == self._SAMPLE_EVENT
         assert body["event_summary"] == "Suspicious process"
         assert body["verdict"] == "suspicious"
         assert body["relevance"] == "Related to C2"
