@@ -180,6 +180,8 @@ class TestHiveSet:
         hive.set(rec)
         call_args = mock_org.client.request.call_args
         assert "rule/mtd" in call_args[0][1]
+        params = call_args[1]["params"]
+        assert "data" not in params
 
     def test_set_with_arl(self, hive, mock_org):
         rec = HiveRecord("rule", data={"a": 1})
