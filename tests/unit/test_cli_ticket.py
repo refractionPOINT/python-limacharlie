@@ -838,6 +838,7 @@ class TestTicketTelemetry:
             assert result.exit_code == 0
             mock_t.add_telemetry.assert_called_once_with(
                 42, "atom-1", "sid-1",
+                event=None,
                 event_type="NEW_PROCESS", event_summary=None,
                 verdict="suspicious", relevance=None,
             )

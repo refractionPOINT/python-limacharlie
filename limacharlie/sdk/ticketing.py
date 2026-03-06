@@ -369,12 +369,31 @@ class Ticketing:
     def add_telemetry(
         self,
         ticket_number: int,
-        atom: str,
-        sid: str,
+        atom: str | None = None,
+        sid: str | None = None,
+        *,
+        event: dict | None = None,
         **fields: Any,
     ) -> dict[str, Any]:
-        """Link a telemetry event reference to a ticket."""
-        body: dict[str, Any] = {"atom": atom, "sid": sid}
+        """Link a telemetry event reference to a ticket.
+
+        Callers may pass a full LC event object via *event* for
+        automatic field extraction (routing.this → atom, routing.sid
+        → sid, routing.event_type → event_type), or provide
+        individual fields.  At least one of (*atom* + *sid*) or
+        *event* is required.
+        """
+        if atom is None and sid is None and event is None:
+            raise ValueError(
+                "At least one of (atom + sid) or event must be provided"
+            )
+        body: dict[str, Any] = {}
+        if atom is not None:
+            body["atom"] = atom
+        if sid is not None:
+            body["sid"] = sid
+        if event is not None:
+            body["event"] = event
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",

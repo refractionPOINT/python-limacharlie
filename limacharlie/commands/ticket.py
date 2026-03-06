@@ -221,16 +221,20 @@ Example:
 """
 
 _EXPLAIN_TELEMETRY_ADD = """\
-Link a LimaCharlie telemetry event to a ticket by its atom and
-sensor ID.
+Link a LimaCharlie telemetry event to a ticket.
 
-Required: --atom and --sid.  Optional: --event-type, --event-summary,
---verdict, --relevance.
+Pass either (--atom + --sid) for a bare reference, or --event with a
+full LC event JSON object for automatic field extraction (routing.this
+→ atom, routing.sid → sid, routing.event_type → event_type).
+
+Optional: --event-type, --event-summary, --verdict, --relevance.
 
 Examples:
   limacharlie ticket telemetry add --ticket 42 \\
       --atom <ATOM_UUID> --sid <SENSOR_ID> \\
       --event-type NEW_PROCESS --verdict suspicious
+  limacharlie ticket telemetry add --ticket 42 \\
+      --event '<full LC event JSON>'
 """
 
 _EXPLAIN_TELEMETRY_UPDATE = """\
@@ -1116,24 +1120,41 @@ def telemetry_list(ctx, ticket) -> None:
 
 @telemetry_group.command("add")
 @click.option("--ticket", required=True, type=int, help="Ticket number.")
-@click.option("--atom", required=True, help="LC event atom (UUID).")
-@click.option("--sid", required=True, help="LC sensor ID (UUID).")
+@click.option("--atom", default=None, help="LC event atom (UUID).")
+@click.option("--sid", default=None, help="LC sensor ID (UUID).")
+@click.option("--event", "event_json", default=None, help="Full LC event JSON object.")
 @click.option("--event-type", default=None, help="Event type (e.g., NEW_PROCESS).")
 @click.option("--event-summary", default=None, help="Human-readable event summary.")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
 @click.option("--relevance", default=None, help="Relevance notes (max 1024 chars).")
 @pass_context
-def telemetry_add(ctx, ticket, atom, sid, event_type, event_summary,
-                  verdict, relevance) -> None:
+def telemetry_add(ctx, ticket, atom, sid, event_json, event_type,
+                  event_summary, verdict, relevance) -> None:
     """Link a telemetry event to a ticket.
 
     Examples:
         limacharlie ticket telemetry add --ticket 42 \\
             --atom <ATOM> --sid <SID> --event-type NEW_PROCESS
+        limacharlie ticket telemetry add --ticket 42 \\
+            --event '<full LC event JSON>'
     """
+    if atom is None and sid is None and event_json is None:
+        raise click.UsageError(
+            "At least one of (--atom + --sid) or --event is required."
+        )
+    event = None
+    if event_json is not None:
+        try:
+            event = json.loads(event_json)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"invalid JSON for --event: {exc}",
+                param_hint="--event",
+            )
     t = _get_ticketing(ctx)
     data = t.add_telemetry(
         ticket, atom, sid,
+        event=event,
         event_type=event_type, event_summary=event_summary,
         verdict=verdict, relevance=relevance,
     )
