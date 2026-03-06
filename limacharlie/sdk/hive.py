@@ -166,7 +166,9 @@ class Hive:
         if record.data is not None or record.arl is not None:
             target = "data"
 
-        req = {"data": json.dumps(record.data)}
+        req: dict[str, Any] = {}
+        if record.data is not None:
+            req["data"] = json.dumps(record.data)
 
         if record.etag is not None:
             req["etag"] = record.etag
