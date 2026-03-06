@@ -60,7 +60,9 @@ class Ticketing:
         """
         data: dict[str, Any] = {}
         if detection is not None:
-            data["detection"] = detection
+            # The extension schema declares detection as type "json",
+            # which the platform validates as a JSON string (not a dict).
+            data["detection"] = json.dumps(detection)
         if severity is not None:
             data["severity"] = severity
         ext = Extensions(self._org)
