@@ -402,11 +402,14 @@ Examples:
 """
 
 _EXPLAIN_CREATE = """\
-Create a new SOC ticket from a full LimaCharlie detection object.
+Create a new SOC ticket, optionally from a detection.
 
-The --detection flag takes the full detection JSON as produced by
+With --detection: pass the full detection JSON as produced by
 LimaCharlie D&R rules.  The backend automatically extracts detect_id,
 cat, source, routing.sid, routing.hostname, and detect_mtd.level.
+
+Without --detection: creates an empty investigation ticket that can
+be populated later with detections, telemetry, entities, etc.
 
 If --severity is omitted, severity is derived from detect_mtd.level
 in the detection object (or defaults to 'medium').  Valid severities:
@@ -416,6 +419,8 @@ Examples:
   limacharlie ticket create --detection '<full detection JSON>'
   limacharlie ticket create --detection '<full detection JSON>' \\
       --severity high
+  limacharlie ticket create --severity medium
+  limacharlie ticket create
 """
 
 register_explain("ticket.create", _EXPLAIN_CREATE)
@@ -552,26 +557,30 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--detection", "detection_json", required=True,
-              help="Full detection JSON object.")
+@click.option("--detection", "detection_json", default=None,
+              help="Full detection JSON object (optional).")
 @click.option("--severity", default=None, type=_SEVERITY_CHOICES,
               help="Ticket severity override (default: derived from detection).")
 @pass_context
 def create(ctx, detection_json, severity) -> None:
-    """Create a new ticket from a detection.
+    """Create a new ticket, optionally from a detection.
 
     Examples:
         limacharlie ticket create --detection '<full detection JSON>'
         limacharlie ticket create --detection '<full detection JSON>' \\
             --severity high
+        limacharlie ticket create --severity medium
+        limacharlie ticket create
     """
-    try:
-        detection = json.loads(detection_json)
-    except json.JSONDecodeError as exc:
-        raise click.BadParameter(
-            f"invalid JSON for --detection: {exc}",
-            param_hint="--detection",
-        )
+    detection = None
+    if detection_json is not None:
+        try:
+            detection = json.loads(detection_json)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"invalid JSON for --detection: {exc}",
+                param_hint="--detection",
+            )
     t = _get_ticketing(ctx)
     data = t.create_ticket(detection, severity=severity)
     _output(ctx, data)

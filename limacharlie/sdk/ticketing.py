@@ -40,7 +40,7 @@ class Ticketing:
 
     def create_ticket(
         self,
-        detection: dict,
+        detection: dict | None = None,
         *,
         severity: str | None = None,
     ) -> dict[str, Any]:
@@ -51,13 +51,16 @@ class Ticketing:
         REST API.
 
         Args:
-            detection: Full LC detection dict.  The backend extracts
-                detect_id, cat, source, routing.sid, routing.hostname,
-                and detect_mtd.level automatically.
+            detection: Optional full LC detection dict.  The backend
+                extracts detect_id, cat, source, routing.sid,
+                routing.hostname, and detect_mtd.level automatically.
+                Omit to create an empty investigation ticket.
             severity: Optional ticket severity override
                 (critical, high, medium, low).
         """
-        data: dict[str, Any] = {"detection": detection}
+        data: dict[str, Any] = {}
+        if detection is not None:
+            data["detection"] = detection
         if severity is not None:
             data["severity"] = severity
         ext = Extensions(self._org)

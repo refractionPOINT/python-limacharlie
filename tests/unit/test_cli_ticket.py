@@ -141,10 +141,33 @@ class TestTicketCreate:
                 severity="critical",
             )
 
-    def test_create_requires_detection(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ["ticket", "create"])
-        assert result.exit_code != 0
+    def test_create_without_detection(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "create"],
+                mock_t_cls,
+                return_value={"created": 1, "ticket_id": "tid-new"},
+            )
+            assert result.exit_code == 0
+            mock_t.create_ticket.assert_called_once_with(
+                None,
+                severity=None,
+            )
+
+    def test_create_without_detection_with_severity(self):
+        p1, p2, p3 = _patch_ticketing()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["ticket", "create", "--severity", "medium"],
+                mock_t_cls,
+                return_value={"created": 1, "ticket_id": "tid-new"},
+            )
+            assert result.exit_code == 0
+            mock_t.create_ticket.assert_called_once_with(
+                None,
+                severity="medium",
+            )
 
     def test_create_invalid_severity_rejected(self):
         runner = CliRunner()
