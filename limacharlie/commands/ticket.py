@@ -288,11 +288,18 @@ Example:
 """
 
 _EXPLAIN_DETECTION_ADD = """\
-Link an additional detection to a ticket.
+Link an additional detection to a ticket.  Pass either --detection-id
+for a bare reference or --detection with a full detection JSON object
+for automatic field extraction (detect_id, cat, routing.sid,
+routing.hostname extracted by the backend).
+
+At least one of --detection-id or --detection is required.
 
 Examples:
   limacharlie ticket detection add --ticket 42 \\
       --detection-id <DETECTION_ID>
+  limacharlie ticket detection add --ticket 42 \\
+      --detection '<full detection JSON>'
   limacharlie ticket detection add --ticket 42 \\
       --detection-id <DETECTION_ID> \\
       --detection-cat "lateral_movement" --hostname "ws-01"
@@ -403,17 +410,22 @@ Examples:
 """
 
 _EXPLAIN_CREATE = """\
-Create a new SOC ticket from a detection.  This calls the ext-ticketing
-extension to create a ticket and returns the new ticket ID.
+Create a new SOC ticket.  Pass either --detection-id for a bare reference
+or --detection with a full detection JSON object for automatic field
+extraction (detect_id, cat, routing.sid, routing.hostname extracted
+by the backend).
 
-A detection_id is required.  Additional metadata (category, severity,
-sensor, hostname) can be provided to enrich the ticket.
+At least one of --detection-id or --detection is required.  Additional
+metadata (category, severity, sensor, hostname) can be provided to
+enrich the ticket and will take precedence over values in the detection
+object.
 
 If --severity is omitted the extension defaults to 'medium'.  Valid
 severities: critical, high, medium, low.
 
 Examples:
   limacharlie ticket create --detection-id <DETECTION_ID>
+  limacharlie ticket create --detection '<full detection JSON>'
   limacharlie ticket create --detection-id <DETECTION_ID> \\
       --detection-cat "lateral_movement" --severity high \\
       --sensor-id <SID> --hostname ws-01
@@ -555,7 +567,8 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--detection-id", required=True, help="Detection ID to create the ticket for.")
+@click.option("--detection-id", default=None, help="Detection ID to create the ticket for.")
+@click.option("--detection", "detection_json", default=None, help="Full detection JSON object.")
 @click.option("--detection-cat", default=None, help="Detection category / rule name.")
 @click.option("--severity", default=None, type=_SEVERITY_CHOICES, help="Ticket severity (default: medium).")
 @click.option("--detection-source", default=None, help="Detection source (e.g. dr-general).")
@@ -563,18 +576,33 @@ def group() -> None:
 @click.option("--sensor-id", default=None, help="Sensor ID.")
 @click.option("--hostname", default=None, help="Hostname.")
 @pass_context
-def create(ctx, detection_id, detection_cat, severity, detection_source,
-           detection_priority, sensor_id, hostname) -> None:
+def create(ctx, detection_id, detection_json, detection_cat, severity,
+           detection_source, detection_priority, sensor_id, hostname) -> None:
     """Create a new ticket from a detection.
 
     Examples:
         limacharlie ticket create --detection-id <DET_ID>
+        limacharlie ticket create --detection '<full detection JSON>'
         limacharlie ticket create --detection-id <DET_ID> \\
             --severity high --hostname ws-01
     """
+    if detection_id is None and detection_json is None:
+        raise click.UsageError(
+            "At least one of --detection-id or --detection is required."
+        )
+    detection = None
+    if detection_json is not None:
+        try:
+            detection = json.loads(detection_json)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"invalid JSON for --detection: {exc}",
+                param_hint="--detection",
+            )
     t = _get_ticketing(ctx)
     data = t.create_ticket(
         detection_id,
+        detection=detection,
         detection_cat=detection_cat,
         severity=severity,
         detection_source=detection_source,
@@ -1253,26 +1281,44 @@ def detection_list(ctx, ticket) -> None:
 
 @detection_group.command("add")
 @click.option("--ticket", required=True, type=int, help="Ticket number.")
-@click.option("--detection-id", required=True, help="Detection ID to link.")
+@click.option("--detection-id", default=None, help="Detection ID to link.")
+@click.option("--detection", "detection_json", default=None, help="Full detection JSON object.")
 @click.option("--detection-cat", default=None, help="Detection category/rule name.")
 @click.option("--detection-source", default=None, help="Detection source (e.g., dr-general).")
 @click.option("--detection-priority", default=None, type=int, help="Priority (0-10).")
 @click.option("--sensor-id", default=None, help="Sensor ID.")
 @click.option("--hostname", default=None, help="Hostname.")
 @pass_context
-def detection_add(ctx, ticket, detection_id, detection_cat, detection_source,
-                  detection_priority, sensor_id, hostname) -> None:
+def detection_add(ctx, ticket, detection_id, detection_json, detection_cat,
+                  detection_source, detection_priority, sensor_id,
+                  hostname) -> None:
     """Link a detection to a ticket.
 
     Examples:
         limacharlie ticket detection add --ticket 42 \\
             --detection-id <DET_ID>
         limacharlie ticket detection add --ticket 42 \\
+            --detection '<full detection JSON>'
+        limacharlie ticket detection add --ticket 42 \\
             --detection-id <DET_ID> --detection-cat lateral_movement
     """
+    if detection_id is None and detection_json is None:
+        raise click.UsageError(
+            "At least one of --detection-id or --detection is required."
+        )
+    detection = None
+    if detection_json is not None:
+        try:
+            detection = json.loads(detection_json)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"invalid JSON for --detection: {exc}",
+                param_hint="--detection",
+            )
     t = _get_ticketing(ctx)
     data = t.add_detection(
         ticket, detection_id,
+        detection=detection,
         detection_cat=detection_cat,
         detection_source=detection_source,
         detection_priority=detection_priority,

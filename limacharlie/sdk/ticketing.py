@@ -40,8 +40,9 @@ class Ticketing:
 
     def create_ticket(
         self,
-        detection_id: str,
+        detection_id: str | None = None,
         *,
+        detection: dict | None = None,
         detection_cat: str | None = None,
         severity: str | None = None,
         detection_source: str | None = None,
@@ -55,8 +56,16 @@ class Ticketing:
         mechanism (``create_ticket`` action) rather than the ticketing
         REST API.
 
+        Callers may pass a full detection object via *detection* for
+        automatic field extraction by the backend, or provide individual
+        fields.  At least one of *detection_id* or *detection* is
+        required.
+
         Args:
-            detection_id: Detection ID to create the ticket for (required).
+            detection_id: Detection ID to create the ticket for.
+            detection: Full LC detection dict.  The backend extracts
+                detect_id, cat, routing.sid, routing.hostname
+                automatically.
             detection_cat: Detection category / rule name.
             severity: Ticket severity (critical, high, medium, low).
             detection_source: Detection source (e.g. dr-general).
@@ -64,7 +73,15 @@ class Ticketing:
             sensor_id: Sensor ID from the triggering event.
             hostname: Hostname from the triggering event.
         """
-        data: dict[str, Any] = {"detection_id": detection_id}
+        if detection_id is None and detection is None:
+            raise ValueError(
+                "At least one of detection_id or detection must be provided"
+            )
+        data: dict[str, Any] = {}
+        if detection_id is not None:
+            data["detection_id"] = detection_id
+        if detection is not None:
+            data["detection"] = detection
         if detection_cat is not None:
             data["detection_cat"] = detection_cat
         if severity is not None:
@@ -223,11 +240,26 @@ class Ticketing:
     def add_detection(
         self,
         ticket_number: int,
-        detection_id: str,
+        detection_id: str | None = None,
+        *,
+        detection: dict | None = None,
         **fields: Any,
     ) -> dict[str, Any]:
-        """Link a detection to a ticket."""
-        body: dict[str, Any] = {"detection_id": detection_id}
+        """Link a detection to a ticket.
+
+        At least one of *detection_id* or *detection* must be provided.
+        When a full *detection* dict is supplied the backend extracts
+        the relevant fields automatically.
+        """
+        if detection_id is None and detection is None:
+            raise ValueError(
+                "At least one of detection_id or detection must be provided"
+            )
+        body: dict[str, Any] = {}
+        if detection_id is not None:
+            body["detection_id"] = detection_id
+        if detection is not None:
+            body["detection"] = detection
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
