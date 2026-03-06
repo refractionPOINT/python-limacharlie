@@ -40,15 +40,9 @@ class Ticketing:
 
     def create_ticket(
         self,
-        detection_id: str | None = None,
+        detection: dict,
         *,
-        detection: dict | None = None,
-        detection_cat: str | None = None,
         severity: str | None = None,
-        detection_source: str | None = None,
-        detection_priority: int | None = None,
-        sensor_id: str | None = None,
-        hostname: str | None = None,
     ) -> dict[str, Any]:
         """Create a new ticket via the ext-ticketing extension.
 
@@ -56,44 +50,16 @@ class Ticketing:
         mechanism (``create_ticket`` action) rather than the ticketing
         REST API.
 
-        Callers may pass a full detection object via *detection* for
-        automatic field extraction by the backend, or provide individual
-        fields.  At least one of *detection_id* or *detection* is
-        required.
-
         Args:
-            detection_id: Detection ID to create the ticket for.
             detection: Full LC detection dict.  The backend extracts
-                detect_id, cat, routing.sid, routing.hostname
-                automatically.
-            detection_cat: Detection category / rule name.
-            severity: Ticket severity (critical, high, medium, low).
-            detection_source: Detection source (e.g. dr-general).
-            detection_priority: Detection priority (0-10).
-            sensor_id: Sensor ID from the triggering event.
-            hostname: Hostname from the triggering event.
+                detect_id, cat, source, routing.sid, routing.hostname,
+                and detect_mtd.level automatically.
+            severity: Optional ticket severity override
+                (critical, high, medium, low).
         """
-        if detection_id is None and detection is None:
-            raise ValueError(
-                "At least one of detection_id or detection must be provided"
-            )
-        data: dict[str, Any] = {}
-        if detection_id is not None:
-            data["detection_id"] = detection_id
-        if detection is not None:
-            data["detection"] = detection
-        if detection_cat is not None:
-            data["detection_cat"] = detection_cat
+        data: dict[str, Any] = {"detection": detection}
         if severity is not None:
             data["severity"] = severity
-        if detection_source is not None:
-            data["detection_source"] = detection_source
-        if detection_priority is not None:
-            data["detection_priority"] = detection_priority
-        if sensor_id is not None:
-            data["sensor_id"] = sensor_id
-        if hostname is not None:
-            data["hostname"] = hostname
         ext = Extensions(self._org)
         return ext.request(self._EXTENSION_NAME, "create_ticket", data=data)
 
@@ -240,32 +206,21 @@ class Ticketing:
     def add_detection(
         self,
         ticket_number: int,
-        detection_id: str | None = None,
-        *,
-        detection: dict | None = None,
-        **fields: Any,
+        detection: dict,
     ) -> dict[str, Any]:
         """Link a detection to a ticket.
 
-        At least one of *detection_id* or *detection* must be provided.
-        When a full *detection* dict is supplied the backend extracts
-        the relevant fields automatically.
+        Args:
+            ticket_number: Ticket number.
+            detection: Full LC detection dict.  The backend extracts
+                detect_id, cat, source, routing, and detect_mtd
+                automatically.
         """
-        if detection_id is None and detection is None:
-            raise ValueError(
-                "At least one of detection_id or detection must be provided"
-            )
-        body: dict[str, Any] = {}
-        if detection_id is not None:
-            body["detection_id"] = detection_id
-        if detection is not None:
-            body["detection"] = detection
-        body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
             f"tickets/{ticket_number}/detections",
             query_params={"oid": self.oid},
-            body=body,
+            body={"detection": detection},
         )
 
     def remove_detection(
@@ -369,32 +324,30 @@ class Ticketing:
     def add_telemetry(
         self,
         ticket_number: int,
-        atom: str | None = None,
-        sid: str | None = None,
+        event: dict,
         *,
-        event: dict | None = None,
-        **fields: Any,
+        event_summary: str | None = None,
+        verdict: str | None = None,
+        relevance: str | None = None,
     ) -> dict[str, Any]:
         """Link a telemetry event reference to a ticket.
 
-        Callers may pass a full LC event object via *event* for
-        automatic field extraction (routing.this → atom, routing.sid
-        → sid, routing.event_type → event_type), or provide
-        individual fields.  At least one of (*atom* + *sid*) or
-        *event* is required.
+        Args:
+            ticket_number: Ticket number.
+            event: Full LC event dict.  The backend extracts
+                routing.this (atom), routing.sid, and
+                routing.event_type automatically.
+            event_summary: Human-readable event summary.
+            verdict: Verdict assessment.
+            relevance: Relevance notes.
         """
-        if atom is None and sid is None and event is None:
-            raise ValueError(
-                "At least one of (atom + sid) or event must be provided"
-            )
-        body: dict[str, Any] = {}
-        if atom is not None:
-            body["atom"] = atom
-        if sid is not None:
-            body["sid"] = sid
-        if event is not None:
-            body["event"] = event
-        body.update({k: v for k, v in fields.items() if v is not None})
+        body: dict[str, Any] = {"event": event}
+        if event_summary is not None:
+            body["event_summary"] = event_summary
+        if verdict is not None:
+            body["verdict"] = verdict
+        if relevance is not None:
+            body["relevance"] = relevance
         return self._request(
             "POST",
             f"tickets/{ticket_number}/telemetry",
