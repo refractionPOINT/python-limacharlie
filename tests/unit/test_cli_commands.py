@@ -158,10 +158,31 @@ class TestAuthCommands:
         assert parsed["ident"] == "user@test.com"
         assert parsed["oid"] == "test-oid"
         assert parsed["uid"] == "test-uid"
+        # Perms hidden by default
+        assert "perms" not in parsed
 
     @patch("limacharlie.commands.auth.Client")
     @patch("limacharlie.commands.auth.Organization")
-    def test_whoami_expands_perms(self, mock_org_cls, mock_client_cls):
+    def test_whoami_hides_perms_by_default(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = None
+        mock_client_cls.return_value = mock_client
+
+        mock_org = MagicMock()
+        mock_org.who_am_i.return_value = {"ident": "user@test.com", "perms": ["a", "b"]}
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "auth", "whoami"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert "perms" not in parsed
+        assert parsed["ident"] == "user@test.com"
+
+    @patch("limacharlie.commands.auth.Client")
+    @patch("limacharlie.commands.auth.Organization")
+    def test_whoami_show_perms(self, mock_org_cls, mock_client_cls):
         mock_client = MagicMock()
         mock_client.oid = "test-oid"
         mock_client.uid = None
@@ -173,11 +194,77 @@ class TestAuthCommands:
         mock_org_cls.return_value = mock_org
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["auth", "whoami"])
+        result = runner.invoke(cli, ["auth", "whoami", "--show-perms"])
         assert result.exit_code == 0
         # Perms should be expanded, not shown as "[100 items]"
         assert "[100 items]" not in result.output
         assert "perm0" in result.output
+
+    @patch("limacharlie.commands.auth.Client")
+    @patch("limacharlie.commands.auth.Organization")
+    def test_whoami_check_perm_found(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = None
+        mock_client_cls.return_value = mock_client
+
+        mock_org = MagicMock()
+        mock_org.who_am_i.return_value = {
+            "ident": "user@test.com",
+            "perms": ["ai_agent.operate", "sensor.list"],
+        }
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "auth", "whoami", "--check-perm", "ai_agent.operate"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert parsed["has_perm"] is True
+        assert parsed["perm"] == "ai_agent.operate"
+
+    @patch("limacharlie.commands.auth.Client")
+    @patch("limacharlie.commands.auth.Organization")
+    def test_whoami_check_perm_missing(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = None
+        mock_client_cls.return_value = mock_client
+
+        mock_org = MagicMock()
+        mock_org.who_am_i.return_value = {
+            "ident": "user@test.com",
+            "perms": ["sensor.list"],
+        }
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "auth", "whoami", "--check-perm", "ai_agent.operate"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert parsed["has_perm"] is False
+        assert parsed["perm"] == "ai_agent.operate"
+
+    @patch("limacharlie.commands.auth.Client")
+    @patch("limacharlie.commands.auth.Organization")
+    def test_whoami_check_perm_in_user_perms(self, mock_org_cls, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = "test-oid"
+        mock_client.uid = None
+        mock_client_cls.return_value = mock_client
+
+        mock_org = MagicMock()
+        mock_org.who_am_i.return_value = {
+            "ident": "user@test.com",
+            "perms": [],
+            "user_perms": {"some-oid": ["ai_agent.operate", "sensor.list"]},
+        }
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "auth", "whoami", "--check-perm", "ai_agent.operate"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert parsed["has_perm"] is True
 
     @patch("limacharlie.commands.auth.Client")
     def test_auth_test_success(self, mock_client_cls):
