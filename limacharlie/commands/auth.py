@@ -247,20 +247,46 @@ def logout(ctx: click.Context, environment: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_WHOAMI = """\
-Display the identity, permissions, and accessible organizations for the
-currently configured credentials.  This calls the /who API endpoint and
-shows the result.  Useful for verifying which API key or user account is
-active, what permissions it has, and which organizations it can access.
+Display the identity and accessible organizations for the currently
+configured credentials.  This calls the /who API endpoint and shows
+the result.  Useful for verifying which API key or user account is
+active and which organizations it can access.
+
+By default, permissions are omitted to keep the output compact (helpful
+for automated / LLM-driven workflows).  Use the flags below to control
+permission output:
+
+  --show-perms       Include the full list of permissions in the output.
+  --check-perm NAME  Check whether a specific permission is present.
+                     Returns {"has_perm": true/false, "perm": "NAME"}.
 """
 register_explain("auth.whoami", _EXPLAIN_WHOAMI)
 
 
 @group.command()
+@click.option("--show-perms", is_flag=True, default=False,
+              help="Include full permissions in the output.")
+@click.option("--check-perm", default=None,
+              help="Check for a specific permission and return a boolean result.")
 @pass_context
-def whoami(ctx: click.Context) -> None:
+def whoami(ctx: click.Context, show_perms: bool, check_perm: str | None) -> None:
     client = _get_client(ctx)
     org = Organization(client)
     data = org.who_am_i()
+
+    # --check-perm: return a minimal boolean result and exit early.
+    if check_perm is not None:
+        all_perms: list[str] = []
+        raw = data.get("perms", [])
+        if isinstance(raw, list):
+            all_perms.extend(raw)
+        raw_user = data.get("user_perms", {})
+        if isinstance(raw_user, dict):
+            for v in raw_user.values():
+                if isinstance(v, list):
+                    all_perms.extend(v)
+        _output(ctx, {"perm": check_perm, "has_perm": check_perm in all_perms})
+        return
 
     # Prepend stored credential info like the old CLI did.
     cred_info = {}
@@ -269,16 +295,21 @@ def whoami(ctx: click.Context) -> None:
     if client.uid:
         cred_info["uid"] = client.uid
 
-    # Expand list fields (like perms) so they display in full
-    # instead of being truncated to "[N items]" in table mode.
-    for key in ("perms", "user_perms"):
-        val = data.get(key)
-        if isinstance(val, list):
-            data[key] = ", ".join(str(v) for v in val)
-        elif isinstance(val, dict):
-            # user_perms is {oid: [perms]} — expand each sub-list.
-            data[key] = {k: ", ".join(str(p) for p in v) if isinstance(v, list) else v
-                         for k, v in val.items()}
+    if show_perms:
+        # Expand list fields so they display in full
+        # instead of being truncated to "[N items]" in table mode.
+        for key in ("perms", "user_perms"):
+            val = data.get(key)
+            if isinstance(val, list):
+                data[key] = ", ".join(str(v) for v in val)
+            elif isinstance(val, dict):
+                # user_perms is {oid: [perms]} — expand each sub-list.
+                data[key] = {k: ", ".join(str(p) for p in v) if isinstance(v, list) else v
+                             for k, v in val.items()}
+    else:
+        # Strip permission fields to keep output compact.
+        data.pop("perms", None)
+        data.pop("user_perms", None)
 
     merged = {**cred_info, **data}
     _output(ctx, merged)
