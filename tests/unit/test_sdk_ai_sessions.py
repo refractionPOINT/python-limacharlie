@@ -186,9 +186,10 @@ class TestStartSessionData:
             ai.start_session("agent", data={"hostname": "srv-01", "alert_id": "abc-123"})
 
         body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
-        assert body["prompt"].startswith("Investigate the alert\n\nEvent data:\n```json\n")
+        assert body["prompt"].startswith("Investigate the alert\n\nEvent data:\n```yaml\n")
         assert body["prompt"].endswith("\n```")
-        embedded = json.loads(body["prompt"].split("```json\n", 1)[1].rsplit("\n```", 1)[0])
+        import yaml
+        embedded = yaml.safe_load(body["prompt"].split("```yaml\n", 1)[1].rsplit("\n```", 1)[0])
         assert embedded == {"hostname": "srv-01", "alert_id": "abc-123"}
 
     def test_no_data_leaves_prompt_unchanged(self, ai, mock_org):

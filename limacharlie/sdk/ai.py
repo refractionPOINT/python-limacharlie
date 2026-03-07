@@ -102,7 +102,8 @@ class AI:
         # Build the final prompt, optionally appending supplied data.
         final_prompt = prompt or defn.get("prompt", "")
         if data:
-            final_prompt += "\n\nEvent data:\n```json\n" + json.dumps(data, indent=2) + "\n```"
+            import yaml
+            final_prompt += "\n\nEvent data:\n```yaml\n" + yaml.safe_dump(data, default_flow_style=False).rstrip("\n") + "\n```"
 
         # Build the request body.
         request_body: dict[str, Any] = {
