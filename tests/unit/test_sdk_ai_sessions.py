@@ -167,6 +167,50 @@ class TestStartSessionOverrides:
         assert body["idempotent_key"] == "dedup-1"
 
 
+class TestStartSessionData:
+    """Data dict is appended to prompt as JSON."""
+
+    def test_appends_data_to_prompt(self, ai, mock_org):
+        defn = {
+            "prompt": "Investigate the alert",
+            "anthropic_secret": "sk-ant",
+            "lc_api_key_secret": "lc-key",
+        }
+
+        with patch("limacharlie.sdk.hive.Hive") as MockHive:
+            hive_instance = MagicMock()
+            MockHive.return_value = hive_instance
+            hive_instance.get.return_value = _make_hive_record(defn)
+            mock_org.client.request.return_value = {"session_id": "s1"}
+
+            ai.start_session("agent", data={"hostname": "srv-01", "alert_id": "abc-123"})
+
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert body["prompt"].startswith("Investigate the alert\n\nEvent data:\n```yaml\n")
+        assert body["prompt"].endswith("\n```")
+        import yaml
+        embedded = yaml.safe_load(body["prompt"].split("```yaml\n", 1)[1].rsplit("\n```", 1)[0])
+        assert embedded == {"hostname": "srv-01", "alert_id": "abc-123"}
+
+    def test_no_data_leaves_prompt_unchanged(self, ai, mock_org):
+        defn = {
+            "prompt": "Investigate the alert",
+            "anthropic_secret": "sk-ant",
+            "lc_api_key_secret": "lc-key",
+        }
+
+        with patch("limacharlie.sdk.hive.Hive") as MockHive:
+            hive_instance = MagicMock()
+            MockHive.return_value = hive_instance
+            hive_instance.get.return_value = _make_hive_record(defn)
+            mock_org.client.request.return_value = {"session_id": "s1"}
+
+            ai.start_session("agent")
+
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert body["prompt"] == "Investigate the alert"
+
+
 class TestStartSessionMCPServers:
     """MCP server configs have their secrets resolved."""
 

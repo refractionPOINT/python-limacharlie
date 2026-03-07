@@ -42,7 +42,8 @@ class AI:
 
     def start_session(self, definition_name: str, prompt: str | None = None,
                       name: str | None = None,
-                      idempotent_key: str | None = None) -> dict[str, Any]:
+                      idempotent_key: str | None = None,
+                      data: dict[str, Any] | None = None) -> dict[str, Any]:
         """Start an AI session using an ai_agent Hive definition.
 
         Args:
@@ -50,6 +51,11 @@ class AI:
             prompt: Override the prompt from the definition.
             name: Override the session name.
             idempotent_key: Optional deduplication key.
+            data: Optional data dictionary to append to the prompt.
+                  When the session is started from a D&R rule the definition's
+                  ``data`` transform extracts fields from the event.  When
+                  starting standalone from the CLI there is no event, so this
+                  parameter lets the caller supply the data directly.
 
         Returns:
             dict: Session creation response with session_id and status.
@@ -93,9 +99,15 @@ class AI:
                 resolved_servers[srv_name] = srv
             profile["mcp_servers"] = resolved_servers
 
+        # Build the final prompt, optionally appending supplied data.
+        final_prompt = prompt or defn.get("prompt", "")
+        if data:
+            import yaml
+            final_prompt += "\n\nEvent data:\n```yaml\n" + yaml.safe_dump(data, default_flow_style=False).rstrip("\n") + "\n```"
+
         # Build the request body.
         request_body: dict[str, Any] = {
-            "prompt": prompt or defn.get("prompt", ""),
+            "prompt": final_prompt,
             "anthropic_key": anthropic_key,
             "trigger_source": "cli",
         }

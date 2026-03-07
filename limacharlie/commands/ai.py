@@ -271,12 +271,20 @@ MCP server configs.
 All hive://secret/ references in the definition are resolved
 automatically before the session is created.
 
+When starting a session from the CLI (as opposed to a D&R rule),
+there is no event to apply the definition's data transform to.
+Use --data to supply a JSON dictionary that will be appended to
+the prompt as event data.
+
 Example:
   limacharlie ai start-session --definition my-security-analyst
 
   limacharlie ai start-session --definition my-agent \\
     --prompt "Investigate this specific alert" \\
     --name "Alert investigation"
+
+  limacharlie ai start-session --definition my-agent \\
+    --data '{"hostname": "srv-01", "alert_id": "abc-123"}'
 """
 register_explain("ai.start-session", _EXPLAIN_START_SESSION)
 
@@ -286,10 +294,15 @@ register_explain("ai.start-session", _EXPLAIN_START_SESSION)
 @click.option("--prompt", default=None, help="Override the prompt from the definition.")
 @click.option("--name", default=None, help="Override the session name.")
 @click.option("--idempotent-key", default=None, help="Deduplication key for the session.")
+@click.option("--data", default=None, help="JSON dictionary of data to include with the session prompt.")
 @pass_context
-def start_session(ctx, definition, prompt, name, idempotent_key) -> None:
+def start_session(ctx, definition, prompt, name, idempotent_key, data) -> None:
+    import json as _json
+    parsed_data = None
+    if data is not None:
+        parsed_data = _json.loads(data)
     org = _get_org(ctx)
     sdk = AISDK(org)
-    data = sdk.start_session(definition, prompt=prompt, name=name,
-                             idempotent_key=idempotent_key)
-    _output(ctx, data)
+    result = sdk.start_session(definition, prompt=prompt, name=name,
+                               idempotent_key=idempotent_key, data=parsed_data)
+    _output(ctx, result)
