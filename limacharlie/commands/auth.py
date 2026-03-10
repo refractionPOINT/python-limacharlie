@@ -271,6 +271,9 @@ register_explain("auth.whoami", _EXPLAIN_WHOAMI)
 @pass_context
 def whoami(ctx: click.Context, show_perms: bool, check_perm: str | None) -> None:
     client = _get_client(ctx)
+    # whoami works without a specific org — fall back to "-" if no OID resolved.
+    if client.oid is None:
+        client = _get_client(ctx, oid_override="-")
     org = Organization(client)
     data = org.who_am_i()
 
