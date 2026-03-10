@@ -30,7 +30,7 @@ _TARGETS = {
     "jwt": "https://jwt.limacharlie.io",
     "stream": "https://stream-tmp.limacharlie.io",
     "downloads": "https://downloads.limacharlie.io",
-    "ticketing": "https://ticketing.limacharlie.io",
+    "cases": "https://cases.limacharlie.io",
 }
 
 
@@ -149,7 +149,7 @@ Use --json to send a JSON body instead.  -F coerces bools, ints, and supports
 @file for reading values from files.  Alternatively, use --input to send
 a raw body from a file or stdin.
 
-Target aliases: api (default), billing, jwt, stream, downloads, ticketing.
+Target aliases: api (default), billing, jwt, stream, downloads, cases.
 Any other value is treated as a raw https:// URL.
 
 Non-200 responses are NOT errors: the raw response body is printed and the
@@ -166,7 +166,7 @@ register_explain("api", _EXPLAIN_API)
 @click.option("--json", "use_json", is_flag=True, help="Send fields as JSON body instead of form-encoded.")
 @click.option("--input", "input_file", default=None, help="Request body from file (use '-' for stdin).")
 @click.option("--content-type", "content_type_override", default=None, help="Content-Type for --input body (default: auto-detect).")
-@click.option("--target", default="api", help="API host alias or URL (aliases: api, billing, jwt, stream, downloads, ticketing).")
+@click.option("--target", default="api", help="API host alias or URL (aliases: api, billing, jwt, stream, downloads, cases).")
 @click.option("-i", "--include", "include_status", is_flag=True, help="Show HTTP status code in output.")
 @click.option("--silent", is_flag=True, help="Suppress response body.")
 @click.option("--no-auth", is_flag=True, help="Skip authentication.")

@@ -517,7 +517,7 @@ class TestCliArtifact:
 
 
 # Integrity, Logging, YARA, Exfil, and Investigation CLI tests removed —
-# Investigations have moved to Ticketing; the others depend on replicant
+# Investigations have moved to Cases; the others depend on replicant
 # services which have been superseded by Extensions.
 
 

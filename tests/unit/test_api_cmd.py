@@ -106,13 +106,13 @@ class TestTargetResolution:
             _, kwargs = mock_cls.return_value.raw_request.call_args
             assert kwargs["alt_root"] == "https://billing.limacharlie.io"
 
-    def test_ticketing_target(self):
+    def test_cases_target(self):
         with _patch_client() as mock_cls:
             runner = CliRunner()
-            result = runner.invoke(cli, ["api", "--target", "ticketing", "api/v1/tickets"])
+            result = runner.invoke(cli, ["api", "--target", "cases", "api/v1/cases"])
             assert result.exit_code == 0
             _, kwargs = mock_cls.return_value.raw_request.call_args
-            assert kwargs["alt_root"] == "https://ticketing.limacharlie.io"
+            assert kwargs["alt_root"] == "https://cases.limacharlie.io"
 
     def test_raw_url_target(self):
         with _patch_client() as mock_cls:
@@ -125,10 +125,10 @@ class TestTargetResolution:
     def test_bare_hostname_target(self):
         with _patch_client() as mock_cls:
             runner = CliRunner()
-            result = runner.invoke(cli, ["api", "--target", "ticketing.limacharlie.io", "tickets"])
+            result = runner.invoke(cli, ["api", "--target", "cases.limacharlie.io", "cases"])
             assert result.exit_code == 0
             _, kwargs = mock_cls.return_value.raw_request.call_args
-            assert kwargs["alt_root"] == "https://ticketing.limacharlie.io"
+            assert kwargs["alt_root"] == "https://cases.limacharlie.io"
 
 
 class TestFormEncodedDefault:

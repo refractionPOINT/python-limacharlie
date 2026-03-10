@@ -46,33 +46,47 @@ class Replay:
         Returns:
             dict: Replay results.
         """
-        params: dict[str, Any] = {}
-        if rule_name:
-            params["rule_name"] = rule_name
-        if detect:
-            params["detect"] = detect
-        if respond:
-            params["respond"] = respond
-        if start:
-            params["start"] = str(int(start))
-        if end:
-            params["end"] = str(int(end))
-        if sid:
-            params["sid"] = str(sid)
-        if selector:
-            params["selector"] = selector
-        if stream:
-            params["stream"] = stream
-        if trace:
-            params["trace"] = "true"
-        if dry_run:
-            params["dry_run"] = "true"
-        if limit_events:
-            params["limit_events"] = str(limit_events)
-        if limit_evals:
-            params["limit_evals"] = str(limit_evals)
+        replay_url = self._get_replay_url()
 
-        return self._org.service_request("replay", params, is_async=True)
+        rule_source: dict[str, Any] = {}
+        if rule_name:
+            rule_source["rule_name"] = rule_name
+        if detect is not None or respond is not None:
+            rule_source["rule"] = {}
+            if detect is not None:
+                rule_source["rule"]["detect"] = detect
+            if respond is not None:
+                rule_source["rule"]["respond"] = respond
+
+        sensor_events: dict[str, Any] = {}
+        if start is not None:
+            sensor_events["start_time"] = int(start)
+        if end is not None:
+            sensor_events["end_time"] = int(end)
+        if sid:
+            sensor_events["sid"] = str(sid)
+        if selector:
+            sensor_events["selector"] = selector
+
+        req: dict[str, Any] = {
+            "oid": self._org.oid,
+            "rule_source": rule_source,
+            "event_source": {
+                "stream": stream or "event",
+                "sensor_events": sensor_events,
+            },
+            "trace": trace,
+            "is_dry_run": dry_run,
+            "limit_event": limit_events or 0,
+            "limit_eval": limit_evals or 0,
+        }
+
+        return self._org.client.request(
+            "POST", "",
+            alt_root=f"https://{replay_url}/",
+            raw_body=json.dumps(req).encode(),
+            content_type="application/json",
+        )
 
     def scan_events(self, events: list[dict[str, Any]], rule_name: str | None = None,
                     namespace: str | None = None, rule_content: dict[str, Any] | None = None,
