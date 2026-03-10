@@ -1,6 +1,6 @@
-"""Ticketing SDK for LimaCharlie v2.
+"""Cases SDK for LimaCharlie v2.
 
-Wraps the ext-ticketing REST API for SOC ticket lifecycle management,
+Wraps the ext-ticketing REST API for SOC case lifecycle management,
 investigation tracking (entities, telemetry, artifacts), reporting,
 and configuration.
 """
@@ -16,16 +16,20 @@ if TYPE_CHECKING:
 
 from .extensions import Extensions
 
+# NOTE: The API root and extension name reference "ext-ticketing" because
+# that is the actual Cloud Run service / registered extension name on the
+# LimaCharlie platform.  Only the SDK-facing class and method names are
+# renamed to "cases".
 _DEFAULT_API_ROOT = "https://ext-ticketing-api-ackbwtk5nq-uc.a.run.app"
 
 
-class Ticketing:
-    """Ticketing system client for LimaCharlie."""
+class Cases:
+    """Cases system client for LimaCharlie."""
 
     def __init__(self, org: Organization, api_root: str | None = None) -> None:
         self._org = org
         self._api_root = api_root or os.environ.get(
-            "LC_TICKETING_API_ROOT", _DEFAULT_API_ROOT
+            "LC_CASES_API_ROOT", _DEFAULT_API_ROOT
         )
 
     @property
@@ -33,29 +37,32 @@ class Ticketing:
         return self._org.oid
 
     # ------------------------------------------------------------------
-    # Extension name for ticket creation via the LC extension API.
+    # Extension name for case creation via the LC extension API.
+    # The value "ext-ticketing" is the registered extension name on the
+    # LimaCharlie platform and must NOT be renamed.
     # ------------------------------------------------------------------
 
     _EXTENSION_NAME = "ext-ticketing"
 
-    def create_ticket(
+    def create_case(
         self,
         detection: dict | None = None,
         *,
         severity: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new ticket via the ext-ticketing extension.
+        """Create a new case via the ext-ticketing extension.
 
-        Ticket creation goes through the LimaCharlie extension request
-        mechanism (``create_ticket`` action) rather than the ticketing
-        REST API.
+        Case creation goes through the LimaCharlie extension request
+        mechanism (``create_ticket`` action) rather than the cases
+        REST API.  The action name "create_ticket" is the registered
+        action on the backend and must NOT be renamed.
 
         Args:
             detection: Optional full LC detection dict.  The backend
                 extracts detect_id, cat, source, routing.sid,
                 routing.hostname, and detect_mtd.level automatically.
-                Omit to create an empty investigation ticket.
-            severity: Optional ticket severity override
+                Omit to create an empty investigation case.
+            severity: Optional case severity override
                 (critical, high, medium, low).
         """
         data: dict[str, Any] = {}
@@ -66,6 +73,7 @@ class Ticketing:
         if severity is not None:
             data["severity"] = severity
         ext = Extensions(self._org)
+        # "create_ticket" is the backend action name - do not rename.
         return ext.request(self._EXTENSION_NAME, "create_ticket", data=data)
 
     def _request(
@@ -85,10 +93,10 @@ class Ticketing:
         return self._org.client.request(verb, f"api/v1/{path}", **kwargs)
 
     # ------------------------------------------------------------------
-    # Tickets
+    # Cases
     # ------------------------------------------------------------------
 
-    def list_tickets(
+    def list_cases(
         self,
         *,
         status: list[str] | None = None,
@@ -103,7 +111,7 @@ class Ticketing:
         page_size: int | None = None,
         page_token: str | None = None,
     ) -> dict[str, Any]:
-        """List tickets with optional filtering and pagination."""
+        """List cases with optional filtering and pagination."""
         qp: dict[str, str] = {"oids": self.oid}
         if status:
             qp["status"] = ",".join(status)
@@ -127,72 +135,72 @@ class Ticketing:
             qp["page_size"] = str(page_size)
         if page_token:
             qp["page_token"] = page_token
-        return self._request("GET", "tickets", query_params=qp)
+        return self._request("GET", "cases", query_params=qp)
 
-    def get_ticket(self, ticket_number: int) -> dict[str, Any]:
-        """Get a single ticket with its full event timeline."""
+    def get_case(self, case_number: int) -> dict[str, Any]:
+        """Get a single case with its full event timeline."""
         return self._request(
             "GET",
-            f"tickets/{ticket_number}",
+            f"cases/{case_number}",
             query_params={"oid": self.oid},
         )
 
-    def update_ticket(self, ticket_number: int, **fields: Any) -> dict[str, Any]:
-        """Update a ticket.
+    def update_case(self, case_number: int, **fields: Any) -> dict[str, Any]:
+        """Update a case.
 
         Accepted fields: status, assignee, classification,
         escalation_group, investigation_id, summary, conclusion, tags.
         """
         return self._request(
             "PATCH",
-            f"tickets/{ticket_number}",
+            f"cases/{case_number}",
             query_params={"oid": self.oid},
             body={k: v for k, v in fields.items() if v is not None},
         )
 
     def add_note(
         self,
-        ticket_number: int,
+        case_number: int,
         content: str,
         note_type: str | None = None,
     ) -> dict[str, Any]:
-        """Add a note to a ticket."""
+        """Add a note to a case."""
         body: dict[str, Any] = {"content": content}
         if note_type:
             body["note_type"] = note_type
         return self._request(
             "POST",
-            f"tickets/{ticket_number}/notes",
+            f"cases/{case_number}/notes",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def bulk_update(
         self,
-        ticket_numbers: list[int],
+        case_numbers: list[int],
         **fields: Any,
     ) -> dict[str, Any]:
-        """Bulk update up to 200 tickets."""
+        """Bulk update up to 200 cases."""
         body: dict[str, Any] = {
             "oid": self.oid,
-            "ticket_numbers": ticket_numbers,
+            "case_numbers": case_numbers,
             "update": {k: v for k, v in fields.items() if v is not None},
         }
-        return self._request("POST", "tickets/bulk-update", body=body)
+        return self._request("POST", "cases/bulk-update", body=body)
 
     def merge(
         self,
-        target_ticket_number: int,
-        source_ticket_numbers: list[int],
+        target_case_number: int,
+        source_case_numbers: list[int],
     ) -> dict[str, Any]:
-        """Merge source tickets into a target ticket."""
+        """Merge source cases into a target case."""
         return self._request(
             "POST",
-            "tickets/merge",
+            "cases/merge",
             body={
                 "oid": self.oid,
-                "target_ticket_number": target_ticket_number,
-                "source_ticket_numbers": source_ticket_numbers,
+                "target_case_number": target_case_number,
+                "source_case_numbers": source_case_numbers,
             },
         )
 
@@ -200,43 +208,43 @@ class Ticketing:
     # Detections
     # ------------------------------------------------------------------
 
-    def list_detections(self, ticket_number: int) -> dict[str, Any]:
-        """List detections linked to a ticket."""
+    def list_detections(self, case_number: int) -> dict[str, Any]:
+        """List detections linked to a case."""
         return self._request(
             "GET",
-            f"tickets/{ticket_number}/detections",
+            f"cases/{case_number}/detections",
             query_params={"oid": self.oid},
         )
 
     def add_detection(
         self,
-        ticket_number: int,
+        case_number: int,
         detection: dict,
     ) -> dict[str, Any]:
-        """Link a detection to a ticket.
+        """Link a detection to a case.
 
         Args:
-            ticket_number: Ticket number.
+            case_number: Case number.
             detection: Full LC detection dict.  The backend extracts
                 detect_id, cat, source, routing, and detect_mtd
                 automatically.
         """
         return self._request(
             "POST",
-            f"tickets/{ticket_number}/detections",
+            f"cases/{case_number}/detections",
             query_params={"oid": self.oid},
             body={"detection": detection},
         )
 
     def remove_detection(
         self,
-        ticket_number: int,
+        case_number: int,
         detection_id: str,
     ) -> dict[str, Any]:
-        """Remove a detection link from a ticket."""
+        """Remove a detection link from a case."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_number}/detections/{detection_id}",
+            f"cases/{case_number}/detections/{detection_id}",
             query_params={"oid": self.oid},
         )
 
@@ -244,22 +252,22 @@ class Ticketing:
     # Entities (IOCs)
     # ------------------------------------------------------------------
 
-    def list_entities(self, ticket_number: int) -> dict[str, Any]:
-        """List entities on a ticket."""
+    def list_entities(self, case_number: int) -> dict[str, Any]:
+        """List entities on a case."""
         return self._request(
             "GET",
-            f"tickets/{ticket_number}/entities",
+            f"cases/{case_number}/entities",
             query_params={"oid": self.oid},
         )
 
     def add_entity(
         self,
-        ticket_number: int,
+        case_number: int,
         entity_type: str,
         entity_value: str,
         **fields: Any,
     ) -> dict[str, Any]:
-        """Add an entity/IOC to a ticket."""
+        """Add an entity/IOC to a case."""
         body: dict[str, Any] = {
             "entity_type": entity_type,
             "entity_value": entity_value,
@@ -267,34 +275,34 @@ class Ticketing:
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
-            f"tickets/{ticket_number}/entities",
+            f"cases/{case_number}/entities",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def update_entity(
         self,
-        ticket_number: int,
+        case_number: int,
         entity_id: str,
         **fields: Any,
     ) -> dict[str, Any]:
-        """Update an entity on a ticket."""
+        """Update an entity on a case."""
         return self._request(
             "PATCH",
-            f"tickets/{ticket_number}/entities/{entity_id}",
+            f"cases/{case_number}/entities/{entity_id}",
             query_params={"oid": self.oid},
             body={k: v for k, v in fields.items() if v is not None},
         )
 
     def remove_entity(
         self,
-        ticket_number: int,
+        case_number: int,
         entity_id: str,
     ) -> dict[str, Any]:
-        """Remove an entity from a ticket."""
+        """Remove an entity from a case."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_number}/entities/{entity_id}",
+            f"cases/{case_number}/entities/{entity_id}",
             query_params={"oid": self.oid},
         )
 
@@ -303,7 +311,7 @@ class Ticketing:
         entity_type: str,
         entity_value: str,
     ) -> dict[str, Any]:
-        """Search for entities across tickets."""
+        """Search for entities across cases."""
         return self._request(
             "GET",
             "entities/search",
@@ -318,27 +326,27 @@ class Ticketing:
     # Telemetry
     # ------------------------------------------------------------------
 
-    def list_telemetry(self, ticket_number: int) -> dict[str, Any]:
-        """List telemetry references on a ticket."""
+    def list_telemetry(self, case_number: int) -> dict[str, Any]:
+        """List telemetry references on a case."""
         return self._request(
             "GET",
-            f"tickets/{ticket_number}/telemetry",
+            f"cases/{case_number}/telemetry",
             query_params={"oid": self.oid},
         )
 
     def add_telemetry(
         self,
-        ticket_number: int,
+        case_number: int,
         event: dict,
         *,
         event_summary: str | None = None,
         verdict: str | None = None,
         relevance: str | None = None,
     ) -> dict[str, Any]:
-        """Link a telemetry event reference to a ticket.
+        """Link a telemetry event reference to a case.
 
         Args:
-            ticket_number: Ticket number.
+            case_number: Case number.
             event: Full LC event dict.  The backend extracts
                 routing.this (atom), routing.sid, and
                 routing.event_type automatically.
@@ -355,34 +363,34 @@ class Ticketing:
             body["relevance"] = relevance
         return self._request(
             "POST",
-            f"tickets/{ticket_number}/telemetry",
+            f"cases/{case_number}/telemetry",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def update_telemetry(
         self,
-        ticket_number: int,
+        case_number: int,
         telemetry_id: str,
         **fields: Any,
     ) -> dict[str, Any]:
-        """Update a telemetry reference on a ticket."""
+        """Update a telemetry reference on a case."""
         return self._request(
             "PATCH",
-            f"tickets/{ticket_number}/telemetry/{telemetry_id}",
+            f"cases/{case_number}/telemetry/{telemetry_id}",
             query_params={"oid": self.oid},
             body={k: v for k, v in fields.items() if v is not None},
         )
 
     def remove_telemetry(
         self,
-        ticket_number: int,
+        case_number: int,
         telemetry_id: str,
     ) -> dict[str, Any]:
-        """Remove a telemetry reference from a ticket."""
+        """Remove a telemetry reference from a case."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_number}/telemetry/{telemetry_id}",
+            f"cases/{case_number}/telemetry/{telemetry_id}",
             query_params={"oid": self.oid},
         )
 
@@ -390,39 +398,39 @@ class Ticketing:
     # Artifacts
     # ------------------------------------------------------------------
 
-    def list_artifacts(self, ticket_number: int) -> dict[str, Any]:
-        """List artifacts on a ticket."""
+    def list_artifacts(self, case_number: int) -> dict[str, Any]:
+        """List artifacts on a case."""
         return self._request(
             "GET",
-            f"tickets/{ticket_number}/artifacts",
+            f"cases/{case_number}/artifacts",
             query_params={"oid": self.oid},
         )
 
     def add_artifact(
         self,
-        ticket_number: int,
+        case_number: int,
         artifact_type: str,
         **fields: Any,
     ) -> dict[str, Any]:
-        """Add a forensic artifact reference to a ticket."""
+        """Add a forensic artifact reference to a case."""
         body: dict[str, Any] = {"artifact_type": artifact_type}
         body.update({k: v for k, v in fields.items() if v is not None})
         return self._request(
             "POST",
-            f"tickets/{ticket_number}/artifacts",
+            f"cases/{case_number}/artifacts",
             query_params={"oid": self.oid},
             body=body,
         )
 
     def remove_artifact(
         self,
-        ticket_number: int,
+        case_number: int,
         artifact_id: str,
     ) -> dict[str, Any]:
-        """Remove an artifact from a ticket."""
+        """Remove an artifact from a case."""
         return self._request(
             "DELETE",
-            f"tickets/{ticket_number}/artifacts/{artifact_id}",
+            f"cases/{case_number}/artifacts/{artifact_id}",
             query_params={"oid": self.oid},
         )
 
@@ -430,17 +438,17 @@ class Ticketing:
     # Export
     # ------------------------------------------------------------------
 
-    def export_ticket(self, ticket_number: int) -> dict[str, Any]:
-        """Export a ticket with all its components in a single object.
+    def export_case(self, case_number: int) -> dict[str, Any]:
+        """Export a case with all its components in a single object.
 
-        Fetches the ticket (with event timeline), detections, entities,
+        Fetches the case (with event timeline), detections, entities,
         telemetry, and artifacts, and returns them combined.
         """
-        result = self.get_ticket(ticket_number)
-        result["detections"] = self.list_detections(ticket_number)
-        result["entities"] = self.list_entities(ticket_number)
-        result["telemetry"] = self.list_telemetry(ticket_number)
-        result["artifacts"] = self.list_artifacts(ticket_number)
+        result = self.get_case(case_number)
+        result["detections"] = self.list_detections(case_number)
+        result["entities"] = self.list_entities(case_number)
+        result["telemetry"] = self.list_telemetry(case_number)
+        result["artifacts"] = self.list_artifacts(case_number)
         return result
 
     # ------------------------------------------------------------------
@@ -469,7 +477,7 @@ class Ticketing:
     # ------------------------------------------------------------------
 
     def dashboard_counts(self) -> dict[str, Any]:
-        """Get real-time ticket counts by status/severity with SLA breaches."""
+        """Get real-time case counts by status/severity with SLA breaches."""
         return self._request(
             "GET",
             "dashboard/counts",
@@ -481,11 +489,11 @@ class Ticketing:
     # ------------------------------------------------------------------
 
     def get_config(self) -> dict[str, Any]:
-        """Get org ticketing configuration."""
+        """Get org cases configuration."""
         return self._request("GET", f"config/{self.oid}")
 
     def set_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Update org ticketing configuration."""
+        """Update org cases configuration."""
         return self._request("PUT", f"config/{self.oid}", body=config)
 
     # ------------------------------------------------------------------
@@ -493,7 +501,7 @@ class Ticketing:
     # ------------------------------------------------------------------
 
     def list_assignees(self) -> dict[str, Any]:
-        """Get list of unique assignees across tickets."""
+        """Get list of unique assignees across cases."""
         return self._request(
             "GET",
             "assignees",
