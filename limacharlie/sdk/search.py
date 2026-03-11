@@ -123,18 +123,28 @@ class Search:
                     alt_root=search_url,
                 )
 
+                # The nextToken for pagination lives inside each
+                # SearchResult, not at the top level of SearchResponse.
+                next_token: str | None = None
                 for item in poll.get("results", []):
+                    if item.get("nextToken"):
+                        next_token = item["nextToken"]
                     yield item
                     count += 1
                     if limit and count >= limit:
                         return
 
                 if poll.get("completed", False):
-                    break
-
-                token = poll.get("nextToken")
-                if not token:
-                    time.sleep(1)
+                    if next_token:
+                        # More pages available — use the token to
+                        # fetch the next page (may trigger a subquery).
+                        token = next_token
+                    else:
+                        break
+                else:
+                    # Page still processing, poll again after a delay.
+                    poll_ms = poll.get("nextPollInMs", 1000)
+                    time.sleep(max(poll_ms / 1000, 0.5))
         finally:
             # Cancel search to clean up
             try:
