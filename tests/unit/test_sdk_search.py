@@ -76,13 +76,45 @@ class TestSearchExecute:
         results = list(search.execute("event", 1000, 2000))
         assert len(results) == 0
 
-    def test_execute_multi_page(self, search, mock_org):
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_execute_polls_until_completed(self, mock_sleep, search, mock_org):
+        """Query still processing (completed=False) triggers re-poll."""
         mock_org.client.request.side_effect = [
             {"queryId": "q-789"},
-            {"results": [{"a": 1}], "completed": False, "nextToken": "tok1"},
-            {"results": [{"a": 2}], "completed": True},
+            {"results": [], "completed": False, "nextPollInMs": 500},
+            {"results": [{"type": "events", "rows": [{"a": 1}]}], "completed": True},
+            {},  # DELETE cleanup
+        ]
+
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 1
+        mock_sleep.assert_called_once_with(0.5)
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_execute_pagination_follows_next_token(self, mock_sleep, search, mock_org):
+        """When a result has nextToken and completed=True, fetch next page."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-pag"},
+            # Page 1: completed with nextToken inside the result
+            {"results": [{"type": "events", "rows": [{"a": 1}], "nextToken": "tok1"}], "completed": True},
+            # Page 2 subquery not ready yet
+            {"results": [], "completed": False, "nextPollInMs": 500},
+            # Page 2 ready, no more pages
+            {"results": [{"type": "events", "rows": [{"a": 2}]}], "completed": True},
             {},  # DELETE cleanup
         ]
 
         results = list(search.execute("event", 1000, 2000))
         assert len(results) == 2
+        assert results[0]["rows"] == [{"a": 1}]
+        assert results[1]["rows"] == [{"a": 2}]
+
+        # Verify the second GET used the pagination token
+        get_calls = [c for c in mock_org.client.request.call_args_list if c[0][0] == "GET"]
+        assert len(get_calls) == 3  # page1 poll, page2 poll (not ready), page2 poll (ready)
+        # First GET: no token
+        assert get_calls[0][1].get("query_params") is None
+        # Second GET: token from page 1
+        assert get_calls[1][1]["query_params"] == {"token": "tok1"}
+        # Third GET: same token (re-poll same page)
+        assert get_calls[2][1]["query_params"] == {"token": "tok1"}
