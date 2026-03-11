@@ -41,7 +41,7 @@ def _extract_body(mock_org):
 class TestCasesInit:
     def test_default_api_root(self, mock_org):
         t = Cases(mock_org)
-        assert "ext-cases-api" in t._api_root
+        assert t._api_root == "https://cases.limacharlie.io"
 
     def test_custom_api_root(self, mock_org):
         t = Cases(mock_org, api_root="https://custom.example.com")
@@ -666,7 +666,7 @@ class TestRequestMethod:
         cases.list_cases()
         _, kwargs = _extract_call(mock_org)
         assert "alt_root" in kwargs
-        assert "ext-cases-api" in kwargs["alt_root"]
+        assert kwargs["alt_root"] == "https://cases.limacharlie.io"
 
     def test_get_no_raw_body(self, cases, mock_org):
         mock_org.client.request.return_value = {}

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 from .extensions import Extensions
 
-_DEFAULT_API_ROOT = "https://ext-cases-api-ackbwtk5nq-uc.a.run.app"
+_DEFAULT_API_ROOT = "https://cases.limacharlie.io"
 
 
 class Cases:
