@@ -41,7 +41,7 @@ def _extract_body(mock_org):
 class TestCasesInit:
     def test_default_api_root(self, mock_org):
         t = Cases(mock_org)
-        assert "ext-ticketing-api" in t._api_root
+        assert t._api_root == "https://cases.limacharlie.io"
 
     def test_custom_api_root(self, mock_org):
         t = Cases(mock_org, api_root="https://custom.example.com")
@@ -83,8 +83,7 @@ class TestCreateCase:
             result = cases.create_case(self._SAMPLE_DETECTION)
             MockExt.assert_called_once_with(mock_org)
             mock_ext.request.assert_called_once_with(
-                # These are backend names - do not rename.
-                "ext-ticketing", "create_ticket",
+                "ext-cases", "create_case",
                 data={"detection": json.dumps(self._SAMPLE_DETECTION)},
             )
             assert result["case_id"] == "tid-new"
@@ -667,7 +666,7 @@ class TestRequestMethod:
         cases.list_cases()
         _, kwargs = _extract_call(mock_org)
         assert "alt_root" in kwargs
-        assert "ext-ticketing-api" in kwargs["alt_root"]
+        assert kwargs["alt_root"] == "https://cases.limacharlie.io"
 
     def test_get_no_raw_body(self, cases, mock_org):
         mock_org.client.request.return_value = {}

@@ -1,6 +1,6 @@
 """Cases SDK for LimaCharlie v2.
 
-Wraps the ext-ticketing REST API for SOC case lifecycle management,
+Wraps the ext-cases REST API for SOC case lifecycle management,
 investigation tracking (entities, telemetry, artifacts), reporting,
 and configuration.
 """
@@ -16,11 +16,7 @@ if TYPE_CHECKING:
 
 from .extensions import Extensions
 
-# NOTE: The API root and extension name reference "ext-ticketing" because
-# that is the actual Cloud Run service / registered extension name on the
-# LimaCharlie platform.  Only the SDK-facing class and method names are
-# renamed to "cases".
-_DEFAULT_API_ROOT = "https://ext-ticketing-api-ackbwtk5nq-uc.a.run.app"
+_DEFAULT_API_ROOT = "https://cases.limacharlie.io"
 
 
 class Cases:
@@ -36,13 +32,7 @@ class Cases:
     def oid(self) -> str:
         return self._org.oid
 
-    # ------------------------------------------------------------------
-    # Extension name for case creation via the LC extension API.
-    # The value "ext-ticketing" is the registered extension name on the
-    # LimaCharlie platform and must NOT be renamed.
-    # ------------------------------------------------------------------
-
-    _EXTENSION_NAME = "ext-ticketing"
+    _EXTENSION_NAME = "ext-cases"
 
     def create_case(
         self,
@@ -50,12 +40,11 @@ class Cases:
         *,
         severity: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new case via the ext-ticketing extension.
+        """Create a new case via the ext-cases extension.
 
         Case creation goes through the LimaCharlie extension request
-        mechanism (``create_ticket`` action) rather than the cases
-        REST API.  The action name "create_ticket" is the registered
-        action on the backend and must NOT be renamed.
+        mechanism (``create_case`` action) rather than the cases
+        REST API.
 
         Args:
             detection: Optional full LC detection dict.  The backend
@@ -73,8 +62,7 @@ class Cases:
         if severity is not None:
             data["severity"] = severity
         ext = Extensions(self._org)
-        # "create_ticket" is the backend action name - do not rename.
-        return ext.request(self._EXTENSION_NAME, "create_ticket", data=data)
+        return ext.request(self._EXTENSION_NAME, "create_case", data=data)
 
     def _request(
         self,
