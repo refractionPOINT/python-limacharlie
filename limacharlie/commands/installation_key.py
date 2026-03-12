@@ -53,18 +53,34 @@ def group() -> None:
 
 _EXPLAIN_LIST = """\
 List all installation keys for the organization.  Installation keys
-are Base64-encoded strings used to enroll new sensors and adapters.
+are used to enroll new sensors and adapters.
 
-Each key contains four components:
-  OID   - Organization ID the sensor enrolls into
-  IID   - Installer ID (auto-generated, unique per key)
-  tags  - List of tags automatically applied at enrollment
+Each key record contains:
+  iid   - Installation key ID (auto-generated UUID, unique per key)
   desc  - Human-readable description of the key's purpose
+  tags  - List of tags automatically applied at enrollment
+  created - Creation timestamp
 
-The output includes the key ID (IID), description, tags, and
-creation date.  Use separate keys per deployment segment (e.g.,
-'production-linux', 'staging-windows') so tags automatically
-classify sensors at enrollment time.
+The response also includes two key strings that are commonly confused:
+
+  key      - The BINARY installation key (Base64-encoded RPCM payload).
+             This is used to install NATIVE SENSORS (EDR agents) on
+             endpoints.  Pass this value to the sensor installer:
+               ./lc_sensor_64 -i <VALUE_OF_key>
+
+  json_key - The JSON installation key (Base64-encoded JSON object).
+             This is used for BROWSER SENSORS and ADAPTERS (USP).
+             When base64-decoded it contains PRIMARY_URL, SECONDARY_URL,
+             and HCP_IDENT fields.
+
+IMPORTANT: When a user asks to "install a sensor", they almost always
+need the "key" field (the binary key), NOT "json_key".  The "json_key"
+is only needed for browser-based sensors or adapter configurations.
+Do NOT confuse the two.
+
+Use separate keys per deployment segment (e.g., 'production-linux',
+'staging-windows') so tags automatically classify sensors at
+enrollment time.
 """
 register_explain("installation-key.list", _EXPLAIN_LIST)
 
@@ -84,8 +100,14 @@ def list_keys(ctx) -> None:
 
 _EXPLAIN_GET = """\
 Get a specific installation key by its IID.  Returns the key's
-description, tags, creation date, and the full Base64-encoded
-installation key string.
+description, tags, creation date, and both installation key strings.
+
+The response includes two key strings:
+  key      - Binary installation key (for native sensor installers).
+             Use this value with: ./lc_sensor_64 -i <VALUE_OF_key>
+  json_key - JSON installation key (for browser sensors and adapters).
+
+When a user needs to "install a sensor", provide the "key" field.
 
 Example:
   limacharlie installation-key get --iid <IID>
@@ -117,13 +139,22 @@ tags can be comma-separated.  Tags are applied automatically at
 enrollment and can be used in sensor selectors, D&R rule targeting,
 and fleet filtering.
 
-The returned output includes the full Base64-encoded installation key
-string that should be provided to the sensor installer:
-  ./lc_sensor_64 -i <INSTALLATION_KEY>
+After creation, use --get to fetch the full key details.  The response
+will include two key strings:
+
+  key      - Binary installation key for NATIVE SENSOR installation.
+             This is the value to pass to the sensor installer:
+               ./lc_sensor_64 -i <VALUE_OF_key>
+
+  json_key - JSON installation key for BROWSER SENSORS and ADAPTERS.
+
+IMPORTANT: For sensor installation, always use the "key" field, not
+"json_key".
 
 Examples:
   limacharlie installation-key create --description "production linux"
   limacharlie installation-key create --description "staging" --tags "env:staging,os:windows"
+  limacharlie installation-key create --description "prod" --get
 """
 register_explain("installation-key.create", _EXPLAIN_CREATE)
 
