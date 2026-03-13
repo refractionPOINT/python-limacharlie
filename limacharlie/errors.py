@@ -161,11 +161,32 @@ class SearchError(LimaCharlieError):
         context = f" [{', '.join(context_parts)}]" if context_parts else ""
 
         if suggestion is None:
-            suggestion = (
-                "If this persists, contact support and include the query_id "
-                "shown above for faster troubleshooting."
-            )
+            suggestion = _search_suggestion(message)
         super().__init__(f"{message}{context}", suggestion=suggestion, code=code)
+
+
+# Keywords that indicate the search failed due to an expired auth token.
+_TOKEN_EXPIRY_KEYWORDS = ("401", "unauthorized", "token expired", "authentication failed", "jwt expired")
+
+_TOKEN_EXPIRY_SUGGESTION = (
+    "Your authentication token likely expired during this long-running query.\n"
+    "To avoid this, use --token-expiry to set a longer token validity "
+    "(e.g. --token-expiry 8 for 8 hours),\n"
+    "or set 'search_token_expiry_hours' in ~/.limacharlie."
+)
+
+_DEFAULT_SEARCH_SUGGESTION = (
+    "If this persists, contact support and include the query_id "
+    "shown above for faster troubleshooting."
+)
+
+
+def _search_suggestion(message: str) -> str:
+    """Pick the most helpful suggestion based on the error message."""
+    lower = message.lower()
+    if any(kw in lower for kw in _TOKEN_EXPIRY_KEYWORDS):
+        return _TOKEN_EXPIRY_SUGGESTION
+    return _DEFAULT_SEARCH_SUGGESTION
 
 
 class ConfigError(LimaCharlieError):

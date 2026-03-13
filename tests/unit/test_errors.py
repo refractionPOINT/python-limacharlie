@@ -181,9 +181,34 @@ class TestSearchError:
         assert err.suggestion is not None
         assert "query_id" in err.suggestion
 
+    def test_token_expiry_suggestion_on_401(self):
+        """401-related errors get a token expiry suggestion."""
+        err = SearchError("authentication failed: HTTP 401")
+        assert "--token-expiry" in err.suggestion
+        assert "search_token_expiry_hours" in err.suggestion
+
+    def test_token_expiry_suggestion_on_unauthorized(self):
+        """Unauthorized keyword triggers token expiry suggestion."""
+        err = SearchError("search failed: unauthorized access")
+        assert "--token-expiry" in err.suggestion
+
+    def test_token_expiry_suggestion_on_jwt_expired(self):
+        """JWT expired keyword triggers token expiry suggestion."""
+        err = SearchError("search failed: JWT expired during execution")
+        assert "--token-expiry" in err.suggestion
+
+    def test_token_expiry_suggestion_on_server_401_message(self):
+        """Server-side 401 message triggers helpful client-side suggestion."""
+        err = SearchError(
+            "authentication failed: your API token expired during query execution (HTTP 401). "
+            "Use a longer-lived token for large time range queries."
+        )
+        assert "--token-expiry" in err.suggestion
+        assert "search_token_expiry_hours" in err.suggestion
+
     def test_custom_suggestion(self):
-        """Custom suggestion overrides default."""
-        err = SearchError("failed", suggestion="try again later")
+        """Custom suggestion overrides automatic detection."""
+        err = SearchError("HTTP 401 unauthorized", suggestion="try again later")
         assert err.suggestion == "try again later"
 
     def test_inherits_from_base(self):
