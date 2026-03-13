@@ -2,6 +2,12 @@
 
 Handles JWT generation/refresh, retry with exponential backoff,
 rate limit awareness, and request debugging.
+
+When ``print_debug_fn`` is supplied, every HTTP request/response is
+logged to stderr in a format similar to Apache libcloud's debug output:
+method, URL, request headers (Authorization value masked), request body,
+response status, response headers, and response body (truncated to
+DEBUG_RESPONSE_BODY_LIMIT chars unless ``debug_full_response=True``).
 """
 
 from __future__ import annotations
@@ -43,6 +49,14 @@ HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
 HTTP_GATEWAY_TIMEOUT = 504
+
+# Default limit for response body in debug output. Bodies longer than
+# this are truncated with a "[truncated]" marker. Use debug_full_response=True
+# on the Client (or --debug-full on the CLI) to disable truncation.
+DEBUG_RESPONSE_BODY_LIMIT = 2048
+
+# Headers whose values are masked in debug output to avoid leaking secrets.
+_SENSITIVE_HEADERS = frozenset({"authorization", "x-api-key", "cookie", "set-cookie"})
 
 
 def _create_ssl_context() -> ssl.SSLContext | None:
@@ -93,6 +107,9 @@ class Client:
         on_refresh_auth: Callable[[Client], None] | None = None,
         inv_id: str | None = None,
         timeout: int = 600,
+        debug_full_response: bool = False,
+        debug_curl: bool = False,
+        debug_verbose: bool = True,
     ) -> None:
         """Initialize the client.
 
@@ -103,10 +120,20 @@ class Client:
             environment: Named environment from config file.
             jwt: Pre-generated JWT (skips generation).
             is_retry_quota_errors: Auto-retry on 429 rate limit errors.
-            print_debug_fn: Callback for debug messages.
+            print_debug_fn: Callback for debug messages. When set, every
+                HTTP request/response is logged with headers and body.
             on_refresh_auth: Callback invoked when JWT is refreshed.
             inv_id: Investigation ID for tracking.
             timeout: Default request timeout in seconds.
+            debug_full_response: When True, do not truncate response bodies
+                in debug output. Default False (truncate to
+                DEBUG_RESPONSE_BODY_LIMIT chars).
+            debug_curl: When True, print a reproducible curl command for
+                each request to stderr. Sensitive header values are masked
+                with a $LC_TOKEN placeholder.
+            debug_verbose: When True (default), print verbose request/response
+                details. Set to False when only curl output is desired
+                (--debug-curl without --debug).
         """
         creds = resolve_credentials(
             oid=oid,
@@ -151,6 +178,9 @@ class Client:
         else:
             self._debug("JWT: using pre-generated token, skipping cache")
         self._is_retry_quota_errors = is_retry_quota_errors
+        self._debug_full_response = debug_full_response
+        self._debug_curl = debug_curl
+        self._debug_curl_only = debug_curl and not debug_verbose
         self._on_refresh_auth = on_refresh_auth
         self._inv_id = inv_id
         self._timeout = timeout
@@ -179,6 +209,92 @@ class Client:
 
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
             self._debug_fn(f"{ts}: {msg}")
+
+    @staticmethod
+    def _mask_headers(headers: dict[str, str] | list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Return headers with sensitive values masked for debug output."""
+        items = headers.items() if isinstance(headers, dict) else headers
+        masked = []
+        for name, value in items:
+            if name.lower() in _SENSITIVE_HEADERS:
+                # Show first 12 chars so you can identify which token it is.
+                visible = value[:12] if len(value) > 12 else value
+                masked.append((name, f"{visible}...REDACTED"))
+            else:
+                masked.append((name, value))
+        return masked
+
+    def _debug_request(self, verb: str, url: str, headers: dict[str, str], body: bytes | None) -> None:
+        """Log full request details in libcloud-style debug format."""
+        if self._debug_fn is None or self._debug_curl_only:
+            return
+        lines = [f"--- request {verb} {url} ---"]
+        for name, value in self._mask_headers(headers):
+            lines.append(f"  {name}: {value}")
+        if body and verb in ("POST", "PUT", "PATCH"):
+            try:
+                body_str = body.decode("utf-8", errors="replace")
+            except Exception:
+                body_str = f"<binary {len(body)} bytes>"
+            # Truncate request body too if very large.
+            if not self._debug_full_response and len(body_str) > DEBUG_RESPONSE_BODY_LIMIT:
+                body_str = body_str[:DEBUG_RESPONSE_BODY_LIMIT] + f"... [truncated, {len(body)} bytes total]"
+            lines.append(f"  body: {body_str}")
+        self._debug("\n".join(lines))
+
+    def _debug_response(self, status: int, resp_headers: list[tuple[str, str]], body_str: str) -> None:
+        """Log full response details in libcloud-style debug format."""
+        if self._debug_fn is None or self._debug_curl_only:
+            return
+
+        lines = [f"--- response {status} ---"]
+        for name, value in self._mask_headers(resp_headers):
+            lines.append(f"  {name}: {value}")
+        if body_str:
+            if not self._debug_full_response and len(body_str) > DEBUG_RESPONSE_BODY_LIMIT:
+                lines.append(f"  body: {body_str[:DEBUG_RESPONSE_BODY_LIMIT]}... [truncated, {len(body_str)} chars total, use --debug-full to see all]")
+            else:
+                lines.append(f"  body: {body_str}")
+        self._debug("\n".join(lines))
+
+    def _debug_curl_cmd(self, verb: str, url: str, headers: dict[str, str], body: bytes | None) -> None:
+        """Print a reproducible curl command for the request.
+
+        Outputs an actual runnable curl command with real header values
+        (including auth tokens) so the user can copy-paste and reproduce
+        the exact request. Uses shlex.quote() from the Python standard
+        library for shell-safe argument escaping.
+
+        Since this includes real tokens, the output is intended for local
+        debugging - not for sharing in tickets.
+
+        Inspired by Apache libcloud's LoggingConnection._log_curl()
+        (Apache 2.0 license).
+        """
+        import shlex
+
+        if self._debug_fn is None or not self._debug_curl:
+            return
+
+        parts = ["curl -i --compressed"]
+
+        if verb == "HEAD":
+            parts.append("--head")
+        elif verb != "GET":
+            parts.append(f"-X {verb}")
+
+        for name, value in headers.items():
+            parts.append(f"-H {shlex.quote(f'{name}: {value}')}")
+
+        if body and verb in ("POST", "PUT", "PATCH"):
+            try:
+                body_str = body.decode("utf-8", errors="replace")
+                parts.append(f"--data-binary {shlex.quote(body_str)}")
+            except Exception:
+                parts.append(f"--data-binary '<binary {len(body)} bytes>'")
+
+        parts.append(shlex.quote(url))
+        self._debug(" \\\n  ".join(parts))
 
     @staticmethod
     def unwrap(data: str, is_raw: bool = False) -> Any:
@@ -475,6 +591,12 @@ class Client:
 
         effective_timeout = timeout or self._timeout
 
+        # Log request details (headers include User-Agent added above).
+        all_headers = dict(request.headers)
+        all_headers.update(request.unredirected_hdrs)
+        self._debug_request(verb, full_url, all_headers, body)
+        self._debug_curl_cmd(verb, full_url, all_headers, body)
+
         try:
             if self._ssl_context is not None and full_url.startswith("https"):
                 u = urlopen(request, timeout=effective_timeout, context=self._ssl_context)
@@ -483,7 +605,8 @@ class Client:
 
             try:
                 data = u.read()
-                resp = json.loads(data.decode()) if data else {}
+                data_str = data.decode() if data else ""
+                resp = json.loads(data_str) if data_str else {}
             except ValueError:
                 resp = {}
             finally:
@@ -500,18 +623,20 @@ class Client:
                     self._debug(
                         f"Rate limit warning: quota={quota_limit}, period={quota_period}s"
                     )
+                self._debug_response(HTTP_OK, resp_headers, data_str if data else "")
                 u.close()
 
-            self._debug(f"{verb} {full_url} => 200")
             return (HTTP_OK, resp)
 
         except HTTPError as e:
             error_body = e.read()
+            error_str = error_body.decode() if error_body else ""
             try:
-                resp = json.loads(error_body.decode())
+                resp = json.loads(error_str)
             except Exception:
-                resp = error_body.decode() if error_body else ""
-            self._debug(f"{verb} {full_url} => {e.code}: {resp}")
+                resp = error_str
+            resp_headers = e.headers.items() if hasattr(e, "headers") else []
+            self._debug_response(e.code, list(resp_headers), error_str)
             return (e.code, resp)
 
         except ssl.SSLError as e:

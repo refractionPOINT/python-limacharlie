@@ -29,7 +29,7 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 def _get_client(ctx: click.Context) -> Client:
-    return Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    return Client(oid=ctx.obj.oid, environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
 
 
 def _get_org(ctx: click.Context) -> Organization:
@@ -293,7 +293,7 @@ register_explain("org.create", _EXPLAIN_CREATE)
 @click.option("--use", is_flag=True, default=False, help="Set the new organization as the default for subsequent commands.")
 @pass_context
 def create(ctx: click.Context, name: str, location: str, template: str | None, use: bool) -> None:
-    client = Client(oid="-", environment=ctx.obj.environment)
+    client = Client(oid="-", environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
     data = Organization.create_org(client, name, location, template)
     _output(ctx, data)
 

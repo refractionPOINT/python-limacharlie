@@ -10,13 +10,26 @@ import importlib
 import os
 import pkgutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable
 
 import click
 
 from .client import __version__
 from .ai_help import inject_ai_help
 from .output import set_filter_expr, set_wide_mode
+
+
+def _make_debug_fn(enabled: bool) -> Callable[[str], None] | None:
+    """Return a stderr debug-print callback when *enabled*, else ``None``.
+
+    This is the single source of truth for how ``--debug`` is wired into
+    the SDK ``Client``.  Every command helper that creates a ``Client``
+    should pass ``print_debug_fn=ctx.obj.debug_fn``.
+    """
+    if not enabled:
+        return None
+    return lambda msg: print(msg, file=sys.stderr)
 
 
 @dataclass
@@ -26,11 +39,26 @@ class LimaCharlieContext:
     oid: str | None = None
     output_format: str | None = None
     debug: bool = False
+    debug_full: bool = False
+    debug_curl: bool = False
     quiet: bool = False
     wide: bool = False
     filter_expr: str | None = None
     profile: str | None = None
     environment: str | None = None
+
+    @property
+    def debug_fn(self) -> Callable[[str], None] | None:
+        """Return a stderr debug-print callback when any debug flag is active."""
+        return _make_debug_fn(self.debug or self.debug_full or self.debug_curl)
+
+    @property
+    def debug_verbose(self) -> bool:
+        """True when verbose request/response logging is wanted.
+
+        False when only --debug-curl is set (curl-only mode).
+        """
+        return self.debug or self.debug_full
 
 
 pass_context = click.pass_context
@@ -139,7 +167,9 @@ class _GlobalOptionsGroup(click.Group):
     default=None,
     help="Output format. Default: table (TTY) or json (piped).",
 )
-@click.option("--debug", is_flag=True, default=False, help="Enable debug output (prints request details).")
+@click.option("--debug", is_flag=True, default=False, help="Enable debug output (prints request/response details to stderr).")
+@click.option("--debug-full", is_flag=True, default=False, help="Like --debug but does not truncate response bodies.")
+@click.option("--debug-curl", is_flag=True, default=False, help="Print curl commands for each request (safe to share, secrets use $LC_TOKEN).")
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-error output.")
 @click.option("--wide", "-W", is_flag=True, default=False, help="Disable table value truncation (show full values).")
 @click.option("--filter", "filter_expr", default=None, help="JMESPath expression to filter/transform output (e.g. 'user_perms', 'keys(@)').")
@@ -147,7 +177,7 @@ class _GlobalOptionsGroup(click.Group):
 @click.option("--env", "environment", default=None, help="Named environment from config file.")
 @click.version_option(version=__version__, prog_name="limacharlie")
 @click.pass_context
-def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, quiet: bool, wide: bool, filter_expr: str | None, profile: str | None, environment: str | None) -> None:
+def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, debug_full: bool, debug_curl: bool, quiet: bool, wide: bool, filter_expr: str | None, profile: str | None, environment: str | None) -> None:
     """LimaCharlie CLI - Endpoint Detection & Response platform.
 
     Manage sensors, detection rules, hive data, and more from the command line.
@@ -159,6 +189,8 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     lc_ctx.oid = oid
     lc_ctx.output_format = output_format
     lc_ctx.debug = debug
+    lc_ctx.debug_full = debug_full
+    lc_ctx.debug_curl = debug_curl
     lc_ctx.quiet = quiet
     lc_ctx.wide = wide
     lc_ctx.filter_expr = filter_expr
