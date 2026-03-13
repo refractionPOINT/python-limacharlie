@@ -37,7 +37,7 @@ and pagination.
 
 Filters (all repeatable/comma-separated):
   --status    new, acknowledged, in_progress, escalated, resolved, closed
-  --severity  critical, high, medium, low
+  --severity  critical, high, medium, low, info
   --classification  pending, true_positive, false_positive
   --assignee  filter by assignee email
   --search    full-text search in detection_cat and hostname
@@ -354,6 +354,7 @@ Configurable fields:
     high:     {mtta_minutes: 15, mttr_minutes: 720}
     medium:   {mtta_minutes: 60, mttr_minutes: 1440}
     low:      {mtta_minutes: 100, mttr_minutes: 2800}
+    info:     {mtta_minutes: 480, mttr_minutes: 10080}
   retention_days: 90
   auto_close_resolved_after_days: 30
 
@@ -413,7 +414,7 @@ be populated later with detections, telemetry, entities, etc.
 
 If --severity is omitted, severity is derived from detect_mtd.level
 in the detection object (or defaults to 'medium').  Valid severities:
-critical, high, medium, low.
+critical, high, medium, low, info.
 
 Examples:
   limacharlie case create --detection '<full detection JSON>'
@@ -509,7 +510,7 @@ _STATUS_CHOICES = click.Choice(
     case_sensitive=False,
 )
 _SEVERITY_CHOICES = click.Choice(
-    ["critical", "high", "medium", "low"],
+    ["critical", "high", "medium", "low", "info"],
     case_sensitive=False,
 )
 _CLASSIFICATION_CHOICES = click.Choice(

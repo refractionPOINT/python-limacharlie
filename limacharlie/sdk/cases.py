@@ -52,7 +52,7 @@ class Cases:
                 routing.hostname, and detect_mtd.level automatically.
                 Omit to create an empty investigation case.
             severity: Optional case severity override
-                (critical, high, medium, low).
+                (critical, high, medium, low, info).
         """
         data: dict[str, Any] = {}
         if detection is not None:
