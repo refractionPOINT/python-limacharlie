@@ -676,10 +676,12 @@ def get_token(ctx: click.Context, hours: float, output_format: str) -> None:
         )
 
     client = _get_client(ctx)
+    # Compute expiry timestamp before generating the token so the displayed
+    # value closely matches the actual JWT expiry (avoids time skew).
+    expiry_ts = int(time_mod.time()) + int(hours * 3600)
     token = client.get_jwt(expiry_hours=hours)
 
     if output_format == "json":
-        expiry_ts = int(time_mod.time()) + int(hours * 3600)
         expiry_iso = datetime.fromtimestamp(expiry_ts, tz=timezone.utc).isoformat()
         data = {
             "token": token,

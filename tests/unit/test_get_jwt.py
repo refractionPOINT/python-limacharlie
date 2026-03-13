@@ -26,17 +26,6 @@ class TestClientGetJwt:
     """Tests for Client.get_jwt SDK method."""
 
     @patch("limacharlie.client.resolve_credentials")
-    def _make_client(self, mock_resolve, **kwargs):
-        """Helper to create a Client with mocked credentials."""
-        mock_resolve.return_value = {
-            "oid": kwargs.get("oid", "test-oid"),
-            "uid": None,
-            "api_key": "test-api-key-12345678",
-            "oauth": None,
-        }
-        return Client(oid="test-oid")
-
-    @patch("limacharlie.client.resolve_credentials")
     def test_get_jwt_default_expiry(self, mock_resolve):
         """get_jwt with no args uses default expiry (~1 hour)."""
         mock_resolve.return_value = {
