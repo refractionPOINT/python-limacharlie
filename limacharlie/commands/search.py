@@ -116,6 +116,11 @@ Examples:
       --query "plat == windows | DNS_REQUEST | event/DOMAIN_NAME contains 'example'" \\
       --start 1700000000 --end 1700086400 --stream event --limit 100
 
+  # Long-running query with 8-hour token (avoids JWT expiry mid-query)
+  limacharlie search run \\
+      --query "plat == windows | WEL | event/EVENT/System/EventID == '4625'" \\
+      --start 1700000000 --end 1700086400 --token-expiry 8
+
 IMPORTANT: Do not write LCQL queries from scratch. Use
 'limacharlie ai generate-query --prompt "<description>"' to generate
 a query from a natural language description, then pass the result to
@@ -130,11 +135,25 @@ register_explain("search.run", _EXPLAIN_RUN)
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option(
+    "--token-expiry", default=None, type=float,
+    help="JWT token validity in hours (e.g. 8). Use for long-running queries "
+         "that may exceed the default ~1 hour token lifetime.",
+)
 @pass_context
-def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None, limit: int | None) -> None:
+def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None,
+        limit: int | None, token_expiry: float | None) -> None:
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
+    if token_expiry is not None:
+        if token_expiry > 24:
+            click.echo(
+                f"Warning: generating a token valid for {token_expiry} hours. "
+                "Long-lived tokens increase security exposure if leaked.",
+                err=True,
+            )
+        org.client.get_jwt(expiry_hours=token_expiry)
     search = Search(org)
     results = list(search.execute(query, start, end, stream=stream, limit=limit))
     _output(ctx, results)
@@ -372,9 +391,24 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 @group.command("saved-run")
 @click.option("--name", required=True, help="Name of the saved query to execute.")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option(
+    "--token-expiry", default=None, type=float,
+    help="JWT token validity in hours (e.g. 8). Use for long-running queries "
+         "that may exceed the default ~1 hour token lifetime.",
+)
 @pass_context
-def saved_run(ctx: click.Context, name: str, limit: int | None) -> None:
+def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: float | None) -> None:
     org = _get_org(ctx)
+
+    if token_expiry is not None:
+        if token_expiry > 24:
+            click.echo(
+                f"Warning: generating a token valid for {token_expiry} hours. "
+                "Long-lived tokens increase security exposure if leaked.",
+                err=True,
+            )
+        org.client.get_jwt(expiry_hours=token_expiry)
+
     hive = Hive(org, "query")
     record = hive.get(name)
     query_data = record.data

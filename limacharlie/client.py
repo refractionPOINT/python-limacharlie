@@ -171,6 +171,45 @@ class Client:
         else:
             return json.loads(zlib.decompress(base64.b64decode(data), 16 + zlib.MAX_WBITS).decode())
 
+    def get_jwt(self, expiry_hours: float | None = None) -> str:
+        """Generate a JWT token with optional custom expiry.
+
+        Useful for long-running operations like search queries that may
+        run for several hours. By default, JWTs expire after ~1 hour.
+        For operations that take longer, specify a custom expiry in hours.
+
+        Args:
+            expiry_hours: Token validity duration in hours. If None, uses
+                the default expiry (~1 hour). For long-running search
+                queries, use 4-8 hours depending on expected duration.
+
+        Returns:
+            The JWT token string.
+
+        Raises:
+            AuthenticationError: If token generation fails.
+            ValidationError: If expiry_hours is not positive.
+        """
+        import time as time_module
+        from .errors import ValidationError
+
+        expiry_ts: int | None = None
+        if expiry_hours is not None:
+            if expiry_hours <= 0:
+                raise ValidationError(
+                    f"Token expiry must be positive, got {expiry_hours} hours.",
+                    suggestion="Use a positive number of hours (e.g. --token-expiry 8).",
+                )
+            expiry_ts = int(time_module.time()) + int(expiry_hours * 3600)
+
+        self.refresh_jwt(expiry=expiry_ts)
+
+        if self._jwt is None:
+            from .errors import AuthenticationError
+            raise AuthenticationError("Failed to generate JWT token.")
+
+        return self._jwt
+
     def refresh_jwt(self, expiry: int | None = None, oid_override: str | None = None) -> None:
         """Generate or refresh a JWT token.
 

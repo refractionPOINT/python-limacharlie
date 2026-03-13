@@ -628,3 +628,66 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
         if not ctx.obj.quiet:
             click.echo(f"Organization created: {chosen_oid}")
             click.echo(f"\nAll set! Credentials saved for environment '{env_name}'.")
+
+
+# ---------------------------------------------------------------------------
+# get-token
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_GET_TOKEN = """\
+Generate a JWT token with optional custom expiry for long-running
+operations. By default, JWT tokens expire after ~1 hour. For operations
+like search download jobs or long search queries, you can generate a
+token with a longer validity period.
+
+Use --hours to set the validity duration. Use --format to choose between
+raw token output (default) or JSON with metadata.
+
+Examples:
+  limacharlie auth get-token --hours 8
+  limacharlie auth get-token --hours 8 --format json
+"""
+register_explain("auth.get-token", _EXPLAIN_GET_TOKEN)
+
+
+@group.command("get-token")
+@click.option(
+    "--hours", type=float, default=1.0,
+    help="Token validity duration in hours (default: 1). "
+         "For long search queries, use 4-8 hours.",
+)
+@click.option(
+    "--format", "output_format", type=click.Choice(["raw", "json"]),
+    default="raw",
+    help="Output format: 'raw' prints just the token, 'json' includes metadata.",
+)
+@pass_context
+def get_token(ctx: click.Context, hours: float, output_format: str) -> None:
+    """Generate a JWT with custom expiry for long-running operations."""
+    import json as json_mod
+    import time as time_mod
+    from datetime import datetime, timezone
+
+    if hours > 24:
+        click.echo(
+            f"Warning: generating a token valid for {hours} hours. "
+            "Long-lived tokens increase security exposure if leaked.",
+            err=True,
+        )
+
+    client = _get_client(ctx)
+    token = client.get_jwt(expiry_hours=hours)
+
+    if output_format == "json":
+        expiry_ts = int(time_mod.time()) + int(hours * 3600)
+        expiry_iso = datetime.fromtimestamp(expiry_ts, tz=timezone.utc).isoformat()
+        data = {
+            "token": token,
+            "expiry": expiry_ts,
+            "expiry_iso": expiry_iso,
+            "valid_hours": hours,
+            "oid": client.oid,
+        }
+        click.echo(json_mod.dumps(data, indent=2))
+    else:
+        click.echo(token)
