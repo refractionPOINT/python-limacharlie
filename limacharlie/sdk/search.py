@@ -125,13 +125,23 @@ class Search:
         if stream:
             body["stream"] = stream
 
-        # Initiate search
-        resp = self._org.client.request(
-            "POST", "search",
-            raw_body=json.dumps(body).encode(),
-            content_type="application/json",
-            alt_root=search_url,
-        )
+        # Initiate search - wrap transport exceptions so the caller always
+        # gets a SearchError with region/oid context for troubleshooting.
+        try:
+            resp = self._org.client.request(
+                "POST", "search",
+                raw_body=json.dumps(body).encode(),
+                content_type="application/json",
+                alt_root=search_url,
+            )
+        except SearchError:
+            raise
+        except Exception as exc:
+            raise SearchError(
+                f"Failed to initiate search: {exc}",
+                region=region,
+                oid=oid,
+            ) from exc
 
         # Check for error in initiation response
         if resp.get("error"):

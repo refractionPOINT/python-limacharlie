@@ -268,14 +268,31 @@ class TestSearchExecuteErrors:
             list(search.execute("event", 1000, 2000))
         assert "original error" in str(exc_info.value)
 
-    def test_initiation_exception_propagates_unwrapped(self, search, mock_org):
-        """When initiation itself raises an exception (before polling loop),
-        it propagates as-is since it occurs before the try/except wrapper."""
+    def test_initiation_transport_exception_wrapped_in_search_error(self, search, mock_org):
+        """Transport exceptions during initiation are wrapped in SearchError
+        with region/oid context for troubleshooting."""
         mock_org.client.request.side_effect = ConnectionError("network down")
-        with pytest.raises(ConnectionError, match="network down"):
+        with pytest.raises(SearchError) as exc_info:
             list(search.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert "network down" in str(err)
+        assert err.region == "prod-usa"
+        assert err.oid == "test-oid"
+        assert err.query_id is None  # Never got a query_id
+        assert isinstance(err.__cause__, ConnectionError)
         # Only one request (the failed POST), no DELETE
         assert mock_org.client.request.call_count == 1
+
+    def test_initiation_auth_error_wrapped_in_search_error(self, search, mock_org):
+        """AuthenticationError during initiation is wrapped with context."""
+        from limacharlie.errors import AuthenticationError
+        mock_org.client.request.side_effect = AuthenticationError("JWT expired")
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert "JWT expired" in str(err)
+        assert err.region == "prod-usa"
+        assert err.oid == "test-oid"
 
     def test_poll_error_includes_context_in_message(self, search, mock_org):
         """Error message includes bracket-formatted context."""
