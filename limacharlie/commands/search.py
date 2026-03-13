@@ -2,10 +2,22 @@
 
 Commands for running and validating LCQL queries against historical
 telemetry stored in LimaCharlie Insight.
+
+Search results from the API contain wrapper objects (SearchResult) with
+metadata like searchResultId, type, nextToken, and stats.  For human-
+readable table output, these wrappers are unwrapped: event rows are
+flattened into a single table, facets and timeseries are shown as
+separate tables, and a stats summary is printed to stderr.  Machine-
+readable formats (json, yaml, csv, jsonl) pass through the raw API
+response unchanged.
 """
 
 from __future__ import annotations
 
+import json
+import sys
+from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
 import click
@@ -16,7 +28,7 @@ from ..config import get_config_value
 from ..sdk.organization import Organization
 from ..sdk.search import Search
 from ..sdk.hive import Hive, HiveRecord
-from ..output import format_output, detect_output_format
+from ..output import format_output, format_table, detect_output_format
 from ..discovery import register_explain
 from ._time_validation import validate_epoch_seconds
 
@@ -44,6 +56,351 @@ def _output(ctx: click.Context, data: Any) -> None:
 def _get_org(ctx: click.Context) -> Organization:
     client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
     return Organization(client)
+
+
+def _make_progress_fn(ctx: click.Context) -> Callable[[str], None] | None:
+    """Return a stderr progress callback for interactive terminals.
+
+    Returns None when output is non-interactive (piped/redirected) or
+    when --quiet is set, so the SDK skips progress messages entirely.
+    """
+    if ctx.obj.quiet:
+        return None
+    if not sys.stderr.isatty():
+        return None
+    def _progress(msg: str) -> None:
+        click.echo(click.style(msg, dim=True), err=True)
+        sys.stderr.flush()
+    return _progress
+
+
+def _flatten_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a SearchResultRow into a single-level dict for table display.
+
+    Merges metadata (mtd) fields and flattens the nested event data one
+    level deep.  For example, ``{"routing": {"event_type": "X"}}`` becomes
+    ``{"routing.event_type": "X"}``.  Deeper nesting is kept as-is (the
+    table formatter will render it as ``{N keys}``).
+
+    The ``mtd.ts`` field (millisecond epoch) is converted to a human-readable
+    UTC timestamp.
+    """
+    flat: dict[str, Any] = {}
+
+    # Metadata fields.
+    mtd = row.get("mtd", {})
+    ts = mtd.get("ts")
+    if ts is not None:
+        try:
+            flat["time"] = datetime.fromtimestamp(
+                ts / 1000, tz=timezone.utc,
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        except (OSError, ValueError, OverflowError):
+            flat["time"] = str(ts)
+    stream = mtd.get("stream")
+    if stream:
+        flat["stream"] = stream
+
+    # Flatten event data one level.
+    data = row.get("data", {})
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, dict):
+                for sub_key, sub_value in value.items():
+                    flat[f"{key}.{sub_key}"] = sub_value
+            else:
+                flat[key] = value
+    else:
+        flat["data"] = data
+
+    return flat
+
+
+def _unwrap_search_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Separate raw SearchResult objects into events, facets, and timeseries.
+
+    Returns a dict with:
+        events: list of flattened event row dicts
+        facets: list of facet dicts
+        timeseries: list of timeseries point dicts
+        stats: the last non-empty stats dict (contains cumulative totals)
+    """
+    events: list[dict[str, Any]] = []
+    facets: list[dict[str, Any]] = []
+    timeseries: list[dict[str, Any]] = []
+    stats: dict[str, Any] = {}
+
+    for result in results:
+        result_type = result.get("type", "")
+
+        if result_type == "events":
+            # Only take stats from events results - other result types
+            # (facets, timeline) have their own stats that don't include
+            # event-level counters and would overwrite the real values.
+            result_stats = result.get("stats")
+            if result_stats:
+                stats = result_stats
+            for row in result.get("rows") or []:
+                events.append(_flatten_event_row(row))
+        elif result_type == "facets":
+            facets.extend(result.get("facets") or [])
+        elif result_type == "timeline":
+            timeseries.extend(result.get("timeseries") or [])
+
+    return {
+        "events": events,
+        "facets": facets,
+        "timeseries": timeseries,
+        "stats": stats,
+    }
+
+
+def _format_stats_summary(stats: dict[str, Any]) -> str:
+    """Format search stats as a one-line summary for stderr.
+
+    Prefers cumulative stats (aggregated across all pages by the server)
+    when available, falling back to the page-level stats.
+    """
+    # Use cumulative stats if available (server-aggregated across pages).
+    effective = stats.get("cumulativeStats") or stats
+
+    parts: list[str] = []
+    matched = effective.get("eventsMatched")
+    scanned = effective.get("eventsScanned")
+    if matched is not None:
+        parts.append(f"matched: {matched:,}")
+    if scanned is not None:
+        parts.append(f"scanned: {scanned:,}")
+    bytes_scanned = effective.get("bytesScanned")
+    if bytes_scanned is not None:
+        if bytes_scanned >= 1_073_741_824:
+            parts.append(f"bytes: {bytes_scanned / 1_073_741_824:.1f} GB")
+        elif bytes_scanned >= 1_048_576:
+            parts.append(f"bytes: {bytes_scanned / 1_048_576:.1f} MB")
+        else:
+            parts.append(f"bytes: {bytes_scanned:,}")
+    walltime = effective.get("walltime")
+    if walltime is not None:
+        parts.append(f"time: {walltime:.1f}s")
+    price = effective.get("estimatedPrice", {})
+    if isinstance(price, dict) and price.get("amount") is not None:
+        parts.append(f"cost: ${price['amount']:.4f}")
+    return ", ".join(parts)
+
+
+def _format_expanded_events(results: list[dict[str, Any]]) -> str:
+    """Format events as individual JSON blocks separated by dividers.
+
+    Each event is printed as pretty-printed JSON with a timestamp header,
+    separated by a horizontal rule.  Useful for investigating individual
+    events in detail.
+    """
+    parts: list[str] = []
+    for result in results:
+        if result.get("type") != "events":
+            continue
+        for row in result.get("rows") or []:
+            mtd = row.get("mtd", {})
+            ts = mtd.get("ts")
+            header_parts: list[str] = []
+            if ts is not None:
+                try:
+                    header_parts.append(
+                        datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                    )
+                except (OSError, ValueError, OverflowError):
+                    header_parts.append(str(ts))
+            stream = mtd.get("stream")
+            if stream:
+                header_parts.append(stream)
+            data = row.get("data", {})
+            # Try to get event type for the header.
+            if isinstance(data, dict):
+                etype = (
+                    data.get("routing", {}).get("event_type")
+                    or data.get("cat")
+                    or data.get("etype")
+                )
+                if etype:
+                    header_parts.append(etype)
+
+            header = " | ".join(header_parts) if header_parts else "event"
+            parts.append(f"--- {header} ---")
+            parts.append(json.dumps(data, indent=2, default=str))
+    return "\n".join(parts)
+
+
+def _output_search_results(
+    ctx: click.Context,
+    results: list[dict[str, Any]],
+    raw: bool = False,
+    expand: bool = False,
+) -> None:
+    """Output search results with smart formatting for table mode.
+
+    For table output: unwraps the SearchResult wrappers and displays
+    events as a flat table.  Progress and stats go to stderr so stdout
+    can be redirected cleanly (e.g., ``limacharlie search run ... > out.txt``).
+
+    For --expand: prints each event as a pretty-printed JSON block with
+    a header showing timestamp, stream, and event type.
+
+    For machine-readable formats (json, yaml, csv, jsonl): passes the
+    raw API results through unchanged.
+
+    Args:
+        ctx: Click context with output settings.
+        results: Raw list of SearchResult dicts from the API.
+        raw: If True, skip unwrapping even in table mode.
+        expand: If True, show each event as a full JSON block.
+    """
+    if ctx.obj.quiet:
+        return
+
+    fmt = ctx.obj.output_format or detect_output_format()
+
+    # Machine-readable formats get raw output.
+    if fmt != "table" or raw:
+        click.echo(format_output(results, fmt))
+        return
+
+    # Expand mode: each event as a full JSON block.
+    if expand:
+        output = _format_expanded_events(results)
+        if output:
+            click.echo(output)
+        else:
+            click.echo("No events")
+        _print_stats_summary(results)
+        return
+
+    unwrapped = _unwrap_search_results(results)
+
+    # Events table.
+    events = unwrapped["events"]
+    if events:
+        display = events if ctx.obj.wide else _limit_event_columns(events)
+        click.echo(format_table(display))
+        click.echo(click.style(f"({len(events):,} event{'s' if len(events) != 1 else ''})", dim=True), err=True)
+    else:
+        click.echo("No events")
+
+    # Stats summary to stderr (not stdout, so redirects stay clean).
+    stats = unwrapped["stats"]
+    if stats:
+        summary = _format_stats_summary(stats)
+        if summary:
+            click.echo(click.style(f"Stats: {summary}", dim=True), err=True)
+            sys.stderr.flush()
+
+
+def _print_stats_summary(results: list[dict[str, Any]]) -> None:
+    """Extract and print stats summary from raw results to stderr."""
+    for result in reversed(results):
+        if result.get("type") == "events":
+            stats = result.get("stats")
+            if stats:
+                summary = _format_stats_summary(stats)
+                if summary:
+                    click.echo(click.style(f"Stats: {summary}", dim=True), err=True)
+                    sys.stderr.flush()
+                return
+
+
+# Maximum number of columns to display in the events table.  The table
+# formatter already drops columns that exceed terminal width, but with
+# deeply nested events (e.g., 20+ routing.* fields) the output is still
+# noisy.  This cap is applied before the table formatter so that only
+# the most useful columns are shown.  Use --output json for full data.
+_MAX_EVENT_COLUMNS = 15
+
+# Columns to always show first (in order) when present.
+_PRIORITY_COLUMNS = [
+    "time",
+    "stream",
+    "routing.event_type",
+    "cat",
+    "etype",
+    "routing.hostname",
+]
+
+# Columns to drop from table output - these are low-value routing
+# metadata or duplicates that add noise without helping the user
+# understand the event.
+_DROP_COLUMNS = frozenset({
+    # Duplicate of "time" (from mtd.ts).
+    "ts",
+    # Routing metadata - low-value for interactive display.
+    "routing.oid",
+    "routing.iid",
+    "routing.plat",
+    "routing.arch",
+    "routing.tags",
+    "routing.ext_ip",
+    "routing.int_ip",
+    "routing.sid",
+    "routing.event_id",
+    "routing.event_time",
+    "routing.this",
+    "routing.parent",
+    "routing.investigate_id",
+    "routing.moduleid",
+})
+
+
+def _limit_event_columns(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Select the most useful columns for table display.
+
+    Priority order:
+        1. Columns in _PRIORITY_COLUMNS (always shown first if present)
+        2. Non-routing event data columns (event.*, or flat projection fields)
+        3. Remaining routing.* columns not in _DROP_COLUMNS
+
+    Caps total columns at _MAX_EVENT_COLUMNS.  For projection queries
+    (flat data, no routing.* prefix), all columns pass through since
+    the user explicitly selected them.
+    """
+    # Collect all unique keys preserving first-seen order.
+    all_keys: list[str] = []
+    seen: set[str] = set()
+    for row in events:
+        for k in row:
+            if k not in seen:
+                all_keys.append(k)
+                seen.add(k)
+
+    # If few enough columns, pass through unchanged.
+    if len(all_keys) <= _MAX_EVENT_COLUMNS:
+        return events
+
+    # Build ordered selection.
+    selected: list[str] = []
+    used: set[str] = set()
+
+    # 1. Priority columns.
+    for col in _PRIORITY_COLUMNS:
+        if col in seen and col not in used:
+            selected.append(col)
+            used.add(col)
+
+    # 2. Non-routing, non-drop columns (event data, flat projection fields).
+    for col in all_keys:
+        if col not in used and col not in _DROP_COLUMNS:
+            if not col.startswith("routing."):
+                selected.append(col)
+                used.add(col)
+
+    # 3. Remaining routing columns not dropped.
+    for col in all_keys:
+        if col not in used and col not in _DROP_COLUMNS:
+            selected.append(col)
+            used.add(col)
+
+    # Cap at max.
+    selected = selected[:_MAX_EVENT_COLUMNS]
+    selected_set = set(selected)
+
+    return [{k: row[k] for k in selected if k in row} for row in events]
 
 
 def _resolve_token_expiry(cli_value: float | None, environment: str | None = None) -> float:
@@ -189,9 +546,11 @@ register_explain("search.run", _EXPLAIN_RUN)
     help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
          "Override the default via config key 'search_token_expiry_hours'.",
 )
+@click.option("--raw", is_flag=True, default=False, help="Show raw API result objects without unwrapping.")
+@click.option("--expand", is_flag=True, default=False, help="Show each event as a full pretty-printed JSON block.")
 @pass_context
 def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None,
-        limit: int | None, token_expiry: float | None) -> None:
+        limit: int | None, token_expiry: float | None, raw: bool, expand: bool) -> None:
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
@@ -204,8 +563,15 @@ def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None
         )
     org.client.get_jwt(expiry_hours=effective_expiry)
     search = Search(org)
-    results = list(search.execute(query, start, end, stream=stream, limit=limit))
-    _output(ctx, results)
+    progress_fn = _make_progress_fn(ctx)
+    try:
+        results = list(search.execute(query, start, end, stream=stream, limit=limit, progress_fn=progress_fn))
+    except KeyboardInterrupt:
+        click.echo("\nSearch canceled.", err=True)
+        sys.stderr.flush()
+        ctx.exit(130)
+        return
+    _output_search_results(ctx, results, raw=raw, expand=expand)
 
 
 # ---------------------------------------------------------------------------
@@ -445,8 +811,10 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
     help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
          "Override the default via config key 'search_token_expiry_hours'.",
 )
+@click.option("--raw", is_flag=True, default=False, help="Show raw API result objects without unwrapping.")
+@click.option("--expand", is_flag=True, default=False, help="Show each event as a full pretty-printed JSON block.")
 @pass_context
-def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: float | None) -> None:
+def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: float | None, raw: bool, expand: bool) -> None:
     org = _get_org(ctx)
 
     effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
@@ -485,5 +853,12 @@ def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: fl
 
     stream = query_data.get("stream")
     search = Search(org)
-    results = list(search.execute(query_str, start_time, end_time, stream=stream, limit=limit))
-    _output(ctx, results)
+    progress_fn = _make_progress_fn(ctx)
+    try:
+        results = list(search.execute(query_str, start_time, end_time, stream=stream, limit=limit, progress_fn=progress_fn))
+    except KeyboardInterrupt:
+        click.echo("\nSearch canceled.", err=True)
+        sys.stderr.flush()
+        ctx.exit(130)
+        return
+    _output_search_results(ctx, results, raw=raw, expand=expand)

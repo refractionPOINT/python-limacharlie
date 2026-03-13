@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from typing import Any, TYPE_CHECKING
 
 from ..errors import LimaCharlieError, SearchError
@@ -112,8 +112,15 @@ class Search:
         # Estimate uses the validate endpoint with additional parameters
         return self.validate(query, start_time, end_time, stream)
 
-    def execute(self, query: str, start_time: int, end_time: int,
-                stream: str | None = None, limit: int | None = None) -> Generator[dict[str, Any], None, None]:
+    def execute(
+        self,
+        query: str,
+        start_time: int,
+        end_time: int,
+        stream: str | None = None,
+        limit: int | None = None,
+        progress_fn: Callable[[str], None] | None = None,
+    ) -> Generator[dict[str, Any], None, None]:
         """Execute an LCQL query and return results.
 
         Args:
@@ -122,6 +129,10 @@ class Search:
             end_time: End time (unix seconds).
             stream: Stream type ('event', 'detect', 'audit').
             limit: Max results.
+            progress_fn: Optional callback for progress messages (e.g.,
+                "Running search...", "Fetching page 2...").  Called with
+                a human-readable status string.  Intended for CLI progress
+                output to stderr in interactive mode.
 
         Yields:
             dict: Result records.
@@ -180,8 +191,15 @@ class Search:
                 query=query,
             )
 
+        if progress_fn:
+            progress_fn(f"Running search... query_id: {query_id}")
+
         count = 0
+        page = 1
+        total_events = 0
+        start_ts = time.monotonic()
         token: str | None = None
+        _interrupted = False
         try:
             while True:
                 qp: dict[str, str] = {}
@@ -210,6 +228,8 @@ class Search:
                 for item in poll.get("results", []):
                     if item.get("nextToken"):
                         next_token = item["nextToken"]
+                    if item.get("type") == "events":
+                        total_events += len(item.get("rows") or [])
                     yield item
                     count += 1
                     if limit and count >= limit:
@@ -220,12 +240,28 @@ class Search:
                         # More pages available - use the token to
                         # fetch the next page (may trigger a subquery).
                         token = next_token
+                        page += 1
+                        if progress_fn:
+                            elapsed = time.monotonic() - start_ts
+                            progress_fn(
+                                f"Fetching page {page}... "
+                                f"({total_events:,} events, {elapsed:.0f}s elapsed)"
+                            )
                     else:
                         break
                 else:
                     # Page still processing, poll again after a delay.
                     poll_ms = poll.get("nextPollInMs", 1000)
+                    if progress_fn:
+                        elapsed = time.monotonic() - start_ts
+                        progress_fn(
+                            f"Waiting for results... "
+                            f"(page {page}, {total_events:,} events, {elapsed:.0f}s elapsed)"
+                        )
                     time.sleep(max(poll_ms / 1000, 0.5))
+        except KeyboardInterrupt:
+            _interrupted = True
+            raise
         except SearchError:
             raise
         except Exception as exc:
@@ -237,8 +273,25 @@ class Search:
                 query=query,
             ) from exc
         finally:
-            # Cancel search to clean up
-            try:
-                self._org.client.request("DELETE", f"search/{query_id}", alt_root=search_url)
-            except Exception:
-                pass
+            # Cancel search on server to free resources.  Runs on
+            # normal completion, errors, and Ctrl+C (KeyboardInterrupt).
+            self._cancel_query(query_id, search_url, progress_fn if _interrupted else None)
+
+    def _cancel_query(
+        self,
+        query_id: str,
+        search_url: str,
+        progress_fn: Callable[[str], None] | None = None,
+    ) -> None:
+        """Cancel a search query on the server.
+
+        Always called in the finally block of execute() to clean up
+        server resources.  On keyboard interrupt, prints a cancel
+        message via progress_fn.
+        """
+        if progress_fn:
+            progress_fn(f"Canceling search query {query_id} on server...")
+        try:
+            self._org.client.request("DELETE", f"search/{query_id}", alt_root=search_url)
+        except Exception:
+            pass
