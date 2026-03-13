@@ -306,3 +306,180 @@ def start_session(ctx, definition, prompt, name, idempotent_key, data) -> None:
     result = sdk.start_session(definition, prompt=prompt, name=name,
                                idempotent_key=idempotent_key, data=parsed_data)
     _output(ctx, result)
+
+
+# ===========================================================================
+# session subgroup – AI session lifecycle management
+# ===========================================================================
+
+@click.group("session")
+def session_group() -> None:
+    """Manage AI sessions (list, inspect, terminate)."""
+
+group.add_command(session_group)
+
+
+# ---------------------------------------------------------------------------
+# session list
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_SESSION_LIST = """\
+List AI sessions for the organization.  By default all sessions are
+returned; use --status to filter by state.
+
+Statuses: running, starting, ended.
+
+Pagination is supported via --limit and --cursor.
+
+Example:
+  limacharlie ai session list
+  limacharlie ai session list --status running
+  limacharlie ai session list --limit 10
+"""
+register_explain("ai.session.list", _EXPLAIN_SESSION_LIST)
+
+
+@session_group.command("list")
+@click.option("--status", default=None, help="Filter by session status (running, starting, ended).")
+@click.option("--limit", default=None, type=int, help="Max results per page (1-200, default 50).")
+@click.option("--cursor", default=None, help="Pagination cursor from a previous response.")
+@pass_context
+def session_list(ctx, status, limit, cursor) -> None:
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.list_sessions(status=status, limit=limit, cursor=cursor)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# session get
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_SESSION_GET = """\
+Get details of a specific AI session including status, model,
+token usage, cost, trigger info, and end reason.
+
+Example:
+  limacharlie ai session get --id <SESSION_ID>
+"""
+register_explain("ai.session.get", _EXPLAIN_SESSION_GET)
+
+
+@session_group.command("get")
+@click.option("--id", "session_id", required=True, help="Session ID.")
+@pass_context
+def session_get(ctx, session_id) -> None:
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.get_session(session_id)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# session terminate
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_SESSION_TERMINATE = """\
+Terminate a running AI session.  The session will be stopped and
+its status set to ended.
+
+Requires the ai_agent.set permission on the organization.
+
+Example:
+  limacharlie ai session terminate --id <SESSION_ID>
+"""
+register_explain("ai.session.terminate", _EXPLAIN_SESSION_TERMINATE)
+
+
+@session_group.command("terminate")
+@click.option("--id", "session_id", required=True, help="Session ID to terminate.")
+@pass_context
+def session_terminate(ctx, session_id) -> None:
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.terminate_session(session_id)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# session history
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_SESSION_HISTORY = """\
+Get the conversation history of an AI session.  Returns the full
+message log including user prompts, assistant responses, tool
+calls and results.
+
+Example:
+  limacharlie ai session history --id <SESSION_ID>
+"""
+register_explain("ai.session.history", _EXPLAIN_SESSION_HISTORY)
+
+
+@session_group.command("history")
+@click.option("--id", "session_id", required=True, help="Session ID.")
+@pass_context
+def session_history(ctx, session_id) -> None:
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.get_session_history(session_id)
+    _output(ctx, data)
+
+
+# ===========================================================================
+# usage subgroup – AI session usage tracking
+# ===========================================================================
+
+@click.group("usage")
+def usage_group() -> None:
+    """AI session usage tracking per API key identity."""
+
+group.add_command(usage_group)
+
+
+# ---------------------------------------------------------------------------
+# usage list
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_USAGE_LIST = """\
+List all API key identities that have AI session usage data for
+the organization.
+
+Example:
+  limacharlie ai usage list
+"""
+register_explain("ai.usage.list", _EXPLAIN_USAGE_LIST)
+
+
+@usage_group.command("list")
+@pass_context
+def usage_list(ctx) -> None:
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.list_usage_identities()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# usage get
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_USAGE_GET = """\
+Get hourly token and cost usage breakdown for a specific API key
+identity.  Use 'limacharlie ai usage list' to discover available
+identities.
+
+Example:
+  limacharlie ai usage get --identity my-api-key
+"""
+register_explain("ai.usage.get", _EXPLAIN_USAGE_GET)
+
+
+@usage_group.command("get")
+@click.option("--identity", required=True, help="API key identity name.")
+@pass_context
+def usage_get(ctx, identity) -> None:
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.get_usage(identity)
+    _output(ctx, data)

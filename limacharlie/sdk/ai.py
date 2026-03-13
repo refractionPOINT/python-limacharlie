@@ -229,3 +229,108 @@ class AI:
         """
         return self.client.request("POST", "ai/det_summary",
                                    params={"query": json.dumps(detection_data)})
+
+    # ------------------------------------------------------------------
+    # Org-scoped AI Session management
+    # ------------------------------------------------------------------
+
+    def _org_request(self, verb: str, path: str,
+                     query_params: dict[str, str] | None = None,
+                     ) -> dict[str, Any]:
+        """Make an authenticated request to the ai-sessions org endpoints.
+
+        The org endpoints accept both API keys and JWTs via
+        OrgDualAuthMiddleware. We send the raw API key when available
+        (same pattern as start_session) for maximum compatibility.
+        """
+        extra: dict[str, str] = {"X-LC-OID": self.client._oid}
+        if self.client._api_key is not None:
+            extra["Authorization"] = f"Bearer {self.client._api_key}"
+            return self.client.request(
+                verb, path,
+                query_params=query_params,
+                is_no_auth=True,
+                alt_root=_AI_SESSIONS_URL,
+                extra_headers=extra,
+            )
+        return self.client.request(
+            verb, path,
+            query_params=query_params,
+            alt_root=_AI_SESSIONS_URL,
+            extra_headers=extra,
+        )
+
+    def list_sessions(self, status: str | None = None,
+                      limit: int | None = None,
+                      cursor: str | None = None) -> dict[str, Any]:
+        """List AI sessions for the organization.
+
+        Args:
+            status: Filter by session status (running, ended, starting).
+            limit: Maximum number of results (1-200, default 50).
+            cursor: Pagination cursor from a previous response.
+
+        Returns:
+            dict with ``sessions`` list and ``next_cursor`` string.
+        """
+        qp: dict[str, str] = {}
+        if status:
+            qp["status"] = status
+        if limit is not None:
+            qp["limit"] = str(limit)
+        if cursor:
+            qp["cursor"] = cursor
+        return self._org_request("GET", "v1/org/sessions",
+                                 query_params=qp or None)
+
+    def get_session(self, session_id: str) -> dict[str, Any]:
+        """Get details of a specific AI session.
+
+        Args:
+            session_id: The session ID.
+
+        Returns:
+            dict with ``session`` object.
+        """
+        return self._org_request("GET", f"v1/org/sessions/{session_id}")
+
+    def terminate_session(self, session_id: str) -> dict[str, Any]:
+        """Terminate a running AI session.
+
+        Args:
+            session_id: The session ID to terminate.
+
+        Returns:
+            dict with ``terminated: true``.
+        """
+        return self._org_request("DELETE", f"v1/org/sessions/{session_id}")
+
+    def get_session_history(self, session_id: str) -> dict[str, Any]:
+        """Get the conversation history of an AI session.
+
+        Args:
+            session_id: The session ID.
+
+        Returns:
+            dict with ``messages`` list.
+        """
+        return self._org_request("GET", f"v1/org/sessions/{session_id}/history")
+
+    def list_usage_identities(self) -> dict[str, Any]:
+        """List all API key identities with AI session usage data.
+
+        Returns:
+            dict with ``identities`` list of strings.
+        """
+        return self._org_request("GET", "v1/org/usage/identities")
+
+    def get_usage(self, identity: str) -> dict[str, Any]:
+        """Get hourly token and cost usage for a specific API key identity.
+
+        Args:
+            identity: The API key identity name.
+
+        Returns:
+            dict with ``identity`` string and ``usage`` list of data points.
+        """
+        return self._org_request("GET", f"v1/org/usage/identities/{identity}")
