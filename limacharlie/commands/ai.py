@@ -312,6 +312,25 @@ def start_session(ctx, definition, prompt, name, idempotent_key, data) -> None:
 # session subgroup – AI session lifecycle management
 # ===========================================================================
 
+_PROMPT_TRUNCATE_LEN = 120
+
+
+def _truncate_prompt(text: str, max_len: int = _PROMPT_TRUNCATE_LEN) -> str:
+    """Truncate a prompt string for display."""
+    if not text or len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
+def _clean_session_for_list(session: dict) -> dict:
+    """Strip heavy fields from a session dict for list display."""
+    s = dict(session)
+    # Replace the full prompt with a short preview.
+    if "initial_prompt" in s:
+        s["initial_prompt"] = _truncate_prompt(s["initial_prompt"])
+    return s
+
+
 @click.group("session")
 def session_group() -> None:
     """Manage AI sessions (list, inspect, terminate)."""
@@ -331,6 +350,9 @@ Statuses: running, starting, ended.
 
 Pagination is supported via --limit and --cursor.
 
+The initial_prompt field is truncated in the listing.  Use
+'ai session get --id <ID>' to see the full prompt.
+
 Example:
   limacharlie ai session list
   limacharlie ai session list --status running
@@ -348,6 +370,9 @@ def session_list(ctx, status, limit, cursor) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.list_sessions(status=status, limit=limit, cursor=cursor)
+    # Truncate prompts in the listing to keep output readable.
+    if "sessions" in data:
+        data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
     _output(ctx, data)
 
 
@@ -359,19 +384,28 @@ _EXPLAIN_SESSION_GET = """\
 Get details of a specific AI session including status, model,
 token usage, cost, trigger info, and end reason.
 
+By default the initial_prompt is truncated.  Use --full-prompt
+to include the entire prompt text.
+
 Example:
   limacharlie ai session get --id <SESSION_ID>
+  limacharlie ai session get --id <SESSION_ID> --full-prompt
 """
 register_explain("ai.session.get", _EXPLAIN_SESSION_GET)
 
 
 @session_group.command("get")
 @click.option("--id", "session_id", required=True, help="Session ID.")
+@click.option("--full-prompt", is_flag=True, default=False, help="Include the full initial_prompt text.")
 @pass_context
-def session_get(ctx, session_id) -> None:
+def session_get(ctx, session_id, full_prompt) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.get_session(session_id)
+    if not full_prompt and "session" in data:
+        s = data["session"]
+        if isinstance(s, dict) and "initial_prompt" in s:
+            s["initial_prompt"] = _truncate_prompt(s["initial_prompt"])
     _output(ctx, data)
 
 
@@ -406,23 +440,59 @@ def session_terminate(ctx, session_id) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_SESSION_HISTORY = """\
-Get the conversation history of an AI session.  Returns the full
+Get the conversation history of an AI session.  Returns the
 message log including user prompts, assistant responses, tool
 calls and results.
 
+By default, internal system messages (init, config, diagnostics)
+are filtered out.  Use --raw to include everything.
+
 Example:
   limacharlie ai session history --id <SESSION_ID>
+  limacharlie ai session history --id <SESSION_ID> --raw
 """
 register_explain("ai.session.history", _EXPLAIN_SESSION_HISTORY)
+
+# System subtypes that are internal plumbing, not useful conversation.
+_SYSTEM_INIT_SUBTYPES = frozenset({
+    "credential_diagnostics",
+    "init_received",
+    "claude_md_loaded",
+    "mcp_config_debug",
+    "mcp_servers_set",
+    "model_set",
+    "max_turns_set",
+    "max_budget_set",
+    "oid_added_to_system_prompt",
+    "permission_mode_set",
+    "tools_configured",
+    "system_prompt_set",
+    "sdk_session_id",
+})
+
+
+def _filter_history(messages: list[dict]) -> list[dict]:
+    """Remove internal system init messages from history."""
+    filtered = []
+    for m in messages:
+        if m.get("type") == "system":
+            payload = m.get("payload", {})
+            if isinstance(payload, dict) and payload.get("subtype") in _SYSTEM_INIT_SUBTYPES:
+                continue
+        filtered.append(m)
+    return filtered
 
 
 @session_group.command("history")
 @click.option("--id", "session_id", required=True, help="Session ID.")
+@click.option("--raw", is_flag=True, default=False, help="Include all messages including internal system init.")
 @pass_context
-def session_history(ctx, session_id) -> None:
+def session_history(ctx, session_id, raw) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.get_session_history(session_id)
+    if not raw and "messages" in data:
+        data["messages"] = _filter_history(data["messages"])
     _output(ctx, data)
 
 
