@@ -4,6 +4,15 @@
 
 ### Search
 
+- **Structured search errors**: Search failures now raise `SearchError` with
+  `query_id`, `region`, `oid`, and `query` attributes for easier troubleshooting.
+  Error messages include these fields in bracket-formatted context:
+  `"Search failed [query_id=q-123, region=9157798c50af372c, oid=..., query=...]"`.
+  Long queries are truncated to 120 characters in the message but the full query
+  is always available via the `query` attribute.
+
+- **Region extraction**: The search region identifier (hex hash from the search
+  URL) is automatically extracted and included in error messages.
 - **Default search token expiry**: Search queries (`search run`, `search saved-run`)
   now automatically generate a 4-hour JWT token instead of the default ~1 hour.
   This prevents mid-query JWT expiry on long-running searches. The default can be

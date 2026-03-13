@@ -120,6 +120,88 @@ class ApiError(LimaCharlieError):
         super().__init__(message, suggestion=suggestion, code=effective_code)
 
 
+class SearchError(LimaCharlieError):
+    """Raised when a search query fails.
+
+    Includes query_id, region, and oid for troubleshooting. These fields
+    are essential when filing support tickets - they allow backend engineers
+    to locate the exact query in orchestrator and worker logs.
+    """
+
+    exit_code = 1
+
+    def __init__(
+        self,
+        message: str,
+        query_id: str | None = None,
+        region: str | None = None,
+        oid: str | None = None,
+        query: str | None = None,
+        suggestion: str | None = None,
+        code: int | None = None,
+    ) -> None:
+        self.query_id = query_id
+        self.region = region
+        self.oid = oid
+        self.query = query
+
+        # Build context suffix for the error message so query_id, region,
+        # and oid are always visible in logs and CLI output.
+        context_parts: list[str] = []
+        if query_id:
+            context_parts.append(f"query_id={query_id}")
+        if region:
+            context_parts.append(f"region={region}")
+        if oid:
+            context_parts.append(f"oid={oid}")
+        if query:
+            # Truncate long queries to keep error messages readable.
+            display_query = query if len(query) <= 120 else query[:117] + "..."
+            context_parts.append(f"query={display_query}")
+        context = f" [{', '.join(context_parts)}]" if context_parts else ""
+
+        if suggestion is None:
+            suggestion = _search_suggestion(message)
+        super().__init__(f"{message}{context}", suggestion=suggestion, code=code)
+
+
+# Keywords that indicate the search failed due to an expired auth token.
+_TOKEN_EXPIRY_KEYWORDS = ("401", "unauthorized", "token expired", "authentication failed", "jwt expired")
+
+_TOKEN_EXPIRY_SUGGESTION = (
+    "Your authentication token likely expired during this long-running query.\n"
+    "To avoid this, use --token-expiry to set a longer token validity "
+    "(e.g. --token-expiry 8 for 8 hours),\n"
+    "or set 'search_token_expiry_hours' in ~/.limacharlie."
+)
+
+# Keywords that indicate a self-explanatory error where adding a generic
+# "if this persists, contact support" suggestion would just be noise.
+_SELF_EXPLANATORY_KEYWORDS = (
+    "transcode", "syntax", "parse", "no match found", "expected",
+    "invalid query", "validation", "quota exceeded", "permission",
+)
+
+_SUPPORT_SUGGESTION = (
+    "Contact support and include the query_id shown above for faster troubleshooting."
+)
+
+
+def _search_suggestion(message: str) -> str:
+    """Pick the most helpful suggestion based on the error message.
+
+    Returns None for self-explanatory errors (syntax, validation) to avoid
+    adding noise. Returns a specific suggestion for token expiry errors.
+    Returns a generic support suggestion for unexpected server-side failures.
+    """
+    lower = message.lower()
+    if any(kw in lower for kw in _TOKEN_EXPIRY_KEYWORDS):
+        return _TOKEN_EXPIRY_SUGGESTION
+    if any(kw in lower for kw in _SELF_EXPLANATORY_KEYWORDS):
+        return None
+    return _SUPPORT_SUGGESTION
+
+
 class ConfigError(LimaCharlieError):
     """Raised for configuration file errors."""
 

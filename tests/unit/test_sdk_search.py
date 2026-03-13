@@ -1,4 +1,9 @@
-"""Tests for limacharlie.sdk.search module."""
+"""Tests for limacharlie.sdk.search module.
+
+Tests cover LCQL query execution, validation, and error handling.
+All search errors should include query_id, region, oid, and query
+for troubleshooting when available.
+"""
 
 import json
 import time
@@ -6,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from limacharlie.sdk.search import Search
+from limacharlie.errors import SearchError
 
 
 @pytest.fixture
@@ -13,13 +19,28 @@ def mock_org():
     org = MagicMock()
     org.oid = "test-oid"
     org.client = MagicMock()
-    org.get_urls.return_value = {"search": "search.lc.io"}
+    org.get_urls.return_value = {"search": "9157798c50af372c.replay-search.limacharlie.io"}
+    return org
+
+
+@pytest.fixture
+def mock_org_no_region():
+    """Org with a search URL that has no extractable region."""
+    org = MagicMock()
+    org.oid = "test-oid"
+    org.client = MagicMock()
+    org.get_urls.return_value = {"search": "custom-search.example.com"}
     return org
 
 
 @pytest.fixture
 def search(mock_org):
     return Search(mock_org)
+
+
+@pytest.fixture
+def search_no_region(mock_org_no_region):
+    return Search(mock_org_no_region)
 
 
 class TestSearchInit:
@@ -47,6 +68,45 @@ class TestSearchValidate:
         assert body["oid"] == "test-oid"
 
 
+class TestRegionExtraction:
+    """Tests for _extract_region helper.
+
+    Real search URLs look like:
+        https://9157798c50af372c.replay-search.limacharlie.io/v1/search/
+    The region identifier is the hex hash prefix.
+    """
+
+    def test_extracts_region_from_standard_url(self, search):
+        region = search._extract_region()
+        assert region == "9157798c50af372c"
+
+    def test_returns_none_for_non_standard_url(self, search_no_region):
+        region = search_no_region._extract_region()
+        assert region is None
+
+    def test_extracts_region_from_different_hash(self, mock_org):
+        mock_org.get_urls.return_value = {"search": "abc123def456.replay-search.limacharlie.io"}
+        s = Search(mock_org)
+        assert s._extract_region() == "abc123def456"
+
+    def test_extracts_region_with_https_prefix(self, mock_org):
+        mock_org.get_urls.return_value = {"search": "https://deadbeef01234567.replay-search.limacharlie.io"}
+        s = Search(mock_org)
+        assert s._extract_region() == "deadbeef01234567"
+
+    def test_returns_none_for_empty_url(self, mock_org):
+        """Empty or blank URL does not crash - returns None."""
+        mock_org.get_urls.return_value = {"search": ""}
+        s = Search(mock_org)
+        assert s._extract_region() is None
+
+    def test_returns_none_for_ip_based_url(self, mock_org):
+        """IP-based URL has no region - returns None gracefully."""
+        mock_org.get_urls.return_value = {"search": "http://10.0.0.1:8080"}
+        s = Search(mock_org)
+        assert s._extract_region() is None
+
+
 class TestSearchExecute:
     def test_execute_paginated(self, search, mock_org):
         # First call: initiate search returns queryId
@@ -70,11 +130,6 @@ class TestSearchExecute:
 
         results = list(search.execute("event", 1000, 2000, limit=2))
         assert len(results) == 2
-
-    def test_execute_no_query_id(self, search, mock_org):
-        mock_org.client.request.return_value = {}
-        results = list(search.execute("event", 1000, 2000))
-        assert len(results) == 0
 
     @patch("limacharlie.sdk.search.time.sleep")
     def test_execute_polls_until_completed(self, mock_sleep, search, mock_org):
@@ -118,3 +173,174 @@ class TestSearchExecute:
         assert get_calls[1][1]["query_params"] == {"token": "tok1"}
         # Third GET: same token (re-poll same page)
         assert get_calls[2][1]["query_params"] == {"token": "tok1"}
+
+
+class TestSearchExecuteErrors:
+    """Tests for SearchError raising with query_id, region, oid, query context."""
+
+    def test_no_query_id_raises_search_error(self, search, mock_org):
+        """Missing queryId in initiation response raises SearchError."""
+        mock_org.client.request.side_effect = [
+            {},  # No queryId in response
+            {},  # DELETE cleanup
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert "missing queryId" in str(err)
+        assert err.region == "9157798c50af372c"
+        assert err.oid == "test-oid"
+        assert err.query_id is None  # Not available yet
+        assert err.query == "event"
+
+    def test_initiation_error_raises_search_error(self, search, mock_org):
+        """Error in initiation response raises SearchError with region and oid."""
+        mock_org.client.request.side_effect = [
+            {"error": "quota exceeded"},
+            {},  # DELETE cleanup
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert "quota exceeded" in str(err)
+        assert err.region == "9157798c50af372c"
+        assert err.oid == "test-oid"
+        assert err.query_id is None
+        assert err.query == "event"
+
+    def test_poll_error_raises_search_error_with_query_id(self, search, mock_org):
+        """Error during polling raises SearchError with full context."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-fail-123"},
+            {"error": "context canceled"},
+            {},  # DELETE cleanup
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event | limit 50", 1000, 2000))
+        err = exc_info.value
+        assert "context canceled" in str(err)
+        assert err.query_id == "q-fail-123"
+        assert err.region == "9157798c50af372c"
+        assert err.oid == "test-oid"
+        assert err.query == "event | limit 50"
+
+    def test_unexpected_exception_wrapped_in_search_error(self, search, mock_org):
+        """Generic exceptions during polling are wrapped in SearchError."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-exc-456"},
+            RuntimeError("connection reset"),
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert "connection reset" in str(err)
+        assert err.query_id == "q-exc-456"
+        assert err.region == "9157798c50af372c"
+        assert err.oid == "test-oid"
+        assert err.query == "event"
+        # Original exception is chained
+        assert isinstance(err.__cause__, RuntimeError)
+
+    def test_error_without_extractable_region(self, search_no_region, mock_org_no_region):
+        """SearchError gracefully handles non-extractable region."""
+        mock_org_no_region.client.request.side_effect = [
+            {"error": "something broke"},
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search_no_region.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert err.region is None
+        assert err.oid == "test-oid"
+        assert "region=" not in str(err).split("\n")[0]
+
+    def test_query_id_response_key_fallback(self, search, mock_org):
+        """Supports both 'queryId' and 'query_id' response keys."""
+        mock_org.client.request.side_effect = [
+            {"query_id": "q-snake-case"},
+            {"results": [{"a": 1}], "completed": True},
+            {},  # DELETE cleanup
+        ]
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 1
+
+    def test_cleanup_called_on_error(self, search, mock_org):
+        """DELETE cleanup is attempted even when search fails."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-cleanup"},
+            {"error": "something failed"},
+            {},  # DELETE cleanup
+        ]
+        with pytest.raises(SearchError):
+            list(search.execute("event", 1000, 2000))
+
+        # Verify DELETE was called for cleanup
+        delete_calls = [c for c in mock_org.client.request.call_args_list if c[0][0] == "DELETE"]
+        assert len(delete_calls) == 1
+        assert "search/q-cleanup" in delete_calls[0][0][1]
+
+    def test_cleanup_failure_does_not_mask_original_error(self, search, mock_org):
+        """If DELETE cleanup itself fails, the original SearchError is raised."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-cleanup-fail"},
+            {"error": "original error"},
+            Exception("cleanup failed"),  # DELETE fails
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        assert "original error" in str(exc_info.value)
+
+    def test_initiation_transport_exception_wrapped_in_search_error(self, search, mock_org):
+        """Transport exceptions during initiation are wrapped in SearchError
+        with region/oid/query context for troubleshooting."""
+        mock_org.client.request.side_effect = ConnectionError("network down")
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert "network down" in str(err)
+        assert err.region == "9157798c50af372c"
+        assert err.oid == "test-oid"
+        assert err.query_id is None  # Never got a query_id
+        assert err.query == "event"
+        assert isinstance(err.__cause__, ConnectionError)
+        # Only one request (the failed POST), no DELETE
+        assert mock_org.client.request.call_count == 1
+
+    def test_initiation_auth_error_wrapped_in_search_error(self, search, mock_org):
+        """AuthenticationError during initiation is wrapped with context."""
+        from limacharlie.errors import AuthenticationError
+        mock_org.client.request.side_effect = AuthenticationError("JWT expired")
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        err = exc_info.value
+        assert "JWT expired" in str(err)
+        assert err.region == "9157798c50af372c"
+        assert err.oid == "test-oid"
+
+    def test_poll_error_includes_context_in_message(self, search, mock_org):
+        """Error message includes bracket-formatted context including query."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-ctx"},
+            {"error": "timeout"},
+            {},  # DELETE cleanup
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        msg = str(exc_info.value).split("\n")[0]
+        assert "query_id=q-ctx" in msg
+        assert "region=9157798c50af372c" in msg
+        assert "oid=test-oid" in msg
+        assert "query=event" in msg
+
+    def test_error_preserves_full_query_string(self, search, mock_org):
+        """The full query string is stored on the error object even if long."""
+        long_query = "plat == windows | WEL | " + "a" * 200
+        mock_org.client.request.side_effect = [
+            {"error": "failed"},
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute(long_query, 1000, 2000))
+        err = exc_info.value
+        assert err.query == long_query
+        # Message should have truncated version
+        msg = str(err).split("\n")[0]
+        assert "..." in msg
