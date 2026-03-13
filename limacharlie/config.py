@@ -247,6 +247,43 @@ def write_credentials(environment: str | None, oid: str | None, api_key: str | N
     save_config(config)
 
 
+def get_config_value(key: str, default: Any = None, environment: str | None = None) -> Any:
+    """Read a single configuration value from the config file.
+
+    Looks up ``key`` in the active environment section (or top-level for
+    'default'). Returns ``default`` if the key is missing, the config file
+    does not exist, or ephemeral mode is active.
+
+    Args:
+        key: Configuration key to look up.
+        default: Value to return when the key is absent.
+        environment: Named environment to read from. When *None*, the
+            active environment is determined the same way as
+            ``resolve_credentials`` (LC_CURRENT_ENV > config current_env
+            > 'default').
+
+    Returns:
+        The configuration value, or *default*.
+    """
+    if is_ephemeral():
+        return default
+
+    config = load_config()
+    if config is None:
+        return default
+
+    # Determine which environment to read from.
+    env_name = environment
+    if env_name is None:
+        env_name = os.environ.get(ENV_CURRENT_ENV) or config.get("current_env") or "default"
+
+    if env_name == "default":
+        return config.get(key, default)
+
+    env_data = config.get("env", {}).get(env_name, {})
+    return env_data.get(key, default)
+
+
 def list_environments() -> list[str]:
     """List all configured environment names.
 

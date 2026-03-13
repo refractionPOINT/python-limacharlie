@@ -13,6 +13,25 @@
 
 - **Region extraction**: The search region identifier (hex hash from the search
   URL) is automatically extracted and included in error messages.
+- **Default search token expiry**: Search queries (`search run`, `search saved-run`)
+  now automatically generate a 4-hour JWT token instead of the default ~1 hour.
+  This prevents mid-query JWT expiry on long-running searches. The default can be
+  overridden via the `--token-expiry` CLI flag or by setting
+  `search_token_expiry_hours` in `~/.limacharlie`.
+
+### Authentication
+
+- **`auth get-token` command**: New command to generate JWT tokens with custom
+  expiry for long-running operations. Supports `--hours` for expiry duration and
+  `--format json` for metadata output (token, expiry timestamp, oid).
+
+- **`Client.get_jwt()` SDK method**: New method to generate JWT tokens with
+  custom expiry programmatically.
+
+### Configuration
+
+- **`get_config_value()` function**: New config helper for reading arbitrary
+  config keys with environment-aware lookup.
 
 ## 5.0.0 - February 18th, 2026
 
