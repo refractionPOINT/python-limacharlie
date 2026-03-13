@@ -136,12 +136,14 @@ class SearchError(LimaCharlieError):
         query_id: str | None = None,
         region: str | None = None,
         oid: str | None = None,
+        query: str | None = None,
         suggestion: str | None = None,
         code: int | None = None,
     ) -> None:
         self.query_id = query_id
         self.region = region
         self.oid = oid
+        self.query = query
 
         # Build context suffix for the error message so query_id, region,
         # and oid are always visible in logs and CLI output.
@@ -152,6 +154,10 @@ class SearchError(LimaCharlieError):
             context_parts.append(f"region={region}")
         if oid:
             context_parts.append(f"oid={oid}")
+        if query:
+            # Truncate long queries to keep error messages readable.
+            display_query = query if len(query) <= 120 else query[:117] + "..."
+            context_parts.append(f"query={display_query}")
         context = f" [{', '.join(context_parts)}]" if context_parts else ""
 
         if suggestion is None:

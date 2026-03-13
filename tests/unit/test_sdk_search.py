@@ -1,8 +1,8 @@
 """Tests for limacharlie.sdk.search module.
 
 Tests cover LCQL query execution, validation, and error handling.
-All search errors should include query_id, region, and oid for
-troubleshooting when available.
+All search errors should include query_id, region, oid, and query
+for troubleshooting when available.
 """
 
 import json
@@ -19,7 +19,7 @@ def mock_org():
     org = MagicMock()
     org.oid = "test-oid"
     org.client = MagicMock()
-    org.get_urls.return_value = {"search": "search-prod-usa.limacharlie.io"}
+    org.get_urls.return_value = {"search": "9157798c50af372c.replay-search.limacharlie.io"}
     return org
 
 
@@ -69,25 +69,42 @@ class TestSearchValidate:
 
 
 class TestRegionExtraction:
-    """Tests for _extract_region helper."""
+    """Tests for _extract_region helper.
+
+    Real search URLs look like:
+        https://9157798c50af372c.replay-search.limacharlie.io/v1/search/
+    The region identifier is the hex hash prefix.
+    """
 
     def test_extracts_region_from_standard_url(self, search):
         region = search._extract_region()
-        assert region == "prod-usa"
+        assert region == "9157798c50af372c"
 
     def test_returns_none_for_non_standard_url(self, search_no_region):
         region = search_no_region._extract_region()
         assert region is None
 
-    def test_extracts_region_from_europe_url(self, mock_org):
-        mock_org.get_urls.return_value = {"search": "search-prod-europe.limacharlie.io"}
+    def test_extracts_region_from_different_hash(self, mock_org):
+        mock_org.get_urls.return_value = {"search": "abc123def456.replay-search.limacharlie.io"}
         s = Search(mock_org)
-        assert s._extract_region() == "prod-europe"
+        assert s._extract_region() == "abc123def456"
 
-    def test_extracts_region_from_dev_url(self, mock_org):
-        mock_org.get_urls.return_value = {"search": "search-dev-1.limacharlie.io"}
+    def test_extracts_region_with_https_prefix(self, mock_org):
+        mock_org.get_urls.return_value = {"search": "https://deadbeef01234567.replay-search.limacharlie.io"}
         s = Search(mock_org)
-        assert s._extract_region() == "dev-1"
+        assert s._extract_region() == "deadbeef01234567"
+
+    def test_returns_none_for_empty_url(self, mock_org):
+        """Empty or blank URL does not crash - returns None."""
+        mock_org.get_urls.return_value = {"search": ""}
+        s = Search(mock_org)
+        assert s._extract_region() is None
+
+    def test_returns_none_for_ip_based_url(self, mock_org):
+        """IP-based URL has no region - returns None gracefully."""
+        mock_org.get_urls.return_value = {"search": "http://10.0.0.1:8080"}
+        s = Search(mock_org)
+        assert s._extract_region() is None
 
 
 class TestSearchExecute:
@@ -159,7 +176,7 @@ class TestSearchExecute:
 
 
 class TestSearchExecuteErrors:
-    """Tests for SearchError raising with query_id, region, oid context."""
+    """Tests for SearchError raising with query_id, region, oid, query context."""
 
     def test_no_query_id_raises_search_error(self, search, mock_org):
         """Missing queryId in initiation response raises SearchError."""
@@ -171,9 +188,10 @@ class TestSearchExecuteErrors:
             list(search.execute("event", 1000, 2000))
         err = exc_info.value
         assert "missing queryId" in str(err)
-        assert err.region == "prod-usa"
+        assert err.region == "9157798c50af372c"
         assert err.oid == "test-oid"
         assert err.query_id is None  # Not available yet
+        assert err.query == "event"
 
     def test_initiation_error_raises_search_error(self, search, mock_org):
         """Error in initiation response raises SearchError with region and oid."""
@@ -185,9 +203,10 @@ class TestSearchExecuteErrors:
             list(search.execute("event", 1000, 2000))
         err = exc_info.value
         assert "quota exceeded" in str(err)
-        assert err.region == "prod-usa"
+        assert err.region == "9157798c50af372c"
         assert err.oid == "test-oid"
         assert err.query_id is None
+        assert err.query == "event"
 
     def test_poll_error_raises_search_error_with_query_id(self, search, mock_org):
         """Error during polling raises SearchError with full context."""
@@ -197,12 +216,13 @@ class TestSearchExecuteErrors:
             {},  # DELETE cleanup
         ]
         with pytest.raises(SearchError) as exc_info:
-            list(search.execute("event", 1000, 2000))
+            list(search.execute("event | limit 50", 1000, 2000))
         err = exc_info.value
         assert "context canceled" in str(err)
         assert err.query_id == "q-fail-123"
-        assert err.region == "prod-usa"
+        assert err.region == "9157798c50af372c"
         assert err.oid == "test-oid"
+        assert err.query == "event | limit 50"
 
     def test_unexpected_exception_wrapped_in_search_error(self, search, mock_org):
         """Generic exceptions during polling are wrapped in SearchError."""
@@ -215,8 +235,9 @@ class TestSearchExecuteErrors:
         err = exc_info.value
         assert "connection reset" in str(err)
         assert err.query_id == "q-exc-456"
-        assert err.region == "prod-usa"
+        assert err.region == "9157798c50af372c"
         assert err.oid == "test-oid"
+        assert err.query == "event"
         # Original exception is chained
         assert isinstance(err.__cause__, RuntimeError)
 
@@ -270,15 +291,16 @@ class TestSearchExecuteErrors:
 
     def test_initiation_transport_exception_wrapped_in_search_error(self, search, mock_org):
         """Transport exceptions during initiation are wrapped in SearchError
-        with region/oid context for troubleshooting."""
+        with region/oid/query context for troubleshooting."""
         mock_org.client.request.side_effect = ConnectionError("network down")
         with pytest.raises(SearchError) as exc_info:
             list(search.execute("event", 1000, 2000))
         err = exc_info.value
         assert "network down" in str(err)
-        assert err.region == "prod-usa"
+        assert err.region == "9157798c50af372c"
         assert err.oid == "test-oid"
         assert err.query_id is None  # Never got a query_id
+        assert err.query == "event"
         assert isinstance(err.__cause__, ConnectionError)
         # Only one request (the failed POST), no DELETE
         assert mock_org.client.request.call_count == 1
@@ -291,11 +313,11 @@ class TestSearchExecuteErrors:
             list(search.execute("event", 1000, 2000))
         err = exc_info.value
         assert "JWT expired" in str(err)
-        assert err.region == "prod-usa"
+        assert err.region == "9157798c50af372c"
         assert err.oid == "test-oid"
 
     def test_poll_error_includes_context_in_message(self, search, mock_org):
-        """Error message includes bracket-formatted context."""
+        """Error message includes bracket-formatted context including query."""
         mock_org.client.request.side_effect = [
             {"queryId": "q-ctx"},
             {"error": "timeout"},
@@ -304,4 +326,21 @@ class TestSearchExecuteErrors:
         with pytest.raises(SearchError) as exc_info:
             list(search.execute("event", 1000, 2000))
         msg = str(exc_info.value).split("\n")[0]
-        assert "[query_id=q-ctx, region=prod-usa, oid=test-oid]" in msg
+        assert "query_id=q-ctx" in msg
+        assert "region=9157798c50af372c" in msg
+        assert "oid=test-oid" in msg
+        assert "query=event" in msg
+
+    def test_error_preserves_full_query_string(self, search, mock_org):
+        """The full query string is stored on the error object even if long."""
+        long_query = "plat == windows | WEL | " + "a" * 200
+        mock_org.client.request.side_effect = [
+            {"error": "failed"},
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute(long_query, 1000, 2000))
+        err = exc_info.value
+        assert err.query == long_query
+        # Message should have truncated version
+        msg = str(err).split("\n")[0]
+        assert "..." in msg

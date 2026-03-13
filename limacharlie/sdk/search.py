@@ -18,8 +18,10 @@ if TYPE_CHECKING:
     from .organization import Organization
 
 
-# Pattern to extract region from search URL, e.g. "search-prod-usa.limacharlie.io"
-_REGION_PATTERN = re.compile(r"search-([a-z0-9-]+)\.")
+# Pattern to extract region identifier from search URL.
+# Real URLs look like: https://9157798c50af372c.replay-search.limacharlie.io/v1/search/
+# The region identifier is the hex hash prefix before ".replay-search".
+_REGION_PATTERN = re.compile(r"(?:https?://)?([a-f0-9]+)\.replay-search\.")
 
 
 class Search:
@@ -42,10 +44,15 @@ class Search:
         return self._search_url
 
     def _extract_region(self) -> str | None:
-        """Extract region from the search URL for error context.
+        """Extract region identifier from the search URL for error context.
+
+        Real search URLs look like:
+            https://9157798c50af372c.replay-search.limacharlie.io/v1/search/
+
+        The region identifier is the hex hash prefix (e.g. '9157798c50af372c').
 
         Returns:
-            Region string (e.g. 'prod-usa') or None if not extractable.
+            Region identifier string or None if not extractable.
         """
         url = self._get_search_url()
         match = _REGION_PATTERN.search(url)
@@ -141,6 +148,7 @@ class Search:
                 f"Failed to initiate search: {exc}",
                 region=region,
                 oid=oid,
+                query=query,
             ) from exc
 
         # Check for error in initiation response
@@ -149,6 +157,7 @@ class Search:
                 f"Failed to initiate search: {resp['error']}",
                 region=region,
                 oid=oid,
+                query=query,
             )
 
         query_id = resp.get("queryId", resp.get("query_id"))
@@ -157,6 +166,7 @@ class Search:
                 "Failed to initiate search: missing queryId in response",
                 region=region,
                 oid=oid,
+                query=query,
             )
 
         count = 0
@@ -180,6 +190,7 @@ class Search:
                         query_id=query_id,
                         region=region,
                         oid=oid,
+                        query=query,
                     )
 
                 # The nextToken for pagination lives inside each
@@ -212,6 +223,7 @@ class Search:
                 query_id=query_id,
                 region=region,
                 oid=oid,
+                query=query,
             ) from exc
         finally:
             # Cancel search to clean up

@@ -95,17 +95,20 @@ class TestSearchError:
         err = SearchError(
             "search failed",
             query_id="q-abc-123",
-            region="prod-usa",
+            region="9157798c50af372c",
             oid="oid-xyz",
+            query="event | limit 10",
         )
         msg = str(err)
         assert "search failed" in msg
         assert "query_id=q-abc-123" in msg
-        assert "region=prod-usa" in msg
+        assert "region=9157798c50af372c" in msg
         assert "oid=oid-xyz" in msg
+        assert "query=event | limit 10" in msg
         assert err.query_id == "q-abc-123"
-        assert err.region == "prod-usa"
+        assert err.region == "9157798c50af372c"
         assert err.oid == "oid-xyz"
+        assert err.query == "event | limit 10"
 
     def test_no_context_fields(self):
         """Works gracefully when no context fields are provided."""
@@ -117,6 +120,7 @@ class TestSearchError:
         assert err.query_id is None
         assert err.region is None
         assert err.oid is None
+        assert err.query is None
 
     def test_partial_context_only_query_id(self):
         """Only query_id provided."""
@@ -128,9 +132,9 @@ class TestSearchError:
 
     def test_partial_context_only_region(self):
         """Only region provided."""
-        err = SearchError("failed", region="prod-europe")
+        err = SearchError("failed", region="9157798c50af372c")
         msg = str(err)
-        assert "region=prod-europe" in msg
+        assert "region=9157798c50af372c" in msg
         assert "query_id=" not in msg
 
     def test_partial_context_only_oid(self):
@@ -143,11 +147,29 @@ class TestSearchError:
 
     def test_partial_context_region_and_oid_no_query_id(self):
         """Region and oid but no query_id - typical initiation failure."""
-        err = SearchError("initiation failed", region="prod-usa", oid="oid-abc")
+        err = SearchError("initiation failed", region="9157798c50af372c", oid="oid-abc")
         msg = str(err)
-        assert "region=prod-usa" in msg
+        assert "region=9157798c50af372c" in msg
         assert "oid=oid-abc" in msg
         assert "query_id=" not in msg
+
+    def test_query_string_included(self):
+        """Query string is included in context when provided."""
+        err = SearchError("failed", query="event | limit 10")
+        msg = str(err).split("\n")[0]
+        assert "query=event | limit 10" in msg
+        assert err.query == "event | limit 10"
+
+    def test_long_query_truncated(self):
+        """Queries longer than 120 chars are truncated in the message."""
+        long_query = "event | " + "a" * 200
+        err = SearchError("failed", query=long_query)
+        msg = str(err).split("\n")[0]
+        # The display version should be truncated with "..."
+        assert "..." in msg
+        # But the stored query attribute is the full string
+        assert err.query == long_query
+        assert len(long_query) > 120
 
     def test_exit_code(self):
         err = SearchError("failed")
@@ -176,13 +198,13 @@ class TestSearchError:
 
     def test_context_bracket_format(self):
         """Context is enclosed in square brackets after the message."""
-        err = SearchError("msg", query_id="q-1", region="r", oid="o")
+        err = SearchError("msg", query_id="q-1", region="r", oid="o", query="event")
         msg = str(err).split("\n")[0]  # First line only (before suggestion)
-        assert msg == "msg [query_id=q-1, region=r, oid=o]"
+        assert msg == "msg [query_id=q-1, region=r, oid=o, query=event]"
 
     def test_empty_string_fields_not_included(self):
         """Empty strings for context fields are treated as falsy."""
-        err = SearchError("failed", query_id="", region="", oid="")
+        err = SearchError("failed", query_id="", region="", oid="", query="")
         msg = str(err).split("\n")[0]
         assert "[" not in msg
 
