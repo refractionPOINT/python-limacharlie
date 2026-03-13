@@ -1,14 +1,25 @@
-"""Search/LCQL SDK for LimaCharlie v2."""
+"""Search/LCQL SDK for LimaCharlie v2.
+
+Provides LCQL query execution, validation, and saved query management.
+All search errors include query_id, region, and oid for troubleshooting.
+"""
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Generator
 from typing import Any, TYPE_CHECKING
 
+from ..errors import SearchError
+
 if TYPE_CHECKING:
     from .organization import Organization
+
+
+# Pattern to extract region from search URL, e.g. "search-prod-usa.limacharlie.io"
+_REGION_PATTERN = re.compile(r"search-([a-z0-9-]+)\.")
 
 
 class Search:
@@ -29,6 +40,16 @@ class Search:
             search_url = search_url.rstrip("/") + "/v1"
             self._search_url = search_url
         return self._search_url
+
+    def _extract_region(self) -> str | None:
+        """Extract region from the search URL for error context.
+
+        Returns:
+            Region string (e.g. 'prod-usa') or None if not extractable.
+        """
+        url = self._get_search_url()
+        match = _REGION_PATTERN.search(url)
+        return match.group(1) if match else None
 
     def validate(self, query: str, start_time: int | None = None, end_time: int | None = None,
                  stream: str | None = None) -> dict[str, Any]:
@@ -86,10 +107,16 @@ class Search:
 
         Yields:
             dict: Result records.
+
+        Raises:
+            SearchError: On search failure. Includes query_id, region, and oid
+                for troubleshooting.
         """
         search_url = self._get_search_url()
+        oid = self._org.oid
+        region = self._extract_region()
         body: dict[str, Any] = {
-            "oid": self._org.oid,
+            "oid": oid,
             "query": query,
             "startTime": str(int(start_time)),
             "endTime": str(int(end_time)),
@@ -105,9 +132,22 @@ class Search:
             content_type="application/json",
             alt_root=search_url,
         )
+
+        # Check for error in initiation response
+        if resp.get("error"):
+            raise SearchError(
+                f"Failed to initiate search: {resp['error']}",
+                region=region,
+                oid=oid,
+            )
+
         query_id = resp.get("queryId", resp.get("query_id"))
         if not query_id:
-            return
+            raise SearchError(
+                "Failed to initiate search: missing queryId in response",
+                region=region,
+                oid=oid,
+            )
 
         count = 0
         token: str | None = None
@@ -123,6 +163,15 @@ class Search:
                     alt_root=search_url,
                 )
 
+                # Check for error in poll response
+                if poll.get("error"):
+                    raise SearchError(
+                        f"Search query failed: {poll['error']}",
+                        query_id=query_id,
+                        region=region,
+                        oid=oid,
+                    )
+
                 # The nextToken for pagination lives inside each
                 # SearchResult, not at the top level of SearchResponse.
                 next_token: str | None = None
@@ -136,7 +185,7 @@ class Search:
 
                 if poll.get("completed", False):
                     if next_token:
-                        # More pages available — use the token to
+                        # More pages available - use the token to
                         # fetch the next page (may trigger a subquery).
                         token = next_token
                     else:
@@ -145,6 +194,15 @@ class Search:
                     # Page still processing, poll again after a delay.
                     poll_ms = poll.get("nextPollInMs", 1000)
                     time.sleep(max(poll_ms / 1000, 0.5))
+        except SearchError:
+            raise
+        except Exception as exc:
+            raise SearchError(
+                f"Search failed: {exc}",
+                query_id=query_id,
+                region=region,
+                oid=oid,
+            ) from exc
         finally:
             # Cancel search to clean up
             try:

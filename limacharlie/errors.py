@@ -120,6 +120,48 @@ class ApiError(LimaCharlieError):
         super().__init__(message, suggestion=suggestion, code=effective_code)
 
 
+class SearchError(LimaCharlieError):
+    """Raised when a search query fails.
+
+    Includes query_id, region, and oid for troubleshooting. These fields
+    are essential when filing support tickets - they allow backend engineers
+    to locate the exact query in orchestrator and worker logs.
+    """
+
+    exit_code = 1
+
+    def __init__(
+        self,
+        message: str,
+        query_id: str | None = None,
+        region: str | None = None,
+        oid: str | None = None,
+        suggestion: str | None = None,
+        code: int | None = None,
+    ) -> None:
+        self.query_id = query_id
+        self.region = region
+        self.oid = oid
+
+        # Build context suffix for the error message so query_id, region,
+        # and oid are always visible in logs and CLI output.
+        context_parts: list[str] = []
+        if query_id:
+            context_parts.append(f"query_id={query_id}")
+        if region:
+            context_parts.append(f"region={region}")
+        if oid:
+            context_parts.append(f"oid={oid}")
+        context = f" [{', '.join(context_parts)}]" if context_parts else ""
+
+        if suggestion is None:
+            suggestion = (
+                "If this persists, contact support and include the query_id "
+                "shown above for faster troubleshooting."
+            )
+        super().__init__(f"{message}{context}", suggestion=suggestion, code=code)
+
+
 class ConfigError(LimaCharlieError):
     """Raised for configuration file errors."""
 
