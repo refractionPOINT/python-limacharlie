@@ -12,10 +12,21 @@ import time
 from collections.abc import Generator
 from typing import Any, TYPE_CHECKING
 
-from ..errors import SearchError
+from ..errors import LimaCharlieError, SearchError
 
 if TYPE_CHECKING:
     from .organization import Organization
+
+
+def _exc_message(exc: Exception) -> str:
+    """Extract a clean message from an exception.
+
+    For LimaCharlieError subclasses, uses raw_message to avoid
+    duplicating the suggestion text when wrapping in SearchError.
+    """
+    if isinstance(exc, LimaCharlieError):
+        return exc.raw_message
+    return str(exc)
 
 
 # Pattern to extract region identifier from search URL.
@@ -145,7 +156,7 @@ class Search:
             raise
         except Exception as exc:
             raise SearchError(
-                f"Failed to initiate search: {exc}",
+                f"Failed to initiate search: {_exc_message(exc)}",
                 region=region,
                 oid=oid,
                 query=query,
@@ -219,7 +230,7 @@ class Search:
             raise
         except Exception as exc:
             raise SearchError(
-                f"Search failed: {exc}",
+                f"Search failed: {_exc_message(exc)}",
                 query_id=query_id,
                 region=region,
                 oid=oid,

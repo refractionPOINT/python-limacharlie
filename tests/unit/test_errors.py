@@ -175,11 +175,27 @@ class TestSearchError:
         err = SearchError("failed")
         assert err.exit_code == 1
 
-    def test_default_suggestion(self):
-        """Default suggestion mentions query_id for troubleshooting."""
-        err = SearchError("failed", query_id="q-123")
+    def test_default_suggestion_for_unknown_errors(self):
+        """Unknown errors get the support suggestion."""
+        err = SearchError("something went wrong", query_id="q-123")
         assert err.suggestion is not None
+        assert "support" in err.suggestion
         assert "query_id" in err.suggestion
+
+    def test_no_suggestion_for_syntax_errors(self):
+        """Syntax/parse errors are self-explanatory - no suggestion added."""
+        err = SearchError("failed to transcode query: no match found, expected: |")
+        assert err.suggestion is None
+
+    def test_no_suggestion_for_validation_errors(self):
+        """Validation errors are self-explanatory."""
+        err = SearchError("query validation failed: invalid query syntax")
+        assert err.suggestion is None
+
+    def test_no_suggestion_for_quota_exceeded(self):
+        """Quota exceeded is self-explanatory."""
+        err = SearchError("quota exceeded")
+        assert err.suggestion is None
 
     def test_token_expiry_suggestion_on_401(self):
         """401-related errors get a token expiry suggestion."""

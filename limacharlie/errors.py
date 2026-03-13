@@ -175,18 +175,31 @@ _TOKEN_EXPIRY_SUGGESTION = (
     "or set 'search_token_expiry_hours' in ~/.limacharlie."
 )
 
-_DEFAULT_SEARCH_SUGGESTION = (
-    "If this persists, contact support and include the query_id "
-    "shown above for faster troubleshooting."
+# Keywords that indicate a self-explanatory error where adding a generic
+# "if this persists, contact support" suggestion would just be noise.
+_SELF_EXPLANATORY_KEYWORDS = (
+    "transcode", "syntax", "parse", "no match found", "expected",
+    "invalid query", "validation", "quota exceeded", "permission",
+)
+
+_SUPPORT_SUGGESTION = (
+    "Contact support and include the query_id shown above for faster troubleshooting."
 )
 
 
 def _search_suggestion(message: str) -> str:
-    """Pick the most helpful suggestion based on the error message."""
+    """Pick the most helpful suggestion based on the error message.
+
+    Returns None for self-explanatory errors (syntax, validation) to avoid
+    adding noise. Returns a specific suggestion for token expiry errors.
+    Returns a generic support suggestion for unexpected server-side failures.
+    """
     lower = message.lower()
     if any(kw in lower for kw in _TOKEN_EXPIRY_KEYWORDS):
         return _TOKEN_EXPIRY_SUGGESTION
-    return _DEFAULT_SEARCH_SUGGESTION
+    if any(kw in lower for kw in _SELF_EXPLANATORY_KEYWORDS):
+        return None
+    return _SUPPORT_SUGGESTION
 
 
 class ConfigError(LimaCharlieError):
