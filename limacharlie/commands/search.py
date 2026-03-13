@@ -12,12 +12,23 @@ import click
 
 from ..cli import pass_context
 from ..client import Client
+from ..config import get_config_value
 from ..sdk.organization import Organization
 from ..sdk.search import Search
 from ..sdk.hive import Hive, HiveRecord
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 from ._time_validation import validate_epoch_seconds
+
+# Default token expiry for search queries (hours). Search queries can run
+# for a long time (especially over large time ranges), so we default to
+# a longer-lived token than the standard ~1 hour JWT.
+# Override via: --token-expiry CLI flag, or search_token_expiry_hours in
+# the config file (~/.limacharlie).
+DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS: float = 4.0
+
+# Config file key for overriding the default search token expiry.
+CONFIG_KEY_SEARCH_TOKEN_EXPIRY = "search_token_expiry_hours"
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +44,40 @@ def _output(ctx: click.Context, data: Any) -> None:
 def _get_org(ctx: click.Context) -> Organization:
     client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
     return Organization(client)
+
+
+def _resolve_token_expiry(cli_value: float | None, environment: str | None = None) -> float:
+    """Resolve the effective token expiry for a search operation.
+
+    Priority (highest first):
+        1. Explicit --token-expiry CLI flag
+        2. ``search_token_expiry_hours`` in the config file
+        3. ``DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS`` constant
+
+    Args:
+        cli_value: Value from --token-expiry, or None if not provided.
+        environment: Active named environment (for config lookup).
+
+    Returns:
+        Token expiry in hours (always > 0).
+    """
+    if cli_value is not None:
+        return cli_value
+
+    config_value = get_config_value(
+        CONFIG_KEY_SEARCH_TOKEN_EXPIRY,
+        default=None,
+        environment=environment,
+    )
+    if config_value is not None:
+        try:
+            val = float(config_value)
+            if val > 0:
+                return val
+        except (TypeError, ValueError):
+            pass
+
+    return DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS
 
 
 # ---------------------------------------------------------------------------
@@ -116,10 +161,14 @@ Examples:
       --query "plat == windows | DNS_REQUEST | event/DOMAIN_NAME contains 'example'" \\
       --start 1700000000 --end 1700086400 --stream event --limit 100
 
-  # Long-running query with 8-hour token (avoids JWT expiry mid-query)
+  # Override the default 4-hour token with an 8-hour token
   limacharlie search run \\
       --query "plat == windows | WEL | event/EVENT/System/EventID == '4625'" \\
       --start 1700000000 --end 1700086400 --token-expiry 8
+
+Token expiry defaults to 4 hours to avoid mid-query JWT expiry on
+long-running searches.  Override with --token-expiry or set
+'search_token_expiry_hours' in ~/.limacharlie.
 
 IMPORTANT: Do not write LCQL queries from scratch. Use
 'limacharlie ai generate-query --prompt "<description>"' to generate
@@ -137,8 +186,8 @@ register_explain("search.run", _EXPLAIN_RUN)
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
 @click.option(
     "--token-expiry", default=None, type=float,
-    help="JWT token validity in hours (e.g. 8). Use for long-running queries "
-         "that may exceed the default ~1 hour token lifetime.",
+    help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
+         "Override the default via config key 'search_token_expiry_hours'.",
 )
 @pass_context
 def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None,
@@ -146,14 +195,14 @@ def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
-    if token_expiry is not None:
-        if token_expiry > 24:
-            click.echo(
-                f"Warning: generating a token valid for {token_expiry} hours. "
-                "Long-lived tokens increase security exposure if leaked.",
-                err=True,
-            )
-        org.client.get_jwt(expiry_hours=token_expiry)
+    effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
+    if effective_expiry > 24:
+        click.echo(
+            f"Warning: generating a token valid for {effective_expiry} hours. "
+            "Long-lived tokens increase security exposure if leaked.",
+            err=True,
+        )
+    org.client.get_jwt(expiry_hours=effective_expiry)
     search = Search(org)
     results = list(search.execute(query, start, end, stream=stream, limit=limit))
     _output(ctx, results)
@@ -393,21 +442,21 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
 @click.option(
     "--token-expiry", default=None, type=float,
-    help="JWT token validity in hours (e.g. 8). Use for long-running queries "
-         "that may exceed the default ~1 hour token lifetime.",
+    help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
+         "Override the default via config key 'search_token_expiry_hours'.",
 )
 @pass_context
 def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: float | None) -> None:
     org = _get_org(ctx)
 
-    if token_expiry is not None:
-        if token_expiry > 24:
-            click.echo(
-                f"Warning: generating a token valid for {token_expiry} hours. "
-                "Long-lived tokens increase security exposure if leaked.",
-                err=True,
-            )
-        org.client.get_jwt(expiry_hours=token_expiry)
+    effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
+    if effective_expiry > 24:
+        click.echo(
+            f"Warning: generating a token valid for {effective_expiry} hours. "
+            "Long-lived tokens increase security exposure if leaked.",
+            err=True,
+        )
+    org.client.get_jwt(expiry_hours=effective_expiry)
 
     hive = Hive(org, "query")
     record = hive.get(name)

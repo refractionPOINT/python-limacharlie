@@ -10,6 +10,7 @@ import yaml
 from limacharlie.config import (
     resolve_credentials,
     get_environment_creds,
+    get_config_value,
     load_config,
     save_config,
     write_credentials,
@@ -213,6 +214,67 @@ class TestListEnvironments:
         assert "default" in envs
         assert "staging" in envs
         assert "production" in envs
+
+
+class TestGetConfigValue:
+    """Tests for get_config_value - reads arbitrary config keys."""
+
+    def test_reads_top_level_key(self, tmp_config_file):
+        save_config({"oid": "oid1", "search_token_expiry_hours": 8})
+        assert get_config_value("search_token_expiry_hours") == 8
+
+    def test_returns_default_when_key_missing(self, tmp_config_file):
+        save_config({"oid": "oid1"})
+        assert get_config_value("search_token_expiry_hours", default=4.0) == 4.0
+
+    def test_returns_default_when_no_config_file(self, tmp_config_file):
+        assert get_config_value("anything", default="fallback") == "fallback"
+
+    def test_returns_none_default_when_key_missing(self, tmp_config_file):
+        save_config({"oid": "oid1"})
+        assert get_config_value("nonexistent") is None
+
+    def test_reads_from_named_environment(self, tmp_config_file):
+        save_config({
+            "search_token_expiry_hours": 4,
+            "env": {"production": {"search_token_expiry_hours": 12}},
+        })
+        assert get_config_value("search_token_expiry_hours", environment="production") == 12
+
+    def test_named_env_falls_back_to_default_if_key_missing(self, tmp_config_file):
+        """Named env without the key returns default, not the top-level value."""
+        save_config({
+            "search_token_expiry_hours": 4,
+            "env": {"production": {"oid": "prod-oid"}},
+        })
+        # The key is not in the 'production' env section, so returns default
+        assert get_config_value("search_token_expiry_hours", default=99, environment="production") == 99
+
+    def test_respects_lc_current_env(self, tmp_config_file, monkeypatch):
+        save_config({
+            "search_token_expiry_hours": 4,
+            "env": {"staging": {"search_token_expiry_hours": 6}},
+        })
+        monkeypatch.setenv("LC_CURRENT_ENV", "staging")
+        assert get_config_value("search_token_expiry_hours") == 6
+
+    def test_respects_current_env_in_config(self, tmp_config_file):
+        save_config({
+            "current_env": "staging",
+            "search_token_expiry_hours": 4,
+            "env": {"staging": {"search_token_expiry_hours": 10}},
+        })
+        assert get_config_value("search_token_expiry_hours") == 10
+
+    def test_returns_default_in_ephemeral_mode(self, tmp_config_file, monkeypatch):
+        save_config({"search_token_expiry_hours": 8})
+        monkeypatch.setenv("LC_EPHEMERAL_CREDS", "1")
+        assert get_config_value("search_token_expiry_hours", default=4.0) == 4.0
+
+    def test_reads_string_value(self, tmp_config_file):
+        """Config values can be any YAML type."""
+        save_config({"my_key": "hello"})
+        assert get_config_value("my_key") == "hello"
 
 
 class TestIsEphemeral:

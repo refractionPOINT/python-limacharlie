@@ -1,7 +1,8 @@
-"""Tests for Client.get_jwt and auth get-token command.
+"""Tests for Client.get_jwt, token expiry resolution, and CLI commands.
 
 Tests custom token expiry generation for long-running operations
-like search queries. Covers SDK method and CLI command.
+like search queries. Covers SDK method, resolution logic (CLI flag >
+config file > constant default), and CLI commands.
 """
 
 import json
@@ -14,6 +15,11 @@ from click.testing import CliRunner
 
 from limacharlie.client import Client
 from limacharlie.cli import LimaCharlieContext
+from limacharlie.commands.search import (
+    DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS,
+    CONFIG_KEY_SEARCH_TOKEN_EXPIRY,
+    _resolve_token_expiry,
+)
 from limacharlie.errors import ValidationError
 
 
@@ -126,11 +132,74 @@ class TestClientGetJwt:
             client.get_jwt()
 
 
+class TestResolveTokenExpiry:
+    """Tests for _resolve_token_expiry resolution logic.
+
+    Priority: CLI flag > config file > DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS.
+    """
+
+    def test_cli_value_takes_highest_priority(self):
+        """Explicit CLI value overrides config and default."""
+        with patch("limacharlie.commands.search.get_config_value", return_value=10.0):
+            assert _resolve_token_expiry(8.0) == 8.0
+
+    def test_config_value_overrides_default(self):
+        """Config file value overrides the constant default."""
+        with patch("limacharlie.commands.search.get_config_value", return_value=6.0):
+            assert _resolve_token_expiry(None) == 6.0
+
+    def test_config_value_as_string(self):
+        """Config values are often loaded as strings from YAML - should coerce."""
+        with patch("limacharlie.commands.search.get_config_value", return_value="12"):
+            assert _resolve_token_expiry(None) == 12.0
+
+    def test_config_value_as_int(self):
+        """Config values may be int from YAML - should coerce to float."""
+        with patch("limacharlie.commands.search.get_config_value", return_value=8):
+            assert _resolve_token_expiry(None) == 8.0
+
+    def test_default_when_no_cli_no_config(self):
+        """Falls back to constant when neither CLI nor config is set."""
+        with patch("limacharlie.commands.search.get_config_value", return_value=None):
+            assert _resolve_token_expiry(None) == DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS
+
+    def test_default_when_config_is_zero(self):
+        """Zero config value is ignored (not positive) - falls back to default."""
+        with patch("limacharlie.commands.search.get_config_value", return_value=0):
+            assert _resolve_token_expiry(None) == DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS
+
+    def test_default_when_config_is_negative(self):
+        """Negative config value is ignored - falls back to default."""
+        with patch("limacharlie.commands.search.get_config_value", return_value=-5):
+            assert _resolve_token_expiry(None) == DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS
+
+    def test_default_when_config_is_non_numeric(self):
+        """Non-numeric config value is ignored - falls back to default."""
+        with patch("limacharlie.commands.search.get_config_value", return_value="not-a-number"):
+            assert _resolve_token_expiry(None) == DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS
+
+    def test_cli_zero_passes_through(self):
+        """CLI value of 0 passes through (validation happens later in get_jwt)."""
+        with patch("limacharlie.commands.search.get_config_value", return_value=None):
+            assert _resolve_token_expiry(0.0) == 0.0
+
+    def test_environment_passed_to_config_lookup(self):
+        """Environment name is forwarded to get_config_value."""
+        with patch("limacharlie.commands.search.get_config_value") as mock_gcv:
+            mock_gcv.return_value = None
+            _resolve_token_expiry(None, environment="staging")
+            mock_gcv.assert_called_once_with(
+                CONFIG_KEY_SEARCH_TOKEN_EXPIRY,
+                default=None,
+                environment="staging",
+            )
+
+
 class TestSearchRunTokenExpiry:
     """Tests for --token-expiry option in search run CLI command."""
 
-    def test_run_with_token_expiry_calls_get_jwt(self):
-        """--token-expiry triggers get_jwt before executing search."""
+    def test_run_with_explicit_token_expiry(self):
+        """--token-expiry triggers get_jwt with the specified value."""
         from limacharlie.commands.search import run
 
         runner = CliRunner()
@@ -154,14 +223,16 @@ class TestSearchRunTokenExpiry:
 
             mock_org.client.get_jwt.assert_called_once_with(expiry_hours=8.0)
 
-    def test_run_without_token_expiry_does_not_call_get_jwt(self):
-        """Without --token-expiry, get_jwt is not called."""
+    def test_run_without_token_expiry_uses_default(self):
+        """Without --token-expiry, get_jwt is called with the default expiry."""
         from limacharlie.commands.search import run
 
         runner = CliRunner()
-        with patch("limacharlie.commands.search._get_org") as mock_get_org:
+        with patch("limacharlie.commands.search._get_org") as mock_get_org, \
+             patch("limacharlie.commands.search.get_config_value", return_value=None):
             mock_org = MagicMock()
             mock_org.client = MagicMock()
+            mock_org.client.get_jwt = MagicMock(return_value="default-jwt")
             mock_org.oid = "test-oid"
             mock_org.get_urls.return_value = {"search": "search.lc.io"}
             mock_org.client.request.side_effect = [
@@ -175,7 +246,60 @@ class TestSearchRunTokenExpiry:
                 "--query", "event", "--start", "1000", "--end", "2000",
             ], obj=_make_ctx(), catch_exceptions=False)
 
-            mock_org.client.get_jwt.assert_not_called()
+            mock_org.client.get_jwt.assert_called_once_with(
+                expiry_hours=DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS,
+            )
+
+    def test_run_uses_config_file_expiry(self):
+        """Config file search_token_expiry_hours is used when no CLI flag."""
+        from limacharlie.commands.search import run
+
+        runner = CliRunner()
+        with patch("limacharlie.commands.search._get_org") as mock_get_org, \
+             patch("limacharlie.commands.search.get_config_value", return_value=6.0):
+            mock_org = MagicMock()
+            mock_org.client = MagicMock()
+            mock_org.client.get_jwt = MagicMock(return_value="config-jwt")
+            mock_org.oid = "test-oid"
+            mock_org.get_urls.return_value = {"search": "search.lc.io"}
+            mock_org.client.request.side_effect = [
+                {"queryId": "q-1"},
+                {"results": [], "completed": True},
+                {},  # DELETE
+            ]
+            mock_get_org.return_value = mock_org
+
+            result = runner.invoke(run, [
+                "--query", "event", "--start", "1000", "--end", "2000",
+            ], obj=_make_ctx(), catch_exceptions=False)
+
+            mock_org.client.get_jwt.assert_called_once_with(expiry_hours=6.0)
+
+    def test_run_cli_flag_overrides_config(self):
+        """--token-expiry CLI flag takes priority over config file value."""
+        from limacharlie.commands.search import run
+
+        runner = CliRunner()
+        with patch("limacharlie.commands.search._get_org") as mock_get_org, \
+             patch("limacharlie.commands.search.get_config_value", return_value=6.0):
+            mock_org = MagicMock()
+            mock_org.client = MagicMock()
+            mock_org.client.get_jwt = MagicMock(return_value="override-jwt")
+            mock_org.oid = "test-oid"
+            mock_org.get_urls.return_value = {"search": "search.lc.io"}
+            mock_org.client.request.side_effect = [
+                {"queryId": "q-1"},
+                {"results": [], "completed": True},
+                {},  # DELETE
+            ]
+            mock_get_org.return_value = mock_org
+
+            result = runner.invoke(run, [
+                "--query", "event", "--start", "1000", "--end", "2000",
+                "--token-expiry", "12",
+            ], obj=_make_ctx(), catch_exceptions=False)
+
+            mock_org.client.get_jwt.assert_called_once_with(expiry_hours=12.0)
 
     def test_run_with_large_token_expiry_shows_warning(self):
         """--token-expiry > 24 shows security warning on stderr."""
@@ -245,6 +369,45 @@ class TestSavedRunTokenExpiry:
                 ], obj=_make_ctx(), catch_exceptions=False)
 
             mock_org.client.get_jwt.assert_called_once_with(expiry_hours=4.0)
+
+    def test_saved_run_without_token_expiry_uses_default(self):
+        """Without --token-expiry, saved-run uses the default token expiry."""
+        from limacharlie.commands.search import saved_run
+
+        runner = CliRunner()
+        with patch("limacharlie.commands.search._get_org") as mock_get_org, \
+             patch("limacharlie.commands.search.get_config_value", return_value=None):
+            mock_org = MagicMock()
+            mock_org.client = MagicMock()
+            mock_org.client.get_jwt = MagicMock(return_value="default-jwt")
+            mock_org.oid = "test-oid"
+            mock_org.get_urls.return_value = {"search": "search.lc.io"}
+
+            mock_hive_record = MagicMock()
+            mock_hive_record.data = {
+                "query": "event | limit 10",
+                "start": 1000,
+                "end": 2000,
+                "stream": "event",
+            }
+            mock_hive = MagicMock()
+            mock_hive.get.return_value = mock_hive_record
+
+            mock_org.client.request.side_effect = [
+                {"queryId": "q-1"},
+                {"results": [], "completed": True},
+                {},  # DELETE
+            ]
+            mock_get_org.return_value = mock_org
+
+            with patch("limacharlie.commands.search.Hive", return_value=mock_hive):
+                result = runner.invoke(saved_run, [
+                    "--name", "my-query",
+                ], obj=_make_ctx(), catch_exceptions=False)
+
+            mock_org.client.get_jwt.assert_called_once_with(
+                expiry_hours=DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS,
+            )
 
 
 class TestGetTokenCommand:
