@@ -99,7 +99,12 @@ class Cases:
         page_size: int | None = None,
         page_token: str | None = None,
     ) -> dict[str, Any]:
-        """List cases with optional filtering and pagination."""
+        """List cases with optional filtering and pagination.
+
+        Args:
+            search: Full-text search across detection_cat and hostname
+                on linked CaseDetection records (not case-level fields).
+        """
         qp: dict[str, str] = {"oids": self.oid}
         if status:
             qp["status"] = ",".join(status)
@@ -136,8 +141,13 @@ class Cases:
     def update_case(self, case_number: int, **fields: Any) -> dict[str, Any]:
         """Update a case.
 
-        Accepted fields: status, assignee, classification,
+        Accepted fields: status, severity, assignee, classification,
         escalation_group, investigation_id, summary, conclusion, tags.
+
+        Note: detection-level fields (detection_id, detection_cat,
+        detection_source, detection_priority, sensor_id, hostname)
+        live on CaseDetection records, not on the Case itself.
+        Use :meth:`add_detection` / :meth:`list_detections` to manage them.
         """
         return self._request(
             "PATCH",

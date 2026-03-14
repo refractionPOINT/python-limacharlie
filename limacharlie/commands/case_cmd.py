@@ -40,7 +40,7 @@ Filters (all repeatable/comma-separated):
   --severity  critical, high, medium, low, info
   --classification  pending, true_positive, false_positive
   --assignee  filter by assignee email
-  --search    full-text search in detection_cat and hostname
+  --search    full-text search in detection_cat and hostname across linked detections
   --sid       filter to cases with any detection from this sensor ID
   --tag       filter by tag (repeat for AND logic)
 
@@ -82,6 +82,7 @@ omitted fields are left untouched.
 Updatable fields:
   --status           new, acknowledged, in_progress, escalated,
                      resolved, closed (state machine enforced)
+  --severity         critical, high, medium, low, info
   --assignee         email of the assignee
   --classification   pending, true_positive, false_positive
   --escalation-group arbitrary group name for escalation routing
@@ -100,6 +101,7 @@ Status transitions follow a state machine:
 
 Examples:
   limacharlie case update --id 42 --status acknowledged
+  limacharlie case update --id 42 --severity high
   limacharlie case update --id 42 --assignee alice@example.com
   limacharlie case update --id 42 --status resolved \\
       --classification true_positive \\
@@ -596,7 +598,7 @@ def create(ctx, detection_json, severity) -> None:
 @click.option("--severity", multiple=True, type=_SEVERITY_CHOICES, help="Filter by severity (repeatable).")
 @click.option("--classification", multiple=True, type=_CLASSIFICATION_CHOICES, help="Filter by classification (repeatable).")
 @click.option("--assignee", default=None, help="Filter by assignee email.")
-@click.option("--search", default=None, help="Full-text search (detection_cat, hostname).")
+@click.option("--search", default=None, help="Full-text search (detection_cat, hostname across linked detections).")
 @click.option("--sid", default=None, help="Filter to cases with any detection from this sensor ID.")
 @click.option("--tag", multiple=True, help="Filter by tag (repeat for AND logic).")
 @click.option("--sort", default=None, type=_SORT_CHOICES, help="Sort field (default: created_at).")
@@ -773,6 +775,7 @@ def _export_with_data(ctx: click.Context, t: Cases, data: dict[str, Any],
 @group.command()
 @click.option("--id", "case_number", required=True, type=int, help="Case number.")
 @click.option("--status", default=None, type=_STATUS_CHOICES, help="New status.")
+@click.option("--severity", default=None, type=_SEVERITY_CHOICES, help="Case severity (critical, high, medium, low, info).")
 @click.option("--assignee", default=None, help="Assignee email.")
 @click.option("--classification", default=None, type=_CLASSIFICATION_CHOICES, help="Classification.")
 @click.option("--escalation-group", default=None, help="Escalation group name.")
@@ -781,7 +784,7 @@ def _export_with_data(ctx: click.Context, t: Cases, data: dict[str, Any],
 @click.option("--conclusion", default=None, help="Root cause & remediation (max 8192 chars).")
 @click.option("--tag", multiple=True, help="Set tags (replaces all existing tags; repeat for multiple).")
 @pass_context
-def update(ctx, case_number, status, assignee, classification,
+def update(ctx, case_number, status, severity, assignee, classification,
            escalation_group, investigation_id, summary, conclusion, tag) -> None:
     """Update a case.
 
@@ -789,6 +792,7 @@ def update(ctx, case_number, status, assignee, classification,
 
     Examples:
         limacharlie case update --id 42 --status acknowledged
+        limacharlie case update --id 42 --severity high
         limacharlie case update --id 42 --assignee alice@example.com
         limacharlie case update --id 42 --status resolved \\
             --classification true_positive
@@ -796,6 +800,7 @@ def update(ctx, case_number, status, assignee, classification,
     """
     fields = {
         "status": status,
+        "severity": severity,
         "assignee": assignee,
         "classification": classification,
         "escalation_group": escalation_group,
