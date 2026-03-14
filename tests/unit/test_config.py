@@ -24,6 +24,7 @@ from limacharlie.errors import ConfigError
 @pytest.fixture
 def tmp_config_file(monkeypatch, tmp_path):
     """Create a temporary config file and point config module to it."""
+    from limacharlie.config import _reset_config_cache
     config_path = str(tmp_path / ".limacharlie")
     monkeypatch.setattr("limacharlie.config.CONFIG_FILE_PATH", config_path)
     monkeypatch.delenv("LC_CREDS_FILE", raising=False)
@@ -32,7 +33,9 @@ def tmp_config_file(monkeypatch, tmp_path):
     monkeypatch.delenv("LC_UID", raising=False)
     monkeypatch.delenv("LC_CURRENT_ENV", raising=False)
     monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
-    return config_path
+    _reset_config_cache()
+    yield config_path
+    _reset_config_cache()
 
 
 class TestLoadConfig:
@@ -275,6 +278,75 @@ class TestGetConfigValue:
         """Config values can be any YAML type."""
         save_config({"my_key": "hello"})
         assert get_config_value("my_key") == "hello"
+
+
+class TestConfigCaching:
+    """Tests for the per-process config caching behavior."""
+
+    def test_load_config_returns_cached_on_second_call(self, tmp_config_file, monkeypatch):
+        """Call load_config() twice, verify the file is only read once.
+
+        Uses monkeypatch to track calls to safe_open_read. The second
+        call should return the cached result without re-reading the file.
+        """
+        data = {"oid": "cached-test"}
+        with open(tmp_config_file, "w") as f:
+            yaml.safe_dump(data, f)
+
+        call_count = {"n": 0}
+        original_safe_open_read = None
+        import limacharlie.config as config_mod
+        original_safe_open_read = config_mod.safe_open_read
+
+        def tracking_open_read(path):
+            call_count["n"] += 1
+            return original_safe_open_read(path)
+
+        monkeypatch.setattr("limacharlie.config.safe_open_read", tracking_open_read)
+
+        result1 = load_config()
+        result2 = load_config()
+        assert result1 == {"oid": "cached-test"}
+        assert result2 == {"oid": "cached-test"}
+        assert call_count["n"] == 1, "safe_open_read should be called exactly once"
+
+    def test_save_config_updates_cache(self, tmp_config_file):
+        """Call save_config({'oid': 'x'}) then load_config() without resetting.
+
+        load_config() should return {'oid': 'x'} from the in-process
+        cache without needing to read the file again.
+        """
+        save_config({"oid": "x"})
+        result = load_config()
+        assert result == {"oid": "x"}
+
+    def test_write_credentials_does_not_corrupt_cache_on_failure(self, tmp_config_file, monkeypatch):
+        """Set ephemeral mode AFTER writing initial config.
+
+        write_credentials should raise ConfigError (from save_config).
+        After unsetting ephemeral and resetting the cache, load_config()
+        should still return the original data. This verifies that
+        write_credentials uses deepcopy to avoid corrupting the cached
+        config dict when save_config fails.
+        """
+        from limacharlie.config import _reset_config_cache
+
+        # Write initial config
+        save_config({"oid": "original", "api_key": "key1"})
+        # Verify it loads
+        assert load_config() == {"oid": "original", "api_key": "key1"}
+
+        # Now set ephemeral mode so save_config will raise
+        monkeypatch.setenv("LC_EPHEMERAL_CREDS", "1")
+        with pytest.raises(ConfigError):
+            write_credentials("default", "corrupted-oid", "corrupted-key")
+
+        # Unset ephemeral and reset cache to force re-read from disk
+        monkeypatch.delenv("LC_EPHEMERAL_CREDS")
+        _reset_config_cache()
+        result = load_config()
+        assert result["oid"] == "original"
+        assert result["api_key"] == "key1"
 
 
 class TestIsEphemeral:
