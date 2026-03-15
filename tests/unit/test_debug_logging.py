@@ -490,10 +490,14 @@ class TestCurlShellInjectionSafety:
         body = b'{"q": "it\'s a \'test\' with $vars and `backticks`"}'
         client._debug_curl_cmd("POST", "https://x.com/path?a=1&b=2;c=3", headers, body)
 
-        # Extract the curl command (strip timestamp prefix).
-        combined = "\n".join(log)
-        # Find the curl command line (after the timestamp).
-        curl_line = combined.split(": ", 1)[1] if ": " in combined else combined
+        # Extract the curl command line from the debug log.
+        # Filter to only the log entry containing the curl command
+        # (init-time messages like JWT cache info may precede it).
+        curl_entries = [msg for msg in log if "curl " in msg]
+        assert curl_entries, f"No curl command found in debug log: {log}"
+        curl_msg = curl_entries[0]
+        # Strip the timestamp prefix (e.g. "2024-01-01T00:00:00Z: curl ...").
+        curl_line = curl_msg.split(": ", 1)[1] if ": " in curl_msg else curl_msg
         # shlex.split should not raise.
         parts = shlex.split(curl_line)
         assert parts[0] == "curl"
