@@ -21,6 +21,57 @@
 
 ### Authentication
 
+- **On-disk JWT caching**: JWTs are now cached to disk at
+  `~/.limacharlie_jwt_cache` so that repeated CLI invocations reuse the same
+  token instead of generating a new one each time. This reduces the number of
+  active JWTs, eliminates a ~100-200ms HTTP roundtrip per command, and lowers
+  load on `jwt.limacharlie.io`. Cached tokens are reused until they are within
+  10 minutes of expiry, then a fresh one is fetched and cached automatically.
+
+  The cache works for both API key and OAuth authentication paths. Search
+  commands (`search run`, `search saved-run`) also benefit: if the cached JWT
+  has enough remaining TTL for the requested expiry (default 4 hours), it is
+  reused instead of generating a new long-lived token.
+
+  If the server rejects a cached JWT (401), it is automatically invalidated, a
+  fresh token is fetched, cached, and the request is retried.
+
+  **Cache file security:**
+  - File permissions: 0o600 (owner-only read/write)
+  - Atomic writes via tempfile + `os.replace` (no partial reads)
+  - Symlink rejection on read and write paths (`O_NOFOLLOW` on Unix)
+  - Cross-platform (Linux, macOS, Windows)
+
+  **Disabling the cache:**
+
+  There are three ways to disable JWT caching:
+
+  1. Set the `LC_NO_JWT_CACHE` environment variable:
+     ```bash
+     LC_NO_JWT_CACHE=1 limacharlie sensors list
+     ```
+
+  2. Set `no_jwt_cache: true` in `~/.limacharlie`:
+     ```yaml
+     oid: my-org-id
+     api_key: my-api-key
+     no_jwt_cache: true
+     ```
+
+  3. Use ephemeral credentials mode (also disables config file):
+     ```bash
+     LC_EPHEMERAL_CREDS=1 LC_OID=... LC_API_KEY=... limacharlie sensors list
+     ```
+
+  **Debug logging:**
+
+  Use `--debug` to see cache operations:
+  ```
+  $ limacharlie --debug sensors list
+  2026-03-14 12:00:00Z: JWT cache: checking /home/user/.limacharlie_jwt_cache
+  2026-03-14 12:00:00Z: JWT cache: hit, reusing cached token (expires in 2847s, 47m)
+  ```
+
 - **`auth get-token` command**: New command to generate JWT tokens with custom
   expiry for long-running operations. Supports `--hours` for expiry duration and
   `--format json` for metadata output (token, expiry timestamp, oid).
@@ -32,6 +83,14 @@
 
 - **`get_config_value()` function**: New config helper for reading arbitrary
   config keys with environment-aware lookup.
+
+- **Per-process config caching**: `load_config()` now caches its result for the
+  process lifetime, avoiding repeated YAML parsing when multiple subsystems
+  read the config file.
+
+- **Cross-platform `save_config()`**: Config file writes now use a shared
+  cross-platform `atomic_write` helper, fixing an existing bug on Windows where
+  the Unix-only `os.chown` call would fail.
 
 ## 5.0.0 - February 18th, 2026
 

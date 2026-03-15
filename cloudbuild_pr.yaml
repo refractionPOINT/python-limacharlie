@@ -26,6 +26,19 @@ steps:
       pytest -s -v --durations=10 tests/integration/ --oid=${_OID} --key=${_KEY}
   waitFor: ["-"]  # Run in parallel with other steps.
 
+- id: "Run Microbenchmarks"
+  name: "python:3.14"
+  entrypoint: "bash"
+  args:
+    - "-c"
+    - |
+      cp -r /workspace /tmp/src
+      pip install --upgrade pip
+      pip install "/tmp/src[dev]"
+
+      pytest -v --benchmark-only --benchmark-columns=mean,stddev,rounds tests/microbenchmarks/
+  waitFor: ["-"]  # Run in parallel with other steps.
+
 - id: "Run wheel Sanity Checks"
   name: 'python:3.14'
   entrypoint: "bash"

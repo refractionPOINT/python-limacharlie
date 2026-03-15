@@ -13,6 +13,28 @@ from limacharlie.errors import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_caches(monkeypatch, tmp_path):
+    """Isolate JWT cache and config cache for every client test.
+
+    Without this, cached config/JWTs from one test leak into the next.
+    """
+    from limacharlie.config import _reset_config_cache
+    from limacharlie.jwt_cache import _reset_cache_disabled
+
+    config_path = str(tmp_path / ".limacharlie")
+    monkeypatch.setattr("limacharlie.jwt_cache.CONFIG_FILE_PATH", config_path)
+    monkeypatch.setattr("limacharlie.config.CONFIG_FILE_PATH", config_path)
+    monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+    monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
+    monkeypatch.delenv("LC_NO_JWT_CACHE", raising=False)
+    _reset_config_cache()
+    _reset_cache_disabled()
+    yield
+    _reset_config_cache()
+    _reset_cache_disabled()
+
+
 class TestClientInit:
     def test_creates_with_explicit_creds(self):
         client = Client(oid="test-oid", api_key="test-key")
@@ -287,6 +309,415 @@ class TestRefreshAuthCallback:
 
         callback.assert_called_with(client)
         assert result == {"ok": True}
+
+
+class TestJwtCacheIntegration:
+    """Tests for JWT disk cache integration in Client."""
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_cached_jwt_skips_refresh(self, mock_urlopen, mock_get_cached):
+        """Client with a valid cached JWT should not call refresh_jwt."""
+        mock_get_cached.return_value = "cached-jwt-token"
+
+        # Mock API response (no JWT endpoint call should happen)
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+        mock_urlopen.return_value = api_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        assert client._jwt == "cached-jwt-token"
+        result = client.request("GET", "test")
+
+        assert result == {"ok": True}
+        # Only 1 call (the API request), not 2 (JWT + API)
+        assert mock_urlopen.call_count == 1
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_expired_cached_jwt_triggers_refresh(self, mock_urlopen, mock_get_cached):
+        """Client with no cached JWT should call refresh_jwt normally."""
+        mock_get_cached.return_value = None
+
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "fresh-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        assert client._jwt is None
+        result = client.request("GET", "test")
+        assert result == {"ok": True}
+        # 2 calls: JWT endpoint + API request
+        assert mock_urlopen.call_count == 2
+
+    @patch("limacharlie.jwt_cache.put_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.urlopen")
+    def test_refresh_jwt_writes_to_cache(self, mock_urlopen, mock_get_cached, mock_put):
+        """After refresh_jwt(), the new JWT should be written to cache."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": "new-jwt"}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        client.refresh_jwt()
+
+        mock_put.assert_called_once_with("new-jwt", "test-oid", "test-key", None, None)
+
+    @patch("limacharlie.jwt_cache.invalidate_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value="stale-jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_401_invalidates_cache_before_refresh(self, mock_urlopen, mock_get_cached, mock_invalidate):
+        """On 401 retry, the cached JWT should be invalidated before refresh."""
+        from urllib.error import HTTPError
+        import io
+
+        http_401 = HTTPError(
+            "https://api.limacharlie.io/v1/test", 401, "Unauthorized",
+            {}, io.BytesIO(b'{"error": "expired"}')
+        )
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "refreshed-jwt"}).encode()
+        jwt_response.close = MagicMock()
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+
+        mock_urlopen.side_effect = [http_401, jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        result = client.request("GET", "test")
+
+        assert result == {"ok": True}
+        mock_invalidate.assert_called_once_with("test-oid", "test-key", None, None)
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    def test_pre_generated_jwt_does_not_consult_cache(self, mock_get_cached):
+        """When jwt= param is passed, cache should not be consulted."""
+        client = Client(oid="test-oid", jwt="pre-gen-jwt")
+        assert client._jwt == "pre-gen-jwt"
+        mock_get_cached.assert_not_called()
+
+    @patch("limacharlie.jwt_cache.put_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.urlopen")
+    def test_refresh_jwt_with_expiry_does_not_cache(self, mock_urlopen, mock_get_cached, mock_put):
+        """refresh_jwt(expiry=300) should not write to cache."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": "short-jwt"}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        client.refresh_jwt(expiry=300)
+        mock_put.assert_not_called()
+
+    @patch("limacharlie.jwt_cache.put_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.urlopen")
+    def test_refresh_jwt_with_oid_override_does_not_cache(self, mock_urlopen, mock_get_cached, mock_put):
+        """refresh_jwt(oid_override='-') should not write to cache."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": "override-jwt"}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        client.refresh_jwt(oid_override="-")
+        mock_put.assert_not_called()
+
+    @patch("limacharlie.jwt_cache.invalidate_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value="stale-jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_raw_request_401_invalidates_cache(self, mock_urlopen, mock_get_cached, mock_invalidate):
+        """raw_request 401 retry should also invalidate the cache."""
+        from urllib.error import HTTPError
+        import io
+
+        http_401 = HTTPError(
+            "https://api.limacharlie.io/v1/test", 401, "Unauthorized",
+            {}, io.BytesIO(b'{"error": "expired"}')
+        )
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "refreshed-jwt"}).encode()
+        jwt_response.close = MagicMock()
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+
+        mock_urlopen.side_effect = [http_401, jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        code, data = client.raw_request("GET", "test")
+
+        assert code == 200
+        assert data == {"ok": True}
+        mock_invalidate.assert_called_once_with("test-oid", "test-key", None, None)
+
+
+class TestDualCredsAuthPathSelection:
+    """Tests for cache key correctness when both api_key and oauth_creds are set.
+
+    When config has both api_key and oauth credentials, OAuth takes priority
+    for auth. The cache lookup/write/invalidation must all use the OAuth
+    cache key, not the api_key key.
+    """
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    @patch("limacharlie.client.resolve_credentials", return_value={
+        "oid": "test-oid", "uid": None,
+        "api_key": "test-key",
+        "oauth": {"id_token": "id", "refresh_token": "ref"},
+    })
+    def test_init_uses_oauth_cache_key_when_both_set(self, mock_creds, mock_get_cached):
+        """When both api_key and oauth_creds are resolved, init should
+        look up cache using OAuth credentials (api_key=None)."""
+        mock_get_cached.return_value = None
+        Client(oid="test-oid")
+        mock_get_cached.assert_called_once_with("test-oid", None,
+            {"id_token": "id", "refresh_token": "ref"}, None)
+
+    @patch("limacharlie.jwt_cache.invalidate_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value="stale")
+    @patch("limacharlie.client.resolve_credentials", return_value={
+        "oid": "test-oid", "uid": None,
+        "api_key": "test-key",
+        "oauth": {"id_token": "id", "refresh_token": "ref"},
+    })
+    @patch("limacharlie.client.urlopen")
+    def test_401_invalidates_oauth_cache_key_when_both_set(
+        self, mock_urlopen, mock_creds, mock_get_cached, mock_invalidate
+    ):
+        """401 invalidation should use OAuth cache key when both are set."""
+        from urllib.error import HTTPError
+        import io
+
+        http_401 = HTTPError("url", 401, "Unauthorized", {}, io.BytesIO(b"{}"))
+        jwt_resp = MagicMock()
+        jwt_resp.read.return_value = json.dumps({"jwt": "new"}).encode()
+        jwt_resp.close = MagicMock()
+        api_resp = MagicMock()
+        api_resp.read.return_value = json.dumps({"ok": True}).encode()
+        api_resp.close = MagicMock()
+        api_resp.getheaders.return_value = []
+
+        # Need to mock OAuth manager since oauth path is taken
+        with patch("limacharlie.client.Client._refresh_jwt_oauth") as mock_oauth:
+            def set_jwt(oid, expiry, oid_override=None):
+                # Simulate _refresh_jwt_oauth setting the JWT
+                pass
+            mock_oauth.side_effect = set_jwt
+
+            mock_urlopen.side_effect = [http_401, api_resp]
+            client = Client(oid="test-oid")
+            client._jwt = "stale"  # force a value so request proceeds
+            try:
+                client.request("GET", "test")
+            except Exception:
+                pass  # may fail since mock_oauth doesn't set jwt
+
+        mock_invalidate.assert_called_once_with(
+            "test-oid", None,
+            {"id_token": "id", "refresh_token": "ref"}, None
+        )
+
+
+class TestGetJwtCacheReuse:
+    """Tests for get_jwt() reusing cached JWTs when TTL is sufficient."""
+
+    @staticmethod
+    def _make_jwt(exp):
+        """Create a minimal JWT with a given exp for testing."""
+        import base64
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=")
+        payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=")
+        sig = base64.urlsafe_b64encode(b"sig").rstrip(b"=")
+        return f"{header.decode()}.{payload.decode()}.{sig.decode()}"
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_get_jwt_reuses_token_with_sufficient_ttl(self, mock_urlopen, mock_get_cached):
+        """If cached JWT has >= requested hours remaining, reuse it."""
+        import time
+        # Cached JWT expires in 5 hours
+        cached_jwt = self._make_jwt(time.time() + 5 * 3600)
+        mock_get_cached.return_value = cached_jwt
+
+        client = Client(oid="test-oid", api_key="test-key")
+        assert client._jwt == cached_jwt
+
+        # Request 4 hours - cached has 5h remaining, should reuse
+        result = client.get_jwt(expiry_hours=4.0)
+        assert result == cached_jwt
+        # No HTTP call should have been made
+        mock_urlopen.assert_not_called()
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_get_jwt_fetches_new_when_ttl_insufficient(self, mock_urlopen, mock_get_cached):
+        """If cached JWT has < requested hours remaining, fetch new one."""
+        import time
+        # Cached JWT expires in 2 hours
+        cached_jwt = self._make_jwt(time.time() + 2 * 3600)
+        mock_get_cached.return_value = cached_jwt
+
+        fresh_jwt = self._make_jwt(time.time() + 5 * 3600)
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": fresh_jwt}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        # Request 4 hours - cached has only 2h, must fetch new
+        result = client.get_jwt(expiry_hours=4.0)
+        assert result == fresh_jwt
+        mock_urlopen.assert_called_once()
+
+    @patch("limacharlie.jwt_cache.put_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.urlopen")
+    def test_get_jwt_caches_long_lived_token(self, mock_urlopen, mock_get_cached, mock_put):
+        """get_jwt with expiry_hours should cache the resulting long-lived JWT."""
+        import time
+        fresh_jwt = self._make_jwt(time.time() + 4 * 3600)
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": fresh_jwt}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        client.get_jwt(expiry_hours=4.0)
+
+        # Should have cached the long-lived JWT
+        mock_put.assert_called_once_with(
+            fresh_jwt, "test-oid", "test-key", None, None
+        )
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_get_jwt_no_expiry_hours_does_not_check_ttl(self, mock_urlopen, mock_get_cached):
+        """get_jwt() with no expiry_hours uses default refresh path."""
+        import time
+        cached_jwt = self._make_jwt(time.time() + 3600)
+        mock_get_cached.return_value = cached_jwt
+
+        fresh_jwt = self._make_jwt(time.time() + 3600)
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": fresh_jwt}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        # No expiry_hours - goes through refresh_jwt(expiry=None) which
+        # writes to cache via the normal path
+        result = client.get_jwt()
+        assert result == fresh_jwt
+        mock_urlopen.assert_called_once()
+
+
+class TestGetJwtValidation:
+    """Tests for get_jwt() input validation and edge cases."""
+
+    @staticmethod
+    def _make_jwt(exp):
+        """Create a minimal JWT with a given exp for testing."""
+        import base64
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=")
+        payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=")
+        sig = base64.urlsafe_b64encode(b"sig").rstrip(b"=")
+        return f"{header.decode()}.{payload.decode()}.{sig.decode()}"
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    def test_get_jwt_zero_expiry_raises_validation_error(self, mock_get_cached):
+        """get_jwt(expiry_hours=0) should raise ValidationError."""
+        from limacharlie.errors import ValidationError
+
+        client = Client(oid="test-oid", api_key="test-key")
+        with pytest.raises(ValidationError, match="positive"):
+            client.get_jwt(expiry_hours=0)
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    def test_get_jwt_negative_expiry_raises_validation_error(self, mock_get_cached):
+        """get_jwt(expiry_hours=-1) should raise ValidationError."""
+        from limacharlie.errors import ValidationError
+
+        client = Client(oid="test-oid", api_key="test-key")
+        with pytest.raises(ValidationError, match="positive"):
+            client.get_jwt(expiry_hours=-1)
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.urlopen")
+    def test_get_jwt_with_unparseable_cached_jwt_fetches_new(self, mock_urlopen, mock_get_cached):
+        """If self._jwt is set to a malformed string (no exp), get_jwt
+        should not crash and should fetch a new JWT instead."""
+        import time as time_module
+
+        fresh_jwt = self._make_jwt(time_module.time() + 5 * 3600)
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"jwt": fresh_jwt}).encode()
+        mock_response.close = MagicMock()
+        mock_urlopen.return_value = mock_response
+
+        client = Client(oid="test-oid", api_key="test-key")
+        # Set a malformed JWT that has no parseable exp
+        client._jwt = "not.a.validjwt"
+        result = client.get_jwt(expiry_hours=4.0)
+        assert result == fresh_jwt
+        mock_urlopen.assert_called_once()
+
+
+class TestOnRefreshAuthCacheIntegration:
+    """Tests for on_refresh_auth callback interaction with JWT cache."""
+
+    @staticmethod
+    def _make_jwt(exp):
+        """Create a minimal JWT with a given exp for testing."""
+        import base64
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=")
+        payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=")
+        sig = base64.urlsafe_b64encode(b"sig").rstrip(b"=")
+        return f"{header.decode()}.{payload.decode()}.{sig.decode()}"
+
+    @patch("limacharlie.jwt_cache.get_cached_jwt")
+    @patch("limacharlie.client.urlopen")
+    def test_on_refresh_auth_not_called_when_cache_hit(self, mock_urlopen, mock_get_cached):
+        """When a valid JWT is loaded from cache, on_refresh_auth should
+        NOT be invoked during request() because no JWT refresh is needed."""
+        import time as time_module
+
+        cached_jwt = self._make_jwt(time_module.time() + 3600)
+        mock_get_cached.return_value = cached_jwt
+
+        callback = MagicMock()
+
+        # Mock API response
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({"ok": True}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+        mock_urlopen.return_value = api_response
+
+        client = Client(oid="test-oid", api_key="test-key", on_refresh_auth=callback)
+        assert client._jwt == cached_jwt
+
+        result = client.request("GET", "test")
+        assert result == {"ok": True}
+        # The callback should NOT have been called since JWT was already set
+        callback.assert_not_called()
+        # Only 1 HTTP call (the API request), no JWT endpoint call
+        assert mock_urlopen.call_count == 1
 
 
 class TestBuildUserAgent:

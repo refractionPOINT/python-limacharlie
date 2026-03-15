@@ -11,15 +11,14 @@ Credential resolution order (highest priority first):
     4. Default credentials in ~/.limacharlie config file
 """
 
+import copy
 import os
-import stat
-import shutil
-import tempfile
 from typing import Any, TypedDict
 
 import yaml
 
 from .errors import ConfigError
+from .file_utils import atomic_write, safe_open_read
 
 
 class Credentials(TypedDict):
@@ -41,6 +40,7 @@ ENV_UID = "LC_UID"
 ENV_CURRENT_ENV = "LC_CURRENT_ENV"
 ENV_CREDS_FILE = "LC_CREDS_FILE"
 ENV_EPHEMERAL_CREDS = "LC_EPHEMERAL_CREDS"
+ENV_NO_JWT_CACHE = "LC_NO_JWT_CACHE"
 
 
 def _get_config_path() -> str:
@@ -53,20 +53,46 @@ def is_ephemeral() -> bool:
     return bool(os.environ.get(ENV_EPHEMERAL_CREDS))
 
 
+# Per-process cache for config file. Each CLI invocation is a separate
+# process, so the config file won't change mid-execution. Avoids
+# repeated disk I/O and YAML parsing when multiple subsystems
+# (resolve_credentials, jwt_cache, etc.) call load_config().
+_cached_config: dict[str, Any] | None = None
+_config_loaded: bool = False
+
+
 def load_config() -> dict[str, Any] | None:
     """Load the config file as a dict.
+
+    Result is cached per-process. The config file does not change
+    mid-execution for a CLI tool, so one read is sufficient.
 
     Returns:
         dict or None if the file does not exist or ephemeral mode is active.
     """
+    global _cached_config, _config_loaded
+    if _config_loaded:
+        return _cached_config
     if is_ephemeral():
+        _cached_config = None
+        _config_loaded = True
         return None
     path = _get_config_path()
     if not os.path.isfile(path):
+        _cached_config = None
+        _config_loaded = True
         return None
-    with open(path, "rb") as f:
-        data = yaml.safe_load(f.read())
-    return data or {}
+    data = yaml.safe_load(safe_open_read(path))
+    _cached_config = data or {}
+    _config_loaded = True
+    return _cached_config
+
+
+def _reset_config_cache() -> None:
+    """Reset the cached config. For testing only."""
+    global _cached_config, _config_loaded
+    _cached_config = None
+    _config_loaded = False
 
 
 def save_config(config: dict[str, Any]) -> None:
@@ -87,21 +113,14 @@ def save_config(config: dict[str, Any]) -> None:
             suggestion="Use environment variables (LC_OID, LC_API_KEY) instead of config files.",
         )
 
+    global _cached_config, _config_loaded
     path = _get_config_path()
     content = yaml.safe_dump(config, default_flow_style=False).encode()
-
-    fd, tmp_path = tempfile.mkstemp()
-    try:
-        os.chown(tmp_path, os.getuid(), os.getgid())
-        os.chmod(tmp_path, stat.S_IWUSR | stat.S_IRUSR)  # 0o600
-        try:
-            os.write(fd, content)
-        finally:
-            os.close(fd)
-        shutil.move(tmp_path, path)
-    finally:
-        if os.path.isfile(tmp_path):
-            os.unlink(tmp_path)
+    atomic_write(path, content)
+    # Update the per-process cache so subsequent load_config() calls
+    # see the new data without re-reading from disk.
+    _cached_config = config
+    _config_loaded = True
 
 
 def get_environment_creds(name: str = "default") -> Credentials:
@@ -216,7 +235,9 @@ def write_credentials(environment: str | None, oid: str | None, api_key: str | N
         uid: user ID (empty string to clear).
         oauth_creds: OAuth credentials dict.
     """
-    config = load_config() or {}
+    # Deep copy so mutations below don't corrupt the per-process
+    # config cache if save_config() later fails.
+    config = copy.deepcopy(load_config() or {})
 
     if environment == "default" or environment is None:
         if oid is not None:

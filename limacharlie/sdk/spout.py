@@ -127,6 +127,15 @@ class Spout:
                 self._conn.raw._fp.fp.raw.close()
             except Exception:
                 pass
+            # Close the Response object itself so the iter_lines/iter_content
+            # generator is torn down cleanly.  Without this, GC finalization
+            # of the generator triggers urllib3's _error_catcher which tries
+            # to flush an already-closed socket, causing a ValueError warning
+            # on Python 3.14+.
+            try:
+                self._conn.close()
+            except Exception:
+                pass
             self._conn = None
         for t in self._threads:
             t.join(timeout=2)

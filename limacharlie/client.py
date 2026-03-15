@@ -120,9 +120,37 @@ class Client:
         self._api_key = creds["api_key"]
         self._oauth_creds = creds["oauth"]
         self._environment = environment
-        self._jwt = jwt
-        self._is_retry_quota_errors = is_retry_quota_errors
         self._debug_fn = print_debug_fn
+        self._jwt = jwt
+        if self._jwt is None:
+            from .jwt_cache import get_cached_jwt, _get_cache_path, _decode_jwt_exp
+
+            # Mirror the auth path selection in refresh_jwt: if oauth_creds
+            # is set, OAuth path is used regardless of api_key. Pass
+            # credentials accordingly so the cache key matches what
+            # _refresh_jwt_oauth / refresh_jwt will write.
+            if self._oauth_creds is not None:
+                cache_api_key = None
+                cache_oauth = self._oauth_creds
+            else:
+                cache_api_key = self._api_key
+                cache_oauth = None
+            self._debug(f"JWT cache: checking {_get_cache_path()}")
+            self._jwt = get_cached_jwt(
+                self._oid, cache_api_key, cache_oauth, self._uid,
+            )
+            if self._jwt is not None:
+                exp = _decode_jwt_exp(self._jwt)
+                remaining = int(exp - time.time()) if exp else 0
+                self._debug(
+                    f"JWT cache: hit, reusing cached token "
+                    f"(expires in {remaining}s, {remaining // 60}m)"
+                )
+            else:
+                self._debug("JWT cache: miss, will fetch fresh token on first request")
+        else:
+            self._debug("JWT: using pre-generated token, skipping cache")
+        self._is_retry_quota_errors = is_retry_quota_errors
         self._on_refresh_auth = on_refresh_auth
         self._inv_id = inv_id
         self._timeout = timeout
@@ -178,6 +206,11 @@ class Client:
         run for several hours. By default, JWTs expire after ~1 hour.
         For operations that take longer, specify a custom expiry in hours.
 
+        If the currently cached JWT already has enough remaining TTL to
+        cover the requested expiry_hours, it is reused instead of
+        generating a new one. This avoids unnecessary JWT requests when
+        running multiple search commands in sequence.
+
         Args:
             expiry_hours: Token validity duration in hours. If None, uses
                 the default expiry (~1 hour). For long-running search
@@ -202,11 +235,48 @@ class Client:
                 )
             expiry_ts = int(time_module.time()) + int(expiry_hours * 3600)
 
+        # If we already have a JWT (from cache or prior call), check if it
+        # has enough remaining TTL for the requested expiry. If so, reuse it.
+        if self._jwt is not None and expiry_hours is not None:
+            from .jwt_cache import _decode_jwt_exp
+
+            current_exp = _decode_jwt_exp(self._jwt)
+            if current_exp is not None:
+                remaining_hours = (current_exp - time_module.time()) / 3600
+                if remaining_hours >= expiry_hours:
+                    self._debug(
+                        f"JWT: reusing current token "
+                        f"({remaining_hours:.1f}h remaining >= {expiry_hours}h requested)"
+                    )
+                    return self._jwt
+                self._debug(
+                    f"JWT: current token has {remaining_hours:.1f}h remaining, "
+                    f"need {expiry_hours}h, fetching new one"
+                )
+
         self.refresh_jwt(expiry=expiry_ts)
 
         if self._jwt is None:
             from .errors import AuthenticationError
             raise AuthenticationError("Failed to generate JWT token.")
+
+        # Cache the long-lived JWT so subsequent CLI invocations reuse it.
+        # Mirror auth path selection: OAuth takes priority over api_key.
+        if expiry_ts is not None:
+            from .jwt_cache import put_cached_jwt
+
+            self._debug(
+                f"JWT cache: writing long-lived token to disk "
+                f"(requested {expiry_hours}h expiry)"
+            )
+            if self._oauth_creds is not None:
+                put_cached_jwt(
+                    self._jwt, self._oid, None, self._oauth_creds, self._uid
+                )
+            else:
+                put_cached_jwt(
+                    self._jwt, self._oid, self._api_key, None, self._uid
+                )
 
         return self._jwt
 
@@ -236,7 +306,7 @@ class Client:
 
         # Check if we're using OAuth
         if self._oauth_creds is not None:
-            self._refresh_jwt_oauth(effective_oid, expiry)
+            self._refresh_jwt_oauth(effective_oid, expiry, oid_override)
             return
 
         # Traditional API key flow
@@ -257,11 +327,31 @@ class Client:
         )
 
         self._jwt = self._call_jwt_endpoint(auth_data)
+        self._debug("JWT: fetched fresh token from jwt.limacharlie.io")
+
+        if expiry is None and oid_override is None:
+            from .jwt_cache import put_cached_jwt, _decode_jwt_exp
+
+            exp = _decode_jwt_exp(self._jwt)
+            remaining = int(exp - time.time()) if exp else 0
+            self._debug(
+                f"JWT cache: writing token to disk "
+                f"(expires in {remaining}s, {remaining // 60}m)"
+            )
+            put_cached_jwt(
+                self._jwt, effective_oid, self._api_key, self._oauth_creds, self._uid
+            )
+        else:
+            self._debug(
+                f"JWT cache: skipping cache write "
+                f"(expiry={'set' if expiry else 'None'}, "
+                f"oid_override={'set' if oid_override else 'None'})"
+            )
 
         if self._on_refresh_auth is not None:
             self._on_refresh_auth(self)
 
-    def _refresh_jwt_oauth(self, effective_oid: str | None, expiry: int | None) -> None:
+    def _refresh_jwt_oauth(self, effective_oid: str | None, expiry: int | None, oid_override: str | None = None) -> None:
         """Refresh JWT using OAuth credentials."""
         from .oauth_simple import SimpleOAuthManager
 
@@ -292,6 +382,26 @@ class Client:
             auth_data["expiry"] = int(expiry)
 
         self._jwt = self._call_jwt_endpoint(auth_data)
+        self._debug("JWT: fetched fresh OAuth token from jwt.limacharlie.io")
+
+        if expiry is None and oid_override is None:
+            from .jwt_cache import put_cached_jwt, _decode_jwt_exp
+
+            exp = _decode_jwt_exp(self._jwt)
+            remaining = int(exp - time.time()) if exp else 0
+            self._debug(
+                f"JWT cache: writing OAuth token to disk "
+                f"(expires in {remaining}s, {remaining // 60}m)"
+            )
+            put_cached_jwt(
+                self._jwt, effective_oid, None, self._oauth_creds, self._uid
+            )
+        else:
+            self._debug(
+                f"JWT cache: skipping cache write "
+                f"(expiry={'set' if expiry else 'None'}, "
+                f"oid_override={'set' if oid_override else 'None'})"
+            )
 
         if self._on_refresh_auth is not None:
             self._on_refresh_auth(self)
@@ -462,6 +572,18 @@ class Client:
                     break
                 if not is_no_auth:
                     has_auth_refreshed = True
+                    self._debug("JWT cache: 401 received, invalidating cached token")
+                    from .jwt_cache import invalidate_cached_jwt
+
+                    # Mirror auth path selection: OAuth takes priority
+                    if self._oauth_creds is not None:
+                        invalidate_cached_jwt(
+                            self._oid, None, self._oauth_creds, self._uid
+                        )
+                    else:
+                        invalidate_cached_jwt(
+                            self._oid, self._api_key, None, self._uid
+                        )
                     if self._on_refresh_auth is not None:
                         self._on_refresh_auth(self)
                     else:
@@ -542,6 +664,18 @@ class Client:
 
         # Single 401 retry with JWT refresh.
         if code == HTTP_UNAUTHORIZED and not is_no_auth:
+            self._debug("JWT cache: 401 received (raw_request), invalidating cached token")
+            from .jwt_cache import invalidate_cached_jwt
+
+            # Mirror auth path selection: OAuth takes priority
+            if self._oauth_creds is not None:
+                invalidate_cached_jwt(
+                    self._oid, None, self._oauth_creds, self._uid
+                )
+            else:
+                invalidate_cached_jwt(
+                    self._oid, self._api_key, None, self._uid
+                )
             if self._on_refresh_auth is not None:
                 self._on_refresh_auth(self)
             else:
