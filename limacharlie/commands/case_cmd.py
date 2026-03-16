@@ -498,7 +498,7 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 def _get_cases(ctx: click.Context) -> Cases:
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
     org = Organization(client)
     return Cases(org)
 

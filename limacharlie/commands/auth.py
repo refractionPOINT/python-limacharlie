@@ -38,6 +38,10 @@ def _get_client(ctx: click.Context, oid_override: str | None = None) -> Client:
     return Client(
         oid=oid_override or ctx.obj.oid,
         environment=ctx.obj.environment,
+        print_debug_fn=ctx.obj.debug_fn,
+        debug_full_response=ctx.obj.debug_full,
+        debug_curl=ctx.obj.debug_curl,
+        debug_verbose=ctx.obj.debug_verbose,
     )
 
 
@@ -595,7 +599,7 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
     # Build a Client from the just-saved credentials so we can talk to
     # the API.  Use oid="-" to get a minimal JWT (no org context).
     try:
-        client = Client(environment=env_name if env_name != "default" else None)
+        client = Client(environment=env_name if env_name != "default" else None, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
         client.refresh_jwt(oid_override="-")
     except Exception as e:
         click.echo(f"Error: Failed to obtain API token: {e}", err=True)

@@ -212,7 +212,7 @@ def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[
     alt_root = None if target == "api" else target_url
 
     # --- Create client ---
-    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment)
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
 
     # --- Expand {oid} placeholder ---
     if "{oid}" in endpoint:
