@@ -9,7 +9,9 @@ from limacharlie.file_utils import (
     _reject_symlink,
     atomic_write,
     safe_open_read,
+    secure_dir_permissions,
     secure_file_permissions,
+    secure_makedirs,
 )
 
 
@@ -45,6 +47,68 @@ class TestSecureFilePermissions:
         path = str(tmp_path / "nonexistent")
         with pytest.raises(OSError):
             secure_file_permissions(path)
+
+
+class TestSecureDirPermissions:
+    """Tests for secure_dir_permissions."""
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_sets_owner_only_permissions(self, tmp_path):
+        d = str(tmp_path / "secure_dir")
+        os.mkdir(d)
+        os.chmod(d, 0o755)  # Start permissive
+        secure_dir_permissions(d)
+        mode = os.stat(d).st_mode & 0o777
+        assert mode == 0o700
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix-only ownership check")
+    def test_sets_ownership_to_current_user(self, tmp_path):
+        d = str(tmp_path / "owned_dir")
+        os.mkdir(d)
+        secure_dir_permissions(d)
+        st = os.stat(d)
+        assert st.st_uid == os.getuid()
+        assert st.st_gid == os.getgid()
+
+    def test_nonexistent_dir_raises(self, tmp_path):
+        with pytest.raises(OSError):
+            secure_dir_permissions(str(tmp_path / "nonexistent"))
+
+
+class TestSecureMakedirs:
+    """Tests for secure_makedirs."""
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_creates_single_dir_with_secure_perms(self, tmp_path):
+        d = str(tmp_path / "new_dir")
+        secure_makedirs(d)
+        assert os.path.isdir(d)
+        mode = os.stat(d).st_mode & 0o777
+        assert mode == 0o700
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_creates_nested_dirs_all_secure(self, tmp_path):
+        d = str(tmp_path / "a" / "b" / "c")
+        secure_makedirs(d)
+        assert os.path.isdir(d)
+        # Check each created level
+        for level in ["a", os.path.join("a", "b"), os.path.join("a", "b", "c")]:
+            path = str(tmp_path / level)
+            mode = os.stat(path).st_mode & 0o777
+            assert mode == 0o700, f"{path} has {oct(mode)}, expected 0o700"
+
+    def test_existing_dir_is_noop(self, tmp_path):
+        """If directory already exists, secure_makedirs does not fail."""
+        d = str(tmp_path / "existing")
+        os.mkdir(d)
+        # Should not raise
+        secure_makedirs(d)
+
+    def test_works_on_all_platforms(self, tmp_path):
+        """secure_makedirs succeeds on all platforms without crashing."""
+        d = str(tmp_path / "crossplat" / "nested")
+        secure_makedirs(d)
+        assert os.path.isdir(d)
 
 
 class TestAtomicWrite:

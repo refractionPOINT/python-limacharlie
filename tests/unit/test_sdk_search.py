@@ -1,17 +1,27 @@
 """Tests for limacharlie.sdk.search module.
 
-Tests cover LCQL query execution, validation, and error handling.
+Tests cover LCQL query execution, validation, error handling, and
+poll retry logic for transient errors.
 All search errors should include query_id, region, oid, and query
 for troubleshooting when available.
 """
 
 import json
+import ssl
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 import pytest
 
-from limacharlie.sdk.search import Search
-from limacharlie.errors import SearchError
+from limacharlie.sdk.search import Search, _is_transient_poll_error
+from limacharlie.errors import (
+    ApiError,
+    AuthenticationError,
+    NotFoundError,
+    PermissionDeniedError,
+    RateLimitError,
+    SearchError,
+    ValidationError,
+)
 
 
 @pytest.fixture
@@ -344,3 +354,454 @@ class TestSearchExecuteErrors:
         # Message should have truncated version
         msg = str(err).split("\n")[0]
         assert "..." in msg
+
+
+class TestIsTransientPollError:
+    """Tests for _is_transient_poll_error classification."""
+
+    def test_api_error_500_is_transient(self):
+        assert _is_transient_poll_error(ApiError("fail", status_code=500)) is True
+
+    def test_api_error_502_is_transient(self):
+        assert _is_transient_poll_error(ApiError("fail", status_code=502)) is True
+
+    def test_api_error_503_is_transient(self):
+        assert _is_transient_poll_error(ApiError("fail", status_code=503)) is True
+
+    def test_api_error_504_is_transient(self):
+        assert _is_transient_poll_error(ApiError("fail", status_code=504)) is True
+
+    def test_api_error_400_not_transient(self):
+        assert _is_transient_poll_error(ApiError("fail", status_code=400)) is False
+
+    def test_connection_error_is_transient(self):
+        assert _is_transient_poll_error(ConnectionError("reset")) is True
+
+    def test_timeout_error_is_transient(self):
+        assert _is_transient_poll_error(TimeoutError("timed out")) is True
+
+    def test_ssl_error_is_transient(self):
+        assert _is_transient_poll_error(ssl.SSLError("handshake")) is True
+
+    def test_os_error_is_transient(self):
+        """Generic OSError (e.g. ECONNRESET) is transient."""
+        assert _is_transient_poll_error(OSError("connection reset")) is True
+
+    def test_auth_error_not_transient(self):
+        assert _is_transient_poll_error(AuthenticationError("401")) is False
+
+    def test_rate_limit_error_not_transient(self):
+        assert _is_transient_poll_error(RateLimitError("429")) is False
+
+    def test_not_found_error_not_transient(self):
+        assert _is_transient_poll_error(NotFoundError("404")) is False
+
+    def test_validation_error_not_transient(self):
+        assert _is_transient_poll_error(ValidationError("bad input")) is False
+
+    def test_permission_denied_not_transient(self):
+        assert _is_transient_poll_error(PermissionDeniedError("403")) is False
+
+    def test_file_not_found_not_transient(self):
+        """FileNotFoundError is an OSError subclass but not transient."""
+        assert _is_transient_poll_error(FileNotFoundError("no such file")) is False
+
+    def test_permission_error_not_transient(self):
+        """PermissionError (OS) is an OSError subclass but not transient."""
+        assert _is_transient_poll_error(PermissionError("denied")) is False
+
+    def test_generic_exception_not_transient(self):
+        assert _is_transient_poll_error(RuntimeError("unknown")) is False
+
+    def test_value_error_not_transient(self):
+        assert _is_transient_poll_error(ValueError("bad value")) is False
+
+
+class TestSearchPollRetry:
+    """Tests for poll retry logic in Search.execute()."""
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_transient_5xx_retried_and_succeeds(self, mock_sleep, search, mock_org):
+        """Transient 5xx error is retried and succeeds on next attempt."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-retry"},
+            # First poll: transient 502
+            ApiError("bad gateway", status_code=502),
+            # Retry succeeds
+            {"results": [{"type": "events", "rows": [{"a": 1}]}], "completed": True},
+            {},  # DELETE cleanup
+        ]
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 1
+        # Should have slept once for backoff (2^0 = 1 second)
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_connection_error_retried(self, mock_sleep, search, mock_org):
+        """ConnectionError is retried."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-conn"},
+            ConnectionError("reset"),
+            {"results": [{"a": 1}], "completed": True},
+            {},  # DELETE
+        ]
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 1
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_timeout_error_retried(self, mock_sleep, search, mock_org):
+        """TimeoutError is retried."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-timeout"},
+            TimeoutError("timed out"),
+            {"results": [{"x": 1}], "completed": True},
+            {},  # DELETE
+        ]
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 1
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_fatal_error_not_retried(self, mock_sleep, search, mock_org):
+        """AuthenticationError (401) is NOT retried - raised immediately."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-auth"},
+            AuthenticationError("token expired"),
+        ]
+        with pytest.raises(SearchError) as exc_info:
+            list(search.execute("event", 1000, 2000))
+        assert "token expired" in str(exc_info.value)
+        # No sleep calls - no retry
+        mock_sleep.assert_not_called()
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_not_found_not_retried(self, mock_sleep, search, mock_org):
+        """NotFoundError (404) is NOT retried."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-404"},
+            NotFoundError("query not found"),
+        ]
+        with pytest.raises(SearchError):
+            list(search.execute("event", 1000, 2000))
+        mock_sleep.assert_not_called()
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_validation_error_not_retried(self, mock_sleep, search, mock_org):
+        """ValidationError (422) is NOT retried."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-422"},
+            ValidationError("bad query"),
+        ]
+        with pytest.raises(SearchError):
+            list(search.execute("event", 1000, 2000))
+        mock_sleep.assert_not_called()
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_poll_body_error_not_retried(self, mock_sleep, search, mock_org):
+        """Poll response with 'error' key is NOT retried (search-engine error)."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-body-err"},
+            {"error": "context canceled"},
+            {},  # DELETE
+        ]
+        with pytest.raises(SearchError, match="context canceled"):
+            list(search.execute("event", 1000, 2000))
+        # No retries for body errors
+        mock_sleep.assert_not_called()
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_retries_exhausted_raises(self, mock_sleep, search, mock_org):
+        """When all retries are exhausted, the original error is raised."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-exhaust"},
+            ApiError("502", status_code=502),
+            ApiError("502", status_code=502),
+            ApiError("502", status_code=502),
+            ApiError("502", status_code=502),  # 4th attempt (3 retries + 1 initial)
+        ]
+        with pytest.raises(SearchError, match="502"):
+            list(search.execute("event", 1000, 2000))
+        # Should have slept 3 times (exponential: 1, 2, 4)
+        assert mock_sleep.call_count == 3
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_exponential_backoff_timing(self, mock_sleep, search, mock_org):
+        """Verifies exponential backoff delays: 1s, 2s, 4s."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-backoff"},
+            ApiError("503", status_code=503),
+            ApiError("503", status_code=503),
+            ApiError("503", status_code=503),
+            {"results": [{"a": 1}], "completed": True},
+            {},  # DELETE
+        ]
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 1
+        assert mock_sleep.call_args_list == [call(1), call(2), call(4)]
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_poll_max_retries_parameter(self, mock_sleep, search, mock_org):
+        """poll_max_retries=1 limits to one retry attempt."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-max1"},
+            ApiError("503", status_code=503),
+            ApiError("503", status_code=503),  # Second failure -> exhausted
+        ]
+        with pytest.raises(SearchError):
+            list(search.execute("event", 1000, 2000, poll_max_retries=1))
+        # Only 1 sleep (1 retry)
+        assert mock_sleep.call_count == 1
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_poll_max_retries_zero_disables_retry(self, mock_sleep, search, mock_org):
+        """poll_max_retries=0 disables retries entirely."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-no-retry"},
+            ApiError("503", status_code=503),
+        ]
+        with pytest.raises(SearchError):
+            list(search.execute("event", 1000, 2000, poll_max_retries=0))
+        mock_sleep.assert_not_called()
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_retry_reports_progress(self, mock_sleep, search, mock_org):
+        """Progress function receives retry status messages."""
+        progress_msgs = []
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-prog"},
+            ApiError("502", status_code=502),
+            {"results": [{"a": 1}], "completed": True},
+            {},  # DELETE
+        ]
+        results = list(search.execute("event", 1000, 2000,
+                                      progress_fn=progress_msgs.append))
+        assert any("Retrying poll" in msg for msg in progress_msgs)
+        assert any("attempt 2/4" in msg for msg in progress_msgs)
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_backoff_capped_at_30_seconds(self, mock_sleep, search, mock_org):
+        """Backoff delay is capped at 30 seconds even with many retries."""
+        # Use max_retries=6 to get 2^5=32 which should be capped to 30.
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-cap"},
+            *[ApiError("503", status_code=503) for _ in range(6)],
+            {"results": [{"a": 1}], "completed": True},
+            {},  # DELETE
+        ]
+        results = list(search.execute("event", 1000, 2000, poll_max_retries=6))
+        assert len(results) == 1
+        # Backoff sequence: 1, 2, 4, 8, 16, 30 (capped)
+        assert mock_sleep.call_args_list == [
+            call(1), call(2), call(4), call(8), call(16), call(30),
+        ]
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_retry_on_second_page_poll(self, mock_sleep, search, mock_org):
+        """Transient error on a later page poll is retried correctly."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-page2"},
+            # Page 1: success with nextToken
+            {"results": [{"type": "events", "rows": [{"a": 1}], "nextToken": "tok1"}], "completed": True},
+            # Page 2: transient failure then success
+            ApiError("502", status_code=502),
+            {"results": [{"type": "events", "rows": [{"b": 2}]}], "completed": True},
+            {},  # DELETE
+        ]
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 2
+        assert results[0]["rows"] == [{"a": 1}]
+        assert results[1]["rows"] == [{"b": 2}]
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_multiple_transient_errors_across_different_polls(self, mock_sleep, search, mock_org):
+        """Retry counter resets between poll calls - each poll gets fresh retries."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-multi"},
+            # Poll 1: 2 transient failures then success
+            ApiError("503", status_code=503),
+            ApiError("503", status_code=503),
+            {"results": [{"type": "events", "rows": [{"a": 1}], "nextToken": "tok1"}], "completed": True},
+            # Poll 2: 1 transient failure then success
+            ApiError("502", status_code=502),
+            {"results": [{"type": "events", "rows": [{"b": 2}]}], "completed": True},
+            {},  # DELETE
+        ]
+        results = list(search.execute("event", 1000, 2000))
+        assert len(results) == 2
+        # 2 sleeps for poll 1 (1s, 2s) + 1 sleep for poll 2 (1s)
+        assert mock_sleep.call_count == 3
+
+
+class TestSearchCancellation:
+    """Tests for KeyboardInterrupt handling during search execution.
+
+    Verifies that Ctrl+C always:
+    1. Cancels the server-side query (DELETE request)
+    2. Re-raises KeyboardInterrupt to the caller
+    3. Does not interfere with retry logic
+    """
+
+    def test_keyboard_interrupt_during_poll_cancels_query(self, search, mock_org):
+        """KeyboardInterrupt during poll triggers server-side cancel."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-cancel"},
+            KeyboardInterrupt(),
+            {},  # DELETE response
+        ]
+        with pytest.raises(KeyboardInterrupt):
+            list(search.execute("event", 1000, 2000))
+
+        # Verify DELETE was called to cancel the query on server.
+        delete_calls = [c for c in mock_org.client.request.call_args_list
+                        if c[0][0] == "DELETE"]
+        assert len(delete_calls) == 1
+        assert "search/q-cancel" in delete_calls[0][0][1]
+
+    def test_keyboard_interrupt_not_retried(self, search, mock_org):
+        """KeyboardInterrupt is never retried - it's not a transient error."""
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"queryId": "q-no-retry-ki"}
+            elif call_count == 2:
+                raise KeyboardInterrupt()
+            else:
+                return {}  # DELETE
+
+        mock_org.client.request.side_effect = side_effect
+        with pytest.raises(KeyboardInterrupt):
+            list(search.execute("event", 1000, 2000))
+
+        # Only 3 calls: POST (initiate), GET (interrupted), DELETE (cancel).
+        # No retry attempts.
+        assert call_count <= 3
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_keyboard_interrupt_during_retry_backoff(self, mock_sleep, search, mock_org):
+        """KeyboardInterrupt during retry sleep propagates without catching.
+
+        If sleep raises KeyboardInterrupt (user hits Ctrl+C while waiting
+        for retry backoff), the interrupt propagates and the query is canceled.
+        """
+        mock_sleep.side_effect = KeyboardInterrupt()
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-sleep-ki"},
+            ApiError("503", status_code=503),  # Triggers retry + sleep
+            {},  # DELETE
+        ]
+        with pytest.raises(KeyboardInterrupt):
+            list(search.execute("event", 1000, 2000))
+
+        # DELETE should still be called via the finally block.
+        delete_calls = [c for c in mock_org.client.request.call_args_list
+                        if c[0][0] == "DELETE"]
+        assert len(delete_calls) == 1
+
+    def test_keyboard_interrupt_after_partial_results(self, search, mock_org):
+        """KeyboardInterrupt after yielding some results still cancels query."""
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"queryId": "q-partial-ki"}
+            elif call_count == 2:
+                # Page 1: some results
+                return {
+                    "results": [{"type": "events", "rows": [{"a": 1}], "nextToken": "tok1"}],
+                    "completed": True,
+                }
+            elif call_count == 3:
+                # Page 2 poll: user cancels
+                raise KeyboardInterrupt()
+            else:
+                return {}  # DELETE
+
+        mock_org.client.request.side_effect = side_effect
+
+        results = []
+        with pytest.raises(KeyboardInterrupt):
+            for item in search.execute("event", 1000, 2000):
+                results.append(item)
+
+        # Should have gotten page 1 results before interrupt.
+        assert len(results) == 1
+        assert results[0]["rows"] == [{"a": 1}]
+
+        # Server query should still be canceled.
+        delete_calls = [c for c in mock_org.client.request.call_args_list
+                        if c[0][0] == "DELETE"]
+        assert len(delete_calls) == 1
+
+    def test_keyboard_interrupt_cancel_message_with_progress_fn(self, search, mock_org):
+        """Progress function receives cancel message on KeyboardInterrupt."""
+        messages = []
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-cancel-msg"},
+            KeyboardInterrupt(),
+            {},  # DELETE
+        ]
+        with pytest.raises(KeyboardInterrupt):
+            list(search.execute("event", 1000, 2000, progress_fn=messages.append))
+
+        # Should have "Running search..." and "Canceling search query..." messages.
+        assert any("Canceling" in m for m in messages)
+
+    def test_keyboard_interrupt_no_cancel_message_without_progress_fn(self, search, mock_org):
+        """No cancel message when progress_fn is None."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-no-msg"},
+            KeyboardInterrupt(),
+            {},  # DELETE
+        ]
+        with pytest.raises(KeyboardInterrupt):
+            list(search.execute("event", 1000, 2000, progress_fn=None))
+
+        # DELETE still called - just no message.
+        delete_calls = [c for c in mock_org.client.request.call_args_list
+                        if c[0][0] == "DELETE"]
+        assert len(delete_calls) == 1
+
+    def test_cancel_delete_failure_does_not_mask_interrupt(self, search, mock_org):
+        """If DELETE fails during cancel, KeyboardInterrupt still propagates."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-del-fail"},
+            KeyboardInterrupt(),
+            Exception("DELETE network error"),  # DELETE also fails
+        ]
+        with pytest.raises(KeyboardInterrupt):
+            list(search.execute("event", 1000, 2000))
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_keyboard_interrupt_during_wait_poll(self, mock_sleep, search, mock_org):
+        """KeyboardInterrupt during wait-for-results sleep propagates correctly.
+
+        When completed=False and we sleep for nextPollInMs, a Ctrl+C during
+        that sleep should cancel the query.
+        """
+        call_count = 0
+
+        def request_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"queryId": "q-wait-ki"}
+            elif call_count == 2:
+                # Not completed yet - will trigger sleep
+                return {"results": [], "completed": False, "nextPollInMs": 1000}
+            else:
+                return {}  # DELETE
+
+        mock_org.client.request.side_effect = request_side_effect
+        # sleep() raises KeyboardInterrupt (user presses Ctrl+C while waiting)
+        mock_sleep.side_effect = KeyboardInterrupt()
+
+        with pytest.raises(KeyboardInterrupt):
+            list(search.execute("event", 1000, 2000))
+
+        delete_calls = [c for c in mock_org.client.request.call_args_list
+                        if c[0][0] == "DELETE"]
+        assert len(delete_calls) == 1

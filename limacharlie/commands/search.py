@@ -15,6 +15,8 @@ response unchanged.
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -22,6 +24,12 @@ from typing import Any
 
 import click
 
+from ..search_checkpoint import (
+    CheckpointReader,
+    CheckpointResumer,
+    CheckpointWriter,
+    list_checkpoints,
+)
 from ..cli import pass_context
 from ..client import Client
 from ..config import get_config_value
@@ -72,6 +80,118 @@ def _make_progress_fn(ctx: click.Context) -> Callable[[str], None] | None:
         click.echo(click.style(msg, dim=True), err=True)
         sys.stderr.flush()
     return _progress
+
+
+def _print_checkpoint_cancel(
+    checkpoint_path: str,
+    pages: int,
+    result_count: int,
+    total_events: int,
+    last_token: str | None,
+) -> None:
+    """Print a detailed cancel message when a checkpointed search is interrupted.
+
+    Shows session stats and the exact command to resume.
+    """
+    lines = [
+        "",
+        f"Search canceled. Checkpoint saved: {checkpoint_path}",
+        f"  Pages fetched:  {pages}",
+        f"  Results:        {result_count}",
+        f"  Total events:   {total_events:,}",
+    ]
+    if last_token:
+        lines.append(f"  Resume token:   {last_token}")
+    else:
+        lines.append("  Resume token:   (none - will re-fetch from start)")
+    lines.append("")
+    lines.append(f"  Resume with:    limacharlie search run --resume --checkpoint {checkpoint_path}")
+    click.echo("\n".join(lines), err=True)
+    sys.stderr.flush()
+
+
+def _build_fresh_query_cmd(meta: dict[str, Any], checkpoint_path: str) -> str:
+    """Build a CLI command string to re-run a checkpoint's query from scratch.
+
+    Used when a resume fails because the pagination token has expired
+    (server-side TTL is roughly 8 hours).
+
+    Args:
+        meta: Checkpoint metadata dict.
+        checkpoint_path: Path to the checkpoint data file.
+
+    Returns:
+        A shell command string the user can copy-paste.
+    """
+    parts = ["limacharlie search run"]
+    parts.append(f"--query {shlex.quote(meta.get('query', ''))}")
+    parts.append(f"--start {meta.get('start_time', '')}")
+    parts.append(f"--end {meta.get('end_time', '')}")
+    if meta.get("stream"):
+        parts.append(f"--stream {shlex.quote(str(meta['stream']))}")
+    if meta.get("limit"):
+        parts.append(f"--limit {meta['limit']}")
+    parts.append(f"--checkpoint {shlex.quote(checkpoint_path)}")
+    parts.append("--force")
+    return " \\\n    ".join(parts)
+
+
+# Keywords in SearchError messages that indicate an expired pagination
+# token or query results that have been garbage-collected on the server.
+# These are checked against SearchError only (not auth errors).
+# Deliberately narrow to avoid false positives - "expired" alone would
+# match JWT expiry errors wrapped in SearchError.
+_TOKEN_EXPIRED_KEYWORDS = (
+    "query not found",
+    "results not found",
+    "no longer available",
+    "query does not exist",
+    "invalid token",
+    "unknown query",
+    "token expired",
+    "results expired",
+)
+
+
+def _is_token_expired_error(exc: Exception) -> bool:
+    """Check if an exception indicates the server rejected a pagination token.
+
+    This typically means the token is malformed, corrupt, or the server
+    cannot process it. Used as a safety net during resume to provide a
+    helpful error message with the command to re-run from scratch.
+
+    NOT triggered for auth errors (401/403) - those are credential
+    issues, not token problems.
+
+    Args:
+        exc: The exception from the search execution.
+
+    Returns:
+        True if the error likely indicates expired results/token.
+    """
+    from ..errors import (
+        AuthenticationError,
+        NotFoundError,
+        PermissionDeniedError,
+        RateLimitError,
+        SearchError,
+    )
+
+    # Auth/permission/rate-limit errors are never token expiry.
+    if isinstance(exc, (AuthenticationError, PermissionDeniedError, RateLimitError)):
+        return False
+
+    # 404 on the poll request strongly suggests the query/token expired.
+    if isinstance(exc, NotFoundError):
+        return True
+
+    # Only check SearchError messages (not all exception types) to avoid
+    # false positives from unrelated errors that happen to contain keywords.
+    if isinstance(exc, SearchError):
+        msg = str(exc).lower()
+        return any(kw in msg for kw in _TOKEN_EXPIRED_KEYWORDS)
+
+    return False
 
 
 def _flatten_event_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -247,6 +367,11 @@ def _output_search_results(
 
     For machine-readable formats (json, yaml, csv, jsonl): passes the
     raw API results through unchanged.
+
+    Note: requires the full results list in memory. Table formatting
+    needs all rows upfront to compute column widths. For large result
+    sets, use ``--output jsonl`` which streams via
+    ``CheckpointReader.iter_results()`` in the checkpoint-show path.
 
     Args:
         ctx: Click context with output settings.
@@ -527,6 +652,27 @@ Token expiry defaults to 4 hours to avoid mid-query JWT expiry on
 long-running searches.  Override with --token-expiry or set
 'search_token_expiry_hours' in ~/.limacharlie.
 
+Checkpoint/Resume:
+  Use --checkpoint to incrementally save results to a JSONL file.
+  If the search is interrupted (Ctrl+C, network error), the checkpoint
+  preserves all results fetched so far.  Use --resume --checkpoint
+  to pick up where you left off.
+
+  # Start with checkpointing
+  limacharlie search run \\
+      --query "..." --start X --end Y --checkpoint /tmp/search.jsonl
+
+  # Resume after interruption
+  limacharlie search run --resume --checkpoint /tmp/search.jsonl
+
+  Resume uses the stored pagination token to skip directly to the
+  next un-fetched page on the server.  The server re-runs the query
+  from the cursor position embedded in the token, so resume works
+  even after long delays between sessions.
+
+  The --query, --start, --end, and --stream flags are incompatible
+  with --resume (query parameters are loaded from the checkpoint).
+
 IMPORTANT: Do not write LCQL queries from scratch. Use
 'limacharlie ai generate-query --prompt "<description>"' to generate
 a query from a natural language description, then pass the result to
@@ -536,9 +682,9 @@ register_explain("search.run", _EXPLAIN_RUN)
 
 
 @group.command()
-@click.option("--query", required=True, help="LCQL query string.")
-@click.option("--start", required=True, type=int, help="Start time (unix seconds).")
-@click.option("--end", required=True, type=int, help="End time (unix seconds).")
+@click.option("--query", default=None, help="LCQL query string.")
+@click.option("--start", default=None, type=int, help="Start time (unix seconds).")
+@click.option("--end", default=None, type=int, help="End time (unix seconds).")
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
 @click.option(
@@ -548,9 +694,74 @@ register_explain("search.run", _EXPLAIN_RUN)
 )
 @click.option("--raw", is_flag=True, default=False, help="Show raw API result objects without unwrapping.")
 @click.option("--expand", is_flag=True, default=False, help="Show each event as a full pretty-printed JSON block.")
+@click.option("--checkpoint", "checkpoint_path", default=None, type=click.Path(),
+              help="Write results incrementally to JSONL file at this path.")
+@click.option("--resume", is_flag=True, default=False,
+              help="Resume from existing checkpoint (requires --checkpoint).")
+@click.option("--force", is_flag=True, default=False,
+              help="Overwrite existing checkpoint data file (use with --checkpoint).")
 @pass_context
-def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None,
-        limit: int | None, token_expiry: float | None, raw: bool, expand: bool) -> None:
+def run(ctx: click.Context, query: str | None, start: int | None, end: int | None,
+        stream: str | None, limit: int | None, token_expiry: float | None,
+        raw: bool, expand: bool, checkpoint_path: str | None, resume: bool,
+        force: bool) -> None:
+    # --- Validate flag combinations ---
+    if resume:
+        if not checkpoint_path:
+            click.echo("Error: --resume requires --checkpoint.", err=True)
+            ctx.exit(4)
+            return
+        # These flags are incompatible with --resume because overriding
+        # them would produce inconsistent results (data file has results
+        # from original query, new results would come from different query).
+        forbidden = []
+        if query is not None:
+            forbidden.append("--query")
+        if start is not None:
+            forbidden.append("--start")
+        if end is not None:
+            forbidden.append("--end")
+        if stream is not None:
+            forbidden.append("--stream")
+        if forbidden:
+            click.echo(
+                f"Error: {', '.join(forbidden)} cannot be used with --resume. "
+                "Query parameters are loaded from the checkpoint.",
+                err=True,
+            )
+            ctx.exit(4)
+            return
+    else:
+        # Normal mode: query, start, end are required.
+        if not query:
+            click.echo("Error: --query is required (unless using --resume).", err=True)
+            ctx.exit(4)
+            return
+        if start is None:
+            click.echo("Error: --start is required (unless using --resume).", err=True)
+            ctx.exit(4)
+            return
+        if end is None:
+            click.echo("Error: --end is required (unless using --resume).", err=True)
+            ctx.exit(4)
+            return
+
+    if resume:
+        _run_resume(ctx, checkpoint_path, limit, token_expiry, raw, expand)
+    elif checkpoint_path:
+        _run_with_checkpoint(ctx, query, start, end, stream, limit,
+                             token_expiry, raw, expand, checkpoint_path, force)
+    else:
+        _run_normal(ctx, query, start, end, stream, limit,
+                    token_expiry, raw, expand)
+
+
+def _run_normal(
+    ctx: click.Context, query: str, start: int, end: int,
+    stream: str | None, limit: int | None, token_expiry: float | None,
+    raw: bool, expand: bool,
+) -> None:
+    """Execute a search without checkpointing."""
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
@@ -572,6 +783,319 @@ def run(ctx: click.Context, query: str, start: int, end: int, stream: str | None
         ctx.exit(130)
         return
     _output_search_results(ctx, results, raw=raw, expand=expand)
+
+
+def _run_with_checkpoint(
+    ctx: click.Context, query: str, start: int, end: int,
+    stream: str | None, limit: int | None, token_expiry: float | None,
+    raw: bool, expand: bool, checkpoint_path: str, force: bool = False,
+) -> None:
+    """Execute a search with checkpoint persistence."""
+    validate_epoch_seconds(start, "start")
+    validate_epoch_seconds(end, "end")
+    org = _get_org(ctx)
+    debug_fn = ctx.obj.debug_fn
+    effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
+    if effective_expiry > 24:
+        click.echo(
+            f"Warning: generating a token valid for {effective_expiry} hours. "
+            "Long-lived tokens increase security exposure if leaked.",
+            err=True,
+        )
+    org.client.get_jwt(expiry_hours=effective_expiry)
+    search = Search(org)
+    progress_fn = _make_progress_fn(ctx)
+
+    if debug_fn:
+        debug_fn(f"Checkpoint: creating data file at {checkpoint_path} (force={force})")
+
+    try:
+        writer = CheckpointWriter(
+            data_path=checkpoint_path,
+            query=query,
+            start_time=start,
+            end_time=end,
+            stream=stream,
+            limit=limit,
+            oid=org.oid,
+            force=force,
+        )
+    except FileExistsError:
+        # Give a context-aware message based on checkpoint state.
+        try:
+            existing_meta = CheckpointReader.read_metadata(checkpoint_path)
+            if existing_meta.get("completed"):
+                result_count = existing_meta.get("result_count", 0)
+                total_events = existing_meta.get("total_events", 0)
+                click.echo(
+                    f"Error: Checkpoint already exists and is completed "
+                    f"({result_count} results, {total_events:,} events).\n"
+                    f"Use --force to overwrite with a new search, "
+                    f"or delete the file and retry.\n"
+                    f"\n"
+                    f"  View results:  limacharlie search checkpoint-show --checkpoint {checkpoint_path}\n"
+                    f"  Overwrite:     add --force to your command",
+                    err=True,
+                )
+            else:
+                result_count = existing_meta.get("result_count", 0)
+                total_events = existing_meta.get("total_events", 0)
+                page = existing_meta.get("page", 1)
+                click.echo(
+                    f"Error: Checkpoint already exists and is in-progress "
+                    f"(page {page}, {result_count} results, {total_events:,} events).\n"
+                    f"Use --resume to continue from where it left off, "
+                    f"--force to overwrite, or delete the file and retry.\n"
+                    f"\n"
+                    f"  Resume:    limacharlie search run --resume --checkpoint {checkpoint_path}\n"
+                    f"  Overwrite: add --force to your command",
+                    err=True,
+                )
+        except (FileNotFoundError, Exception):
+            # No metadata or can't read it - fall back to generic message.
+            click.echo(
+                f"Error: Checkpoint data file already exists: {os.path.abspath(checkpoint_path)}.\n"
+                f"Use --force to overwrite, or delete the file and retry.",
+                err=True,
+            )
+        ctx.exit(4)
+        return
+
+    results: list[dict] = []
+    count = 0
+    page = 1
+    total_events = 0
+    last_token: str | None = None
+    last_event_ts: int | None = None
+    try:
+        with writer:
+            for item in search.execute(query, start, end, stream=stream,
+                                       limit=limit, progress_fn=progress_fn):
+                writer.write_result(item)
+                results.append(item)
+                count += 1
+                # Track token, page, events, and timestamps.
+                if item.get("nextToken"):
+                    last_token = item["nextToken"]
+                    page += 1
+                if item.get("type") == "events":
+                    rows = item.get("rows") or []
+                    total_events += len(rows)
+                    for row in rows:
+                        ts = (row.get("mtd") or {}).get("ts")
+                        if ts is not None:
+                            last_event_ts = ts
+                writer.update_progress(page, count, completed=False,
+                                       last_token=last_token,
+                                       total_events=total_events,
+                                       last_event_ts=last_event_ts)
+            writer.update_progress(page, count, completed=True,
+                                   last_token=last_token,
+                                   total_events=total_events,
+                                   last_event_ts=last_event_ts)
+    except KeyboardInterrupt:
+        _print_checkpoint_cancel(checkpoint_path, page, count,
+                                 total_events, last_token)
+        ctx.exit(130)
+        return
+    except Exception:
+        if count > 0 and progress_fn:
+            progress_fn(f"Search failed after {count} results. Checkpoint saved: {checkpoint_path}")
+        raise
+
+    if progress_fn:
+        progress_fn(f"Checkpoint complete: {count} results saved to {checkpoint_path}")
+    _output_search_results(ctx, results, raw=raw, expand=expand)
+
+
+def _run_resume(
+    ctx: click.Context, checkpoint_path: str,
+    limit: int | None, token_expiry: float | None,
+    raw: bool, expand: bool,
+) -> None:
+    """Resume a search from an existing checkpoint.
+
+    Uses the stored pagination token to skip directly to the next
+    un-fetched page on the server side, avoiding re-fetching already-
+    checkpointed data.
+    """
+    debug_fn = ctx.obj.debug_fn
+    if debug_fn:
+        debug_fn(f"Checkpoint: resuming from {checkpoint_path}")
+
+    try:
+        resumer = CheckpointResumer(checkpoint_path)
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        ctx.exit(4)
+        return
+
+    meta = resumer.metadata
+    last_token = meta.get("last_token")
+    if debug_fn:
+        debug_fn(f"Checkpoint metadata: query={meta.get('query')!r}, "
+                 f"result_count={meta.get('result_count')}, "
+                 f"page={meta.get('page')}, completed={meta.get('completed')}, "
+                 f"last_token={last_token!r}")
+
+    if meta.get("completed"):
+        click.echo("Checkpoint is already completed. Nothing to resume.", err=True)
+        # Output existing results from the data file.
+        all_results = list(CheckpointReader.iter_results(checkpoint_path))
+        _output_search_results(ctx, all_results, raw=raw, expand=expand)
+        return
+
+    query = meta["query"]
+    start = meta["start_time"]
+    end = meta["end_time"]
+    stream = meta.get("stream")
+    checkpoint_limit = meta.get("limit")
+    existing_count = resumer.existing_count
+
+    # Use the resume limit if provided, otherwise use the original limit.
+    effective_limit = limit if limit is not None else checkpoint_limit
+
+    if debug_fn:
+        debug_fn(f"Checkpoint: {existing_count} existing results, "
+                 f"effective_limit={effective_limit}, "
+                 f"resuming from token={last_token!r}")
+
+    org = _get_org(ctx)
+    effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
+    if effective_expiry > 24:
+        click.echo(
+            f"Warning: generating a token valid for {effective_expiry} hours. "
+            "Long-lived tokens increase security exposure if leaked.",
+            err=True,
+        )
+    org.client.get_jwt(expiry_hours=effective_expiry)
+    search = Search(org)
+    progress_fn = _make_progress_fn(ctx)
+
+    resume_page = meta.get("page", 1)
+    if progress_fn:
+        if last_token:
+            progress_fn(
+                f"Resuming from page {resume_page} "
+                f"({existing_count} results already fetched)..."
+            )
+        else:
+            progress_fn(
+                f"Resuming from start ({existing_count} results already "
+                f"fetched, no pagination token - will re-fetch and skip)..."
+            )
+
+    count = existing_count
+    page = resume_page
+    total_events = meta.get("total_events", 0)
+    last_token_new: str | None = last_token
+    last_event_ts: int | None = meta.get("last_event_ts")
+    try:
+        with resumer:
+            # Use start_token to skip directly to the next un-fetched page
+            # on the server side. If no token is available (e.g. interrupted
+            # on page 1 before any results), fall back to re-fetch + skip.
+            gen = search.execute(
+                query, start, end, stream=stream,
+                limit=effective_limit, progress_fn=progress_fn,
+                start_token=last_token,
+                start_page=resume_page,
+            )
+
+            if last_token:
+                # Server-side resume: token jumps us to the right page,
+                # all results from the generator are new.
+                for item in gen:
+                    resumer.write_result(item)
+                    count += 1
+                    if item.get("nextToken"):
+                        last_token_new = item["nextToken"]
+                        page += 1
+                    if item.get("type") == "events":
+                        rows = item.get("rows") or []
+                        total_events += len(rows)
+                        for row in rows:
+                            ts = (row.get("mtd") or {}).get("ts")
+                            if ts is not None:
+                                last_event_ts = ts
+                    resumer.update_progress(page, count, completed=False,
+                                            last_token=last_token_new,
+                                            total_events=total_events,
+                                            last_event_ts=last_event_ts)
+            else:
+                # No token available - re-fetch from start and skip
+                # already-fetched results. This is the slow path that
+                # only happens when the checkpoint has no token (e.g.
+                # interrupted before any page completed).
+                # NOTE: this assumes the server returns results in the
+                # same order for identical queries. Non-deterministic
+                # ordering could cause missed or duplicate results.
+                skipped = 0
+                for item in gen:
+                    if skipped < existing_count:
+                        skipped += 1
+                        if debug_fn:
+                            debug_fn(f"Checkpoint resume: skipping result {skipped}/{existing_count}")
+                        continue
+                    resumer.write_result(item)
+                    count += 1
+                    if item.get("nextToken"):
+                        last_token_new = item["nextToken"]
+                        page += 1
+                    if item.get("type") == "events":
+                        rows = item.get("rows") or []
+                        total_events += len(rows)
+                        for row in rows:
+                            ts = (row.get("mtd") or {}).get("ts")
+                            if ts is not None:
+                                last_event_ts = ts
+                    resumer.update_progress(page, count, completed=False,
+                                            last_token=last_token_new,
+                                            total_events=total_events,
+                                            last_event_ts=last_event_ts)
+
+            resumer.update_progress(page, count, completed=True,
+                                    last_token=last_token_new,
+                                    total_events=total_events,
+                                    last_event_ts=last_event_ts)
+    except KeyboardInterrupt:
+        new_pages = page - resume_page
+        _print_checkpoint_cancel(checkpoint_path, new_pages, count,
+                                 total_events, last_token_new)
+        ctx.exit(130)
+        return
+    except Exception as exc:
+        if _is_token_expired_error(exc):
+            # The server rejected the pagination token. Show a helpful
+            # message with the command to start fresh.
+            fresh_cmd = _build_fresh_query_cmd(meta, checkpoint_path)
+            click.echo(
+                f"\nError: Resume failed - the server rejected the pagination token.\n"
+                f"\n"
+                f"The token from this checkpoint may be invalid or the server\n"
+                f"could not process it.\n"
+                f"\n"
+                f"To re-run the query from scratch (overwrites the checkpoint):\n"
+                f"\n"
+                f"  {fresh_cmd}\n",
+                err=True,
+            )
+            sys.stderr.flush()
+            ctx.exit(1)
+            return
+        if count > existing_count and progress_fn:
+            progress_fn(f"Search failed after {count} results. Checkpoint saved: {checkpoint_path}")
+        raise
+
+    if progress_fn:
+        new_count = count - existing_count
+        progress_fn(f"Resume complete: {new_count} new results ({count} total) saved to {checkpoint_path}")
+
+    # Read all results from the checkpoint file (existing + new) for output.
+    # The data file now contains everything; no need to keep results in memory
+    # during the search loop.
+    all_results = list(CheckpointReader.iter_results(checkpoint_path))
+    _output_search_results(ctx, all_results, raw=raw, expand=expand)
 
 
 # ---------------------------------------------------------------------------
@@ -861,4 +1385,213 @@ def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: fl
         sys.stderr.flush()
         ctx.exit(130)
         return
+    _output_search_results(ctx, results, raw=raw, expand=expand)
+
+
+# ---------------------------------------------------------------------------
+# checkpoints
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_CHECKPOINTS = """\
+List all search checkpoints stored locally.  Shows the data file path,
+query, time range, result count, and completion status for each
+checkpoint.  Use this to find interrupted searches that can be resumed
+with 'search run --resume --checkpoint <path>'.
+"""
+register_explain("search.checkpoints", _EXPLAIN_CHECKPOINTS)
+
+
+@group.command("checkpoints")
+@pass_context
+def checkpoints_list(ctx: click.Context) -> None:
+    """List local search checkpoints. Automatically cleans up stale metadata."""
+    cps = list_checkpoints(cleanup=True, debug_fn=ctx.obj.debug_fn)
+    if not cps:
+        if not ctx.obj.quiet:
+            click.echo("No checkpoints found.")
+        return
+
+    fmt = ctx.obj.output_format or detect_output_format()
+    if fmt != "table":
+        click.echo(format_output(cps, fmt))
+        return
+
+    rows: list[dict[str, Any]] = []
+    for cp in cps:
+        start_ts = cp.get("start_time")
+        end_ts = cp.get("end_time")
+        try:
+            start_str = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if start_ts else ""
+        except (OSError, ValueError, OverflowError, TypeError):
+            start_str = str(start_ts)
+        try:
+            end_str = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if end_ts else ""
+        except (OSError, ValueError, OverflowError, TypeError):
+            end_str = str(end_ts)
+
+        query_str = cp.get("query", "")
+        if len(query_str) > 50:
+            query_str = query_str[:47] + "..."
+
+        status = "completed" if cp.get("completed") else "in-progress"
+        if not cp.get("data_file_exists", True):
+            status += " (data missing)"
+
+        page = cp.get("page", 1)
+        total_events = cp.get("total_events", 0)
+
+        # Compute time range progress percentage from last_event_ts.
+        progress_str = ""
+        last_event_ts = cp.get("last_event_ts")
+        if last_event_ts is not None and start_ts and end_ts and end_ts > start_ts:
+            # last_event_ts is in milliseconds, start/end are in seconds.
+            last_sec = last_event_ts / 1000
+            total_range = end_ts - start_ts
+            covered = max(0, min(last_sec - start_ts, total_range))
+            pct = (covered / total_range) * 100
+            progress_str = f"{pct:.0f}%"
+            # Also show the last event timestamp.
+            try:
+                last_ts_str = datetime.fromtimestamp(
+                    last_sec, tz=timezone.utc
+                ).strftime("%Y-%m-%d %H:%M")
+                progress_str = f"{pct:.0f}% ({last_ts_str})"
+            except (OSError, ValueError, OverflowError, TypeError):
+                pass
+
+        # Format created_at for display
+        created = cp.get("created_at", "")
+        if created:
+            try:
+                created = created[:19].replace("T", " ")  # "2026-03-16 10:30:00"
+            except (TypeError, IndexError):
+                pass
+
+        updated = cp.get("updated_at", "")
+        if updated:
+            try:
+                updated = updated[:19].replace("T", " ")
+            except (TypeError, IndexError):
+                pass
+
+        # Truncate token for display (show suffix since prefix is always the same).
+        token_display = ""
+        cp_token = cp.get("last_token")
+        if cp_token:
+            token_display = "..." + cp_token[-12:] if len(cp_token) > 16 else cp_token
+
+        rows.append({
+            "data_file": cp.get("data_file", ""),
+            "query": query_str,
+            "range": f"{start_str} - {end_str}" if start_str and end_str else "",
+            "pages": page,
+            "events": f"{total_events:,}" if total_events else "0",
+            "progress": progress_str,
+            "status": status,
+            "token": token_display,
+            "created": created,
+            "updated": updated,
+        })
+
+    click.echo(format_table(rows))
+
+
+# ---------------------------------------------------------------------------
+# checkpoint-show
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_CHECKPOINT_SHOW = """\
+Display results from a checkpoint data file.  Reads the JSONL data file
+and renders it through the same output pipeline as a live search -
+table unwrapping, --expand, --raw, and all --output formats work.
+
+This is useful for reviewing results from an interrupted or completed
+search without re-running the query.
+
+Examples:
+  # Table output (default)
+  limacharlie search checkpoint-show --checkpoint /tmp/my_search.jsonl
+
+  # Expanded JSON events
+  limacharlie search checkpoint-show --checkpoint /tmp/my_search.jsonl --expand
+
+  # JSON for scripting
+  limacharlie search checkpoint-show --checkpoint /tmp/my_search.jsonl --output json
+
+  # Pipe to jq
+  limacharlie search checkpoint-show --checkpoint /tmp/my_search.jsonl --output jsonl | jq '.rows[].data'
+
+Related: 'search checkpoints' to list all checkpoints,
+'search run --resume' to continue an interrupted search.
+"""
+register_explain("search.checkpoint-show", _EXPLAIN_CHECKPOINT_SHOW)
+
+
+@group.command("checkpoint-show")
+@click.option("--checkpoint", "checkpoint_path", required=True, type=click.Path(exists=True),
+              help="Path to the checkpoint JSONL data file.")
+@click.option("--raw", is_flag=True, default=False, help="Show raw API result objects without unwrapping.")
+@click.option("--expand", is_flag=True, default=False, help="Show each event as a full pretty-printed JSON block.")
+@pass_context
+def checkpoint_show(ctx: click.Context, checkpoint_path: str, raw: bool, expand: bool) -> None:
+    """Display results from a checkpoint data file.
+
+    Streams results lazily for JSONL output (``--output jsonl``) to
+    avoid loading the entire file into memory. For table, expand, JSON,
+    and CSV formats, loads all results into memory because those formats
+    require the full data set (table needs all rows for column widths,
+    JSON needs the complete array, etc.). For large checkpoints, use
+    ``--output jsonl`` and pipe to jq or other streaming tools.
+    """
+    try:
+        meta = CheckpointReader.read_metadata(checkpoint_path)
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        ctx.exit(4)
+        return
+
+    # Print checkpoint summary to stderr (like stats from a live search).
+    if not ctx.obj.quiet and sys.stderr.isatty():
+        total_events = meta.get("total_events", 0)
+        pages = meta.get("page", 1)
+        result_count = meta.get("result_count", 0)
+        status = "completed" if meta.get("completed") else "in-progress"
+        query = meta.get("query", "")
+        if len(query) > 80:
+            query = query[:77] + "..."
+        click.echo(click.style(
+            f"Checkpoint: {status}, {pages} pages, "
+            f"{total_events:,} events, {result_count} results",
+            dim=True,
+        ), err=True)
+        click.echo(click.style(f"Query: {query}", dim=True), err=True)
+        sys.stderr.flush()
+
+    if ctx.obj.quiet:
+        return
+
+    fmt = ctx.obj.output_format or detect_output_format()
+
+    # JSONL: stream one result per line without loading all into memory.
+    if fmt == "jsonl":
+        has_results = False
+        for result in CheckpointReader.iter_results(checkpoint_path):
+            has_results = True
+            click.echo(json.dumps(result, default=str))
+        if not has_results:
+            click.echo("Checkpoint is empty (no results).")
+        return
+
+    # All other formats need the full list.
+    try:
+        _, results = CheckpointReader.read(checkpoint_path)
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        ctx.exit(4)
+        return
+
+    if not results:
+        click.echo("Checkpoint is empty (no results).")
+        return
+
     _output_search_results(ctx, results, raw=raw, expand=expand)
