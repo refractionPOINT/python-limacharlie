@@ -16,6 +16,8 @@ from typing import Any
 
 import yaml
 
+from .json_compat import dumps as _json_dumps, dumps_pretty as _json_dumps_pretty
+
 try:
     import jmespath
 except ImportError:
@@ -29,6 +31,7 @@ except ImportError:
 # Module-level flags set by the CLI before any command runs.
 _wide_mode: bool = False
 _filter_expr: str | None = None
+
 
 
 def set_wide_mode(enabled: bool) -> None:
@@ -117,8 +120,12 @@ def format_output(
 
 
 def format_json(data: Any) -> str:
-    """Format data as pretty-printed JSON."""
-    return json.dumps(data, indent=2, default=str)
+    """Format data as pretty-printed JSON.
+
+    Uses orjson when available (~5-10x faster than stdlib json).
+    Falls back to stdlib json if orjson is not installed.
+    """
+    return _json_dumps_pretty(data)
 
 
 def format_yaml(data: Any) -> str:
@@ -218,10 +225,13 @@ def format_table(data: Any) -> str:
 
 
 def format_jsonl(data: Any) -> str:
-    """Format data as newline-delimited JSON."""
+    """Format data as newline-delimited JSON.
+
+    Uses orjson when available for faster serialization.
+    """
     if isinstance(data, list):
-        return "\n".join(json.dumps(item, default=str) for item in data)
-    return json.dumps(data, default=str)
+        return "\n".join(_json_dumps(item) for item in data)
+    return _json_dumps(data)
 
 
 def _select_fields(item: Any, fields: list[str]) -> Any:
@@ -234,7 +244,7 @@ def _select_fields(item: Any, fields: list[str]) -> Any:
 def _csv_value(v: Any) -> Any:
     """Convert a value for CSV output."""
     if isinstance(v, (dict, list)):
-        return json.dumps(v, default=str)
+        return _json_dumps(v)
     return v
 
 
@@ -331,7 +341,7 @@ def _table_value(v: Any, width: int | None = None) -> str:
     """
     if _wide_mode:
         if isinstance(v, dict):
-            return json.dumps(v, default=str)
+            return _json_dumps(v)
         if isinstance(v, list):
             return ", ".join(str(x) for x in v)
         if v is None:
@@ -340,7 +350,7 @@ def _table_value(v: Any, width: int | None = None) -> str:
     if width is None:
         width = _max_value_width()
     if isinstance(v, dict):
-        s = json.dumps(v, default=str)
+        s = _json_dumps(v)
         if len(s) <= width:
             return s
         return f"{{{len(v)} keys}}"

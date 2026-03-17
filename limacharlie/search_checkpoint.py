@@ -588,6 +588,13 @@ def list_checkpoints(
             continue
 
         meta["data_file_exists"] = data_exists
+        if data_exists:
+            try:
+                meta["data_file_size"] = os.path.getsize(data_file)
+            except OSError:
+                meta["data_file_size"] = None
+        else:
+            meta["data_file_size"] = None
         checkpoints.append(meta)
 
     return checkpoints

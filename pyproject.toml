@@ -21,6 +21,7 @@ dependencies = [
     "cryptography==46.0.3",
     "click==8.1.8",
     "jmespath==1.1.0",
+    "orjson>=3.10.0",
 ]
 
 [project.optional-dependencies]

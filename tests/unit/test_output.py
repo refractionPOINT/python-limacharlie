@@ -238,7 +238,8 @@ class TestTableValue:
     def test_small_dict_inline(self, _):
         d = {"a": 1}
         result = _table_value(d)
-        assert result == json.dumps(d, default=str)
+        # orjson omits space after colon (compact format)
+        assert result == '{"a":1}'
 
     @patch("limacharlie.output._max_value_width", return_value=10)
     def test_large_dict_summary(self, _):
@@ -286,7 +287,8 @@ class TestWideMode:
         set_wide_mode(True)
         d = {"key1": "value1", "key2": "value2", "key3": "value3"}
         result = _table_value(d)
-        assert result == json.dumps(d, default=str)
+        # orjson compact format (no space after colon)
+        assert result == '{"key1":"value1","key2":"value2","key3":"value3"}'
 
     def test_wide_list_comma_joined(self):
         set_wide_mode(True)

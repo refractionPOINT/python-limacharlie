@@ -16,12 +16,13 @@ class TestLimaCharlieContext:
         assert ctx.output_format is None
         assert ctx.debug is False
         assert ctx.quiet is False
+        assert ctx.no_warnings is False
         assert ctx.profile is None
         assert ctx.environment is None
 
     def test_field_names(self):
         names = [f.name for f in fields(LimaCharlieContext)]
-        assert names == ["oid", "output_format", "debug", "debug_full", "debug_curl", "quiet", "wide", "filter_expr", "profile", "environment"]
+        assert names == ["oid", "output_format", "debug", "debug_full", "debug_curl", "quiet", "wide", "no_warnings", "filter_expr", "profile", "environment"]
 
     def test_custom_values(self):
         ctx = LimaCharlieContext(oid="abc", output_format="json", debug=True, quiet=True)
