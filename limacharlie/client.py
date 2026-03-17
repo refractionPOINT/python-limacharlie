@@ -603,6 +603,8 @@ class Client:
             else:
                 u = urlopen(request, timeout=effective_timeout)
 
+            data = None
+            data_str = ""
             try:
                 data = u.read()
                 data_str = data.decode() if data else ""
@@ -623,7 +625,7 @@ class Client:
                     self._debug(
                         f"Rate limit warning: quota={quota_limit}, period={quota_period}s"
                     )
-                self._debug_response(HTTP_OK, resp_headers, data_str if data else "")
+                self._debug_response(HTTP_OK, resp_headers, data_str)
                 u.close()
 
             return (HTTP_OK, resp)

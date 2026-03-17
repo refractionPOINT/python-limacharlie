@@ -8,11 +8,21 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 import time
 from collections.abc import Callable, Generator
 from typing import Any, TYPE_CHECKING
 
-from ..errors import LimaCharlieError, SearchError
+from ..errors import (
+    ApiError,
+    AuthenticationError,
+    LimaCharlieError,
+    NotFoundError,
+    PermissionDeniedError,
+    RateLimitError,
+    SearchError,
+    ValidationError,
+)
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -27,6 +37,53 @@ def _exc_message(exc: Exception) -> str:
     if isinstance(exc, LimaCharlieError):
         return exc.raw_message
     return str(exc)
+
+
+# Transient HTTP status codes that are safe to retry on poll requests.
+# These indicate server-side or infrastructure issues, not client errors.
+_TRANSIENT_STATUS_CODES = frozenset({500, 502, 503, 504})
+
+# Maximum backoff delay in seconds for poll retries.
+_MAX_BACKOFF_SECONDS = 30
+
+
+def _is_transient_poll_error(exc: Exception) -> bool:
+    """Classify whether a poll exception is transient and safe to retry.
+
+    Retryable: ApiError with 5xx status, ConnectionError, TimeoutError,
+    OSError (network errors), ssl.SSLError.
+
+    NOT retryable: AuthenticationError (401), RateLimitError (429),
+    NotFoundError (404), ValidationError (422), PermissionDeniedError (403),
+    or any other non-transient error.
+
+    Args:
+        exc: The exception raised during a poll request.
+
+    Returns:
+        True if the error is transient and the poll should be retried.
+    """
+    # Non-retryable LimaCharlie error types - these are permanent failures.
+    if isinstance(exc, (AuthenticationError, RateLimitError, NotFoundError,
+                        ValidationError, PermissionDeniedError)):
+        return False
+
+    # ApiError with a transient HTTP status code.
+    if isinstance(exc, ApiError):
+        return exc.status_code in _TRANSIENT_STATUS_CODES
+
+    # Network-level errors are transient.
+    if isinstance(exc, (ConnectionError, TimeoutError, ssl.SSLError)):
+        return True
+
+    # OSError covers low-level socket errors (ECONNRESET, EPIPE, etc.)
+    # but we exclude subclasses that are not network-related.
+    if isinstance(exc, OSError) and not isinstance(exc, (FileNotFoundError,
+                                                          PermissionError,
+                                                          IsADirectoryError)):
+        return True
+
+    return False
 
 
 # Pattern to extract region identifier from search URL.
@@ -112,6 +169,62 @@ class Search:
         # Estimate uses the validate endpoint with additional parameters
         return self.validate(query, start_time, end_time, stream)
 
+    def _poll_with_retry(
+        self,
+        query_id: str,
+        search_url: str,
+        query_params: dict[str, str] | None,
+        max_retries: int = 3,
+        progress_fn: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Execute a single poll GET request with retry on transient errors.
+
+        Uses exponential backoff (2^attempt seconds, capped at 30s) between
+        retries. Only retries on transient errors as classified by
+        ``_is_transient_poll_error`` - permanent errors (auth, validation,
+        rate limit) are raised immediately.
+
+        Poll responses containing an ``"error"`` key in the body are NOT
+        retried - these are search-engine errors (e.g. "context canceled"),
+        not transport errors.
+
+        Args:
+            query_id: Active search query ID.
+            search_url: Base search API URL.
+            query_params: Query parameters for the GET request (e.g. pagination token).
+            max_retries: Maximum number of retry attempts (default 3).
+            progress_fn: Optional callback for retry status messages.
+
+        Returns:
+            The poll response dict.
+
+        Raises:
+            The original exception if all retries are exhausted or the
+            error is not transient.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                return self._org.client.request(
+                    "GET", f"search/{query_id}",
+                    query_params=query_params,
+                    alt_root=search_url,
+                )
+            except Exception as exc:
+                if attempt >= max_retries or not _is_transient_poll_error(exc):
+                    raise
+                last_exc = exc
+                backoff = min(2 ** attempt, _MAX_BACKOFF_SECONDS)
+                if progress_fn:
+                    progress_fn(
+                        f"Retrying poll (attempt {attempt + 2}/{max_retries + 1}, "
+                        f"waiting {backoff}s)..."
+                    )
+                time.sleep(backoff)
+
+        # Should not reach here, but satisfy type checker.
+        raise last_exc  # type: ignore[misc]
+
     def execute(
         self,
         query: str,
@@ -120,6 +233,9 @@ class Search:
         stream: str | None = None,
         limit: int | None = None,
         progress_fn: Callable[[str], None] | None = None,
+        poll_max_retries: int = 3,
+        start_token: str | None = None,
+        start_page: int = 1,
     ) -> Generator[dict[str, Any], None, None]:
         """Execute an LCQL query and return results.
 
@@ -133,6 +249,17 @@ class Search:
                 "Running search...", "Fetching page 2...").  Called with
                 a human-readable status string.  Intended for CLI progress
                 output to stderr in interactive mode.
+            poll_max_retries: Maximum number of retries for each individual
+                poll request on transient errors (default 3). Set to 0 to
+                disable retries.
+            start_token: Resume pagination from this token. When provided,
+                the first poll request immediately uses this token to skip
+                ahead to the page following the one that produced it.
+                Used by checkpoint/resume to avoid re-fetching already-
+                fetched pages.
+            start_page: Starting page number for progress display (default 1).
+                Used with start_token to show accurate page numbers when
+                resuming mid-search.
 
         Yields:
             dict: Result records.
@@ -195,21 +322,26 @@ class Search:
             progress_fn(f"Running search... query_id: {query_id}")
 
         count = 0
-        page = 1
+        page = start_page
         total_events = 0
         start_ts = time.monotonic()
-        token: str | None = None
+        token: str | None = start_token
         _interrupted = False
+
+        if start_token and progress_fn:
+            tok_display = "..." + start_token[-12:] if len(start_token) > 16 else start_token
+            progress_fn(f"Resuming from page {page} (token={tok_display})")
         try:
             while True:
                 qp: dict[str, str] = {}
                 if token:
                     qp["token"] = token
 
-                poll = self._org.client.request(
-                    "GET", f"search/{query_id}",
+                poll = self._poll_with_retry(
+                    query_id, search_url,
                     query_params=qp or None,
-                    alt_root=search_url,
+                    max_retries=poll_max_retries,
+                    progress_fn=progress_fn,
                 )
 
                 # Check for error in poll response
@@ -243,9 +375,13 @@ class Search:
                         page += 1
                         if progress_fn:
                             elapsed = time.monotonic() - start_ts
+                            # Show last 12 chars of token (the prefix is
+                            # always the same, the suffix varies).
+                            tok_display = "..." + next_token[-12:] if len(next_token) > 16 else next_token
                             progress_fn(
                                 f"Fetching page {page}... "
-                                f"({total_events:,} events, {elapsed:.0f}s elapsed)"
+                                f"({total_events:,} events, {elapsed:.0f}s elapsed, "
+                                f"token={tok_display})"
                             )
                     else:
                         break

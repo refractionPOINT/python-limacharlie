@@ -66,6 +66,57 @@ def secure_file_permissions(path: str) -> None:
         os.chown(path, os.getuid(), os.getgid())
 
 
+def secure_dir_permissions(path: str) -> None:
+    """Restrict directory permissions to owner-only access.
+
+    On Unix: sets mode to 0o700 (rwx------) and chowns to current user/group.
+    On Windows: sets via os.chmod (limited - Windows home dirs are already
+    ACL-restricted by default).
+
+    Args:
+        path: absolute path to the directory to secure.
+    """
+    os.chmod(path, stat.S_IRWXU)
+    if os.name != "nt":
+        os.chown(path, os.getuid(), os.getgid())
+
+
+def secure_makedirs(path: str) -> None:
+    """Create directories with owner-only permissions, creating parents as needed.
+
+    Each directory in the path that does not yet exist is created with 0o700
+    permissions (owner rwx only). Existing directories also have their
+    permissions tightened to 0o700 to ensure security even if they were
+    created by another process with permissive permissions.
+
+    Cross-platform: on Unix, uses 0o700 mode; on Windows, relies on the
+    user's home directory ACLs (os.chmod has limited effect on directories).
+
+    Args:
+        path: absolute path to the leaf directory to create.
+    """
+    # Walk from root to leaf, creating each missing component with
+    # secure permissions. os.makedirs(mode=) applies mode only to the
+    # leaf on some platforms, so we create each level explicitly.
+    path = os.path.abspath(path)
+    components: list[str] = []
+    current = path
+    while not os.path.isdir(current):
+        components.append(current)
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    # Create from shallowest to deepest.
+    for d in reversed(components):
+        os.mkdir(d)
+        secure_dir_permissions(d)
+    # Ensure the leaf directory (and its immediate parent if we created it)
+    # has correct permissions even if it already existed.
+    if os.path.isdir(path):
+        secure_dir_permissions(path)
+
+
 def safe_open_read(path: str) -> bytes:
     """Read a file's contents, rejecting symlinks atomically.
 
