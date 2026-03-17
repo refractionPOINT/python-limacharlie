@@ -59,6 +59,7 @@ org = Organization(client)
 | `Investigations` | `limacharlie.sdk.investigations` | Investigation tracking |
 | `AI` | `limacharlie.sdk.ai` | AI-assisted rule/query generation |
 | `Billing` | `limacharlie.sdk.billing` | Billing and usage details |
+| `Cases` | `limacharlie.sdk.cases` | SOC case management, investigation tracking, reporting |
 
 ## Raw API Requests
 
@@ -105,7 +106,7 @@ status, data = client.raw_request("GET", f"orgs/{client.oid}",
 | [Search & Insight](search-insight.md) | LCQL queries, IOC search, enrichment |
 | [Streaming](streaming.md) | Spout, Firehose |
 | [Configuration Sync](configs.md) | Infrastructure-as-code |
-| [Other Classes](other-classes.md) | Extensions, Artifacts, Payloads, Outputs, AI, Billing |
+| [Other Classes](other-classes.md) | Extensions, Artifacts, Payloads, Outputs, AI, Billing, Cases |
 
 ## See Also
 
