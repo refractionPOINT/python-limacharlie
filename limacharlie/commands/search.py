@@ -17,12 +17,19 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
 import click
+from ..json_compat import (
+    dumps as _fast_dumps,
+    dumps_pretty as _fast_dumps_pretty,
+    loads as _fast_loads,
+    backend_name as _json_backend_name,
+)
 
 from ..search_checkpoint import (
     CheckpointReader,
@@ -61,9 +68,111 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
+def _warn(ctx: click.Context, msg: str) -> None:
+    """Print an advisory warning to stderr unless suppressed.
+
+    Suppressed by --no-warnings or --quiet. Not suppressed by --output
+    format changes (warnings are always on stderr).
+
+    Args:
+        ctx: Click context with output settings.
+        msg: Warning message to print.
+    """
+    if ctx.obj.quiet or ctx.obj.no_warnings:
+        return
+    click.echo(msg, err=True)
+
+
+def _output_validate_or_estimate(ctx: click.Context, data: dict[str, Any]) -> None:
+    """Output validate/estimate results with expanded stats for table mode.
+
+    For table output: flattens nested dicts (stats, estimatedPrice) into
+    individual columns so the full values are visible without truncation.
+    For machine-readable formats: passes through the raw response unchanged.
+
+    Args:
+        ctx: Click context with output settings.
+        data: Response dict from validate/estimate API.
+    """
+    if ctx.obj.quiet:
+        return
+
+    fmt = ctx.obj.output_format or detect_output_format()
+
+    if fmt != "table":
+        click.echo(format_output(data, fmt))
+        return
+
+    # Flatten stats and estimatedPrice into individual columns for table
+    # display so values are fully visible (not truncated as "{N keys}").
+    display = {}
+    for key, value in data.items():
+        if key == "stats" and isinstance(value, dict):
+            for sk, sv in value.items():
+                display[f"stats.{sk}"] = sv
+        elif key == "estimatedPrice" and isinstance(value, dict):
+            for pk, pv in value.items():
+                display[f"price.{pk}"] = pv
+        else:
+            display[key] = value
+
+    click.echo(format_output(display, fmt))
+
+
 def _get_org(ctx: click.Context) -> Organization:
     client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
     return Organization(client)
+
+
+
+def _output_checkpoint_results(
+    ctx: click.Context,
+    checkpoint_path: str,
+    raw: bool = False,
+    expand: bool = False,
+) -> None:
+    """Output results from a checkpoint data file.
+
+    Streaming behavior by format:
+    - JSONL: streams one line at a time (constant memory)
+    - JSON: streaming JSON array (constant memory)
+    - expand: streams per event block (constant memory)
+    - table: two-pass over the file - pass 1 computes exact column widths,
+      pass 2 streams rows. O(columns) memory, not O(rows). Uses orjson
+      for faster parsing when available.
+    - CSV/YAML/raw: loads all results into memory (inherent to format)
+
+    Args:
+        ctx: Click context with output settings.
+        checkpoint_path: Path to the checkpoint JSONL data file.
+        raw: If True, skip unwrapping even in table mode.
+        expand: If True, show each event as a full JSON block.
+    """
+    if ctx.obj.quiet:
+        return
+
+    fmt = ctx.obj.output_format or detect_output_format()
+
+    # Table (non-raw, non-expand): use two-pass streaming from file.
+    # This gives exact column widths (not sampled) with O(columns) memory.
+    if fmt == "table" and not raw and not expand:
+        _stream_table_from_file(checkpoint_path, wide=ctx.obj.wide)
+        return
+
+    # Try streaming for other formats (JSONL, JSON, expand).
+    # _stream_search_output returns False without consuming the iterator
+    # for formats that need the full list (CSV, YAML, raw).
+    results_iter = CheckpointReader.iter_results(checkpoint_path)
+    if _stream_search_output(ctx, results_iter, raw=raw, expand=expand):
+        return
+
+    # CSV/YAML/raw need the full list - consume the existing iterator
+    # rather than opening the file a second time.
+    results = list(results_iter)
+    if not results:
+        click.echo("No results.")
+        return
+    _output_search_results(ctx, results, raw=raw, expand=expand)
 
 
 def _make_progress_fn(ctx: click.Context) -> Callable[[str], None] | None:
@@ -308,6 +417,63 @@ def _format_stats_summary(stats: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def _format_file_size(size_bytes: int) -> str:
+    """Format a byte count as a human-friendly string (e.g. '1.2 MB').
+
+    Uses binary units (1 KB = 1024 bytes) with one decimal place.
+
+    Args:
+        size_bytes: File size in bytes.
+
+    Returns:
+        Human-readable size string like '4.5 KB', '12.3 MB', '1.1 GB'.
+    """
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    for unit in ("KB", "MB", "GB", "TB"):
+        size_bytes /= 1024
+        if size_bytes < 1024 or unit == "TB":
+            return f"{size_bytes:.1f} {unit}"
+    return f"{size_bytes:.1f} TB"
+
+
+def _format_expanded_event_block(row: dict[str, Any]) -> str:
+    """Format a single event row as a header + JSON block.
+
+    Args:
+        row: A SearchResultRow dict with 'mtd' and 'data' fields.
+
+    Returns:
+        A string like "--- 2023-11-15 00:12:34 | event | NEW_PROCESS ---\\n{json}"
+    """
+    mtd = row.get("mtd", {})
+    ts = mtd.get("ts")
+    header_parts: list[str] = []
+    if ts is not None:
+        try:
+            header_parts.append(
+                datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            )
+        except (OSError, ValueError, OverflowError):
+            header_parts.append(str(ts))
+    stream = mtd.get("stream")
+    if stream:
+        header_parts.append(stream)
+    data = row.get("data", {})
+    if isinstance(data, dict):
+        etype = (
+            data.get("routing", {}).get("event_type")
+            or data.get("cat")
+            or data.get("etype")
+        )
+        if etype:
+            header_parts.append(etype)
+
+    header = " | ".join(header_parts) if header_parts else "event"
+    body = _fast_dumps_pretty(data)
+    return f"--- {header} ---\n{body}"
+
+
 def _format_expanded_events(results: list[dict[str, Any]]) -> str:
     """Format events as individual JSON blocks separated by dividers.
 
@@ -320,34 +486,441 @@ def _format_expanded_events(results: list[dict[str, Any]]) -> str:
         if result.get("type") != "events":
             continue
         for row in result.get("rows") or []:
-            mtd = row.get("mtd", {})
-            ts = mtd.get("ts")
-            header_parts: list[str] = []
-            if ts is not None:
-                try:
-                    header_parts.append(
-                        datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    )
-                except (OSError, ValueError, OverflowError):
-                    header_parts.append(str(ts))
-            stream = mtd.get("stream")
-            if stream:
-                header_parts.append(stream)
-            data = row.get("data", {})
-            # Try to get event type for the header.
-            if isinstance(data, dict):
-                etype = (
-                    data.get("routing", {}).get("event_type")
-                    or data.get("cat")
-                    or data.get("etype")
-                )
-                if etype:
-                    header_parts.append(etype)
-
-            header = " | ".join(header_parts) if header_parts else "event"
-            parts.append(f"--- {header} ---")
-            parts.append(json.dumps(data, indent=2, default=str))
+            parts.append(_format_expanded_event_block(row))
     return "\n".join(parts)
+
+
+def _stream_expanded_events(results_iter: Any) -> bool:
+    """Stream expanded event blocks to stdout one at a time.
+
+    Each event is printed immediately without buffering all events
+    in memory. Suitable for large result sets.
+
+    Args:
+        results_iter: Iterable of SearchResult dicts.
+
+    Returns:
+        True if at least one event was printed.
+    """
+    has_events = False
+    for result in results_iter:
+        if result.get("type") != "events":
+            continue
+        for row in result.get("rows") or []:
+            has_events = True
+            click.echo(_format_expanded_event_block(row))
+    return has_events
+
+
+def _stream_search_output(
+    ctx: click.Context,
+    results_iter: Any,
+    raw: bool = False,
+    expand: bool = False,
+) -> bool:
+    """Try to stream search results without buffering in memory.
+
+    Handles formats that can be streamed one result at a time:
+    - JSONL: one JSON line per result (constant memory)
+    - JSON: streaming JSON array (``[`` + items + ``]``, constant memory)
+    - expand: one event block at a time (constant memory)
+
+    For formats that require the full data set (table, CSV, YAML), returns
+    False so the caller can fall back to buffered output.
+
+    Args:
+        ctx: Click context with output settings.
+        results_iter: Iterable (generator or list) of SearchResult dicts.
+        raw: If True, skip unwrapping even in table mode.
+        expand: If True, show each event as a full JSON block.
+
+    Returns:
+        True if output was handled (streamed). False if the caller should
+        fall back to buffered output (the iterator was NOT consumed).
+    """
+    if ctx.obj.quiet:
+        return True  # Nothing to do, consider it handled.
+
+    fmt = ctx.obj.output_format or detect_output_format()
+
+    # JSONL: stream one result per line.
+    if fmt == "jsonl":
+        for result in results_iter:
+            click.echo(_fast_dumps(result))
+        return True
+
+    # JSON: stream as array without building the full list in memory.
+    # Write "[", then each item separated by commas, then "]".
+    if fmt == "json":
+        first = True
+        for result in results_iter:
+            if first:
+                click.echo("[")
+                first = False
+            else:
+                click.echo(",")
+            click.echo(f"  {_fast_dumps(result)}", nl=False)
+        if first:
+            # No results at all.
+            click.echo("[]")
+        else:
+            click.echo("\n]")
+        return True
+
+    # Expand mode (table format): stream each event block individually.
+    if fmt == "table" and expand and not raw:
+        has_events = _stream_expanded_events(results_iter)
+        if not has_events:
+            click.echo("No events")
+        return True
+
+    # Table (non-expand, non-raw): stream with sampled column widths.
+    if fmt == "table" and not raw:
+        _stream_table_events(results_iter, wide=ctx.obj.wide)
+        return True
+
+    # CSV, YAML, raw: cannot stream - need full list.
+    return False
+
+
+# Number of SearchResult pages to buffer for column width sampling.
+# Each page typically has ~2000 event rows, so 3 pages = ~6000 rows
+# which is enough to determine representative column widths.
+_TABLE_SAMPLE_PAGES = 3
+
+# Time range threshold (seconds) above which a warning is emitted for
+# searches without --checkpoint. Searches over large time ranges produce
+# many results that may cause high memory usage without checkpointing.
+# Default: 7 days (604800 seconds).
+_LARGE_TIME_RANGE_WARN_SECONDS = 7 * 24 * 3600
+
+# Time range threshold (seconds) above which we recommend --checkpoint
+# for resumability. Long searches are more likely to be interrupted
+# (network issues, token expiry, Ctrl-C) and losing hours of progress
+# is painful. Default: 14 days (1209600 seconds).
+_CHECKPOINT_RECOMMEND_SECONDS = 14 * 24 * 3600
+
+# Time range threshold (seconds) above which a billing cost notice is
+# shown. LimaCharlie includes the last 30 days of telemetry in the
+# base price; searching beyond that window may incur additional
+# per-query charges. The server-side threshold is strictly >30 days
+# (replay uses 31*24h, insight-go uses 30*24h with >), so we warn
+# at >30 days to match.
+_COST_NOTICE_SECONDS = 30 * 24 * 3600
+
+
+def _warn_cost_if_over_30_days(
+    ctx: click.Context,
+    query: str, start: int, end: int,
+    stream: str | None, checkpoint_path: str | None,
+) -> None:
+    """Print a billing cost notice when the search spans more than 30 days.
+
+    LimaCharlie includes the last 30 days of telemetry in the base
+    subscription price. Queries that reach beyond the 30-day window may
+    incur additional per-query charges based on the volume of data
+    scanned.
+
+    Shows the ``search estimate`` command the user can run to check
+    the cost before executing.
+
+    Suppressed by ``--no-warnings`` or ``--quiet``.
+
+    Args:
+        ctx: Click context with output settings.
+        query: LCQL query string.
+        start: Start time (unix seconds).
+        end: End time (unix seconds).
+        stream: Stream type or None.
+        checkpoint_path: Checkpoint path (for building the estimate cmd).
+    """
+    time_range = end - start
+    if time_range <= _COST_NOTICE_SECONDS:
+        return
+
+    days = time_range / 86400
+    estimate_parts = [
+        "limacharlie search estimate",
+        f"--query {shlex.quote(query)}",
+        f"--start {start}",
+        f"--end {end}",
+    ]
+    if stream:
+        estimate_parts.append(f"--stream {shlex.quote(stream)}")
+    estimate_cmd = " \\\n    ".join(estimate_parts)
+
+    _warn(
+        ctx,
+        f"Notice: this search spans {days:.0f} days. Searches over data "
+        f"older than 30 days may incur additional costs.\n"
+        f"To estimate the cost before running:\n\n"
+        f"  {estimate_cmd}\n",
+    )
+
+
+def _stream_table_events(results_iter: Any, wide: bool = False) -> None:
+    """Stream search results as a table, sampling first pages for column widths.
+
+    Buffers the first few pages of results to determine column names and
+    widths, prints the header and buffered rows, then streams remaining
+    rows one at a time using the computed layout. Rows with values wider
+    than the sampled widths are truncated.
+
+    Memory usage: O(sample_rows * columns) for the sample buffer, then
+    O(columns) for the streaming phase. Much less than O(all_rows) for
+    large result sets.
+
+    Args:
+        results_iter: Iterable of SearchResult dicts from the API.
+        wide: If True, don't limit columns or truncate values.
+    """
+    from ..output import _table_value, _term_width, _wide_mode
+    import shutil
+
+    # Phase 1: Sample first N pages to determine columns and widths.
+    sample_results: list[dict[str, Any]] = []
+    remaining_results: list[dict[str, Any]] = []
+    sample_count = 0
+    stats: dict[str, Any] = {}
+    total_events = 0
+
+    for result in results_iter:
+        if result.get("type") == "events":
+            result_stats = result.get("stats")
+            if result_stats:
+                stats = result_stats
+        if sample_count < _TABLE_SAMPLE_PAGES:
+            sample_results.append(result)
+            sample_count += 1
+        else:
+            remaining_results.append(result)
+            # After collecting one extra to prove there are more,
+            # break out and stream the rest later.
+            break
+
+    if not sample_results:
+        click.echo("No events")
+        return
+
+    # Flatten sample events to determine columns.
+    sample_flat: list[dict[str, Any]] = []
+    for result in sample_results:
+        if result.get("type") != "events":
+            continue
+        for row in result.get("rows") or []:
+            sample_flat.append(_flatten_event_row(row))
+
+    if not sample_flat:
+        click.echo("No events")
+        return
+
+    # Apply column selection (priority columns, drop columns, cap).
+    if not wide:
+        sample_display = _limit_event_columns(sample_flat)
+    else:
+        sample_display = sample_flat
+
+    # Determine columns from sample.
+    columns: list[str] = []
+    seen: set[str] = set()
+    for row in sample_display:
+        for k in row:
+            if k not in seen:
+                columns.append(k)
+                seen.add(k)
+
+    if not columns:
+        click.echo("No events")
+        return
+
+    # Compute column widths from sample.
+    term = shutil.get_terminal_size().columns if not wide else 9999
+    cell_max = max(20, min(60, term // 3)) if not wide else 9999
+
+    col_widths: dict[str, int] = {}
+    for col in columns:
+        header_w = len(col)
+        max_val_w = 0
+        for row in sample_display:
+            val = _table_value(row.get(col, ""), width=cell_max)
+            max_val_w = max(max_val_w, len(val))
+        col_widths[col] = max(header_w, min(max_val_w, cell_max))
+
+    # Build format string.
+    def _render_row(values: list[str]) -> str:
+        parts = []
+        for col, val in zip(columns, values):
+            w = col_widths[col]
+            if len(val) > w:
+                val = val[:w - 3] + "..." if w > 3 else val[:w]
+            parts.append(val.ljust(w))
+        return "  ".join(parts)
+
+    # Print header.
+    header_vals = [col.ljust(col_widths[col]) for col in columns]
+    click.echo("  ".join(header_vals))
+    separator = "  ".join("-" * col_widths[col] for col in columns)
+    click.echo(separator)
+
+    # Phase 2: Print sample rows.
+    for row in sample_display:
+        vals = [_table_value(row.get(col, ""), width=cell_max) for col in columns]
+        click.echo(_render_row(vals))
+        total_events += 1
+
+    # Phase 3: Stream remaining results.
+    def _process_remaining(results):
+        nonlocal total_events, stats
+        for result in results:
+            if result.get("type") == "events":
+                result_stats = result.get("stats")
+                if result_stats:
+                    stats = result_stats
+                for row in result.get("rows") or []:
+                    flat = _flatten_event_row(row)
+                    if not wide:
+                        flat = {k: flat[k] for k in columns if k in flat}
+                    vals = [_table_value(flat.get(col, ""), width=cell_max) for col in columns]
+                    click.echo(_render_row(vals))
+                    total_events += 1
+
+    # First process any extra results we buffered.
+    _process_remaining(remaining_results)
+    # Then stream the rest from the iterator.
+    _process_remaining(results_iter)
+
+    # Stats summary to stderr.
+    click.echo(click.style(
+        f"({total_events:,} event{'s' if total_events != 1 else ''})",
+        dim=True,
+    ), err=True)
+    if stats:
+        summary = _format_stats_summary(stats)
+        if summary:
+            click.echo(click.style(f"Stats: {summary}", dim=True), err=True)
+    sys.stderr.flush()
+
+
+def _stream_table_from_file(checkpoint_path: str, wide: bool = False) -> None:
+    """Two-pass streaming table renderer for checkpoint files.
+
+    Pass 1: Scans the entire JSONL file to compute exact column widths.
+    Only stores {column: max_width} - O(columns) memory, not O(rows).
+    Pass 2: Streams the file again, rendering each row immediately with
+    the computed layout.
+
+    Uses orjson for fast JSON parsing on both passes (~3-6x faster than
+    stdlib json).
+
+    This gives perfectly accurate column widths (unlike the sample-based
+    approach for live searches) while keeping memory constant regardless
+    of file size.
+
+    Args:
+        checkpoint_path: Path to the checkpoint JSONL data file.
+        wide: If True, don't limit columns or truncate values.
+    """
+    from ..output import _table_value
+
+    term = shutil.get_terminal_size().columns if not wide else 9999
+    cell_max = max(20, min(60, term // 3)) if not wide else 9999
+
+    # --- Pass 1: compute all columns and their widths ---
+    # We collect all unique column names and track the max rendered width
+    # for each. This is O(columns) memory, not O(rows).
+    all_columns: list[str] = []
+    seen_cols: set[str] = set()
+    col_widths: dict[str, int] = {}
+    stats: dict[str, Any] = {}
+    total_events = 0
+
+    with open(checkpoint_path, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                result = _fast_loads(stripped)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            if result.get("type") != "events":
+                continue
+            result_stats = result.get("stats")
+            if result_stats:
+                stats = result_stats
+            for row in result.get("rows") or []:
+                flat = _flatten_event_row(row)
+                total_events += 1
+                for k, v in flat.items():
+                    val_str = _table_value(v, width=cell_max)
+                    val_w = len(val_str)
+                    if k not in seen_cols:
+                        all_columns.append(k)
+                        seen_cols.add(k)
+                        col_widths[k] = max(len(k), val_w)
+                    else:
+                        col_widths[k] = max(col_widths[k], val_w)
+
+    if not all_columns:
+        click.echo("No events")
+        return
+
+    # Apply column selection (priority columns, drop columns, column cap).
+    # Build a fake single-row dict with all columns to let _limit_event_columns
+    # determine the final column set and order.
+    if not wide:
+        fake_row = {k: "" for k in all_columns}
+        selected = _limit_event_columns([fake_row])
+        columns = list(selected[0].keys()) if selected else all_columns
+    else:
+        columns = all_columns
+
+    # Filter col_widths to only selected columns.
+    col_widths = {k: col_widths.get(k, len(k)) for k in columns}
+
+    def _render_row(values: list[str]) -> str:
+        parts = []
+        for col, val in zip(columns, values):
+            w = col_widths.get(col, len(col))
+            if len(val) > w:
+                val = val[:w - 3] + "..." if w > 3 else val[:w]
+            parts.append(val.ljust(w))
+        return "  ".join(parts)
+
+    # Print header.
+    header_vals = [col.ljust(col_widths.get(col, len(col))) for col in columns]
+    click.echo("  ".join(header_vals))
+    click.echo("  ".join("-" * col_widths.get(col, len(col)) for col in columns))
+
+    # --- Pass 2: stream rows ---
+    with open(checkpoint_path, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                result = _fast_loads(stripped)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            if result.get("type") != "events":
+                continue
+            for row in result.get("rows") or []:
+                flat = _flatten_event_row(row)
+                vals = [_table_value(flat.get(col, ""), width=cell_max) for col in columns]
+                click.echo(_render_row(vals))
+
+    # Stats summary to stderr.
+    click.echo(click.style(
+        f"({total_events:,} event{'s' if total_events != 1 else ''})",
+        dim=True,
+    ), err=True)
+    if stats:
+        summary = _format_stats_summary(stats)
+        if summary:
+            click.echo(click.style(f"Stats: {summary}", dim=True), err=True)
+    sys.stderr.flush()
 
 
 def _output_search_results(
@@ -648,6 +1221,31 @@ Examples:
       --query "plat == windows | WEL | event/EVENT/System/EventID == '4625'" \\
       --start 1700000000 --end 1700086400 --token-expiry 8
 
+Output formats:
+  By default, results are rendered as a table (TTY) or JSON (piped).
+  Use --output to choose: json, jsonl, yaml, csv, table.
+
+  Streaming behavior (constant memory):
+    --output jsonl  - one JSON object per line, streamed immediately
+    --output json   - streaming JSON array, no full buffering
+    --output table  - streams rows after sampling column widths from
+                      the first few pages (default for TTY)
+
+  Buffered (loads all results into memory):
+    --output csv    - needs all rows for column headers
+    --output yaml   - needs all rows for YAML structure
+
+  Use --expand to show each event as a full pretty-printed JSON block
+  with a header showing timestamp, stream, and event type. Useful for
+  investigating individual events in detail.
+
+  Use --raw to show the raw SearchResult API objects without
+  unwrapping. Useful for debugging or accessing metadata like
+  searchResultId, nextToken, and stats.
+
+  For large result sets (100K+ events), prefer --output jsonl or
+  --checkpoint to avoid high memory usage.
+
 Token expiry defaults to 4 hours to avoid mid-query JWT expiry on
 long-running searches.  Override with --token-expiry or set
 'search_token_expiry_hours' in ~/.limacharlie.
@@ -705,6 +1303,7 @@ def run(ctx: click.Context, query: str | None, start: int | None, end: int | Non
         stream: str | None, limit: int | None, token_expiry: float | None,
         raw: bool, expand: bool, checkpoint_path: str | None, resume: bool,
         force: bool) -> None:
+    """Execute an LCQL query against historical telemetry."""
     # --- Validate flag combinations ---
     if resume:
         if not checkpoint_path:
@@ -761,22 +1360,57 @@ def _run_normal(
     stream: str | None, limit: int | None, token_expiry: float | None,
     raw: bool, expand: bool,
 ) -> None:
-    """Execute a search without checkpointing."""
+    """Execute a search without checkpointing.
+
+    Streams results for JSONL, JSON, and expand output formats to avoid
+    buffering all results in memory. Falls back to buffered output for
+    table/CSV/YAML which need the full data set.
+    """
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
+
+    # Warn about large time ranges without --checkpoint.
+    time_range = end - start
+    fmt = ctx.obj.output_format or detect_output_format()
+    _warn_cost_if_over_30_days(ctx, query, start, end, stream, checkpoint_path=None)
+    if time_range > _LARGE_TIME_RANGE_WARN_SECONDS and fmt in ("csv", "yaml"):
+        days = time_range / 86400
+        _warn(
+            ctx,
+            f"Warning: searching {days:.0f} days without --checkpoint. "
+            f"With --output {fmt}, all results are buffered in memory.\n"
+            f"Consider --output jsonl or --output table which stream with "
+            f"constant memory, or use --checkpoint for incremental saves.",
+        )
+    if time_range > _CHECKPOINT_RECOMMEND_SECONDS:
+        days = time_range / 86400
+        _warn(
+            ctx,
+            f"Warning: searching {days:.0f} days without --checkpoint. "
+            f"If the search is interrupted, all progress will be lost.\n"
+            f"Consider using --checkpoint <path> so the search can be "
+            f"resumed later with --resume.",
+        )
+
     org = _get_org(ctx)
     effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
     if effective_expiry > 24:
-        click.echo(
+        _warn(
+            ctx,
             f"Warning: generating a token valid for {effective_expiry} hours. "
             "Long-lived tokens increase security exposure if leaked.",
-            err=True,
         )
     org.client.get_jwt(expiry_hours=effective_expiry)
     search = Search(org)
     progress_fn = _make_progress_fn(ctx)
     try:
-        results = list(search.execute(query, start, end, stream=stream, limit=limit, progress_fn=progress_fn))
+        gen = search.execute(query, start, end, stream=stream, limit=limit, progress_fn=progress_fn)
+        # Try streaming output first (JSONL, JSON, expand). If the format
+        # requires buffering (table, CSV, YAML), fall back to list().
+        if _stream_search_output(ctx, gen, raw=raw, expand=expand):
+            return
+        # Format needs full list - consume the generator.
+        results = list(gen)
     except KeyboardInterrupt:
         click.echo("\nSearch canceled.", err=True)
         sys.stderr.flush()
@@ -793,21 +1427,23 @@ def _run_with_checkpoint(
     """Execute a search with checkpoint persistence."""
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
+    _warn_cost_if_over_30_days(ctx, query, start, end, stream, checkpoint_path)
     org = _get_org(ctx)
     debug_fn = ctx.obj.debug_fn
     effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
     if effective_expiry > 24:
-        click.echo(
+        _warn(
+            ctx,
             f"Warning: generating a token valid for {effective_expiry} hours. "
             "Long-lived tokens increase security exposure if leaked.",
-            err=True,
         )
     org.client.get_jwt(expiry_hours=effective_expiry)
     search = Search(org)
     progress_fn = _make_progress_fn(ctx)
 
     if debug_fn:
-        debug_fn(f"Checkpoint: creating data file at {checkpoint_path} (force={force})")
+        json_backend = _json_backend_name()
+        debug_fn(f"Checkpoint: creating data file at {checkpoint_path} (force={force}), json backend: {json_backend}")
 
     try:
         writer = CheckpointWriter(
@@ -861,7 +1497,10 @@ def _run_with_checkpoint(
         ctx.exit(4)
         return
 
-    results: list[dict] = []
+    # Do NOT accumulate results in memory during the search loop.
+    # Large searches (100K+ events) would cause OOM on constrained VMs.
+    # Results are persisted to the JSONL file and read back for output
+    # at the end (or streamed for JSONL output format).
     count = 0
     page = 1
     total_events = 0
@@ -872,7 +1511,6 @@ def _run_with_checkpoint(
             for item in search.execute(query, start, end, stream=stream,
                                        limit=limit, progress_fn=progress_fn):
                 writer.write_result(item)
-                results.append(item)
                 count += 1
                 # Track token, page, events, and timestamps.
                 if item.get("nextToken"):
@@ -905,7 +1543,11 @@ def _run_with_checkpoint(
 
     if progress_fn:
         progress_fn(f"Checkpoint complete: {count} results saved to {checkpoint_path}")
-    _output_search_results(ctx, results, raw=raw, expand=expand)
+
+    # Read results back from the checkpoint file for output.
+    # For JSONL this streams lazily; for table/JSON it loads into memory
+    # but that is inherent to those formats.
+    _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)
 
 
 def _run_resume(
@@ -940,9 +1582,7 @@ def _run_resume(
 
     if meta.get("completed"):
         click.echo("Checkpoint is already completed. Nothing to resume.", err=True)
-        # Output existing results from the data file.
-        all_results = list(CheckpointReader.iter_results(checkpoint_path))
-        _output_search_results(ctx, all_results, raw=raw, expand=expand)
+        _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)
         return
 
     query = meta["query"]
@@ -963,10 +1603,10 @@ def _run_resume(
     org = _get_org(ctx)
     effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
     if effective_expiry > 24:
-        click.echo(
+        _warn(
+            ctx,
             f"Warning: generating a token valid for {effective_expiry} hours. "
             "Long-lived tokens increase security exposure if leaked.",
-            err=True,
         )
     org.client.get_jwt(expiry_hours=effective_expiry)
     search = Search(org)
@@ -1091,11 +1731,9 @@ def _run_resume(
         new_count = count - existing_count
         progress_fn(f"Resume complete: {new_count} new results ({count} total) saved to {checkpoint_path}")
 
-    # Read all results from the checkpoint file (existing + new) for output.
-    # The data file now contains everything; no need to keep results in memory
-    # during the search loop.
-    all_results = list(CheckpointReader.iter_results(checkpoint_path))
-    _output_search_results(ctx, all_results, raw=raw, expand=expand)
+    # Output results from the checkpoint file (existing + new).
+    # Streams for JSONL; loads for table/JSON (inherent to those formats).
+    _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)
 
 
 # ---------------------------------------------------------------------------
@@ -1126,10 +1764,13 @@ register_explain("search.validate", _EXPLAIN_VALIDATE)
 @click.option("--query", required=True, help="LCQL query string to validate.")
 @pass_context
 def validate(ctx: click.Context, query: str) -> None:
+    """Validate LCQL query syntax without executing."""
     org = _get_org(ctx)
     search = Search(org)
     data = search.validate(query)
-    _output(ctx, data)
+    _output_validate_or_estimate(ctx, data)
+    if data.get("error"):
+        ctx.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -1163,12 +1804,15 @@ register_explain("search.estimate", _EXPLAIN_ESTIMATE)
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
 @pass_context
 def estimate(ctx: click.Context, query: str, start: int, end: int, stream: str | None) -> None:
+    """Estimate the billing cost of an LCQL query."""
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
     search = Search(org)
     data = search.estimate(query, start, end, stream=stream)
-    _output(ctx, data)
+    _output_validate_or_estimate(ctx, data)
+    if data.get("error"):
+        ctx.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -1195,6 +1839,7 @@ register_explain("search.saved-list", _EXPLAIN_SAVED_LIST)
 @group.command("saved-list")
 @pass_context
 def saved_list(ctx: click.Context) -> None:
+    """List all saved LCQL queries."""
     org = _get_org(ctx)
     hive = Hive(org, "query")
     records = hive.list()
@@ -1220,6 +1865,7 @@ register_explain("search.saved-get", _EXPLAIN_SAVED_GET)
 @click.option("--name", required=True, help="Name of the saved query.")
 @pass_context
 def saved_get(ctx: click.Context, name: str) -> None:
+    """Get a saved query by name."""
     org = _get_org(ctx)
     hive = Hive(org, "query")
     record = hive.get(name)
@@ -1262,6 +1908,7 @@ register_explain("search.saved-create", _EXPLAIN_SAVED_CREATE)
 @click.option("--stream", default=None, help="Default stream type (event, detect, audit).")
 @pass_context
 def saved_create(ctx: click.Context, name: str, query: str, start: int | None, end: int | None, stream: str | None) -> None:
+    """Create a new saved query."""
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     org = _get_org(ctx)
@@ -1299,6 +1946,7 @@ register_explain("search.saved-delete", _EXPLAIN_SAVED_DELETE)
 @click.option("--name", required=True, help="Name of the saved query to delete.")
 @pass_context
 def saved_delete(ctx: click.Context, name: str) -> None:
+    """Delete a saved query by name."""
     org = _get_org(ctx)
     hive = Hive(org, "query")
     result = hive.delete(name)
@@ -1339,14 +1987,15 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 @click.option("--expand", is_flag=True, default=False, help="Show each event as a full pretty-printed JSON block.")
 @pass_context
 def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: float | None, raw: bool, expand: bool) -> None:
+    """Execute a saved query."""
     org = _get_org(ctx)
 
     effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
     if effective_expiry > 24:
-        click.echo(
+        _warn(
+            ctx,
             f"Warning: generating a token valid for {effective_expiry} hours. "
             "Long-lived tokens increase security exposure if leaked.",
-            err=True,
         )
     org.client.get_jwt(expiry_hours=effective_expiry)
 
@@ -1379,7 +2028,10 @@ def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: fl
     search = Search(org)
     progress_fn = _make_progress_fn(ctx)
     try:
-        results = list(search.execute(query_str, start_time, end_time, stream=stream, limit=limit, progress_fn=progress_fn))
+        gen = search.execute(query_str, start_time, end_time, stream=stream, limit=limit, progress_fn=progress_fn)
+        if _stream_search_output(ctx, gen, raw=raw, expand=expand):
+            return
+        results = list(gen)
     except KeyboardInterrupt:
         click.echo("\nSearch canceled.", err=True)
         sys.stderr.flush()
@@ -1480,8 +2132,14 @@ def checkpoints_list(ctx: click.Context) -> None:
         if cp_token:
             token_display = "..." + cp_token[-12:] if len(cp_token) > 16 else cp_token
 
+        # Format file size for display.
+        file_size = cp.get("data_file_size")
+        size_str = _format_file_size(file_size) if file_size is not None else ""
+
         rows.append({
+            "created": created,
             "data_file": cp.get("data_file", ""),
+            "size": size_str,
             "query": query_str,
             "range": f"{start_str} - {end_str}" if start_str and end_str else "",
             "pages": page,
@@ -1489,10 +2147,11 @@ def checkpoints_list(ctx: click.Context) -> None:
             "progress": progress_str,
             "status": status,
             "token": token_display,
-            "created": created,
             "updated": updated,
         })
 
+    # Sort by created timestamp descending (most recent first).
+    rows.sort(key=lambda r: r.get("created", ""), reverse=True)
     click.echo(format_table(rows))
 
 
@@ -1528,21 +2187,30 @@ register_explain("search.checkpoint-show", _EXPLAIN_CHECKPOINT_SHOW)
 
 
 @group.command("checkpoint-show")
-@click.option("--checkpoint", "checkpoint_path", required=True, type=click.Path(exists=True),
+@click.option("--checkpoint", "checkpoint_path", default=None, type=click.Path(exists=True),
               help="Path to the checkpoint JSONL data file.")
 @click.option("--raw", is_flag=True, default=False, help="Show raw API result objects without unwrapping.")
 @click.option("--expand", is_flag=True, default=False, help="Show each event as a full pretty-printed JSON block.")
 @pass_context
-def checkpoint_show(ctx: click.Context, checkpoint_path: str, raw: bool, expand: bool) -> None:
+def checkpoint_show(ctx: click.Context, checkpoint_path: str | None, raw: bool, expand: bool) -> None:
     """Display results from a checkpoint data file.
 
-    Streams results lazily for JSONL output (``--output jsonl``) to
-    avoid loading the entire file into memory. For table, expand, JSON,
-    and CSV formats, loads all results into memory because those formats
-    require the full data set (table needs all rows for column widths,
-    JSON needs the complete array, etc.). For large checkpoints, use
-    ``--output jsonl`` and pipe to jq or other streaming tools.
+    Streams results with constant memory for most output formats:
+    - table: two-pass streaming (pass 1 computes column widths, pass 2
+      streams rows) - O(columns) memory, not O(rows)
+    - jsonl: one JSON line at a time
+    - json: streaming JSON array
+    - expand: one event block at a time
+
+    For CSV and YAML, loads all results into memory (inherent to those
+    formats). For large checkpoints with these formats, use ``--output
+    jsonl`` and pipe to external tools.
     """
+    if not checkpoint_path:
+        click.echo("Error: --checkpoint is required.", err=True)
+        ctx.exit(4)
+        return
+
     try:
         meta = CheckpointReader.read_metadata(checkpoint_path)
     except FileNotFoundError as exc:
@@ -1567,31 +2235,4 @@ def checkpoint_show(ctx: click.Context, checkpoint_path: str, raw: bool, expand:
         click.echo(click.style(f"Query: {query}", dim=True), err=True)
         sys.stderr.flush()
 
-    if ctx.obj.quiet:
-        return
-
-    fmt = ctx.obj.output_format or detect_output_format()
-
-    # JSONL: stream one result per line without loading all into memory.
-    if fmt == "jsonl":
-        has_results = False
-        for result in CheckpointReader.iter_results(checkpoint_path):
-            has_results = True
-            click.echo(json.dumps(result, default=str))
-        if not has_results:
-            click.echo("Checkpoint is empty (no results).")
-        return
-
-    # All other formats need the full list.
-    try:
-        _, results = CheckpointReader.read(checkpoint_path)
-    except FileNotFoundError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        ctx.exit(4)
-        return
-
-    if not results:
-        click.echo("Checkpoint is empty (no results).")
-        return
-
-    _output_search_results(ctx, results, raw=raw, expand=expand)
+    _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)

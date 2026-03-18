@@ -5,11 +5,26 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "limacharlie"
 dynamic = ["version"]
-description = "Python API for LimaCharlie.io"
+description = "Python SDK and CLI for the LimaCharlie endpoint detection and response platform"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{name = "Maxime Lamothe-Brassard", email = "maxime@refractionpoint.com"}]
 requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "requests==2.32.3",
     "passlib==1.7.4",
@@ -21,6 +36,8 @@ dependencies = [
     "cryptography==46.0.3",
     "click==8.1.8",
     "jmespath==1.1.0",
+    "orjson>=3.10.0,<3.11; python_version < '3.10'",
+    "orjson>=3.10.0; python_version >= '3.10'",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +53,11 @@ limacharlie = "limacharlie.cli:main"
 
 [project.urls]
 Homepage = "https://limacharlie.io"
+Documentation = "https://docs.limacharlie.io"
+Repository = "https://github.com/refractionPOINT/python-limacharlie"
+Issues = "https://github.com/refractionPOINT/python-limacharlie/issues"
+Changelog = "https://github.com/refractionPOINT/python-limacharlie/blob/master/CHANGELOG.md"
+"REST API Docs" = "https://docs.limacharlie.io/apidocs"
 
 [tool.setuptools.packages.find]
 include = ["limacharlie*"]

@@ -1,8 +1,87 @@
 # Changelog
 
-## 5.0.x - TBD
+## 5.1.0 - TBD
 
 ### Search
+
+- **Streaming output**: Search results are now streamed with constant memory
+  for JSONL, JSON, expand, and table output formats. Previously all results
+  were buffered in memory before rendering, which could cause OOM on large
+  result sets (100K+ events). Memory behavior by format:
+  - JSONL/JSON/expand: O(1) - one result at a time
+  - table (live search): O(sample) - buffers ~3 pages for column width
+    sampling, then streams remaining rows
+  - table (checkpoint): O(columns) - two-pass file scan computes exact column
+    widths without loading rows into memory
+  - CSV/YAML: O(N) - inherent to format, unchanged
+
+  Validated with a 30-day production search: RSS stabilized at 138 MB while
+  the checkpoint file grew to 632 MB (484 result pages).
+
+- **orjson integration**: Added `orjson` as an optional JSON backend (~3-10x
+  faster than stdlib `json`). Used automatically when available for all JSON
+  serialization/deserialization. Falls back to stdlib `json` if orjson cannot
+  be installed on the platform.
+
+- **Search poll retry with exponential backoff**: Individual poll GET requests
+  that fail with transient errors (5xx, connection reset, timeout, SSL errors)
+  are now automatically retried with exponential backoff (1s, 2s, 4s... capped
+  at 30s, default 3 retries). Permanent errors (401, 403, 404, 422, 429) and
+  search-engine body errors (e.g. "context canceled") are NOT retried.
+
+- **Checkpoint/resume support**: New `--checkpoint`, `--resume`, and `--force`
+  flags for `search run` allow incremental persistence of search results to a
+  JSONL file. If the search is interrupted (Ctrl+C, network error, token
+  expiry), the checkpoint preserves all results fetched so far. Resume uses
+  server-side pagination tokens to skip directly to the next un-fetched page
+  (no re-fetching). The server re-runs the query from the cursor position
+  embedded in the token, so resume works even after long delays between
+  sessions.
+
+- **`search checkpoints` command**: Lists all local checkpoints with pages,
+  events, time range progress %, token, and timestamps. Automatically cleans
+  up stale metadata when data files are deleted. Shows human-readable file
+  size. Sorted by created timestamp descending (most recent first).
+
+- **`search checkpoint-show` command**: Displays results from a checkpoint data
+  file through the same output pipeline as a live search (table, JSON, expand,
+  raw, JSONL). Streams with constant memory for all formats except CSV/YAML.
+
+- **Large search warnings**: Two independent warnings for searches without
+  `--checkpoint`:
+  1. Memory warning (>7 days, CSV/YAML only): suggests streaming formats or
+     `--checkpoint`.
+  2. Resumability warning (>14 days, all formats): recommends `--checkpoint`
+     so interrupted searches can be resumed.
+
+- **`--expand` flag**: New flag for `search run`, `search saved-run`, and
+  `search checkpoint-show` that shows each event as a pretty-printed JSON block
+  with a header showing timestamp, stream, and event type. Useful for
+  investigating individual events in detail.
+
+- **`--raw` flag**: New flag that shows the raw SearchResult API objects without
+  unwrapping. Useful for debugging or accessing metadata like searchResultId,
+  nextToken, and stats.
+
+- **Checkpoint security hardening**: Checkpoint metadata directories
+  (`~/.limacharlie.d/search_checkpoints/`) are created with 0o700 (owner-only)
+  permissions. Data files use `O_EXCL|O_NOFOLLOW` for atomic creation with
+  symlink rejection. All files get 0o600 permissions.
+
+- **Billing cost notice**: Searches spanning more than 30 days now show a
+  notice that additional costs may apply (data older than 30 days is not
+  included in the base subscription). The notice includes the exact
+  `limacharlie search estimate` command to check costs before running.
+
+- **Validate/estimate exit codes**: `search validate` and `search estimate`
+  now exit with code 1 when the server returns an error (e.g. invalid query
+  syntax). Previously they always exited 0 regardless of the response.
+
+- **Validate/estimate table output**: Stats and estimatedPrice fields are now
+  flattened into individual columns (e.g. `stats.bytesScanned`,
+  `price.value`) instead of being shown as truncated `{N keys}` summaries.
+  Machine-readable formats (JSON, YAML) preserve the original nested
+  structure.
 
 - **Structured search errors**: Search failures now raise `SearchError` with
   `query_id`, `region`, `oid`, and `query` attributes for easier troubleshooting.
@@ -13,11 +92,17 @@
 
 - **Region extraction**: The search region identifier (hex hash from the search
   URL) is automatically extracted and included in error messages.
+
 - **Default search token expiry**: Search queries (`search run`, `search saved-run`)
   now automatically generate a 4-hour JWT token instead of the default ~1 hour.
   This prevents mid-query JWT expiry on long-running searches. The default can be
   overridden via the `--token-expiry` CLI flag or by setting
   `search_token_expiry_hours` in `~/.limacharlie`.
+
+- **Human-readable table output**: Search results in table mode are now
+  unwrapped - event rows are flattened into a single table with timestamps,
+  stream type, routing metadata, and event data as columns. Stats are shown on
+  stderr. Machine-readable formats pass through the raw API response unchanged.
 
 ### Authentication
 
@@ -79,6 +164,60 @@
 - **`Client.get_jwt()` SDK method**: New method to generate JWT tokens with
   custom expiry programmatically.
 
+### Cases
+
+- **Severity on case update**: `case update` now accepts `--severity` to set
+  or change the severity level of an existing case.
+
+### CLI
+
+- **`--no-warnings` flag**: New global flag that suppresses all advisory
+  warnings (billing cost notices, memory buffering hints, checkpoint
+  suggestions, token expiry warnings). Does not suppress errors or result
+  output. Also configurable via `no_warnings: true` in `~/.limacharlie`
+  for CI/CD pipelines.
+
+- **`-h` short flag for help**: The `-h` flag now works on all commands and
+  subcommands (previously only `--help` was recognized). Added
+  `context_settings={"help_option_names": ["-h", "--help"]}` to the root
+  Click group which propagates to all subcommands.
+
+- **`--debug` for all commands**: The `--debug`, `--debug-full`, and
+  `--debug-curl` flags now work on all CLI commands. Previously several
+  commands were not wiring `debug_fn` through to the SDK `Client`.
+
+- **Search subcommand help text**: Added missing Click docstrings for
+  `validate`, `estimate`, `saved-get`, `saved-create`, `saved-delete`,
+  `saved-run`, and `checkpoint-show` commands.
+
+- **Updated `--ai-help` for search**: Added output format documentation to
+  `search run` explain text covering streaming vs buffered behavior,
+  `--expand`, `--raw`, and memory guidance.
+
+### Packaging
+
+- **PyPI metadata**: Added project URLs (Documentation, Repository, Issues,
+  Changelog, REST API Docs) so links render correctly on the PyPI page.
+  Updated description to "Python SDK and CLI for the LimaCharlie endpoint
+  detection and response platform".
+
+- **Python 3.9-3.14 support**: Added PyPI classifiers for Python 3.9 through
+  3.14. CI now runs distribution install checks on all supported versions
+  (3.9, 3.10, 3.11, 3.12, 3.13, 3.14) in parallel.
+
+- **PyPI classifiers**: Added classifiers for development status
+  (Production/Stable), audience (Developers, System Administrators), and topic
+  (Security, System Monitoring).
+
+### Dependencies
+
+- **orjson**: Added as a runtime dependency for ~3-10x faster JSON
+  serialization/deserialization. Uses split environment markers for Python
+  version compatibility:
+  - Python 3.9: orjson 3.10.x (last series with 3.9 support, capped `<3.11`)
+  - Python 3.10+: latest orjson (currently 3.11.x)
+  Falls back to stdlib `json` if orjson cannot be installed on the platform.
+
 ### Configuration
 
 - **`get_config_value()` function**: New config helper for reading arbitrary
@@ -92,7 +231,63 @@
   cross-platform `atomic_write` helper, fixing an existing bug on Windows where
   the Unix-only `os.chown` call would fail.
 
-## 5.0.0 - February 18th, 2026
+## 5.0.9 - March 13, 2026
+
+- Add info severity level to cases CLI and SDK (#246).
+- Add AI session lifecycle management and usage tracking (#245).
+
+## 5.0.8 - March 12, 2026
+
+- Clarify `key` vs `json_key` in installation key help for AI guidance (#244).
+
+## 5.0.7 - March 11, 2026
+
+- Update `ext-ticketing` references to `ext-cases` (#243).
+
+## 5.0.6 - March 11, 2026
+
+- Follow pagination tokens in search SDK to return all result pages (#242).
+
+## 5.0.5 - March 10, 2026
+
+- Rename ticket to case in SDK and CLI (#241).
+
+## 5.0.4 - March 10, 2026
+
+- Fix `auth whoami` without OID - now falls back to "-" instead of erroring (#240).
+
+## 5.0.3 - March 10, 2026
+
+- Add `--check-perm` and `--show-perms` flags to `auth whoami` (#239).
+- Add `--data` option to `ai start-session` command (#238).
+- Fix: don't send null data in metadata-only hive set requests (#236).
+- Support full detection object in case create and detection add (#235).
+- Fix `org list` to auto-paginate and return all results (#234).
+- Fix help topic fallthrough, whoami output, and sync debug logging (#233).
+- Fix enable/disable to preserve existing metadata (#232).
+- Add enable/disable commands for Hive records (#231).
+- Add `--sid` filter to case list for cross-detection sensor search (#230).
+- Add case CLI commands for SOC case management (#224).
+- Add AI session creation via ai_agent Hive definitions (#229).
+- Fix incorrect LCQL syntax in search help, examples, and tests.
+- Clean up CLI docstrings and standardize SDK documentation (#225).
+
+## 5.0.2 - February 27, 2026
+
+- Add `--use` flag to `org create` (#223).
+- Add `dr convert-rules` CLI command for mass rule conversion (#220).
+- Switch from TestPyPI to PyPI (#221).
+
+## 5.0.1 - February 26, 2026
+
+- Bump version to 5.0.1 for release (#218).
+- Add `installation-key get` CLI command (#217).
+- Fix incorrect location names in org create CLI help (#216).
+- Update cloudbuild-pr image (#215).
+- Add PyPI publishing via GitHub Actions (#214).
+- Show web app URL after org create (#219).
+
+## 5.0.0 - February 25, 2026
 
 Complete rewrite of the CLI and SDK. This is a major release with breaking
 changes.
@@ -254,7 +449,11 @@ changes.
 - Configuration file format extended with named environments and OAuth token
   storage.
 
-## 4.11.2 - January 13th, 2026
+## 4.11.3 - January 15, 2026
+
+- Internal packaging fix.
+
+## 4.11.2 - January 13, 2026
 
 - Add support for `external_adapter` hive in the SDK and CLI.
 
@@ -299,7 +498,7 @@ changes.
             evt_sources: "DhcpAdminEvents:'*'"
   ```
 
-## 4.11.1 - January 12th, 2026
+## 4.11.1 - January 12, 2026
 
 - Add support for `model` and `ai_agent` hives in the SDK and CLI.
 
@@ -318,7 +517,7 @@ changes.
   limacharlie configs push --hive-model --hive-ai-agent
   ```
 
-## 4.11.0 - December 18th, 2025
+## 4.11.0 - December 19, 2025
 
 - Add SDK methods and CLI commands for the new Search API.
 
@@ -446,7 +645,7 @@ changes.
   ```
 
 
-## 4.9.13 - February 24th, 2025
+## 4.9.13 - February 24, 2025
 
 - Fix Docker image build.
 
@@ -460,7 +659,7 @@ changes.
   * `refractionpoint/limacharlie:latest` -> Always points to the latest release.
   * `refractionpoint/limacharlie:4.9.13` -> Release version 4.9.13.
 
-## 4.9.12 - February 21st, 2025
+## 4.9.12 - February 21, 2025
 
 - Add `whoami` alias for `who` command.
 

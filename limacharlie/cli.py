@@ -43,6 +43,7 @@ class LimaCharlieContext:
     debug_curl: bool = False
     quiet: bool = False
     wide: bool = False
+    no_warnings: bool = False
     filter_expr: str | None = None
     profile: str | None = None
     environment: str | None = None
@@ -62,6 +63,21 @@ class LimaCharlieContext:
 
 
 pass_context = click.pass_context
+
+
+def _config_no_warnings() -> bool:
+    """Check if warnings are suppressed via config file.
+
+    Reads ``no_warnings: true`` from ``~/.limacharlie`` (or the config
+    file pointed to by ``LC_CREDS_FILE``). Useful for CI/CD pipelines
+    that want to suppress advisory warnings globally.
+    """
+    try:
+        from .config import get_config_value
+        val = get_config_value("no_warnings", default=None)
+        return str(val).lower() in ("true", "1", "yes")
+    except Exception:
+        return False
 
 
 class _GlobalOptionsGroup(click.Group):
@@ -159,7 +175,7 @@ class _GlobalOptionsGroup(click.Group):
         return shadowed
 
 
-@click.group(cls=_GlobalOptionsGroup)
+@click.group(cls=_GlobalOptionsGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--oid", default=None, help="Organization ID (overrides env/config).")
 @click.option(
     "--output", "output_format",
@@ -172,12 +188,13 @@ class _GlobalOptionsGroup(click.Group):
 @click.option("--debug-curl", is_flag=True, default=False, help="Print curl commands for each request (safe to share, secrets use $LC_TOKEN).")
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-error output.")
 @click.option("--wide", "-W", is_flag=True, default=False, help="Disable table value truncation (show full values).")
+@click.option("--no-warnings", is_flag=True, default=False, help="Suppress advisory warnings (cost notices, memory hints, checkpoint suggestions).")
 @click.option("--filter", "filter_expr", default=None, help="JMESPath expression to filter/transform output (e.g. 'user_perms', 'keys(@)').")
 @click.option("--profile", default=None, help="Named credential profile to use.")
 @click.option("--env", "environment", default=None, help="Named environment from config file.")
 @click.version_option(version=__version__, prog_name="limacharlie")
 @click.pass_context
-def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, debug_full: bool, debug_curl: bool, quiet: bool, wide: bool, filter_expr: str | None, profile: str | None, environment: str | None) -> None:
+def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, debug_full: bool, debug_curl: bool, quiet: bool, wide: bool, no_warnings: bool, filter_expr: str | None, profile: str | None, environment: str | None) -> None:
     """LimaCharlie CLI - Endpoint Detection & Response platform.
 
     Manage sensors, detection rules, hive data, and more from the command line.
@@ -193,6 +210,7 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     lc_ctx.debug_curl = debug_curl
     lc_ctx.quiet = quiet
     lc_ctx.wide = wide
+    lc_ctx.no_warnings = no_warnings or _config_no_warnings()
     lc_ctx.filter_expr = filter_expr
     lc_ctx.profile = profile
     lc_ctx.environment = environment
