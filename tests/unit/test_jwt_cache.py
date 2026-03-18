@@ -38,20 +38,30 @@ def _make_jwt(exp: float | int) -> str:
 
 @pytest.fixture(autouse=False)
 def tmp_jwt_cache(monkeypatch, tmp_path):
-    """Point JWT cache to a temp directory and clear relevant env vars."""
-    from limacharlie.config import _reset_config_cache
+    """Point JWT cache to a temp directory and clear relevant env vars.
 
-    config_path = str(tmp_path / ".limacharlie")
-    cache_path = config_path + "_jwt_cache"
-    monkeypatch.setattr("limacharlie.jwt_cache.CONFIG_FILE_PATH", config_path)
-    monkeypatch.setattr("limacharlie.config.CONFIG_FILE_PATH", config_path)
+    Sets LC_CONFIG_DIR to a temp directory so all path resolution
+    goes through the new layout. The yielded path is the JWT cache
+    file inside that directory (e.g. <tmp>/lc_config/jwt_cache.json).
+    """
+    from limacharlie.config import _reset_config_cache
+    from limacharlie.paths import _reset_path_cache
+
+    config_dir = str(tmp_path / "lc_config")
+    os.makedirs(config_dir, exist_ok=True)
+    cache_path = os.path.join(config_dir, "jwt_cache.json")
+
+    monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
     monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+    monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
     monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
     monkeypatch.delenv("LC_NO_JWT_CACHE", raising=False)
     # Reset per-process caches so each test evaluates fresh
+    _reset_path_cache()
     _reset_cache_disabled()
     _reset_config_cache()
     yield cache_path
+    _reset_path_cache()
     _reset_cache_disabled()
     _reset_config_cache()
 
@@ -217,7 +227,8 @@ class TestGetCachedJwt:
         exp = time.time() + 3600
         put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)
         import yaml
-        config_path = tmp_jwt_cache[: -len("_jwt_cache")]
+        from limacharlie.paths import get_config_path
+        config_path = get_config_path()
         with open(config_path, "w") as f:
             yaml.safe_dump({"no_jwt_cache": True}, f)
         _reset_cache_disabled()  # config changed, force re-evaluation
@@ -330,8 +341,8 @@ class TestPutCachedJwt:
 
     def test_noop_when_no_jwt_cache_config(self, tmp_jwt_cache):
         import yaml
-        # Derive config path: cache path minus _jwt_cache suffix
-        config_path = tmp_jwt_cache[: -len("_jwt_cache")]
+        from limacharlie.paths import get_config_path
+        config_path = get_config_path()
         with open(config_path, "w") as f:
             yaml.safe_dump({"no_jwt_cache": True}, f)
         exp = time.time() + 3600
@@ -367,25 +378,37 @@ class TestPutCachedJwt:
         assert not os.path.isfile(path)
 
     def test_creates_parent_dirs(self, tmp_path, monkeypatch):
+        from limacharlie.paths import _reset_path_cache
         nested_config = str(tmp_path / "deep" / "nested" / ".limacharlie")
         monkeypatch.setenv("LC_CREDS_FILE", nested_config)
         monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
+        monkeypatch.delenv("LC_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        _reset_cache_disabled()
         exp = time.time() + 3600
         put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)
         cache_path = nested_config + "_jwt_cache"
         assert os.path.isfile(cache_path)
+        _reset_path_cache()
 
     def test_handles_unwritable_dir_gracefully(self, tmp_path, monkeypatch):
+        from limacharlie.paths import _reset_path_cache
         unwritable = str(tmp_path / "noperm")
         os.makedirs(unwritable)
         os.chmod(unwritable, 0o444)
         monkeypatch.setenv("LC_CREDS_FILE", str(os.path.join(unwritable, "config")))
         monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
+        monkeypatch.delenv("LC_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        _reset_cache_disabled()
         exp = time.time() + 3600
         # Should not raise
         put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)
         # Restore permissions for cleanup
         os.chmod(unwritable, 0o755)
+        _reset_path_cache()
 
 
 class TestInvalidateCachedJwt:
@@ -674,21 +697,24 @@ class TestIsCacheDisabled:
 
     def test_disabled_by_config_option(self, tmp_jwt_cache):
         import yaml
-        config_path = tmp_jwt_cache[: -len("_jwt_cache")]
+        from limacharlie.paths import get_config_path
+        config_path = get_config_path()
         with open(config_path, "w") as f:
             yaml.safe_dump({"no_jwt_cache": True}, f)
         assert _is_cache_disabled() is True
 
     def test_not_disabled_when_config_option_false(self, tmp_jwt_cache):
         import yaml
-        config_path = tmp_jwt_cache[: -len("_jwt_cache")]
+        from limacharlie.paths import get_config_path
+        config_path = get_config_path()
         with open(config_path, "w") as f:
             yaml.safe_dump({"no_jwt_cache": False}, f)
         assert _is_cache_disabled() is False
 
     def test_not_disabled_when_config_option_absent(self, tmp_jwt_cache):
         import yaml
-        config_path = tmp_jwt_cache[: -len("_jwt_cache")]
+        from limacharlie.paths import get_config_path
+        config_path = get_config_path()
         with open(config_path, "w") as f:
             yaml.safe_dump({"oid": "test"}, f)
         assert _is_cache_disabled() is False
@@ -742,18 +768,36 @@ class TestSymlinkProtection:
 
 
 class TestCrossplatformPaths:
-    def test_cache_path_from_default(self, monkeypatch, tmp_path):
-        default = str(tmp_path / ".limacharlie")
-        monkeypatch.setattr("limacharlie.jwt_cache.CONFIG_FILE_PATH", default)
+    def test_cache_path_from_config_dir(self, monkeypatch, tmp_path):
+        """JWT cache goes into the config directory as jwt_cache.json."""
+        from limacharlie.paths import _reset_path_cache
+        config_dir = str(tmp_path / "myconfig")
+        os.makedirs(config_dir, exist_ok=True)
+        monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
         monkeypatch.delenv("LC_CREDS_FILE", raising=False)
-        assert _get_cache_path() == default + "_jwt_cache"
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        assert _get_cache_path() == os.path.join(config_dir, "jwt_cache.json")
+        _reset_path_cache()
 
-    def test_cache_path_from_env(self, monkeypatch, tmp_path):
+    def test_cache_path_from_creds_file_env(self, monkeypatch, tmp_path):
+        """LC_CREDS_FILE produces sibling cache path (legacy behavior)."""
+        from limacharlie.paths import _reset_path_cache
         custom = str(tmp_path / "custom" / "config")
         monkeypatch.setenv("LC_CREDS_FILE", custom)
+        monkeypatch.delenv("LC_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
         assert _get_cache_path() == custom + "_jwt_cache"
+        _reset_path_cache()
 
     def test_path_with_spaces(self, monkeypatch, tmp_path):
+        """LC_CREDS_FILE with spaces produces correct sibling path."""
+        from limacharlie.paths import _reset_path_cache
         spaced = str(tmp_path / "path with spaces" / ".limacharlie")
         monkeypatch.setenv("LC_CREDS_FILE", spaced)
+        monkeypatch.delenv("LC_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
         assert _get_cache_path() == spaced + "_jwt_cache"
+        _reset_path_cache()

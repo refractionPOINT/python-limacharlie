@@ -59,8 +59,9 @@ def group() -> None:
     """Manage authentication credentials and identity.
 
     Store, test, and switch LimaCharlie credentials.  Credentials are
-    persisted in ~/.limacharlie and can be organized into named
-    environments for multi-org workflows.
+    persisted in ~/.limacharlie.d/config.yaml (or the legacy ~/.limacharlie)
+    and can be organized into named environments for multi-org workflows.
+    Use 'limacharlie config show-paths' to see active config locations.
     """
 
 
@@ -70,8 +71,9 @@ def group() -> None:
 
 _EXPLAIN_LOGIN = """\
 Store LimaCharlie credentials on disk so that subsequent CLI invocations
-can authenticate automatically.  Credentials are written to ~/.limacharlie
-(or the path in LC_CREDS_FILE) with file-mode 0600.
+can authenticate automatically.  Credentials are written to
+~/.limacharlie.d/config.yaml (or the path in LC_CREDS_FILE) with
+file-mode 0600.
 
 Two authentication methods are supported:
 
@@ -90,7 +92,7 @@ The --oid flag is optional with OAuth and can be set later via
 Use --env to store credentials under a named environment so you can
 switch between multiple orgs or accounts.
 
-The credential file (~/.limacharlie) is YAML formatted:
+The credential file (~/.limacharlie.d/config.yaml) is YAML formatted:
 
     oid: <organization-id>
     api_key: <api-key-uuid>

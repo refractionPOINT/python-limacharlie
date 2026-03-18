@@ -42,16 +42,21 @@ def _make_jwt(exp: float) -> str:
 @pytest.fixture(autouse=True)
 def cache_env(monkeypatch, tmp_path):
     """Isolate all benchmarks to a temp directory."""
+    import os
     from limacharlie.config import _reset_config_cache
-    config_path = str(tmp_path / ".limacharlie")
-    monkeypatch.setattr("limacharlie.jwt_cache.CONFIG_FILE_PATH", config_path)
-    monkeypatch.setattr("limacharlie.config.CONFIG_FILE_PATH", config_path)
+    from limacharlie.paths import _reset_path_cache
+    config_dir = str(tmp_path / "lc_config")
+    os.makedirs(config_dir, exist_ok=True)
+    monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
     monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+    monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
     monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
     monkeypatch.delenv("LC_NO_JWT_CACHE", raising=False)
+    _reset_path_cache()
     _reset_cache_disabled()
     _reset_config_cache()
     yield tmp_path
+    _reset_path_cache()
     _reset_cache_disabled()
     _reset_config_cache()
 

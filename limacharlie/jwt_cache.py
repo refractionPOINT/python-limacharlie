@@ -5,8 +5,10 @@ hour reuse a single JWT instead of requesting a new one each time.
 Each invocation is a separate process, so caching must be file-based.
 
 Cache file location:
-- Default: ~/.limacharlie_jwt_cache (sibling to ~/.limacharlie config)
+- Default: ~/.limacharlie.d/jwt_cache.json (new layout)
+- Legacy fallback: ~/.limacharlie_jwt_cache
 - Respects LC_CREDS_FILE: if config is at /foo/bar, cache goes to /foo/bar_jwt_cache
+- Respects LC_CONFIG_DIR: uses <dir>/jwt_cache.json
 - Respects LC_EPHEMERAL_CREDS: no disk caching when set
 - Respects LC_NO_JWT_CACHE: no disk caching when set
 - Respects no_jwt_cache config option: no disk caching when true
@@ -29,8 +31,9 @@ import os
 import time
 from typing import Any
 
-from .config import ENV_CREDS_FILE, ENV_EPHEMERAL_CREDS, ENV_NO_JWT_CACHE, CONFIG_FILE_PATH, load_config
+from .config import ENV_EPHEMERAL_CREDS, ENV_NO_JWT_CACHE, load_config
 from .file_utils import atomic_write, safe_open_read
+from .paths import get_jwt_cache_path as _resolve_jwt_cache_path
 
 # Cached JWT must have at least this many seconds remaining to be reused.
 _EXPIRY_BUFFER_SECONDS = 600  # 10 minutes
@@ -88,13 +91,15 @@ def _reset_cache_disabled() -> None:
 
 
 def _get_cache_path() -> str:
-    """Derive the JWT cache file path from the config file path.
+    """Return the JWT cache file path, resolved via paths module.
+
+    Respects LC_CREDS_FILE, LC_CONFIG_DIR, LC_LEGACY_CONFIG, and the
+    new-then-legacy fallback logic in paths.py.
 
     Returns:
         Absolute path to the JWT cache file.
     """
-    config_path = os.environ.get(ENV_CREDS_FILE, CONFIG_FILE_PATH)
-    return config_path + "_jwt_cache"
+    return _resolve_jwt_cache_path()
 
 
 def _compute_cache_key(
