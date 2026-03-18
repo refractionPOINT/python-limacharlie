@@ -1,29 +1,39 @@
 # Use a larger machine for parallel steps. E2_HIGHCPU_8 gives 8 vCPUs
-# which helps when running ~10 steps concurrently.
+# which helps when running ~10+ steps concurrently.
 options:
   machineType: 'E2_HIGHCPU_8'
 
 steps:
 # ---------------------------------------------------------------------------
-# Unit tests + dist checks for each supported Python version (all parallel).
-# Each step: build wheel, install, verify orjson, run full unit test suite.
+# Distribution install checks for each supported Python version (all parallel).
+# Each step: build wheel from source, install in clean dir, verify package.
 # ---------------------------------------------------------------------------
 
-- id: "Unit Tests + Dist (Python 3.9)"
+- id: "Dist (Python 3.9)"
   name: 'python:3.9'
   entrypoint: "bash"
   args:
     - '-c'
     - |
       set -e
-      cp -r /workspace /tmp/src && cd /tmp/src
-      pip install --upgrade pip setuptools wheel build
-      python -m build
-      pip install dist/limacharlie-*-py3-none-any.whl
+      echo "=========================================="
+      echo "  Dist Check: Python 3.9"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-39 && cd /tmp/build-39
+      pip install --upgrade pip setuptools wheel build -q
+      python -m build -q
+      ls -lh dist/
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
       pip show limacharlie
       limacharlie --version
 
-      # Python 3.9: orjson 3.10.x should be installed (capped <3.11)
+      echo "--- Verifying orjson (expect 3.10.x on Python 3.9) ---"
       python -c "
       import orjson
       v = tuple(int(x) for x in orjson.__version__.split('.'))
@@ -34,128 +44,330 @@ steps:
       print(f'JSON backend: {backend_name()} (OK)')
       "
 
-      pip install "pytest==8.3.4" "pytest-rerunfailures==15.0" "tomli>=1.0"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      echo "--- Dist check passed ---"
   waitFor: ["-"]
 
-- id: "Unit Tests + Dist (Python 3.10)"
+- id: "Dist (Python 3.10)"
   name: 'python:3.10'
   entrypoint: "bash"
   args:
     - '-c'
     - |
       set -e
-      cp -r /workspace /tmp/src && cd /tmp/src
-      pip install --upgrade pip setuptools wheel build
-      python -m build
-      pip install dist/limacharlie-*-py3-none-any.whl
+      echo "=========================================="
+      echo "  Dist Check: Python 3.10"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-310 && cd /tmp/build-310
+      pip install --upgrade pip setuptools wheel build -q
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
       pip show limacharlie
       limacharlie --version
 
+      echo "--- Verifying orjson ---"
       python -c "
       from limacharlie.json_compat import backend_name, HAS_ORJSON
       assert HAS_ORJSON, 'orjson should be available on Python 3.10+'
       print(f'JSON backend: {backend_name()} (OK)')
       "
 
-      pip install "pytest==8.3.4" "pytest-rerunfailures==15.0"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      echo "--- Dist check passed ---"
   waitFor: ["-"]
 
-- id: "Unit Tests + Dist (Python 3.11)"
+- id: "Dist (Python 3.11)"
   name: 'python:3.11'
   entrypoint: "bash"
   args:
     - '-c'
     - |
       set -e
-      cp -r /workspace /tmp/src && cd /tmp/src
-      pip install --upgrade pip setuptools wheel build
-      python -m build
-      pip install dist/limacharlie-*-py3-none-any.whl
+      echo "=========================================="
+      echo "  Dist Check: Python 3.11"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-311 && cd /tmp/build-311
+      pip install --upgrade pip setuptools wheel build -q
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
       pip show limacharlie
       limacharlie --version
 
+      echo "--- Verifying orjson ---"
       python -c "
       from limacharlie.json_compat import backend_name, HAS_ORJSON
       assert HAS_ORJSON, 'orjson should be available on Python 3.11+'
       print(f'JSON backend: {backend_name()} (OK)')
       "
 
-      pip install "pytest==8.3.4" "pytest-rerunfailures==15.0"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      echo "--- Dist check passed ---"
   waitFor: ["-"]
 
-- id: "Unit Tests + Dist (Python 3.12)"
+- id: "Dist (Python 3.12)"
   name: 'python:3.12'
   entrypoint: "bash"
   args:
     - '-c'
     - |
       set -e
-      cp -r /workspace /tmp/src && cd /tmp/src
-      pip install --upgrade pip setuptools wheel build
-      python -m build
-      pip install dist/limacharlie-*-py3-none-any.whl
+      echo "=========================================="
+      echo "  Dist Check: Python 3.12"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-312 && cd /tmp/build-312
+      pip install --upgrade pip setuptools wheel build -q
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
       pip show limacharlie
       limacharlie --version
 
+      echo "--- Verifying orjson ---"
       python -c "
       from limacharlie.json_compat import backend_name, HAS_ORJSON
       assert HAS_ORJSON, 'orjson should be available on Python 3.12+'
       print(f'JSON backend: {backend_name()} (OK)')
       "
 
-      pip install "pytest==8.3.4" "pytest-rerunfailures==15.0"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      echo "--- Dist check passed ---"
   waitFor: ["-"]
 
-- id: "Unit Tests + Dist (Python 3.13)"
+- id: "Dist (Python 3.13)"
   name: 'python:3.13'
   entrypoint: "bash"
   args:
     - '-c'
     - |
       set -e
-      cp -r /workspace /tmp/src && cd /tmp/src
-      pip install --upgrade pip setuptools wheel build
-      python -m build
-      pip install dist/limacharlie-*-py3-none-any.whl
+      echo "=========================================="
+      echo "  Dist Check: Python 3.13"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-313 && cd /tmp/build-313
+      pip install --upgrade pip setuptools wheel build -q
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
       pip show limacharlie
       limacharlie --version
 
+      echo "--- Verifying orjson ---"
       python -c "
       from limacharlie.json_compat import backend_name, HAS_ORJSON
       assert HAS_ORJSON, 'orjson should be available on Python 3.13+'
       print(f'JSON backend: {backend_name()} (OK)')
       "
 
-      pip install "pytest==8.3.4" "pytest-rerunfailures==15.0"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      echo "--- Dist check passed ---"
   waitFor: ["-"]
 
-- id: "Unit Tests + Dist (Python 3.14)"
+- id: "Dist (Python 3.14)"
   name: 'python:3.14'
   entrypoint: "bash"
   args:
     - '-c'
     - |
       set -e
-      cp -r /workspace /tmp/src && cd /tmp/src
-      pip install --upgrade pip setuptools wheel build
-      python -m build
-      pip install dist/limacharlie-*-py3-none-any.whl
+      echo "=========================================="
+      echo "  Dist Check: Python 3.14"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-314 && cd /tmp/build-314
+      pip install --upgrade pip setuptools wheel build -q
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
       pip show limacharlie
       limacharlie --version
 
+      echo "--- Verifying orjson ---"
       python -c "
       from limacharlie.json_compat import backend_name, HAS_ORJSON
       assert HAS_ORJSON, 'orjson should be available on Python 3.14+'
       print(f'JSON backend: {backend_name()} (OK)')
       "
 
-      pip install "pytest==8.3.4" "pytest-rerunfailures==15.0"
+      echo "--- Dist check passed ---"
+  waitFor: ["-"]
+
+- id: "Dist sdist (Python 3.14)"
+  name: 'python:3.14'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  sdist Check: Python 3.14"
+      echo "=========================================="
+
+      echo "--- Building sdist ---"
+      cp -r /workspace /tmp/build-sdist && cd /tmp/build-sdist
+      pip install --upgrade pip setuptools wheel build -q
+      python -m build --sdist -q
+      ls -lh dist/
+
+      echo "--- Installing sdist ---"
+      pip install dist/limacharlie-*.tar.gz -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- sdist check passed ---"
+  waitFor: ["-"]
+
+# ---------------------------------------------------------------------------
+# Unit tests for each supported Python version (all parallel).
+# Install from source (editable-like) to get test dependencies.
+# ---------------------------------------------------------------------------
+
+- id: "Unit Tests (Python 3.9)"
+  name: 'python:3.9'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.9"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-39 && cd /tmp/test-39
+      pip install --upgrade pip -q
+      pip install ".[dev]" "tomli>=1.0" -q
+
+      echo "--- Running unit tests ---"
       pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.10)"
+  name: 'python:3.10'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.10"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-310 && cd /tmp/test-310
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.11)"
+  name: 'python:3.11'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.11"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-311 && cd /tmp/test-311
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.12)"
+  name: 'python:3.12'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.12"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-312 && cd /tmp/test-312
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.13)"
+  name: 'python:3.13'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.13"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-313 && cd /tmp/test-313
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.14)"
+  name: 'python:3.14'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.14"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-314 && cd /tmp/test-314
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+
+      echo "--- Unit tests passed ---"
   waitFor: ["-"]
 
 # ---------------------------------------------------------------------------
@@ -163,84 +375,44 @@ steps:
 # not Python version compat).
 # ---------------------------------------------------------------------------
 
-- id: "Run Integration Tests"
+- id: "Integration Tests"
   name: "python:3.14"
   entrypoint: "bash"
   args:
     - "-c"
     - |
-      cp -r /workspace /tmp/src
-      pip install --upgrade pip
-      pip install "/tmp/src[dev]"
+      set -e
+      echo "=========================================="
+      echo "  Integration Tests: Python 3.14"
+      echo "=========================================="
 
-      # We use rerun since tests are flaky
+      cp -r /workspace /tmp/integ && cd /tmp/integ
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running integration tests ---"
       pytest -s -v --durations=10 tests/integration/ --oid=${_OID} --key=${_KEY}
+
+      echo "--- Integration tests passed ---"
   waitFor: ["-"]
 
-- id: "Run Microbenchmarks"
+- id: "Microbenchmarks"
   name: "python:3.14"
   entrypoint: "bash"
   args:
     - "-c"
     - |
-      cp -r /workspace /tmp/src
-      pip install --upgrade pip
-      pip install "/tmp/src[dev]"
+      set -e
+      echo "=========================================="
+      echo "  Microbenchmarks: Python 3.14"
+      echo "=========================================="
 
+      cp -r /workspace /tmp/bench && cd /tmp/bench
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running microbenchmarks ---"
       pytest -v --benchmark-only --benchmark-columns=mean,stddev,rounds tests/microbenchmarks/
+
+      echo "--- Microbenchmarks passed ---"
   waitFor: ["-"]
-
-# ---------------------------------------------------------------------------
-# Packaging sanity checks (Python 3.14). Wheel and sdist must build and
-# install cleanly. These run on /workspace directly so sdist waits for wheel.
-# ---------------------------------------------------------------------------
-
-- id: "Run wheel Sanity Checks"
-  name: 'python:3.14'
-  entrypoint: "bash"
-  args:
-    - '-c'
-    - |
-      set -e
-
-      cd /workspace/
-
-      # Install deps
-      pip install --upgrade pip setuptools wheel build
-
-      # Build package
-      rm -rf dist/*
-      python -m build
-
-      # Install it
-      pip install dist/limacharlie-*-py3-none-any.whl
-
-      # Verify it works (basic sanity check)
-      pip show limacharlie
-      limacharlie --version
-  waitFor: ["-"]
-
-- id: "Run sdist Sanity Checks"
-  name: 'python:3.14'
-  entrypoint: "bash"
-  args:
-    - '-c'
-    - |
-      set -e
-
-      cd /workspace/
-
-      # Install deps
-      pip install --upgrade pip setuptools wheel build
-
-      # Build package
-      rm -rf dist/*
-      python -m build
-
-      # Install it
-      pip install dist/limacharlie-*.tar.gz
-
-      # Verify it works (basic sanity check)
-      pip show limacharlie
-      limacharlie --version
-  waitFor: ["Run wheel Sanity Checks"]  # Shares /workspace, must run sequentially.
