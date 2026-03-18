@@ -95,7 +95,7 @@ class TestUserAgentOSDetection:
         assert 'windows' in os_part.lower()
 
     def test_os_detection_fallback(self):
-        with mock.patch('platform.freedesktop_os_release', side_effect=Exception("Mock error")):
+        with mock.patch('platform.freedesktop_os_release', side_effect=Exception("Mock error"), create=True):
             with mock.patch('platform.system', return_value='Linux'):
                 result = build_user_agent("lc-py-api", "5.0.0")
                 parts = result.split(';')
