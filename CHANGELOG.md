@@ -1,6 +1,6 @@
 # Changelog
 
-## 5.1.0 - TBD
+## 5.1.0 - March 18, 2026
 
 ### Search
 
