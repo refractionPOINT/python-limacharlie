@@ -26,9 +26,10 @@ Resolution order for config path:
     6. New location (fresh install default)
 
 Env vars:
-    LC_CONFIG_DIR     - Override the base config directory
-    LC_CREDS_FILE     - Override the config file path directly (existing)
-    LC_LEGACY_CONFIG  - Force legacy flat-file layout (set to "1")
+    LC_CONFIG_DIR             - Override the base config directory
+    LC_CREDS_FILE             - Override the config file path directly (existing)
+    LC_LEGACY_CONFIG          - Force legacy flat-file layout (set to "1")
+    LC_NO_MIGRATION_WARNING   - Suppress the deprecation warning (set to "1")
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ import warnings
 ENV_CONFIG_DIR = "LC_CONFIG_DIR"
 ENV_CREDS_FILE = "LC_CREDS_FILE"
 ENV_LEGACY_CONFIG = "LC_LEGACY_CONFIG"
+ENV_NO_MIGRATION_WARNING = "LC_NO_MIGRATION_WARNING"
 
 # Legacy paths (pre-migration)
 _LEGACY_CONFIG_FILE = os.path.expanduser("~/.limacharlie")
@@ -98,16 +100,20 @@ def _warn_legacy_path(old_path: str, new_path: str) -> None:
     if _deprecation_warned:
         return
     _deprecation_warned = True
-    # Write directly to stderr for CLI visibility. Python's warnings module
-    # respects filters that may suppress DeprecationWarning in some contexts
-    # (e.g. when running under -W ignore), so we also emit via warnings for
-    # programmatic consumers.
+    if os.environ.get(ENV_NO_MIGRATION_WARNING) == "1":
+        return
     msg = (
         f"Using legacy config location '{old_path}'. "
         f"Run 'limacharlie config migrate' to move to '{new_path}'. "
-        f"Set LC_LEGACY_CONFIG=1 to suppress this warning."
+        f"Set LC_NO_MIGRATION_WARNING=1 to suppress this warning."
     )
-    warnings.warn(msg, DeprecationWarning, stacklevel=3)
+    # Use UserWarning (not DeprecationWarning) so the message is shown by
+    # default even for installed packages. Python suppresses
+    # DeprecationWarning from site-packages by default, which would hide
+    # the warning from CLI users. UserWarning is always shown and can
+    # still be filtered by SDK/library consumers via standard
+    # warnings.filterwarnings().
+    warnings.warn(msg, UserWarning, stacklevel=3)
 
 
 def get_config_dir() -> str:
@@ -152,9 +158,10 @@ def get_config_path() -> str:
     Resolution order:
         1. LC_CREDS_FILE env var (overrides everything)
         2. LC_LEGACY_CONFIG=1 - legacy ~/.limacharlie
-        3. New location <config_dir>/config.yaml if it exists
-        4. Legacy ~/.limacharlie if it exists (with deprecation warning)
-        5. New location (fresh install default)
+        3. LC_CONFIG_DIR env var - <dir>/config.yaml (no legacy fallback)
+        4. New location <config_dir>/config.yaml if it exists
+        5. Legacy ~/.limacharlie if it exists (with deprecation warning)
+        6. New location (fresh install default)
 
     Returns:
         Absolute path to the config file.
@@ -257,7 +264,10 @@ def get_checkpoint_dir() -> str:
     """Return the path to the search checkpoints directory.
 
     When LC_CREDS_FILE is set, checkpoints go into a .d sibling directory
-    (preserving existing behavior). Otherwise they live in the config dir.
+    (preserving existing behavior). In legacy mode, checkpoints stay at
+    ~/.limacharlie.d/search_checkpoints/ (same as they always were -
+    checkpoints were already in the .d directory before migration).
+    Otherwise they live in the config dir.
 
     Returns:
         Absolute path to the checkpoints directory.
@@ -278,6 +288,17 @@ def get_checkpoint_dir() -> str:
             _cached_checkpoint_dir = os.path.join(
                 config_dir, config_base + ".d", _CHECKPOINT_DIRNAME
             )
+        return _cached_checkpoint_dir
+
+    # In legacy mode, checkpoints were always at ~/.limacharlie.d/search_checkpoints/
+    # (the .d directory predates the config directory migration). We must preserve
+    # this path rather than deriving from get_config_dir() which returns ~ in legacy mode.
+    if is_legacy_mode():
+        _cached_checkpoint_dir = os.path.join(
+            os.path.dirname(_LEGACY_CONFIG_FILE),
+            os.path.basename(_LEGACY_CONFIG_FILE) + ".d",
+            _CHECKPOINT_DIRNAME,
+        )
         return _cached_checkpoint_dir
 
     # Standard resolution: config_dir/search_checkpoints/

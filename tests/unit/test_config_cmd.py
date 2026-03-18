@@ -255,11 +255,79 @@ class TestConfigMigrate:
         result = runner.invoke(cli, ["config", "migrate"])
         assert result.exit_code == 0
         assert "already exists" in result.output
-        assert "Nothing to migrate" in result.output
+        assert "Already migrated" in result.output
+        assert "--remove-old" in result.output
 
         # Existing content should be unchanged
         with open(os.path.join(new_dir, "config.yaml")) as f:
             assert f.read() == "existing\n"
+
+    def test_migrate_remove_old_after_previous_migration(self, monkeypatch, tmp_path):
+        """--remove-old cleans up legacy files when new files have matching content."""
+        legacy_config, legacy_jwt, new_dir = _setup_legacy(tmp_path, monkeypatch)
+
+        # Simulate previous migration: copy legacy content to new location
+        os.makedirs(new_dir, exist_ok=True)
+        import shutil
+        shutil.copy2(legacy_config, os.path.join(new_dir, "config.yaml"))
+        shutil.copy2(legacy_jwt, os.path.join(new_dir, "jwt_cache.json"))
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["config", "migrate", "--remove-old"])
+        assert result.exit_code == 0
+        assert "Removed legacy" in result.output
+        assert not os.path.isfile(legacy_config)
+        assert not os.path.isfile(legacy_jwt)
+
+    def test_migrate_remove_old_refuses_when_content_differs(self, monkeypatch, tmp_path):
+        """--remove-old refuses to delete legacy files when new files have different content.
+
+        Prevents data loss when the destination was created independently
+        (e.g. manually, or by a different tool) with different content.
+        Returns non-zero exit code to signal manual intervention needed.
+        """
+        legacy_config, legacy_jwt, new_dir = _setup_legacy(tmp_path, monkeypatch)
+
+        # Create new files with DIFFERENT content than legacy
+        os.makedirs(new_dir, exist_ok=True)
+        with open(os.path.join(new_dir, "config.yaml"), "w") as f:
+            f.write("oid: completely-different-oid\n")
+        with open(os.path.join(new_dir, "jwt_cache.json"), "w") as f:
+            f.write('{"different": "data"}')
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["config", "migrate", "--remove-old"])
+        # Non-zero exit code signals manual intervention needed
+        assert result.exit_code == 3
+        # Should warn about content mismatch and skip removal
+        assert "differs from" in result.output
+        # Legacy files should still exist (NOT deleted)
+        assert os.path.isfile(legacy_config)
+        assert os.path.isfile(legacy_jwt)
+
+    def test_migrate_remove_old_mixed_match(self, monkeypatch, tmp_path):
+        """--remove-old handles mix: config matches (removed), jwt differs (kept).
+
+        Exits non-zero because at least one file could not be removed.
+        """
+        legacy_config, legacy_jwt, new_dir = _setup_legacy(tmp_path, monkeypatch)
+
+        os.makedirs(new_dir, exist_ok=True)
+        # Config matches
+        import shutil
+        shutil.copy2(legacy_config, os.path.join(new_dir, "config.yaml"))
+        # JWT differs
+        with open(os.path.join(new_dir, "jwt_cache.json"), "w") as f:
+            f.write('{"different": "jwt data"}')
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["config", "migrate", "--remove-old"])
+        assert result.exit_code == 3
+        # Config removed (matched)
+        assert not os.path.isfile(legacy_config)
+        # JWT kept (differed)
+        assert os.path.isfile(legacy_jwt)
+        assert "differs from" in result.output
 
     def test_migrate_force_overwrites(self, monkeypatch, tmp_path):
         legacy_config, legacy_jwt, new_dir = _setup_legacy(tmp_path, monkeypatch)
@@ -338,7 +406,7 @@ class TestConfigMigrate:
         assert "LC_LEGACY_CONFIG" in result.output
 
     def test_migrate_idempotent(self, monkeypatch, tmp_path):
-        """Running migrate twice - second time says nothing to do."""
+        """Running migrate twice - second time detects already migrated."""
         legacy_config, legacy_jwt, new_dir = _setup_legacy(tmp_path, monkeypatch)
 
         runner = CliRunner()
@@ -349,7 +417,7 @@ class TestConfigMigrate:
         _reset_path_cache()
         result2 = runner.invoke(cli, ["config", "migrate"])
         assert result2.exit_code == 0
-        assert "already exists" in result2.output
+        assert "Already migrated" in result2.output
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +520,7 @@ class TestConfigMigrateRobustness:
     """Robustness tests for edge cases and failure modes."""
 
     @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    @pytest.mark.skipif(os.getuid() == 0, reason="Root ignores file permissions")
     def test_migrate_fails_on_unwritable_target_dir(self, monkeypatch, tmp_path):
         """Migration fails gracefully when target dir parent is read-only."""
         import limacharlie.paths as paths_mod

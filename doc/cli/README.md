@@ -125,5 +125,5 @@ limacharlie schema dr create
 
 ## See Also
 
-- [Authentication](../authentication.md) — Credential setup
-- [SDK Overview](../sdk/README.md) — Using the Python SDK directly
+- [Authentication](../authentication.md) - Credential setup, config directory migration
+- [SDK Overview](../sdk/README.md) - Using the Python SDK directly

@@ -20,8 +20,8 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install ".[dev]"
-      - name: Run unit tests
-        run: pytest tests/unit/ -v --reruns 2 --reruns-delay 5
+      - name: Run unit tests and microbenchmarks (correctness only)
+        run: pytest tests/unit/ tests/microbenchmarks/ --benchmark-disable -v --reruns 2 --reruns-delay 5
 
   build:
     name: Build distribution packages

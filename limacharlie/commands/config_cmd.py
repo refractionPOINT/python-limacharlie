@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from typing import Any
 
 import click
@@ -30,6 +29,48 @@ from ..paths import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _remove_stale_legacy(stale_legacy: list[dict[str, str]]) -> int:
+    """Remove stale legacy files after verifying content matches destination.
+
+    Returns the number of files that were skipped due to content mismatch.
+    """
+    skipped = 0
+    for item in stale_legacy:
+        if not _safe_content_match(item["path"], item["dest"]):
+            click.echo(
+                f"Warning: Legacy {item['label']} ({item['path']}) differs from "
+                f"{item['dest']}. Skipping removal - review both files manually.",
+                err=True,
+            )
+            skipped += 1
+            continue
+        try:
+            os.unlink(item["path"])
+            click.echo(f"Removed legacy {item['label']}: {item['path']}")
+        except OSError as e:
+            click.echo(
+                f"Warning: Could not remove legacy {item['label']} {item['path']}: {e}",
+                err=True,
+            )
+    return skipped
+
+
+def _safe_content_match(path_a: str, path_b: str) -> bool:
+    """Return True if two files have identical content.
+
+    Returns False if either file cannot be read (missing, permissions,
+    symlink rejected). Used to verify that a legacy file matches its
+    migrated counterpart before deletion, preventing data loss when
+    the destination was created independently with different content.
+    """
+    try:
+        content_a = safe_open_read(path_a)
+        content_b = safe_open_read(path_b)
+        return content_a == content_b
+    except (OSError, Exception):
+        return False
+
 
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
@@ -107,7 +148,8 @@ def show_paths(ctx: click.Context) -> None:
 
     # Env var overrides
     env_overrides = {}
-    for var in ("LC_CONFIG_DIR", "LC_CREDS_FILE", "LC_LEGACY_CONFIG", "LC_EPHEMERAL_CREDS"):
+    for var in ("LC_CONFIG_DIR", "LC_CREDS_FILE", "LC_LEGACY_CONFIG",
+                "LC_NO_MIGRATION_WARNING", "LC_EPHEMERAL_CREDS"):
         val = os.environ.get(var)
         if val is not None:
             env_overrides[var] = val
@@ -175,6 +217,10 @@ def migrate(ctx: click.Context, dry_run: bool, remove_old: bool, force: bool) ->
     legacy_config = legacy["config_file"]
     legacy_jwt = legacy["jwt_cache"]
 
+    # Track legacy files that can be cleaned up (already migrated or about to be).
+    # Each entry includes the destination path so we can verify content before removal.
+    stale_legacy: list[dict[str, str]] = []
+
     if os.path.isfile(legacy_config):
         if not os.path.isfile(new_config) or force:
             migrations.append({
@@ -186,6 +232,11 @@ def migrate(ctx: click.Context, dry_run: bool, remove_old: bool, force: bool) ->
             click.echo(
                 f"Skipping config file: {new_config} already exists (use --force to overwrite)."
             )
+            stale_legacy.append({
+                "path": legacy_config,
+                "dest": new_config,
+                "label": "config file",
+            })
 
     if os.path.isfile(legacy_jwt):
         if not os.path.isfile(new_jwt) or force:
@@ -198,10 +249,40 @@ def migrate(ctx: click.Context, dry_run: bool, remove_old: bool, force: bool) ->
             click.echo(
                 f"Skipping JWT cache: {new_jwt} already exists (use --force to overwrite)."
             )
+            stale_legacy.append({
+                "path": legacy_jwt,
+                "dest": new_jwt,
+                "label": "JWT cache",
+            })
 
-    if not migrations:
+    if not migrations and not stale_legacy:
         click.echo("Nothing to migrate. No legacy files found or all already migrated.")
         return
+
+    # If nothing to copy but stale files exist, handle cleanup.
+    if not migrations and stale_legacy:
+        if remove_old:
+            if dry_run:
+                click.echo("Dry run - the following legacy files would be removed:")
+                for s in stale_legacy:
+                    click.echo(f"  {s['label']}: {s['path']}")
+                return
+            skipped = _remove_stale_legacy(stale_legacy)
+            if skipped:
+                click.echo(
+                    "Some legacy files could not be removed due to content mismatch. "
+                    "Review the warnings above.",
+                    err=True,
+                )
+                ctx.exit(3)
+            else:
+                click.echo("Legacy files cleaned up.")
+            return
+        else:
+            click.echo(
+                "Already migrated. Legacy files still present - use --remove-old to clean up."
+            )
+            return
 
     # Preview mode
     if dry_run:
@@ -251,18 +332,44 @@ def migrate(ctx: click.Context, dry_run: bool, remove_old: bool, force: bool) ->
             ctx.exit(2)
             return
 
-    # Optionally remove old files
-    if remove_old and migrated:
-        for m in migrated:
-            source = m["source"]
-            label = m["label"]
+    # Optionally remove old files (both freshly migrated and previously stale)
+    skipped_removals = 0
+    if remove_old:
+        # Freshly migrated files were just copied and verified, safe to remove.
+        for item in migrated:
             try:
-                os.unlink(source)
-                click.echo(f"Removed legacy {label}: {source}")
+                os.unlink(item["source"])
+                click.echo(f"Removed legacy {item['label']}: {item['source']}")
             except OSError as e:
                 click.echo(
-                    f"Warning: Could not remove legacy {label} {source}: {e}",
+                    f"Warning: Could not remove legacy {item['label']} {item['source']}: {e}",
                     err=True,
                 )
+        # Stale legacy files (skipped because dest already existed) need
+        # content verification before removal to prevent data loss.
+        skipped_removals = _remove_stale_legacy(stale_legacy)
 
-    click.echo("Migration complete.")
+    if not remove_old and (migrated or stale_legacy):
+        # Collect all legacy files that still exist
+        remaining = []
+        for m in migrated:
+            if os.path.isfile(m["source"]):
+                remaining.append(m["source"])
+        for s in stale_legacy:
+            if os.path.isfile(s["path"]):
+                remaining.append(s["path"])
+        if remaining:
+            click.echo(
+                "Tip: Run with --remove-old to delete legacy files, or remove manually:\n"
+                + "".join(f"  {p}\n" for p in remaining)
+            )
+
+    if skipped_removals:
+        click.echo(
+            "Migration complete, but some legacy files could not be removed "
+            "due to content mismatch. Review the warnings above.",
+            err=True,
+        )
+        ctx.exit(3)
+    else:
+        click.echo("Migration complete.")

@@ -223,7 +223,7 @@ class TestGetConfigPath:
             result = get_config_path()
         assert result == new_config
         # No deprecation warning when new location exists
-        deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        deprecation_warnings = [x for x in w if issubclass(x.category, UserWarning)]
         assert len(deprecation_warnings) == 0
 
     def test_fresh_install_uses_new_location(self, monkeypatch, tmp_path):
@@ -250,9 +250,9 @@ class TestGetConfigPath:
 
         assert result == legacy_file
         assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
+        assert issubclass(w[0].category, UserWarning)
         assert "limacharlie config migrate" in str(w[0].message)
-        assert "LC_LEGACY_CONFIG=1" in str(w[0].message)
+        assert "LC_NO_MIGRATION_WARNING=1" in str(w[0].message)
 
     def test_deprecation_warning_emitted_only_once(self, monkeypatch, tmp_path):
         """Multiple calls with legacy fallback only warn once per process."""
@@ -274,8 +274,107 @@ class TestGetConfigPath:
             pm._cached_config_path = None
             get_config_path()
 
-        deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        deprecation_warnings = [x for x in w if issubclass(x.category, UserWarning)]
         assert len(deprecation_warnings) == 1
+
+    def test_warning_is_user_warning_not_deprecation(self, monkeypatch, tmp_path):
+        """Warning uses UserWarning so it's visible for installed packages.
+
+        DeprecationWarning is suppressed by default for site-packages.
+        UserWarning is always shown, and SDK consumers can filter it
+        via standard warnings.filterwarnings().
+        """
+        import limacharlie.paths as paths_mod
+        legacy_file = str(tmp_path / ".limacharlie")
+        with open(legacy_file, "w") as f:
+            f.write("oid: test\n")
+        monkeypatch.setattr(paths_mod, "_LEGACY_CONFIG_FILE", legacy_file)
+        new_dir = str(tmp_path / "new_dir")
+        monkeypatch.setattr(paths_mod, "_default_config_dir", lambda: new_dir)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            get_config_path()
+
+        assert len(w) == 1
+        # Must be UserWarning, NOT DeprecationWarning
+        assert w[0].category is UserWarning
+        assert not issubclass(w[0].category, DeprecationWarning)
+
+    def test_warning_does_not_print_to_stderr(self, monkeypatch, tmp_path, capsys):
+        """Warning uses only warnings.warn, no direct print to stderr.
+
+        SDK/library consumers should not see unsolicited stderr output.
+        """
+        import limacharlie.paths as paths_mod
+        legacy_file = str(tmp_path / ".limacharlie")
+        with open(legacy_file, "w") as f:
+            f.write("oid: test\n")
+        monkeypatch.setattr(paths_mod, "_LEGACY_CONFIG_FILE", legacy_file)
+        new_dir = str(tmp_path / "new_dir")
+        monkeypatch.setattr(paths_mod, "_default_config_dir", lambda: new_dir)
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            get_config_path()
+
+        captured = capsys.readouterr()
+        # No direct print to stderr (only warnings.warn)
+        assert captured.err == ""
+
+    def test_no_migration_warning_suppressed_with_1(self, monkeypatch, tmp_path):
+        """LC_NO_MIGRATION_WARNING=1 suppresses the warning."""
+        import limacharlie.paths as paths_mod
+        legacy_file = str(tmp_path / ".limacharlie")
+        with open(legacy_file, "w") as f:
+            f.write("oid: test\n")
+        monkeypatch.setattr(paths_mod, "_LEGACY_CONFIG_FILE", legacy_file)
+        new_dir = str(tmp_path / "new_dir")
+        monkeypatch.setattr(paths_mod, "_default_config_dir", lambda: new_dir)
+        monkeypatch.setenv("LC_NO_MIGRATION_WARNING", "1")
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            get_config_path()
+
+        user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+        assert len(user_warnings) == 0
+
+    def test_no_migration_warning_not_suppressed_with_0(self, monkeypatch, tmp_path):
+        """LC_NO_MIGRATION_WARNING=0 does NOT suppress (only '1' does)."""
+        import limacharlie.paths as paths_mod
+        legacy_file = str(tmp_path / ".limacharlie")
+        with open(legacy_file, "w") as f:
+            f.write("oid: test\n")
+        monkeypatch.setattr(paths_mod, "_LEGACY_CONFIG_FILE", legacy_file)
+        new_dir = str(tmp_path / "new_dir")
+        monkeypatch.setattr(paths_mod, "_default_config_dir", lambda: new_dir)
+        monkeypatch.setenv("LC_NO_MIGRATION_WARNING", "0")
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            get_config_path()
+
+        user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+        assert len(user_warnings) == 1
+
+    def test_no_migration_warning_not_suppressed_with_true(self, monkeypatch, tmp_path):
+        """LC_NO_MIGRATION_WARNING=true does NOT suppress (only '1' does)."""
+        import limacharlie.paths as paths_mod
+        legacy_file = str(tmp_path / ".limacharlie")
+        with open(legacy_file, "w") as f:
+            f.write("oid: test\n")
+        monkeypatch.setattr(paths_mod, "_LEGACY_CONFIG_FILE", legacy_file)
+        new_dir = str(tmp_path / "new_dir")
+        monkeypatch.setattr(paths_mod, "_default_config_dir", lambda: new_dir)
+        monkeypatch.setenv("LC_NO_MIGRATION_WARNING", "true")
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            get_config_path()
+
+        user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+        assert len(user_warnings) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +464,20 @@ class TestGetCheckpointDir:
         result = get_checkpoint_dir()
         expected = os.path.join(_default_config_dir(), "search_checkpoints")
         assert result == expected
+
+    def test_legacy_mode_preserves_dot_d_path(self, monkeypatch):
+        """In legacy mode, checkpoint dir stays at ~/.limacharlie.d/search_checkpoints.
+
+        Checkpoints were already in the .d directory before the migration
+        feature existed, so legacy mode must preserve that path - not derive
+        from get_config_dir() which returns ~ in legacy mode.
+        """
+        monkeypatch.setenv("LC_LEGACY_CONFIG", "1")
+        result = get_checkpoint_dir()
+        assert result.endswith(".limacharlie.d/search_checkpoints") or \
+               result.endswith(".limacharlie.d\\search_checkpoints")
+        # Must NOT be ~/search_checkpoints
+        assert not result.endswith(os.sep + "search_checkpoints") or ".limacharlie.d" in result
 
     def test_creds_file_relative_path(self, monkeypatch, tmp_path):
         """Relative LC_CREDS_FILE is resolved to absolute for checkpoint dir."""
@@ -481,13 +594,13 @@ class TestPathCacheReset:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             get_config_path()
-        assert len([x for x in w if issubclass(x.category, DeprecationWarning)]) == 1
+        assert len([x for x in w if issubclass(x.category, UserWarning)]) == 1
 
         _reset_path_cache()
         with warnings.catch_warnings(record=True) as w2:
             warnings.simplefilter("always")
             get_config_path()
-        assert len([x for x in w2 if issubclass(x.category, DeprecationWarning)]) == 1
+        assert len([x for x in w2 if issubclass(x.category, UserWarning)]) == 1
 
     def test_cache_is_per_function(self, monkeypatch, tmp_path):
         """Resetting path cache affects all four cached paths."""
