@@ -87,3 +87,24 @@ class TestPyprojectToml:
             data = tomllib.load(f)
         classifiers = data["project"].get("classifiers", [])
         assert "Development Status :: 5 - Production/Stable" in classifiers
+
+    def test_project_urls_present(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        urls = data["project"].get("urls", {})
+        for key in ("Homepage", "Repository", "Issues", "Documentation", "Changelog"):
+            assert key in urls, f"Missing project URL: {key}"
+
+    def test_project_urls_all_https(self):
+        """All project URLs should start with https://."""
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        urls = data["project"].get("urls", {})
+        for name, url in urls.items():
+            assert url.startswith("https://"), f"URL for {name} is not HTTPS: {url}"
+
+    def test_project_description_not_empty(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        desc = data["project"].get("description", "")
+        assert len(desc) > 10, "Description too short or missing"

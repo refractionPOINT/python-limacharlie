@@ -194,6 +194,20 @@
   `search run` explain text covering streaming vs buffered behavior,
   `--expand`, `--raw`, and memory guidance.
 
+### Packaging
+
+- **PyPI metadata**: Added project URLs (Documentation, Repository, Issues,
+  Changelog, REST API Docs) so links render correctly on the PyPI page.
+  Updated description to "Python SDK and CLI for the LimaCharlie endpoint
+  detection and response platform".
+
+- **Python 3.14 support**: Added PyPI classifiers for Python 3.9 through 3.14.
+  CI already tests on Python 3.14 via Cloud Build.
+
+- **PyPI classifiers**: Added classifiers for development status
+  (Production/Stable), audience (Developers, System Administrators), and topic
+  (Security, System Monitoring).
+
 ### Dependencies
 
 - **orjson**: Added as a runtime dependency for ~3-10x faster JSON

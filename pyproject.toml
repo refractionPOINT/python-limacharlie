@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "limacharlie"
 dynamic = ["version"]
-description = "Python API for LimaCharlie.io"
+description = "Python SDK and CLI for the LimaCharlie endpoint detection and response platform"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{name = "Maxime Lamothe-Brassard", email = "maxime@refractionpoint.com"}]
@@ -52,6 +52,11 @@ limacharlie = "limacharlie.cli:main"
 
 [project.urls]
 Homepage = "https://limacharlie.io"
+Documentation = "https://docs.limacharlie.io"
+Repository = "https://github.com/refractionPOINT/python-limacharlie"
+Issues = "https://github.com/refractionPOINT/python-limacharlie/issues"
+Changelog = "https://github.com/refractionPOINT/python-limacharlie/blob/master/CHANGELOG.md"
+"REST API Docs" = "https://docs.limacharlie.io/apidocs"
 
 [tool.setuptools.packages.find]
 include = ["limacharlie*"]
