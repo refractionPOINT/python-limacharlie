@@ -88,3 +88,124 @@ steps:
       pip show limacharlie
       limacharlie --version
   waitFor: ["Run wheel Sanity Checks"]  # This can't run in parallel with previous step since it shares workspace
+
+# Distribution install checks for all supported Python versions.
+# Each step builds a wheel in a temp dir and installs it, verifying
+# basic functionality and orjson availability. All run in parallel.
+
+- id: "Dist Check Python 3.9"
+  name: 'python:3.9'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      cp -r /workspace /tmp/src
+      cd /tmp/src
+      pip install --upgrade pip setuptools wheel build
+      python -m build
+      pip install dist/limacharlie-*-py3-none-any.whl
+      pip show limacharlie
+      limacharlie --version
+
+      # Python 3.9: orjson 3.10.x should be installed (capped <3.11)
+      python -c "
+      import orjson
+      v = tuple(int(x) for x in orjson.__version__.split('.'))
+      assert v[0] == 3 and v[1] == 10, f'Expected orjson 3.10.x, got {orjson.__version__}'
+      print(f'orjson {orjson.__version__} (OK)')
+      "
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.9'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+
+      # Run unit tests on 3.9 to catch syntax/compat issues
+      pip install "pytest==8.3.4" "pytest-rerunfailures==15.0" "tomli>=1.0"
+      pytest -x -q tests/unit/
+  waitFor: ["-"]
+
+- id: "Dist Check Python 3.10"
+  name: 'python:3.10'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      cp -r /workspace /tmp/src
+      cd /tmp/src
+      pip install --upgrade pip setuptools wheel build
+      python -m build
+      pip install dist/limacharlie-*-py3-none-any.whl
+      pip show limacharlie
+      limacharlie --version
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.10+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+  waitFor: ["-"]
+
+- id: "Dist Check Python 3.11"
+  name: 'python:3.11'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      cp -r /workspace /tmp/src
+      cd /tmp/src
+      pip install --upgrade pip setuptools wheel build
+      python -m build
+      pip install dist/limacharlie-*-py3-none-any.whl
+      pip show limacharlie
+      limacharlie --version
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.11+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+  waitFor: ["-"]
+
+- id: "Dist Check Python 3.12"
+  name: 'python:3.12'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      cp -r /workspace /tmp/src
+      cd /tmp/src
+      pip install --upgrade pip setuptools wheel build
+      python -m build
+      pip install dist/limacharlie-*-py3-none-any.whl
+      pip show limacharlie
+      limacharlie --version
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.12+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+  waitFor: ["-"]
+
+- id: "Dist Check Python 3.13"
+  name: 'python:3.13'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      cp -r /workspace /tmp/src
+      cd /tmp/src
+      pip install --upgrade pip setuptools wheel build
+      python -m build
+      pip install dist/limacharlie-*-py3-none-any.whl
+      pip show limacharlie
+      limacharlie --version
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.13+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+  waitFor: ["-"]

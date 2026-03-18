@@ -201,8 +201,9 @@
   Updated description to "Python SDK and CLI for the LimaCharlie endpoint
   detection and response platform".
 
-- **Python 3.14 support**: Added PyPI classifiers for Python 3.9 through 3.14.
-  CI already tests on Python 3.14 via Cloud Build.
+- **Python 3.9-3.14 support**: Added PyPI classifiers for Python 3.9 through
+  3.14. CI now runs distribution install checks on all supported versions
+  (3.9, 3.10, 3.11, 3.12, 3.13, 3.14) in parallel.
 
 - **PyPI classifiers**: Added classifiers for development status
   (Production/Stable), audience (Developers, System Administrators), and topic
@@ -211,7 +212,11 @@
 ### Dependencies
 
 - **orjson**: Added as a runtime dependency for ~3-10x faster JSON
-  serialization/deserialization. Falls back to stdlib `json` if unavailable.
+  serialization/deserialization. Uses split environment markers for Python
+  version compatibility:
+  - Python 3.9: orjson 3.10.x (last series with 3.9 support, capped `<3.11`)
+  - Python 3.10+: latest orjson (currently 3.11.x)
+  Falls back to stdlib `json` if orjson cannot be installed on the platform.
 
 ### Configuration
 
