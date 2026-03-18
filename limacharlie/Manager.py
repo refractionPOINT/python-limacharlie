@@ -443,7 +443,7 @@ class Manager( object ):
                 if header[0] == 'X-RateLimit-Period':
                     quotaPeriod = int(header[1])
             if quotaLimit is not None or quotaPeriod is not None:
-                print(f"Warning: Rate limit hit, quota limit: {quotaLimit}, quota period: {quotaPeriod} seconds, see https://docs.limacharlie.io/v2/docs/en/api-keys?highlight=bulk", file=sys.stderr)
+                print(f"Warning: Rate limit hit, quota limit: {quotaLimit}, quota period: {quotaPeriod} seconds, see https://docs.limacharlie.io/7-administration/access/api-keys/", file=sys.stderr)
 
         except HTTPError as e:
             errorBody = e.read()
