@@ -25,7 +25,7 @@ class User(object):
         except LcApiException as e:
             if e.code == 401:
                 print("API returned 401. Make sure you are using a valid and user scoped API key.")
-                print("For information on how to obtain / generate user scoped API key, see https://docs.limacharlie.io/apidocs/introduction#getting-a-jwt")
+                print("For information on how to obtain / generate user scoped API key, see https://docs.limacharlie.io/7-administration/access/api-keys/")
                 print("Original error: %s" % (str(e)))
                 sys.exit( 1 )
             else:

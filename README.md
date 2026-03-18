@@ -23,7 +23,7 @@ in the REST API that you would like to use, let us know at support@limacharlie.i
 Authenticating to use the SDK / CLI can be done in a few ways.
 
 #### Logging In
-The simplest is to login to an organization using an [API key](https://docs.limacharlie.io/docs/platform-management-api-keys).
+The simplest is to login to an organization using an [API key](https://docs.limacharlie.io/7-administration/access/api-keys/).
 
 Use `limacharlie login` to store credentials locally. You will need an `OID` (Organization ID) and an API key, both
 of which you can get from the "REST API" section of the web interface.
@@ -176,16 +176,16 @@ the `request` function to receive replies through a `FutureResults` object or th
 `simpleRequest` to wait for the response and receive it as a return value.
 
 #### Artifacts
-The `Artifacts` is a helpful class to upload [Artifact Collection](https://docs.limacharlie.io/docs/telemetry-artifacts)
+The `Artifacts` is a helpful class to upload [Artifact Collection](https://docs.limacharlie.io/5-integrations/extensions/limacharlie/artifact/)
 to LimaCharlie without going through a sensor.
 
 #### Payloads
-The `Payloads` can be used to manage various executable [payloads](https://docs.limacharlie.io/docs/telemetry-sensors-payloads)
+The `Payloads` can be used to manage various executable [payloads](https://docs.limacharlie.io/2-sensors-deployment/endpoint-agent/payloads/)
 accessible to sensors.
 
 #### Replay
-The `Replay` object allows you to interact with [Replay](https://docs.limacharlie.io/docs/replay)
-jobs managed by LimaCharlie. These allow you to re-run [D&R Rules](https://docs.limacharlie.io/docs/platform-management-config-hive-dr-rules)
+The `Replay` object allows you to interact with [Replay](https://docs.limacharlie.io/5-integrations/services/replay/)
+jobs managed by LimaCharlie. These allow you to re-run [D&R Rules](https://docs.limacharlie.io/7-administration/config-hive/dr-rules/)
 on historical data.
 
 #### Search
@@ -274,17 +274,17 @@ Shortcut utility to perform IOC searches across all locally configured organizat
 
 #### Artifact Upload
 `limacharlie artifacts upload --help`
-Shortcut utility to upload [Artifact Collection](https://docs.limacharlie.io/docs/telemetry-artifacts) directly to
+Shortcut utility to upload [Artifact Collection](https://docs.limacharlie.io/5-integrations/extensions/limacharlie/artifact/) directly to
 LimaCharlie with just the CLI (no Agent).
 
 #### Artifact Download
 `limacharlie artifacts get_original --help`
-Shortcut utility to download [Artifact Collection](https://docs.limacharlie.io/docs/telemetry-artifacts) in
+Shortcut utility to download [Artifact Collection](https://docs.limacharlie.io/5-integrations/extensions/limacharlie/artifact/) in
 LimaCharlie locally.
 
 #### Replay
 `limacharlie replay --help`
-Shortcut utility to perform [Replay](https://docs.limacharlie.io/docs/replay) jobs from the CLI.
+Shortcut utility to perform [Replay](https://docs.limacharlie.io/5-integrations/services/replay/) jobs from the CLI.
 
 #### Detection & Response
 `limacharlie dr --help`
@@ -300,12 +300,12 @@ Print out all basic sensor information for all sensors matching the selector.
 
 #### Extension
 `limacharlie extension --help`
-Shortcut utility to perform actions pertaining [Extensions](https://docs.limacharlie.io/docs/extensions) using just the CLI.
+Shortcut utility to perform actions pertaining [Extensions](https://docs.limacharlie.io/5-integrations/extensions/) using just the CLI.
 
 #### ARLs
 `limacharlie get-arl --help`
 
-Print out data returned from the given [ARL](https://docs.limacharlie.io/docs/reference-authentication-resource-locator).
+Print out data returned from the given [ARL](https://docs.limacharlie.io/8-reference/authentication-resource-locator/).
 
 Example:
 ```
