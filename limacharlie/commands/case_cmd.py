@@ -418,11 +418,16 @@ If --severity is omitted, severity is derived from detect_mtd.level
 in the detection object (or defaults to 'medium').  Valid severities:
 critical, high, medium, low, info.
 
+Use --summary to set an initial case summary at creation time.  When
+provided, the summary is included in the 'created' audit event so
+D&R rules and webhooks can act on it immediately.
+
 Examples:
   limacharlie case create --detection '<full detection JSON>'
   limacharlie case create --detection '<full detection JSON>' \\
       --severity high
-  limacharlie case create --severity medium
+  limacharlie case create --severity medium \\
+      --summary "Investigating lateral movement"
   limacharlie case create
 """
 
@@ -564,15 +569,17 @@ def group() -> None:
               help="Full detection JSON object (optional).")
 @click.option("--severity", default=None, type=_SEVERITY_CHOICES,
               help="Case severity override (default: derived from detection).")
+@click.option("--summary", default=None,
+              help="Case summary set at creation time (max 8192 chars).")
 @pass_context
-def create(ctx, detection_json, severity) -> None:
+def create(ctx, detection_json, severity, summary) -> None:
     """Create a new case, optionally from a detection.
 
     Examples:
         limacharlie case create --detection '<full detection JSON>'
         limacharlie case create --detection '<full detection JSON>' \\
             --severity high
-        limacharlie case create --severity medium
+        limacharlie case create --severity medium --summary "Investigating lateral movement"
         limacharlie case create
     """
     detection = None
@@ -585,7 +592,7 @@ def create(ctx, detection_json, severity) -> None:
                 param_hint="--detection",
             )
     t = _get_cases(ctx)
-    data = t.create_case(detection, severity=severity)
+    data = t.create_case(detection, severity=severity, summary=summary)
     _output(ctx, data)
 
 

@@ -39,6 +39,7 @@ class Cases:
         detection: dict | None = None,
         *,
         severity: str | None = None,
+        summary: str | None = None,
     ) -> dict[str, Any]:
         """Create a new case via the ext-cases extension.
 
@@ -53,6 +54,8 @@ class Cases:
                 Omit to create an empty investigation case.
             severity: Optional case severity override
                 (critical, high, medium, low, info).
+            summary: Optional case summary set at creation time
+                (max 8192 chars).
         """
         data: dict[str, Any] = {}
         if detection is not None:
@@ -61,6 +64,8 @@ class Cases:
             data["detection"] = json.dumps(detection)
         if severity is not None:
             data["severity"] = severity
+        if summary is not None:
+            data["summary"] = summary
         ext = Extensions(self._org)
         return ext.request(self._EXTENSION_NAME, "create_case", data=data)
 

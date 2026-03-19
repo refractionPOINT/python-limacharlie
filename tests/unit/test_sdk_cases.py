@@ -93,11 +93,16 @@ class TestCreateCase:
             mock_ext = MagicMock()
             MockExt.return_value = mock_ext
             mock_ext.request.return_value = {"created": 1}
-            cases.create_case(self._SAMPLE_DETECTION, severity="high")
+            cases.create_case(
+                self._SAMPLE_DETECTION,
+                severity="high",
+                summary="Test summary",
+            )
             call_data = mock_ext.request.call_args[1]["data"]
             assert call_data == {
                 "detection": json.dumps(self._SAMPLE_DETECTION),
                 "severity": "high",
+                "summary": "Test summary",
             }
 
     def test_none_optional_fields_excluded(self, cases, mock_org):
@@ -126,6 +131,32 @@ class TestCreateCase:
             cases.create_case(severity="medium")
             call_data = mock_ext.request.call_args[1]["data"]
             assert call_data == {"severity": "medium"}
+
+    def test_with_summary(self, cases, mock_org):
+        with patch("limacharlie.sdk.cases.Extensions") as MockExt:
+            mock_ext = MagicMock()
+            MockExt.return_value = mock_ext
+            mock_ext.request.return_value = {"created": 1}
+            cases.create_case(
+                self._SAMPLE_DETECTION,
+                severity="high",
+                summary="Lateral movement detected",
+            )
+            call_data = mock_ext.request.call_args[1]["data"]
+            assert call_data == {
+                "detection": json.dumps(self._SAMPLE_DETECTION),
+                "severity": "high",
+                "summary": "Lateral movement detected",
+            }
+
+    def test_summary_none_excluded(self, cases, mock_org):
+        with patch("limacharlie.sdk.cases.Extensions") as MockExt:
+            mock_ext = MagicMock()
+            MockExt.return_value = mock_ext
+            mock_ext.request.return_value = {"created": 1}
+            cases.create_case(self._SAMPLE_DETECTION, summary=None)
+            call_data = mock_ext.request.call_args[1]["data"]
+            assert "summary" not in call_data
 
 
 # ---------------------------------------------------------------------------

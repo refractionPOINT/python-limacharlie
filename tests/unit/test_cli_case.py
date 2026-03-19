@@ -123,6 +123,7 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 json.loads(self._SAMPLE_DETECTION),
                 severity=None,
+                summary=None,
             )
 
     def test_create_with_severity_override(self):
@@ -139,6 +140,7 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 json.loads(self._SAMPLE_DETECTION),
                 severity="critical",
+                summary=None,
             )
 
     def test_create_without_detection(self):
@@ -153,6 +155,7 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 None,
                 severity=None,
+                summary=None,
             )
 
     def test_create_without_detection_with_severity(self):
@@ -167,6 +170,22 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 None,
                 severity="medium",
+                summary=None,
+            )
+
+    def test_create_with_summary(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "create", "--summary", "Lateral movement detected"],
+                mock_t_cls,
+                return_value={"created": 1, "case_id": "tid-new"},
+            )
+            assert result.exit_code == 0
+            mock_t.create_case.assert_called_once_with(
+                None,
+                severity=None,
+                summary="Lateral movement detected",
             )
 
     def test_create_invalid_severity_rejected(self):
