@@ -121,7 +121,7 @@ CLI usage:
 Related commands: search, event, detection, ai generate-query
 """
 
-HELP_TOPICS["sensors"] = """\
+HELP_TOPICS["sensor"] = """\
 Sensors
 =======
 
@@ -159,7 +159,7 @@ Online status:
 Related commands: sensor, tag, endpoint-policy, task, installation-key
 """
 
-HELP_TOPICS["outputs"] = """\
+HELP_TOPICS["output"] = """\
 Outputs
 =======
 
@@ -196,7 +196,7 @@ CLI usage:
 Related commands: output, stream
 """
 
-HELP_TOPICS["extensions"] = """\
+HELP_TOPICS["extension"] = """\
 Extensions
 ==========
 
@@ -338,7 +338,7 @@ Testing permissions:
 Related commands: auth, api-key, user
 """
 
-HELP_TOPICS["events"] = """\
+HELP_TOPICS["event"] = """\
 Events
 ======
 
@@ -368,7 +368,7 @@ Querying events:
 Related commands: event, search, detection, stream
 """
 
-HELP_TOPICS["detections"] = """\
+HELP_TOPICS["detection"] = """\
 Detections
 ==========
 
@@ -394,7 +394,7 @@ False positives:
 Related commands: detection, rule, fp, stream
 """
 
-HELP_TOPICS["adapters"] = """\
+HELP_TOPICS["adapter"] = """\
 Adapters (USP - Universal Sensor Protocol)
 ==========================================
 
@@ -423,7 +423,7 @@ Managing adapters:
 Related commands: adapter, usp, cloud-sensor
 """
 
-HELP_TOPICS["downloads"] = """\
+HELP_TOPICS["download"] = """\
 Downloads - Sensor Installers & Adapter Binaries
 =================================================
 
@@ -852,13 +852,25 @@ limacharlie search run --query '* | NEW_PROCESS | event/FILE_PATH exists' --star
 def get_help_topic(name: str) -> str | None:
     """Get help topic content by name.
 
+    Tries an exact match first, then falls back to simple singular/plural
+    variants so that both ``limacharlie help output`` and
+    ``limacharlie help outputs`` resolve to the same topic.
+
     Args:
         name: Topic name (e.g., 'd&r-rules', 'hive', 'lcql').
 
     Returns:
         str or None.
     """
-    return HELP_TOPICS.get(name)
+    topic = HELP_TOPICS.get(name)
+    if topic is not None:
+        return topic
+    # Try adding/removing a trailing "s" for singular/plural tolerance.
+    if name.endswith("s"):
+        topic = HELP_TOPICS.get(name[:-1])
+    else:
+        topic = HELP_TOPICS.get(name + "s")
+    return topic
 
 
 def list_help_topics() -> list[str]:
@@ -873,13 +885,23 @@ def list_help_topics() -> list[str]:
 def get_cheatsheet(name: str) -> str | None:
     """Get cheatsheet content by name.
 
+    Tries an exact match first, then falls back to simple singular/plural
+    variants for tolerance.
+
     Args:
         name: Cheatsheet name.
 
     Returns:
         str or None.
     """
-    return CHEATSHEETS.get(name)
+    sheet = CHEATSHEETS.get(name)
+    if sheet is not None:
+        return sheet
+    if name.endswith("s"):
+        sheet = CHEATSHEETS.get(name[:-1])
+    else:
+        sheet = CHEATSHEETS.get(name + "s")
+    return sheet
 
 
 def list_cheatsheets() -> list[str]:
