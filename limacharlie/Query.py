@@ -499,7 +499,7 @@ class LCQuery( cmd.Cmd ):
         self._logOutput( f"Current env: time={self._timeFrame} sensors={self._sensors} events={self._events} format={self._format} output={self._outFile}" )
 
     def do_lcql( self, inp ):
-        '''See the official LCQL documentation here: https://doc.limacharlie.io/docs/documentation/b0915c7a5f598-lima-charlie-query-language'''
+        '''See the official LCQL documentation here: https://docs.limacharlie.io/4-data-queries/'''
         pass
 
 if '__main__' == __name__:
