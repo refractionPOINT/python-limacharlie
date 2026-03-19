@@ -32,27 +32,37 @@ See [Authentication](doc/authentication.md) for OAuth, environments, and credent
 
 ## Shell Completion
 
-The CLI supports tab-completion for all commands, subcommands, and options. Run one of the following to enable it for your shell:
+The CLI supports tab-completion for all commands, subcommands, and options. Run the appropriate one-time setup command for your shell:
 
-**Bash** - add to `~/.bashrc`:
+**Bash** (run once):
 
 ```bash
-eval "$(limacharlie completion bash)"
+mkdir -p ~/.local/share/bash-completion/completions
+limacharlie completion bash > ~/.local/share/bash-completion/completions/limacharlie
 ```
 
-**Zsh** - add to `~/.zshrc`:
+**Zsh** (run once):
 
 ```bash
-eval "$(limacharlie completion zsh)"
+mkdir -p ~/.zfunc
+limacharlie completion zsh > ~/.zfunc/_limacharlie
 ```
 
-**Fish** - run once:
+Then ensure `~/.zfunc` is in your `fpath` by adding this to `~/.zshrc` (before `compinit`):
 
 ```bash
+fpath=(~/.zfunc $fpath)
+autoload -Uz compinit && compinit
+```
+
+**Fish** (run once):
+
+```bash
+mkdir -p ~/.config/fish/completions
 limacharlie completion fish > ~/.config/fish/completions/limacharlie.fish
 ```
 
-Restart your shell (or `source` the rc file) for completions to take effect.
+Open a new shell session for completions to take effect. Re-run the command after upgrading to pick up new commands and options.
 
 ## Development
 
