@@ -801,3 +801,40 @@ class TestCrossplatformPaths:
         _reset_path_cache()
         assert _get_cache_path() == spaced + "_jwt_cache"
         _reset_path_cache()
+
+
+class TestSaveCacheDirectoryPermissions:
+    """Verify _save_cache creates parent directories with secure permissions."""
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permissions test")
+    def test_parent_dir_created_with_0700(self, tmp_path, monkeypatch):
+        """When _save_cache creates the parent directory, it must use 0o700
+        (owner-only) permissions via secure_makedirs, not the default 0o755."""
+        from limacharlie.paths import _reset_path_cache
+
+        # Point to a non-existent nested directory
+        nested = str(tmp_path / "new_parent" / "deep")
+        monkeypatch.setenv("LC_CONFIG_DIR", nested)
+        monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
+        monkeypatch.delenv("LC_NO_JWT_CACHE", raising=False)
+        _reset_path_cache()
+        _reset_cache_disabled()
+
+        exp = time.time() + 3600
+        put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)
+
+        # The nested directory should exist with 0o700
+        import stat as stat_mod
+        dir_stat = os.stat(nested)
+        mode = stat_mod.S_IMODE(dir_stat.st_mode)
+        assert mode == 0o700, f"Expected 0o700, got {oct(mode)}"
+
+        # The intermediate directory should also be 0o700
+        parent = str(tmp_path / "new_parent")
+        parent_stat = os.stat(parent)
+        parent_mode = stat_mod.S_IMODE(parent_stat.st_mode)
+        assert parent_mode == 0o700, f"Expected 0o700, got {oct(parent_mode)}"
+
+        _reset_path_cache()

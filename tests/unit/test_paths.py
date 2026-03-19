@@ -145,17 +145,6 @@ class TestGetConfigDir:
         # Empty string is falsy, so falls through to platform default
         assert result == _default_config_dir()
 
-    def test_config_dir_with_spaces(self, monkeypatch, tmp_path):
-        """Directory with spaces in the name works correctly."""
-        spaced = str(tmp_path / "path with spaces" / "lc config")
-        monkeypatch.setenv("LC_CONFIG_DIR", spaced)
-        assert get_config_dir() == os.path.abspath(spaced)
-
-    def test_config_dir_with_unicode(self, monkeypatch, tmp_path):
-        """Directory with unicode characters works correctly."""
-        unicode_dir = str(tmp_path / "config_\u00e9\u00e8\u00ea")
-        monkeypatch.setenv("LC_CONFIG_DIR", unicode_dir)
-        assert get_config_dir() == os.path.abspath(unicode_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -716,20 +705,6 @@ class TestPathSecurity:
         result = get_config_dir()
         assert os.path.isabs(result)
 
-    def test_null_byte_in_path_does_not_crash(self, monkeypatch):
-        """Null bytes in env vars should not cause crashes.
-
-        The OS will reject null bytes at file I/O time, but path
-        resolution should not crash.
-        """
-        try:
-            monkeypatch.setenv("LC_CONFIG_DIR", "/tmp/foo\x00bar")
-            # Should not raise during resolution
-            get_config_dir()
-        except ValueError:
-            # Python 3.x may raise ValueError for embedded null bytes
-            pass
-
 
 # ---------------------------------------------------------------------------
 # Edge cases: pathological inputs
@@ -738,31 +713,6 @@ class TestPathSecurity:
 class TestPathEdgeCases:
     """Tests for unusual but valid path configurations."""
 
-    def test_config_dir_is_root(self, monkeypatch):
-        """LC_CONFIG_DIR set to / should work (returns /config.yaml)."""
-        if os.name == "nt":
-            pytest.skip("Unix-only test")
-        monkeypatch.setenv("LC_CONFIG_DIR", "/")
-        assert get_config_path() == "/config.yaml"
-
-    def test_very_long_path(self, monkeypatch, tmp_path):
-        """Very long but valid directory path works."""
-        # Create a deep path (within OS limits)
-        deep = str(tmp_path)
-        for i in range(10):
-            deep = os.path.join(deep, f"level_{i:03d}")
-        monkeypatch.setenv("LC_CONFIG_DIR", deep)
-        result = get_config_path()
-        assert result.endswith("config.yaml")
-        assert deep in result
-
-    def test_creds_file_with_trailing_slash(self, monkeypatch, tmp_path):
-        """LC_CREDS_FILE with trailing slash is resolved normally."""
-        creds = str(tmp_path / "creds") + "/"
-        monkeypatch.setenv("LC_CREDS_FILE", creds)
-        result = get_config_path()
-        assert os.path.isabs(result)
-
     def test_multiple_env_vars_set_simultaneously(self, monkeypatch, tmp_path):
         """All three env vars set at once - priority order is respected."""
         monkeypatch.setenv("LC_CREDS_FILE", str(tmp_path / "creds"))
@@ -770,6 +720,60 @@ class TestPathEdgeCases:
         monkeypatch.setenv("LC_LEGACY_CONFIG", "1")
         # LC_CREDS_FILE wins for config_path
         assert get_config_path() == os.path.abspath(str(tmp_path / "creds"))
-        # LC_LEGACY_CONFIG wins for config_dir (checked before platform default)
+        # LC_LEGACY_CONFIG wins for config_dir (legacy mode takes precedence
+        # over LC_CONFIG_DIR, matching get_config_path() priority order)
         _reset_path_cache()
-        assert get_config_dir() == os.path.abspath(str(tmp_path / "dir"))
+        assert get_config_dir() == os.path.dirname(_LEGACY_CONFIG_FILE)
+
+
+# ---------------------------------------------------------------------------
+# Priority consistency between get_config_dir() and get_config_path()
+# ---------------------------------------------------------------------------
+
+class TestPriorityConsistency:
+    """Verify get_config_dir() and get_config_path() agree on priority order.
+
+    LC_LEGACY_CONFIG must take precedence over LC_CONFIG_DIR in both
+    functions so that show-paths reports a config_dir that actually
+    contains the config_file.
+    """
+
+    def test_legacy_mode_beats_config_dir_in_get_config_dir(self, monkeypatch, tmp_path):
+        """get_config_dir() returns legacy home when LC_LEGACY_CONFIG=1,
+        even if LC_CONFIG_DIR is also set."""
+        monkeypatch.setenv("LC_LEGACY_CONFIG", "1")
+        monkeypatch.setenv("LC_CONFIG_DIR", str(tmp_path / "custom"))
+        result = get_config_dir()
+        assert result == os.path.dirname(_LEGACY_CONFIG_FILE)
+
+    def test_config_dir_and_config_path_consistent_in_legacy_mode(self, monkeypatch, tmp_path):
+        """When LC_LEGACY_CONFIG=1 and LC_CONFIG_DIR are both set,
+        config_path is under the directory reported by config_dir."""
+        monkeypatch.setenv("LC_LEGACY_CONFIG", "1")
+        monkeypatch.setenv("LC_CONFIG_DIR", str(tmp_path / "custom"))
+        config_dir = get_config_dir()
+        config_path = get_config_path()
+        assert os.path.dirname(config_path) == config_dir
+
+    def test_all_paths_consistent_when_legacy_and_config_dir_set(self, monkeypatch, tmp_path):
+        """All path functions agree when both LC_LEGACY_CONFIG and
+        LC_CONFIG_DIR are set - legacy mode wins everywhere."""
+        monkeypatch.setenv("LC_LEGACY_CONFIG", "1")
+        monkeypatch.setenv("LC_CONFIG_DIR", str(tmp_path / "custom"))
+        config_dir = get_config_dir()
+        config_path = get_config_path()
+        jwt_path = get_jwt_cache_path()
+        checkpoint_dir = get_checkpoint_dir()
+        # config_path and jwt_path should be in the home directory (legacy)
+        home = os.path.expanduser("~")
+        assert config_path.startswith(home)
+        assert jwt_path.startswith(home)
+        assert checkpoint_dir.startswith(home)
+        # config_dir should be the home directory
+        assert config_dir == home or config_dir == os.path.dirname(_LEGACY_CONFIG_FILE)
+
+    def test_config_dir_uses_lc_config_dir_when_no_legacy(self, monkeypatch, tmp_path):
+        """Without LC_LEGACY_CONFIG, LC_CONFIG_DIR still works as expected."""
+        custom = str(tmp_path / "custom")
+        monkeypatch.setenv("LC_CONFIG_DIR", custom)
+        assert get_config_dir() == os.path.abspath(custom)

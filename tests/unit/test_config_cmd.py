@@ -16,6 +16,7 @@ import yaml
 from click.testing import CliRunner
 
 from limacharlie.cli import cli
+from limacharlie.commands.config_cmd import _safe_content_match
 from limacharlie.paths import _reset_path_cache
 
 
@@ -651,3 +652,52 @@ class TestConfigMigrateRobustness:
         assert "Migrated config file" in result.output
         # JWT migration should fail
         assert "Error" in result.output or result.exit_code != 0
+
+
+class TestSafeContentMatch:
+    """Tests for _safe_content_match helper."""
+
+    def test_matching_files(self, tmp_path):
+        a = str(tmp_path / "a")
+        b = str(tmp_path / "b")
+        with open(a, "w") as f:
+            f.write("same content")
+        with open(b, "w") as f:
+            f.write("same content")
+        assert _safe_content_match(a, b) is True
+
+    def test_different_files(self, tmp_path):
+        a = str(tmp_path / "a")
+        b = str(tmp_path / "b")
+        with open(a, "w") as f:
+            f.write("content a")
+        with open(b, "w") as f:
+            f.write("content b")
+        assert _safe_content_match(a, b) is False
+
+    def test_missing_file_returns_false(self, tmp_path):
+        a = str(tmp_path / "exists")
+        b = str(tmp_path / "missing")
+        with open(a, "w") as f:
+            f.write("content")
+        assert _safe_content_match(a, b) is False
+
+    def test_both_missing_returns_false(self, tmp_path):
+        assert _safe_content_match(
+            str(tmp_path / "nope1"), str(tmp_path / "nope2")
+        ) is False
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permissions test")
+    def test_unreadable_file_returns_false(self, tmp_path):
+        """Permission error (OSError) is caught and returns False."""
+        a = str(tmp_path / "a")
+        b = str(tmp_path / "b")
+        with open(a, "w") as f:
+            f.write("content")
+        with open(b, "w") as f:
+            f.write("content")
+        os.chmod(a, 0o000)
+        try:
+            assert _safe_content_match(a, b) is False
+        finally:
+            os.chmod(a, 0o644)
