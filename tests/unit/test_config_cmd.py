@@ -688,6 +688,7 @@ class TestSafeContentMatch:
         ) is False
 
     @pytest.mark.skipif(os.name == "nt", reason="Unix permissions test")
+    @pytest.mark.skipif(os.getuid() == 0, reason="Root bypasses file permissions")
     def test_unreadable_file_returns_false(self, tmp_path):
         """Permission error (OSError) is caught and returns False."""
         a = str(tmp_path / "a")
