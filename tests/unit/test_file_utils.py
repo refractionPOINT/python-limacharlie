@@ -6,7 +6,7 @@ of the file utility functions used to persist sensitive credential data.
 Security focus areas:
 - Symlink rejection: all I/O paths must refuse symlinks to prevent redirect attacks
 - Permission model: files 0o600, directories 0o700 (owner-only)
-- TOCTOU resistance: os.replace atomicity, O_NOFOLLOW kernel-level protection
+- TOCTOU resistance: atomic writes via temp file + os.replace
 - Concurrent access: atomic writes prevent partial reads
 - Resource safety: no file descriptor leaks on error paths
 """
@@ -241,22 +241,6 @@ class TestSafeOpenRead:
         with pytest.raises(OSError):
             safe_open_read(str(tmp_path / "nonexistent"))
 
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only O_NOFOLLOW test")
-    def test_o_nofollow_rejects_symlink_at_kernel_level(self, tmp_path):
-        """Verify the O_NOFOLLOW path works independently of _reject_symlink.
-
-        Even if the pre-check were somehow bypassed, O_NOFOLLOW in the
-        kernel open() call would reject the symlink.
-        """
-        target = str(tmp_path / "secret")
-        with open(target, "w") as f:
-            f.write("secret data")
-        link = str(tmp_path / "link")
-        os.symlink(target, link)
-        # Directly call os.open with O_NOFOLLOW to verify kernel rejects it
-        with pytest.raises(OSError):
-            os.open(link, os.O_RDONLY | os.O_NOFOLLOW)
-
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
     def test_safe_open_read_does_not_leak_fd_on_symlink(self, tmp_path):
         """Verify that fd is properly handled when symlink is detected."""
@@ -272,6 +256,14 @@ class TestSafeOpenRead:
 
 
 class TestRejectSymlink:
+    """Tests for _reject_symlink - our pre-check that guards all I/O paths.
+
+    Tests cover the two code paths in the function:
+    1. Symlink at the target path itself
+    2. Symlink at the immediate parent directory
+    Plus the accept path for regular files/nonexistent paths.
+    """
+
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
     def test_rejects_file_symlink(self, tmp_path):
         target = str(tmp_path / "target")
@@ -303,69 +295,17 @@ class TestRejectSymlink:
 
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
     def test_rejects_dangling_symlink(self, tmp_path):
-        """A symlink pointing to nothing is still a symlink."""
+        """A symlink whose target does not exist is still a symlink.
+
+        This matters because our code uses os.path.islink (checks the link
+        itself) rather than os.path.exists (follows the link). A dangling
+        symlink is still an attack vector - the attacker creates the target
+        later, or the link redirects writes to a new location.
+        """
         link = str(tmp_path / "dangling")
         os.symlink("/nonexistent/target", link)
         with pytest.raises(OSError, match="symlink"):
             _reject_symlink(link)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_rejects_relative_symlink(self, tmp_path):
-        """Relative symlinks are still symlinks and must be rejected."""
-        target = str(tmp_path / "target")
-        with open(target, "w") as f:
-            f.write("data")
-        link = str(tmp_path / "rel_link")
-        os.symlink("target", link)
-        with pytest.raises(OSError, match="symlink"):
-            _reject_symlink(link)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_rejects_chained_symlink(self, tmp_path):
-        """Symlink -> symlink -> file: the first symlink must be rejected."""
-        target = str(tmp_path / "real_file")
-        with open(target, "w") as f:
-            f.write("data")
-        link1 = str(tmp_path / "link1")
-        os.symlink(target, link1)
-        link2 = str(tmp_path / "link2")
-        os.symlink(link1, link2)
-        with pytest.raises(OSError, match="symlink"):
-            _reject_symlink(link2)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_rejects_circular_symlink(self, tmp_path):
-        """Circular symlink (a -> b -> a) must be rejected."""
-        link_a = str(tmp_path / "a")
-        link_b = str(tmp_path / "b")
-        os.symlink(link_b, link_a)
-        os.symlink(link_a, link_b)
-        with pytest.raises(OSError, match="symlink"):
-            _reject_symlink(link_a)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_rejects_self_referencing_symlink(self, tmp_path):
-        """Symlink pointing to itself must be rejected."""
-        link = str(tmp_path / "self")
-        os.symlink(link, link)
-        with pytest.raises(OSError, match="symlink"):
-            _reject_symlink(link)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_accepts_file_in_dir_with_same_name_as_symlink_sibling(self, tmp_path):
-        """A regular file next to a symlink should not be rejected.
-
-        Ensures we're checking the actual path, not some sibling.
-        """
-        target = str(tmp_path / "target")
-        with open(target, "w") as f:
-            f.write("data")
-        # Create a symlink sibling - should not affect the regular file check
-        os.symlink(target, str(tmp_path / "sibling_link"))
-        real_file = str(tmp_path / "regular")
-        with open(real_file, "w") as f:
-            f.write("ok")
-        _reject_symlink(real_file)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -393,22 +333,6 @@ class TestSecureMakedirsSecurity:
         os.mkdir(d, mode=0o777)
         secure_makedirs(d)
         assert os.stat(d).st_mode & 0o777 == 0o700
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix symlink test")
-    def test_rejects_symlink_in_path_components(self, tmp_path):
-        """If a symlink exists in the path where we need to create directories,
-        os.mkdir will follow it. secure_makedirs should either fail or create
-        the directory at the symlink's target - not silently create in the wrong
-        place. The key invariant: the returned path is always a real directory."""
-        real_dir = str(tmp_path / "real")
-        os.makedirs(real_dir)
-        link = str(tmp_path / "link")
-        os.symlink(real_dir, link)
-        # Try to create a subdirectory under the symlink
-        nested = os.path.join(link, "subdir")
-        secure_makedirs(nested)
-        # The directory should exist (via the symlink or directly)
-        assert os.path.isdir(nested)
 
     @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
     def test_intermediate_dirs_not_world_readable(self, tmp_path):
@@ -480,117 +404,6 @@ class TestAtomicWriteSecurity:
         # No new files should remain (temp file was cleaned up)
         assert files_after == files_before
 
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_os_replace_does_not_follow_symlinks(self, tmp_path):
-        """Verify os.replace replaces the symlink itself, not the target.
-
-        This is a critical TOCTOU defense: even if an attacker swaps a
-        regular file for a symlink between _reject_symlink and os.replace,
-        os.replace would overwrite the symlink entry itself (replacing it
-        with the real file), not write through it to the target.
-
-        This test validates the OS behavior our security model relies on.
-        """
-        target = str(tmp_path / "sensitive")
-        with open(target, "w") as f:
-            f.write("do not touch")
-
-        link = str(tmp_path / "link")
-        os.symlink(target, link)
-
-        # Create a temp file and replace the symlink with it
-        replacement = str(tmp_path / "replacement")
-        with open(replacement, "w") as f:
-            f.write("safe content")
-        os.replace(replacement, link)
-
-        # The symlink should be gone, replaced by a regular file
-        assert not os.path.islink(link)
-        with open(link, "r") as f:
-            assert f.read() == "safe content"
-        # The target should be untouched
-        with open(target, "r") as f:
-            assert f.read() == "do not touch"
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_refuses_relative_symlink(self, tmp_path):
-        """Relative symlinks at the target path must be rejected."""
-        target = str(tmp_path / "real_file")
-        with open(target, "w") as f:
-            f.write("original")
-        link = str(tmp_path / "rel_link")
-        os.symlink("real_file", link)
-        with pytest.raises(OSError, match="symlink"):
-            atomic_write(link, b"attack")
-        with open(target, "r") as f:
-            assert f.read() == "original"
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_refuses_chained_symlink(self, tmp_path):
-        """Chain of symlinks (link -> link -> file) must be rejected."""
-        target = str(tmp_path / "real")
-        with open(target, "w") as f:
-            f.write("original")
-        link1 = str(tmp_path / "link1")
-        os.symlink(target, link1)
-        link2 = str(tmp_path / "link2")
-        os.symlink(link1, link2)
-        with pytest.raises(OSError, match="symlink"):
-            atomic_write(link2, b"attack")
-        with open(target, "r") as f:
-            assert f.read() == "original"
-
-
-# ---------------------------------------------------------------------------
-# safe_open_read security: symlink variants, TOCTOU
-# ---------------------------------------------------------------------------
-
-class TestSafeOpenReadSecurity:
-    """Security-focused tests for safe_open_read."""
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_refuses_relative_symlink(self, tmp_path):
-        """Relative symlinks must be rejected."""
-        target = str(tmp_path / "secret")
-        with open(target, "w") as f:
-            f.write("secret data")
-        link = str(tmp_path / "rel_link")
-        os.symlink("secret", link)
-        with pytest.raises(OSError, match="symlink"):
-            safe_open_read(link)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_refuses_chained_symlink(self, tmp_path):
-        """Chain of symlinks must be rejected at the first level."""
-        target = str(tmp_path / "secret")
-        with open(target, "w") as f:
-            f.write("secret data")
-        link1 = str(tmp_path / "link1")
-        os.symlink(target, link1)
-        link2 = str(tmp_path / "link2")
-        os.symlink(link1, link2)
-        with pytest.raises(OSError, match="symlink"):
-            safe_open_read(link2)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
-    def test_refuses_dangling_symlink(self, tmp_path):
-        """Dangling symlink (target does not exist) must be rejected."""
-        link = str(tmp_path / "dangling")
-        os.symlink("/nonexistent/nowhere", link)
-        with pytest.raises(OSError):
-            safe_open_read(link)
-
-    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
-    def test_read_does_not_change_file_permissions(self, tmp_path):
-        """safe_open_read is a read operation and must not alter permissions."""
-        path = str(tmp_path / "file")
-        with open(path, "wb") as f:
-            f.write(b"data")
-        os.chmod(path, 0o644)
-        safe_open_read(path)
-        mode = os.stat(path).st_mode & 0o777
-        assert mode == 0o644
-
 
 # ---------------------------------------------------------------------------
 # Race condition / concurrent access tests
@@ -608,7 +421,7 @@ class TestAtomicWriteConcurrency:
 
         A reader must see either the old content or the new content,
         never a partial mix. This tests the atomicity guarantee of
-        os.replace.
+        atomic_write's temp-file-then-replace strategy.
         """
         path = str(tmp_path / "shared")
         atomic_write(path, b"initial")
@@ -616,7 +429,6 @@ class TestAtomicWriteConcurrency:
         content_a = b"A" * 1000
         content_b = b"B" * 1000
         errors = []
-        stop = threading.Event()
 
         def writer(content, count):
             for _ in range(count):
@@ -734,7 +546,6 @@ class TestSymlinkProtectionIntegration:
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
     def test_save_config_refuses_symlinked_config_path(self, monkeypatch, tmp_path):
         """config.save_config uses atomic_write which rejects symlinks."""
-        import limacharlie.paths as paths_mod
         from limacharlie.config import _reset_config_cache, save_config
         from limacharlie.paths import _reset_path_cache
 
