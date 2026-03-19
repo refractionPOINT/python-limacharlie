@@ -30,6 +30,30 @@ limacharlie sensor list
 
 See [Authentication](doc/authentication.md) for OAuth, environments, and credential resolution.
 
+## Shell Completion
+
+The CLI supports tab-completion for all commands, subcommands, and options. Run one of the following to enable it for your shell:
+
+**Bash** - add to `~/.bashrc`:
+
+```bash
+eval "$(limacharlie completion bash)"
+```
+
+**Zsh** - add to `~/.zshrc`:
+
+```bash
+eval "$(limacharlie completion zsh)"
+```
+
+**Fish** - run once:
+
+```bash
+limacharlie completion fish > ~/.config/fish/completions/limacharlie.fish
+```
+
+Restart your shell (or `source` the rc file) for completions to take effect.
+
 ## Development
 
 ### Setup
