@@ -6,8 +6,6 @@ switching between organizations and environments.
 
 from __future__ import annotations
 
-from typing import Any
-
 import click
 
 from ..cli import pass_context
@@ -20,18 +18,13 @@ from ..config import (
 )
 from ..client import Client
 from ..sdk.organization import Organization
-from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._output_helpers import command_output as _output
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
 
 
 def _get_client(ctx: click.Context, oid_override: str | None = None) -> Client:

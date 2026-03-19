@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
 
 import click
 
 from ..cli import pass_context
 from ..discovery import register_explain
 from ..file_utils import atomic_write, safe_open_read, secure_makedirs
-from ..output import detect_output_format, format_output
+from ._output_helpers import command_output as _output
 from ..paths import (
     get_all_paths,
     get_config_dir,
@@ -68,14 +67,9 @@ def _safe_content_match(path_a: str, path_b: str) -> bool:
         content_a = safe_open_read(path_a)
         content_b = safe_open_read(path_b)
         return content_a == content_b
-    except (OSError, Exception):
+    except OSError:
         return False
 
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
 
 
 # ---------------------------------------------------------------------------

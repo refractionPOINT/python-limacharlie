@@ -120,8 +120,8 @@ def get_config_dir() -> str:
     """Return the base config directory path.
 
     Resolution order:
-        1. LC_CONFIG_DIR env var
-        2. LC_LEGACY_CONFIG=1 - parent directory of legacy config file
+        1. LC_LEGACY_CONFIG=1 - parent directory of legacy config file
+        2. LC_CONFIG_DIR env var
         3. Platform-specific default
 
     The returned directory may not exist yet. Callers that need to write
@@ -134,17 +134,17 @@ def get_config_dir() -> str:
     if _cached_config_dir is not None:
         return _cached_config_dir
 
-    # 1. Explicit override
-    env_dir = os.environ.get(ENV_CONFIG_DIR)
-    if env_dir:
-        _cached_config_dir = os.path.abspath(env_dir)
-        return _cached_config_dir
-
-    # 2. Legacy mode forced
+    # 1. Legacy mode forced (checked first to match get_config_path() priority)
     if is_legacy_mode():
         # In legacy mode, the "config dir" is the parent of the flat file.
         # This means JWT cache and checkpoints derive from the home directory.
         _cached_config_dir = os.path.dirname(_LEGACY_CONFIG_FILE)
+        return _cached_config_dir
+
+    # 2. Explicit override
+    env_dir = os.environ.get(ENV_CONFIG_DIR)
+    if env_dir:
+        _cached_config_dir = os.path.abspath(env_dir)
         return _cached_config_dir
 
     # 3. Platform default

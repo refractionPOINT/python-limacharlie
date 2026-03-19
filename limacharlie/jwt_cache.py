@@ -32,7 +32,7 @@ import time
 from typing import Any
 
 from .config import ENV_EPHEMERAL_CREDS, ENV_NO_JWT_CACHE, load_config
-from .file_utils import atomic_write, safe_open_read
+from .file_utils import atomic_write, safe_open_read, secure_makedirs
 from .paths import get_jwt_cache_path as _resolve_jwt_cache_path
 
 # Cached JWT must have at least this many seconds remaining to be reused.
@@ -211,7 +211,7 @@ def _save_cache(cache: dict[str, Any]) -> None:
         path = _get_cache_path()
         parent = os.path.dirname(path)
         if parent and not os.path.isdir(parent):
-            os.makedirs(parent, exist_ok=True)
+            secure_makedirs(parent)
         content = json.dumps(cache).encode()
         atomic_write(path, content)
     except Exception:
