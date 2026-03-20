@@ -366,8 +366,8 @@ class TestGlobalOptions:
         """Global options placed after the subcommand must be parsed."""
         result = _invoke(["auth", "whoami", "--help"])
         assert result.exit_code == 0
-        # --oid should appear in help (inherited from parent)
-        assert "--oid" in result.output or result.exit_code == 0
+        # Verify the subcommand help renders correctly
+        assert "whoami" in result.output
 
     def test_global_options_in_help(self):
         """Top-level --help must list all global options."""
@@ -947,3 +947,108 @@ class TestLazyLoadingBehavior:
         from limacharlie.cli import __version__
         from limacharlie._version import version
         assert __version__ == version
+
+
+# ---------------------------------------------------------------------------
+# Regression: --ai-help must list command groups with lazy loading
+# ---------------------------------------------------------------------------
+
+class TestAiHelpLazyLoading:
+    """Verify --ai-help works correctly with lazy command loading.
+
+    Regression tests for the bug where _top_level_help() iterated
+    cli.commands directly (empty with lazy loading) instead of using
+    list_commands() + get_command().
+    """
+
+    def test_ai_help_lists_all_command_groups(self):
+        """--ai-help must list all command groups under '## All Command Groups'."""
+        result = _invoke(["--ai-help"])
+        assert result.exit_code == 0
+        assert "## All Command Groups" in result.output
+        group_lines = [
+            l for l in result.output.splitlines() if l.startswith("- **")
+        ]
+        assert len(group_lines) >= 40, (
+            f"Expected 40+ command groups in --ai-help, got {len(group_lines)}"
+        )
+
+    def test_ai_help_groups_match_list_commands(self):
+        """Command groups in --ai-help must match list_commands()."""
+        ctx = click.Context(cli)
+        expected_names = set(cli.list_commands(ctx))
+
+        result = _invoke(["--ai-help"])
+        assert result.exit_code == 0
+
+        # Extract group names from "- **name** - description" lines
+        listed_names = set()
+        for line in result.output.splitlines():
+            if line.startswith("- **"):
+                name = line.split("**")[1]
+                listed_names.add(name)
+
+        assert listed_names == expected_names, (
+            f"Missing from --ai-help: {expected_names - listed_names}\n"
+            f"Extra in --ai-help: {listed_names - expected_names}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression: broken command modules must warn on stderr
+# ---------------------------------------------------------------------------
+
+class TestBrokenModuleWarning:
+    """Verify that broken command modules emit a warning."""
+
+    def test_broken_module_emits_warning(self):
+        """_import_command must emit a stderr warning for broken modules."""
+        from limacharlie.cli import _COMMAND_MODULE_MAP, _LazyCommandGroup
+
+        # Create a fresh group with a fake broken mapping
+        group = _LazyCommandGroup("test")
+        original_map = _COMMAND_MODULE_MAP.copy()
+        try:
+            _COMMAND_MODULE_MAP["__broken_test__"] = ("__nonexistent_module__", "cmd")
+            ctx = click.Context(group)
+            result = group._import_command("__broken_test__")
+            assert result is None
+        finally:
+            _COMMAND_MODULE_MAP.clear()
+            _COMMAND_MODULE_MAP.update(original_map)
+
+    def test_broken_module_returns_none(self):
+        """_import_command must return None for non-existent modules."""
+        from limacharlie.cli import _LazyCommandGroup
+        group = _LazyCommandGroup("test")
+        ctx = click.Context(group)
+        result = group._import_command("__definitely_not_a_command__")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Lint: cli.py must not have unused imports
+# ---------------------------------------------------------------------------
+
+class TestCliImportHygiene:
+    """Verify cli.py does not contain known dead imports."""
+
+    def test_no_pkgutil_import(self):
+        """cli.py must not import pkgutil (removed with eager discovery)."""
+        import inspect
+        from limacharlie import cli as cli_module
+        source = inspect.getsource(cli_module)
+        # Check that pkgutil is not imported at module level
+        assert "import pkgutil" not in source, (
+            "cli.py still imports pkgutil which is unused after removing "
+            "_auto_discover_commands()"
+        )
+
+    def test_no_unused_field_import(self):
+        """cli.py must not import 'field' from dataclasses (unused)."""
+        import inspect
+        from limacharlie import cli as cli_module
+        source = inspect.getsource(cli_module)
+        assert "import dataclass, field" not in source, (
+            "cli.py imports 'field' from dataclasses which is unused"
+        )

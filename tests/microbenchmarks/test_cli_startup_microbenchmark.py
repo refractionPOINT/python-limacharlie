@@ -139,6 +139,22 @@ class TestHelpBenchmarks:
 
         benchmark(do_help)
 
+    def test_ai_help(self, benchmark):
+        """Time to generate --ai-help output.
+
+        This triggers lazy loading of all commands to populate the
+        '## All Command Groups' section, so it measures the cost of
+        a full command tree materialization.
+        """
+        from limacharlie.cli import cli
+
+        def do_ai_help():
+            result = _invoke(cli, ["--ai-help"])
+            assert result.exit_code == 0
+            assert "## All Command Groups" in result.output
+
+        benchmark(do_ai_help)
+
 
 # ---------------------------------------------------------------------------
 # In-process completion benchmarks
@@ -311,6 +327,24 @@ class TestEndToEndSubprocess:
 
         benchmark(run)
 
+    def test_e2e_ai_help(self, benchmark):
+        """Wall-clock time for 'limacharlie --ai-help'.
+
+        This loads all command modules to render the full command group
+        listing, so it measures the worst-case lazy loading overhead.
+        """
+        def run():
+            elapsed = _subprocess_time(
+                "from limacharlie.cli import cli; "
+                "from click.testing import CliRunner; "
+                "r = CliRunner().invoke(cli, ['--ai-help']); "
+                "assert r.exit_code == 0; "
+                "assert '## All Command Groups' in r.output"
+            )
+            return elapsed
+
+        benchmark(run)
+
     def test_e2e_unknown_command(self, benchmark):
         """Wall-clock time for an unknown command (error path).
 
@@ -411,14 +445,22 @@ class TestEndToEndRegression:
         assert result.returncode != 0
 
     def test_e2e_ai_help_works(self):
-        """--ai-help must produce markdown output."""
+        """--ai-help must produce markdown with command groups from a fresh process."""
         result = subprocess.run(
             [sys.executable, "-c",
              "from limacharlie.cli import cli; "
              "from click.testing import CliRunner; "
              "r = CliRunner().invoke(cli, ['--ai-help']); "
-             "print(r.output[:200])"],
+             "print(r.output)"],
             capture_output=True, text=True, timeout=30,
         )
         assert result.returncode == 0
         assert "LimaCharlie CLI" in result.stdout
+        assert "## All Command Groups" in result.stdout
+        # Verify command groups are actually listed (not empty)
+        group_lines = [
+            l for l in result.stdout.splitlines() if l.startswith("- **")
+        ]
+        assert len(group_lines) >= 40, (
+            f"Expected 40+ command groups, got {len(group_lines)}"
+        )

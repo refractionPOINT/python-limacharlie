@@ -14,9 +14,8 @@ context to all subcommands and can appear anywhere on the command line.
 
 import importlib
 import os
-import pkgutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 import click
@@ -193,12 +192,12 @@ class _LazyCommandGroup(click.Group):
                 self._inject_ai_help(attr.name, attr)
                 return attr
         except Exception as e:
+            click.echo(
+                f"Warning: failed to load command module '{modname}': {e}",
+                err=True,
+            )
             if os.environ.get("LC_DEBUG"):
                 import traceback
-                click.echo(
-                    f"Warning: failed to load command module '{modname}': {e}",
-                    err=True,
-                )
                 traceback.print_exc()
         return None
 
