@@ -1,6 +1,9 @@
 """limacharlie SDK for limacharlie.io"""
 
-from .client import __version__
+try:
+    from ._version import version as __version__
+except ImportError:
+    __version__ = "0.0.0.dev0"
 
 __author__ = "Refraction Point, Inc"
 __author_email__ = "info@refractionpoint.com"

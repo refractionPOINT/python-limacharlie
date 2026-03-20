@@ -2,22 +2,30 @@ from __future__ import annotations
 
 """Main CLI entry point for LimaCharlie v2.
 
-Uses Click for the CLI framework. Global options (--oid, --output, --debug, etc.)
-are passed via Click context to all subcommands.
+Uses Click for the CLI framework with lazy command loading. Command
+modules in ``limacharlie/commands/`` are only imported when actually
+invoked (or when listing subcommands for help/completion). This keeps
+CLI startup fast - importing this module loads only Click and the CLI
+skeleton, not the full SDK or any command-specific dependencies.
+
+Global options (--oid, --output, --debug, etc.) are passed via Click
+context to all subcommands and can appear anywhere on the command line.
 """
 
 import importlib
 import os
-import pkgutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 import click
 
-from .client import __version__
-from .ai_help import inject_ai_help
-from .output import set_filter_expr, set_wide_mode
+try:
+    from ._version import version as __version__
+except ImportError:
+    __version__ = "0.0.0.dev0"
+
+from .ai_help import inject_ai_help, _add_flag as _add_ai_help_flag
 
 
 def _make_debug_fn(enabled: bool) -> Callable[[str], None] | None:
@@ -80,16 +88,157 @@ def _config_no_warnings() -> bool:
         return False
 
 
-class _GlobalOptionsGroup(click.Group):
-    """Click Group that allows group-level options to appear anywhere on the command line.
+# Static mapping: Click command name -> (module_name, attribute_name).
+# This allows resolving any command to its module without importing it,
+# enabling truly lazy per-command loading. Generated from the current
+# command modules; must be updated when adding/renaming commands.
+# The regression test TestModuleMapping verifies this stays in sync.
+_COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
+    "ai": ("ai", "group"),
+    "api": ("api_cmd", "cmd"),
+    "api-key": ("api_key", "group"),
+    "arl": ("arl", "group"),
+    "artifact": ("artifact", "group"),
+    "audit": ("audit", "group"),
+    "auth": ("auth", "group"),
+    "billing": ("billing", "group"),
+    "case": ("case_cmd", "group"),
+    "cloud-adapter": ("cloud_sensor", "group"),
+    "completion": ("completion", "cmd"),
+    "detection": ("detection", "group"),
+    "download": ("download", "group"),
+    "dr": ("dr", "group"),
+    "endpoint-policy": ("endpoint_policy", "group"),
+    "event": ("event", "group"),
+    "exfil": ("exfil", "group"),
+    "extension": ("extension", "group"),
+    "external-adapter": ("adapter", "group"),
+    "fp": ("fp", "group"),
+    "group": ("group", "group"),
+    "help": ("help_cmd", "group"),
+    "hive": ("hive", "group"),
+    "ingestion-key": ("ingestion_key", "group"),
+    "installation-key": ("installation_key", "group"),
+    "integrity": ("integrity", "group"),
+    "ioc": ("ioc", "group"),
+    "job": ("job", "group"),
+    "logging": ("logging_cmd", "group"),
+    "lookup": ("lookup", "group"),
+    "note": ("note", "group"),
+    "org": ("org", "group"),
+    "output": ("output_cmd", "group"),
+    "payload": ("payload", "group"),
+    "playbook": ("playbook", "group"),
+    "replay": ("replay_cmd", "group"),
+    "schema": ("schema", "group"),
+    "search": ("search", "group"),
+    "secret": ("secret", "group"),
+    "sensor": ("sensor", "group"),
+    "sop": ("sop", "group"),
+    "spotcheck": ("spotcheck", "group"),
+    "stream": ("stream", "group"),
+    "sync": ("sync", "group"),
+    "tag": ("tag", "group"),
+    "task": ("task", "group"),
+    "user": ("user", "group"),
+    "usp": ("usp", "group"),
+    "yara": ("yara", "group"),
+}
 
-    Normally Click only parses group options that appear before the subcommand
-    name.  This subclass hoists recognized group options to the front of the
-    args list so that ``limacharlie org list --output json`` works the same as
-    ``limacharlie --output json org list``.
+
+class _LazyCommandGroup(click.Group):
+    """Click Group with lazy command loading and global option hoisting.
+
+    Combines two responsibilities:
+
+    1. **Lazy loading**: Command modules in ``limacharlie/commands/`` are
+       resolved via a static name map and only imported when a specific
+       command is invoked or its help is requested. This cuts CLI startup
+       from ~700ms to ~100ms for single-command invocations.
+
+    2. **Global option hoisting**: Group-level options (--oid, --output, etc.)
+       can appear anywhere on the command line, not just before the subcommand.
+       ``limacharlie org list --output json`` works the same as
+       ``limacharlie --output json org list``.
+
+    The ``--ai-help`` flag is injected per-command on first access rather
+    than eagerly across the entire command tree.
     """
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Track which commands have had --ai-help injected
+        self._ai_help_injected: set[str] = set()
+
+    def _import_command(self, cmd_name: str) -> click.BaseCommand | None:
+        """Import a single command module and register its command.
+
+        Uses the static _COMMAND_MODULE_MAP to find the right module
+        without scanning or importing other modules.
+        """
+        entry = _COMMAND_MODULE_MAP.get(cmd_name)
+        if entry is None:
+            return None
+
+        modname, attr_name = entry
+        module_path = f"limacharlie.commands.{modname}"
+
+        try:
+            mod = importlib.import_module(module_path)
+            attr = getattr(mod, attr_name, None)
+            if isinstance(attr, click.BaseCommand):
+                self.add_command(attr)
+                self._inject_ai_help(attr.name, attr)
+                return attr
+        except Exception as e:
+            click.echo(
+                f"Warning: failed to load command module '{modname}': {e}",
+                err=True,
+            )
+            if os.environ.get("LC_DEBUG"):
+                import traceback
+                traceback.print_exc()
+        return None
+
+    def _inject_ai_help(self, cmd_name: str, cmd: click.BaseCommand) -> None:
+        """Inject --ai-help into a command and its descendants on first access."""
+        if cmd_name in self._ai_help_injected:
+            return
+        self._ai_help_injected.add(cmd_name)
+        inject_ai_help(cmd)
+
+    # -- Click Group overrides ------------------------------------------------
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        """Return all command names.
+
+        Returns the known command names from the static map merged with
+        any eagerly-added commands, without importing any modules.
+        """
+        eager = set(self.commands.keys())
+        lazy = set(_COMMAND_MODULE_MAP.keys())
+        return sorted(eager | lazy)
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.BaseCommand | None:
+        """Resolve a command by name, importing its module on first access."""
+        # Already loaded?
+        if cmd_name in self.commands:
+            cmd = self.commands[cmd_name]
+            self._inject_ai_help(cmd_name, cmd)
+            return cmd
+
+        # Lazy import
+        return self._import_command(cmd_name)
+
+    # -- Global option hoisting -----------------------------------------------
+
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Parse args with global option hoisting.
+
+        Hoists recognized group options to the front of the args list so
+        that ``limacharlie org list --output json`` works the same as
+        ``limacharlie --output json org list``.
+        """
         # Build a map of option strings defined on this group.
         opt_takes_value: dict[str, bool] = {}
         for param in self.params:
@@ -160,8 +309,10 @@ class _GlobalOptionsGroup(click.Group):
                 else:
                     i += 1
                 continue
-            # Non-option token — potential subcommand name.
-            sub = cmd.commands.get(arg)
+            # Non-option token - potential subcommand name.
+            # Use get_command() to trigger lazy loading for just this command.
+            ctx = click.Context(self)
+            sub = self.get_command(ctx, arg) if cmd is self else cmd.commands.get(arg)
             if sub is not None:
                 cmd = sub
                 for p in cmd.params:
@@ -175,7 +326,7 @@ class _GlobalOptionsGroup(click.Group):
         return shadowed
 
 
-@click.group(cls=_GlobalOptionsGroup, context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(cls=_LazyCommandGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--oid", default=None, help="Organization ID (overrides env/config).")
 @click.option(
     "--output", "output_format",
@@ -214,41 +365,17 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     lc_ctx.filter_expr = filter_expr
     lc_ctx.profile = profile
     lc_ctx.environment = environment
+    # Lazy import: output pulls in jmespath, tabulate, yaml, csv (~14ms).
+    # Deferring to here avoids that cost for fast paths like --help, --version,
+    # and --ai-help that never render command output.
+    from .output import set_filter_expr, set_wide_mode
     set_wide_mode(wide)
     set_filter_expr(filter_expr)
 
 
-def _auto_discover_commands() -> None:
-    """Auto-discover and register command modules from limacharlie/commands/."""
-    commands_package = "limacharlie.commands"
-    try:
-        commands_mod = importlib.import_module(commands_package)
-    except ImportError:
-        return
-
-    package_path = getattr(commands_mod, "__path__", None)
-    if package_path is None:
-        return
-
-    for importer, modname, ispkg in pkgutil.iter_modules(package_path):
-        try:
-            mod = importlib.import_module(f"{commands_package}.{modname}")
-            # Each command module should have a 'group' or 'commands' attribute
-            # that is a Click group or list of Click commands
-            for attr_name in dir(mod):
-                attr = getattr(mod, attr_name)
-                if isinstance(attr, click.Command) and attr_name in ("group", "cmd"):
-                    cli.add_command(attr)
-        except Exception as e:
-            if os.environ.get("LC_DEBUG"):
-                import traceback
-                click.echo(f"Warning: failed to load command module '{modname}': {e}", err=True)
-                traceback.print_exc()
-
-
-# Auto-discover commands on import, then inject --ai-help everywhere.
-_auto_discover_commands()
-inject_ai_help(cli)
+# Inject --ai-help on the root cli group itself (subcommands get it lazily
+# via _LazyCommandGroup._inject_ai_help when first accessed).
+_add_ai_help_flag(cli)
 
 
 def main() -> None:

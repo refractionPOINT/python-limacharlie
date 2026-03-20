@@ -122,8 +122,11 @@ def _top_level_help(cli: click.Group) -> str:
     lines.append("## All Command Groups")
     lines.append("")
 
-    for name in sorted(cli.commands):
-        sub = cli.commands[name]
+    ctx = click.Context(cli)
+    for name in cli.list_commands(ctx):
+        sub = cli.get_command(ctx, name)
+        if sub is None:
+            continue
         short = (sub.get_short_help_str(limit=300) or "").strip()
         lines.append(f"- **{name}** — {short}")
 
