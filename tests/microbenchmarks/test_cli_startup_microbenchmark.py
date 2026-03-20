@@ -108,6 +108,11 @@ class TestImportBenchmarks:
         to avoid ~14ms of jmespath/tabulate/yaml/csv import overhead on
         fast paths like --help, --version, and --ai-help.
         """
+        # Track which third-party deps are already loaded by other tests
+        # in the same process so we only assert on *newly* imported ones.
+        third_party_deps = ("jmespath", "tabulate", "yaml")
+        already_loaded = {dep for dep in third_party_deps if dep in sys.modules}
+
         to_remove = [k for k in sys.modules if k.startswith("limacharlie")]
         saved = {k: sys.modules.pop(k) for k in to_remove}
         try:
@@ -115,7 +120,9 @@ class TestImportBenchmarks:
             assert "limacharlie.output" not in sys.modules, (
                 "limacharlie.output imported at module level"
             )
-            for dep in ("jmespath", "tabulate", "yaml"):
+            for dep in third_party_deps:
+                if dep in already_loaded:
+                    continue
                 assert dep not in sys.modules, (
                     f"{dep} imported at module level via limacharlie.output"
                 )

@@ -105,6 +105,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "case": ("case_cmd", "group"),
     "cloud-adapter": ("cloud_sensor", "group"),
     "completion": ("completion", "cmd"),
+    "config": ("config_cmd", "group"),
     "detection": ("detection", "group"),
     "download": ("download", "group"),
     "dr": ("dr", "group"),
