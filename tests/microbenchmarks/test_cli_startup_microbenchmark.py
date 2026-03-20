@@ -101,6 +101,30 @@ class TestImportBenchmarks:
             f"CLI import took {elapsed:.3f}s, expected <2.0s"
         )
 
+    def test_cli_import_does_not_load_output(self):
+        """Importing cli must not pull in limacharlie.output or its heavy deps.
+
+        limacharlie.output is lazily imported inside the cli() callback
+        to avoid ~14ms of jmespath/tabulate/yaml/csv import overhead on
+        fast paths like --help, --version, and --ai-help.
+        """
+        to_remove = [k for k in sys.modules if k.startswith("limacharlie")]
+        saved = {k: sys.modules.pop(k) for k in to_remove}
+        try:
+            importlib.import_module("limacharlie.cli")
+            assert "limacharlie.output" not in sys.modules, (
+                "limacharlie.output imported at module level"
+            )
+            for dep in ("jmespath", "tabulate", "yaml"):
+                assert dep not in sys.modules, (
+                    f"{dep} imported at module level via limacharlie.output"
+                )
+        finally:
+            for k in list(sys.modules):
+                if k.startswith("limacharlie"):
+                    del sys.modules[k]
+            sys.modules.update(saved)
+
 
 # ---------------------------------------------------------------------------
 # In-process help benchmarks

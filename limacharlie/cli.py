@@ -26,7 +26,6 @@ except ImportError:
     __version__ = "0.0.0.dev0"
 
 from .ai_help import inject_ai_help, _add_flag as _add_ai_help_flag
-from .output import set_filter_expr, set_wide_mode
 
 
 def _make_debug_fn(enabled: bool) -> Callable[[str], None] | None:
@@ -366,6 +365,10 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     lc_ctx.filter_expr = filter_expr
     lc_ctx.profile = profile
     lc_ctx.environment = environment
+    # Lazy import: output pulls in jmespath, tabulate, yaml, csv (~14ms).
+    # Deferring to here avoids that cost for fast paths like --help, --version,
+    # and --ai-help that never render command output.
+    from .output import set_filter_expr, set_wide_mode
     set_wide_mode(wide)
     set_filter_expr(filter_expr)
 

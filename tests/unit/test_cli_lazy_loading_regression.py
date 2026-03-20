@@ -1052,3 +1052,74 @@ class TestCliImportHygiene:
         assert "import dataclass, field" not in source, (
             "cli.py imports 'field' from dataclasses which is unused"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: output module must be lazily imported in cli callback
+# ---------------------------------------------------------------------------
+
+class TestOutputLazyImport:
+    """Verify limacharlie.output is not imported at cli.py module level.
+
+    limacharlie.output pulls in jmespath, tabulate, yaml, csv (~14ms).
+    It should only be imported inside the cli() callback when a command
+    is actually invoked, not on bare import of limacharlie.cli.
+    """
+
+    def test_output_not_imported_at_module_level(self):
+        """Importing limacharlie.cli must not pull in limacharlie.output."""
+        import subprocess
+        import sys
+        # Run in a fresh process to avoid module cache contamination
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; "
+             "import limacharlie.cli; "
+             "mods = [k for k in sys.modules if k == 'limacharlie.output']; "
+             "print(len(mods))"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0
+        count = int(result.stdout.strip())
+        assert count == 0, (
+            "limacharlie.output was imported at module level - it should "
+            "be lazily imported inside the cli() callback"
+        )
+
+    def test_heavy_deps_not_imported_at_module_level(self):
+        """Importing limacharlie.cli must not pull in jmespath, tabulate, or yaml."""
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; "
+             "import limacharlie.cli; "
+             "heavy = [k for k in sys.modules if k in ('jmespath', 'tabulate', 'yaml')]; "
+             "print(','.join(heavy) if heavy else 'none')"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0
+        assert result.stdout.strip() == "none", (
+            f"Heavy deps imported at module level: {result.stdout.strip()}. "
+            "These should be deferred via lazy import of limacharlie.output"
+        )
+
+    def test_output_imported_when_command_invoked(self):
+        """limacharlie.output must be available after a command runs."""
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; "
+             "from limacharlie.cli import cli; "
+             "from click.testing import CliRunner; "
+             "CliRunner().invoke(cli, ['auth', 'whoami', '--help']); "
+             "mods = [k for k in sys.modules if k == 'limacharlie.output']; "
+             "print(len(mods))"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0
+        count = int(result.stdout.strip())
+        assert count == 1, (
+            "limacharlie.output should be imported after a command invocation"
+        )
