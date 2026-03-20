@@ -96,7 +96,12 @@ export LC_CURRENT_ENV=staging
 
 ## Credentials File
 
-Credentials are stored in `~/.limacharlie` (YAML, mode 0600):
+Credentials are stored in `~/.limacharlie.d/config.yaml` (YAML, mode 0600):
+
+| Platform | Path |
+|----------|------|
+| Linux/macOS | `~/.limacharlie.d/config.yaml` |
+| Windows | `%APPDATA%\limacharlie\config.yaml` |
 
 ```yaml
 # Default credentials (API key)
@@ -126,7 +131,102 @@ env:
       provider: google
 ```
 
+Other files in the config directory:
+
+| File | Purpose |
+|------|---------|
+| `config.yaml` | Credentials and environment configuration |
+| `jwt_cache.json` | Cached JWT tokens (avoids repeated auth requests) |
+| `search_checkpoints/` | Resume state for long-running search queries |
+
+Use `limacharlie config show-paths` to see all resolved paths.
+
 Override the credentials file path with `LC_CREDS_FILE`. Set `LC_EPHEMERAL_CREDS` to prevent any file I/O (for CI/CD).
+
+## Config Directory Migration
+
+Starting with CLI v2 (5.x), configuration files are stored in a dedicated directory (`~/.limacharlie.d/`) instead of the previous flat-file layout (`~/.limacharlie`). If you have existing configuration from an earlier version, the CLI will auto-detect it and print a warning to stderr:
+
+```
+Warning: Using legacy config location '/home/user/.limacharlie'.
+Run 'limacharlie config migrate' to move to '/home/user/.limacharlie.d/config.yaml'.
+```
+
+Migration is intentionally not automatic - you control when it happens.
+
+**To migrate:**
+
+```bash
+# Preview what will happen
+limacharlie config migrate --dry-run
+
+# Migrate (copies files to new location, keeps old files as backup)
+limacharlie config migrate
+
+# Migrate and remove old files
+limacharlie config migrate --remove-old
+```
+
+**To suppress the warning without migrating:**
+
+```bash
+# Option 1: Environment variable (suppresses warning only, keeps new layout resolution)
+export LC_NO_MIGRATION_WARNING=1
+
+# Option 2: Force legacy layout entirely (no warning, no new paths)
+export LC_LEGACY_CONFIG=1
+```
+
+**Useful commands:**
+
+```bash
+# See all resolved paths and which layout is active
+limacharlie config show-paths
+
+# Clean up old files after a previous migration
+limacharlie config migrate --remove-old
+```
+
+## JWT Token Caching
+
+The CLI automatically generates short-lived JWT tokens from your API key or OAuth credentials for each API call. To avoid requesting a new JWT on every CLI invocation, tokens are cached to disk in `jwt_cache.json` inside the config directory.
+
+**How it works:**
+
+- On each CLI invocation, the SDK checks if a cached JWT exists for the current credentials.
+- A cached JWT is reused if it has more than 10 minutes remaining before expiration.
+- If no valid cache entry exists, a fresh JWT is fetched from the server and cached.
+- Each credential set (OID + API key, or OID + OAuth refresh token) gets its own cache entry, so multiple environments don't interfere with each other.
+- Cache writes are atomic (write to temp file, then rename) to prevent corruption from concurrent CLI invocations.
+
+**Long-lived tokens for search:**
+
+For long-running operations like search queries, you can generate a token with a longer validity period:
+
+```bash
+# Generate an 8-hour token for a long search session
+limacharlie auth get-token --hours 8
+
+# JSON output with metadata
+limacharlie auth get-token --hours 8 --format json
+```
+
+**Disabling JWT caching:**
+
+```bash
+# Via environment variable
+export LC_NO_JWT_CACHE=1
+
+# Via config file (add to config.yaml)
+no_jwt_cache: true
+
+# Ephemeral mode disables all disk I/O including JWT cache
+export LC_EPHEMERAL_CREDS=1
+```
+
+**Clearing the cache:**
+
+The JWT cache is automatically cleared on `auth logout`. To manually clear it, delete the `jwt_cache.json` file from your config directory (use `limacharlie config show-paths` to find it).
 
 ## Resolution Order
 
@@ -135,9 +235,9 @@ Credentials are resolved in this order (highest priority first):
 1. Explicit parameters passed to `Client()`
 2. `LC_OID`, `LC_API_KEY`, `LC_UID` environment variables
 3. Named environment from `LC_CURRENT_ENV` (or `default`)
-4. Default credentials in `~/.limacharlie`
+4. Default credentials in config file
 
 ## See Also
 
-- [Getting Started](getting-started.md) — Installation and quick start
-- [SDK Overview](sdk/README.md) — Using credentials in Python code
+- [Getting Started](getting-started.md) - Installation and quick start
+- [SDK Overview](sdk/README.md) - Using credentials in Python code

@@ -291,13 +291,17 @@ Environment variables:
   LC_EPHEMERAL_CREDS - Set to "1" to prevent writing credentials to disk
 
 Credentials file:
-  Default location: ~/.limacharlie (YAML format)
+  Default location: ~/.limacharlie.d/config.yaml (YAML format)
+  Legacy location: ~/.limacharlie (auto-detected with deprecation warning)
+  Windows: %APPDATA%/limacharlie/config.yaml
+  Use 'limacharlie config show-paths' to see active paths.
+  Use 'limacharlie config migrate' to move from legacy to new layout.
   Supports named environments for managing multiple orgs.
 
 Priority (highest to lowest):
   1. Command-line flags (--oid, --api-key)
   2. Environment variables (LC_OID, LC_API_KEY)
-  3. Credentials file (~/.limacharlie)
+  3. Credentials file (~/.limacharlie.d/config.yaml)
 
 JWT tokens:
   The SDK automatically generates and refreshes JWT tokens from API keys.

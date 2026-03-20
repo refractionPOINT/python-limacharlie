@@ -46,62 +46,52 @@ def patch_data_dir(checkpoints_dir):
 class TestGetDataDir:
     """Tests for checkpoint metadata directory path derivation.
 
-    These tests use a dedicated _real_get_data_dir reference captured
-    before the autouse patch to test the actual logic.
+    These tests exercise the paths module's get_checkpoint_dir()
+    function which is now the single source of truth for checkpoint
+    directory resolution.
     """
-
-    # Capture the real function before autouse patches it.
-    _real_fn = staticmethod(get_data_dir)
 
     @pytest.fixture(autouse=True)
     def _undo_autouse(self, patch_data_dir):
         """The class-level autouse still runs; we just ignore its effect
-        by calling _real_fn directly."""
+        by calling the paths module directly."""
 
-    def test_default_config_path(self):
-        """Default: ~/.limacharlie -> ~/.limacharlie.d/search_checkpoints."""
-        import limacharlie.search_checkpoint as cp_module
-        saved = cp_module.get_data_dir
-        cp_module.get_data_dir = self._real_fn
-        try:
-            with patch.object(cp_module, "CONFIG_FILE_PATH", "/home/user/.limacharlie"):
-                env = {k: v for k, v in os.environ.items() if k != "LC_CREDS_FILE"}
-                with patch.dict(os.environ, env, clear=True):
-                    with patch.object(cp_module.os.path, "isdir", return_value=False):
-                        result = cp_module.get_data_dir()
-                        assert result == "/home/user/.limacharlie.d/search_checkpoints"
-        finally:
-            cp_module.get_data_dir = saved
+    def test_default_config_dir(self, monkeypatch, tmp_path):
+        """LC_CONFIG_DIR -> <dir>/search_checkpoints."""
+        from limacharlie.paths import _reset_path_cache, get_checkpoint_dir
+        config_dir = str(tmp_path / "lc_config")
+        os.makedirs(config_dir, exist_ok=True)
+        monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
+        monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        result = get_checkpoint_dir()
+        assert result == os.path.join(config_dir, "search_checkpoints")
+        _reset_path_cache()
 
-    def test_respects_lc_creds_file(self):
+    def test_respects_lc_creds_file(self, monkeypatch):
         """Respects LC_CREDS_FILE: /foo/bar -> /foo/bar.d/search_checkpoints."""
-        import limacharlie.search_checkpoint as cp_module
-        saved = cp_module.get_data_dir
-        cp_module.get_data_dir = self._real_fn
-        try:
-            with patch.dict(os.environ, {"LC_CREDS_FILE": "/foo/bar"}, clear=False):
-                with patch.object(cp_module.os.path, "isdir", return_value=False):
-                    result = cp_module.get_data_dir()
-                    assert result == "/foo/bar.d/search_checkpoints"
-        finally:
-            cp_module.get_data_dir = saved
+        from limacharlie.paths import _reset_path_cache, get_checkpoint_dir
+        monkeypatch.setenv("LC_CREDS_FILE", "/foo/bar")
+        monkeypatch.delenv("LC_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        result = get_checkpoint_dir()
+        assert result == "/foo/bar.d/search_checkpoints"
+        _reset_path_cache()
 
-    def test_directory_config_uses_subdirectory(self, tmp_path):
-        """If config path is a directory, use <dir>/search_checkpoints/."""
+    def test_creds_file_is_directory(self, monkeypatch, tmp_path):
+        """If LC_CREDS_FILE points to a directory, use <dir>/search_checkpoints/."""
+        from limacharlie.paths import _reset_path_cache, get_checkpoint_dir
         config_dir = tmp_path / "config_as_dir"
         config_dir.mkdir()
-
-        import limacharlie.search_checkpoint as cp_module
-        saved = cp_module.get_data_dir
-        cp_module.get_data_dir = self._real_fn
-        try:
-            env = {k: v for k, v in os.environ.items() if k != "LC_CREDS_FILE"}
-            with patch.dict(os.environ, env, clear=True):
-                with patch.object(cp_module, "CONFIG_FILE_PATH", str(config_dir)):
-                    result = cp_module.get_data_dir()
-                    assert result == os.path.join(str(config_dir), "search_checkpoints")
-        finally:
-            cp_module.get_data_dir = saved
+        monkeypatch.setenv("LC_CREDS_FILE", str(config_dir))
+        monkeypatch.delenv("LC_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        result = get_checkpoint_dir()
+        assert result == os.path.join(str(config_dir), "search_checkpoints")
+        _reset_path_cache()
 
 
 class TestCheckpointId:

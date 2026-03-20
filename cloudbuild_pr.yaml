@@ -260,7 +260,7 @@ steps:
       pip install ".[dev]" "tomli>=1.0" -q
 
       echo "--- Running unit tests ---"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
 
       echo "--- Unit tests passed ---"
   waitFor: ["-"]
@@ -281,7 +281,7 @@ steps:
       pip install ".[dev]" -q
 
       echo "--- Running unit tests ---"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
 
       echo "--- Unit tests passed ---"
   waitFor: ["-"]
@@ -302,7 +302,7 @@ steps:
       pip install ".[dev]" -q
 
       echo "--- Running unit tests ---"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
 
       echo "--- Unit tests passed ---"
   waitFor: ["-"]
@@ -323,7 +323,7 @@ steps:
       pip install ".[dev]" -q
 
       echo "--- Running unit tests ---"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
 
       echo "--- Unit tests passed ---"
   waitFor: ["-"]
@@ -344,7 +344,7 @@ steps:
       pip install ".[dev]" -q
 
       echo "--- Running unit tests ---"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
 
       echo "--- Unit tests passed ---"
   waitFor: ["-"]
@@ -365,7 +365,7 @@ steps:
       pip install ".[dev]" -q
 
       echo "--- Running unit tests ---"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
 
       echo "--- Unit tests passed ---"
   waitFor: ["-"]
@@ -412,7 +412,7 @@ steps:
       pip install ".[dev]" -q
 
       echo "--- Running microbenchmarks ---"
-      pytest -v --benchmark-only --benchmark-columns=mean,stddev,rounds tests/microbenchmarks/
+      pytest -v -o 'addopts=' --benchmark-only --benchmark-columns=mean,stddev,rounds tests/microbenchmarks/
 
       echo "--- Microbenchmarks passed ---"
   waitFor: ["-"]

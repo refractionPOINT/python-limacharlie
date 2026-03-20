@@ -113,22 +113,29 @@ def server():
 @pytest.fixture(autouse=True)
 def env(monkeypatch, tmp_path):
     """Fully isolated environment per test."""
-    config_path = str(tmp_path / ".limacharlie")
-    monkeypatch.setattr("limacharlie.jwt_cache.CONFIG_FILE_PATH", config_path)
-    monkeypatch.setattr("limacharlie.config.CONFIG_FILE_PATH", config_path)
-    for var in ("LC_CREDS_FILE", "LC_EPHEMERAL_CREDS", "LC_NO_JWT_CACHE",
-                "LC_OID", "LC_API_KEY", "LC_UID", "LC_CURRENT_ENV"):
+    import os
+    from limacharlie.paths import _reset_path_cache
+    config_dir = str(tmp_path / "lc_config")
+    os.makedirs(config_dir, exist_ok=True)
+    monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
+    for var in ("LC_CREDS_FILE", "LC_LEGACY_CONFIG", "LC_EPHEMERAL_CREDS",
+                "LC_NO_JWT_CACHE", "LC_OID", "LC_API_KEY", "LC_UID",
+                "LC_CURRENT_ENV"):
         monkeypatch.delenv(var, raising=False)
+    _reset_path_cache()
     _reset_cache_disabled()
     _reset_config_cache()
     _Handler.reset()
     yield tmp_path
+    _reset_path_cache()
     _reset_cache_disabled()
     _reset_config_cache()
 
 
 def _new_process():
     """Simulate a new CLI process by resetting per-process caches."""
+    from limacharlie.paths import _reset_path_cache
+    _reset_path_cache()
     _reset_config_cache()
     _reset_cache_disabled()
 

@@ -8,7 +8,7 @@ Credential resolution order (highest priority first):
     1. Explicit parameters passed to Client()
     2. LC_OID, LC_API_KEY, LC_UID environment variables
     3. Named environment from LC_CURRENT_ENV (or 'default')
-    4. Default credentials in ~/.limacharlie config file
+    4. Default credentials in config file (~/.limacharlie.d/config.yaml)
 """
 
 import copy
@@ -19,6 +19,7 @@ import yaml
 
 from .errors import ConfigError
 from .file_utils import atomic_write, safe_open_read
+from .paths import get_config_path as _resolve_config_path
 
 
 class Credentials(TypedDict):
@@ -29,9 +30,6 @@ class Credentials(TypedDict):
     api_key: str | None
     oauth: dict[str, str] | None
 
-
-# Default config file path
-CONFIG_FILE_PATH = os.path.expanduser("~/.limacharlie")
 
 # Environment variable names
 ENV_OID = "LC_OID"
@@ -44,8 +42,12 @@ ENV_NO_JWT_CACHE = "LC_NO_JWT_CACHE"
 
 
 def _get_config_path() -> str:
-    """Return the config file path, respecting LC_CREDS_FILE override."""
-    return os.environ.get(ENV_CREDS_FILE, CONFIG_FILE_PATH)
+    """Return the config file path, resolved via paths module.
+
+    Respects LC_CREDS_FILE, LC_CONFIG_DIR, LC_LEGACY_CONFIG, and the
+    new-then-legacy fallback logic in paths.py.
+    """
+    return _resolve_config_path()
 
 
 def is_ephemeral() -> bool:
@@ -115,6 +117,12 @@ def save_config(config: dict[str, Any]) -> None:
 
     global _cached_config, _config_loaded
     path = _get_config_path()
+    # Ensure the parent directory exists (needed for new layout where
+    # config lives in ~/.limacharlie.d/ which may not exist yet).
+    parent = os.path.dirname(path)
+    if parent and not os.path.isdir(parent):
+        from .file_utils import secure_makedirs
+        secure_makedirs(parent)
     content = yaml.safe_dump(config, default_flow_style=False).encode()
     atomic_write(path, content)
     # Update the per-process cache so subsequent load_config() calls

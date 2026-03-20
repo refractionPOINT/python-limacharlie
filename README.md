@@ -28,7 +28,18 @@ limacharlie org info
 limacharlie sensor list
 ```
 
-See [Authentication](doc/authentication.md) for OAuth, environments, and credential resolution.
+See [Authentication](doc/authentication.md) for OAuth, environments, credential resolution, JWT caching, and config directory migration.
+
+## Documentation
+
+| Guide | Topics |
+|-------|--------|
+| [Getting Started](doc/getting-started.md) | Installation, Docker, first steps |
+| [Authentication](doc/authentication.md) | API keys, OAuth, environments, JWT caching, config migration |
+| [CLI Overview](doc/cli/README.md) | Command pattern, output formats, filtering, discovery |
+| [SDK Overview](doc/sdk/README.md) | Architecture, setup, class reference |
+
+Full reference: [doc/README.md](doc/README.md)
 
 ## Development
 

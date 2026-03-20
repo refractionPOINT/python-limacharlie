@@ -1,7 +1,20 @@
-"""Tests for limacharlie.file_utils module."""
+"""Tests for limacharlie.file_utils module.
+
+Tests cover correctness, security properties, and race condition resistance
+of the file utility functions used to persist sensitive credential data.
+
+Security focus areas:
+- Symlink rejection: all I/O paths must refuse symlinks to prevent redirect attacks
+- Permission model: files 0o600, directories 0o700 (owner-only)
+- TOCTOU resistance: atomic writes via temp file + os.replace
+- Concurrent access: atomic writes prevent partial reads
+- Resource safety: no file descriptor leaks on error paths
+"""
 
 import os
 import stat
+import threading
+import time
 
 import pytest
 
@@ -228,22 +241,6 @@ class TestSafeOpenRead:
         with pytest.raises(OSError):
             safe_open_read(str(tmp_path / "nonexistent"))
 
-    @pytest.mark.skipif(os.name == "nt", reason="Unix-only O_NOFOLLOW test")
-    def test_o_nofollow_rejects_symlink_at_kernel_level(self, tmp_path):
-        """Verify the O_NOFOLLOW path works independently of _reject_symlink.
-
-        Even if the pre-check were somehow bypassed, O_NOFOLLOW in the
-        kernel open() call would reject the symlink.
-        """
-        target = str(tmp_path / "secret")
-        with open(target, "w") as f:
-            f.write("secret data")
-        link = str(tmp_path / "link")
-        os.symlink(target, link)
-        # Directly call os.open with O_NOFOLLOW to verify kernel rejects it
-        with pytest.raises(OSError):
-            os.open(link, os.O_RDONLY | os.O_NOFOLLOW)
-
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
     def test_safe_open_read_does_not_leak_fd_on_symlink(self, tmp_path):
         """Verify that fd is properly handled when symlink is detected."""
@@ -259,6 +256,14 @@ class TestSafeOpenRead:
 
 
 class TestRejectSymlink:
+    """Tests for _reject_symlink - our pre-check that guards all I/O paths.
+
+    Tests cover the two code paths in the function:
+    1. Symlink at the target path itself
+    2. Symlink at the immediate parent directory
+    Plus the accept path for regular files/nonexistent paths.
+    """
+
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
     def test_rejects_file_symlink(self, tmp_path):
         target = str(tmp_path / "target")
@@ -290,8 +295,356 @@ class TestRejectSymlink:
 
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
     def test_rejects_dangling_symlink(self, tmp_path):
-        """A symlink pointing to nothing is still a symlink."""
+        """A symlink whose target does not exist is still a symlink.
+
+        This matters because our code uses os.path.islink (checks the link
+        itself) rather than os.path.exists (follows the link). A dangling
+        symlink is still an attack vector - the attacker creates the target
+        later, or the link redirects writes to a new location.
+        """
         link = str(tmp_path / "dangling")
         os.symlink("/nonexistent/target", link)
         with pytest.raises(OSError, match="symlink"):
             _reject_symlink(link)
+
+
+# ---------------------------------------------------------------------------
+# Permission tightening and secure_makedirs security
+# ---------------------------------------------------------------------------
+
+class TestSecureMakedirsSecurity:
+    """Security-focused tests for secure_makedirs."""
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_tightens_existing_permissive_directory(self, tmp_path):
+        """If directory already exists with 0o755, secure_makedirs tightens
+        it to 0o700. This prevents another process from pre-creating a
+        directory with permissive permissions."""
+        d = str(tmp_path / "permissive")
+        os.mkdir(d, mode=0o755)
+        assert os.stat(d).st_mode & 0o777 == 0o755
+        secure_makedirs(d)
+        assert os.stat(d).st_mode & 0o777 == 0o700
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_tightens_world_writable_directory(self, tmp_path):
+        """World-writable directory (0o777) must be tightened to 0o700."""
+        d = str(tmp_path / "world_writable")
+        os.mkdir(d, mode=0o777)
+        secure_makedirs(d)
+        assert os.stat(d).st_mode & 0o777 == 0o700
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_intermediate_dirs_not_world_readable(self, tmp_path):
+        """Every directory created by secure_makedirs must be 0o700.
+
+        os.makedirs(mode=) only applies to the leaf on some platforms.
+        secure_makedirs creates each level explicitly to avoid this.
+        """
+        d = str(tmp_path / "l1" / "l2" / "l3" / "l4")
+        secure_makedirs(d)
+        current = str(tmp_path / "l1")
+        for level in ["l1", "l2", "l3", "l4"]:
+            current = str(tmp_path / os.sep.join(["l1", "l2", "l3", "l4"][:["l1", "l2", "l3", "l4"].index(level) + 1]))
+            mode = os.stat(current).st_mode & 0o777
+            assert mode == 0o700, f"{current} has {oct(mode)}, expected 0o700"
+
+
+# ---------------------------------------------------------------------------
+# atomic_write security: TOCTOU, permissions, cleanup
+# ---------------------------------------------------------------------------
+
+class TestAtomicWriteSecurity:
+    """Security-focused tests for atomic_write."""
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_overwrite_downgrades_world_readable_permissions(self, tmp_path):
+        """Overwriting a world-readable file must result in 0o600.
+
+        An attacker could pre-create a file with 0o644 at the expected
+        path. atomic_write via os.replace replaces the file entirely,
+        so the new file inherits the temp file's permissions (0o600).
+        """
+        path = str(tmp_path / "world_readable")
+        with open(path, "w") as f:
+            f.write("old")
+        os.chmod(path, 0o644)
+        atomic_write(path, b"new secret")
+        mode = os.stat(path).st_mode & 0o777
+        assert mode == 0o600
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_overwrite_downgrades_world_writable_permissions(self, tmp_path):
+        """Overwriting a world-writable file (0o666) must result in 0o600."""
+        path = str(tmp_path / "world_writable")
+        with open(path, "w") as f:
+            f.write("old")
+        os.chmod(path, 0o666)
+        atomic_write(path, b"new secret")
+        mode = os.stat(path).st_mode & 0o777
+        assert mode == 0o600
+
+    def test_no_temp_file_left_on_symlink_rejection(self, tmp_path):
+        """When atomic_write rejects a symlink, no temp file should remain.
+
+        Temp files with sensitive content lingering on disk would be a
+        security issue.
+        """
+        if os.name == "nt":
+            pytest.skip("Unix-only symlink test")
+        target = str(tmp_path / "target")
+        with open(target, "w") as f:
+            f.write("sensitive")
+        link = str(tmp_path / "link")
+        os.symlink(target, link)
+        files_before = set(os.listdir(tmp_path))
+        with pytest.raises(OSError, match="symlink"):
+            atomic_write(link, b"attacker data")
+        files_after = set(os.listdir(tmp_path))
+        # No new files should remain (temp file was cleaned up)
+        assert files_after == files_before
+
+
+# ---------------------------------------------------------------------------
+# Race condition / concurrent access tests
+# ---------------------------------------------------------------------------
+
+class TestAtomicWriteConcurrency:
+    """Test that atomic_write provides safe concurrent access.
+
+    atomic_write uses temp file + os.replace which is atomic on POSIX.
+    Concurrent writers must not produce partial or corrupt reads.
+    """
+
+    def test_concurrent_writes_no_partial_reads(self, tmp_path):
+        """Multiple threads writing to the same file concurrently.
+
+        A reader must see either the old content or the new content,
+        never a partial mix. This tests the atomicity guarantee of
+        atomic_write's temp-file-then-replace strategy.
+        """
+        path = str(tmp_path / "shared")
+        atomic_write(path, b"initial")
+
+        content_a = b"A" * 1000
+        content_b = b"B" * 1000
+        errors = []
+
+        def writer(content, count):
+            for _ in range(count):
+                try:
+                    atomic_write(path, content)
+                except OSError:
+                    pass  # Permission race - acceptable
+
+        def reader(count):
+            for _ in range(count):
+                try:
+                    data = safe_open_read(path)
+                    # Content must be entirely one writer's content
+                    if data not in (b"initial", content_a, content_b):
+                        errors.append(f"Partial read: {data[:20]!r}...")
+                except OSError:
+                    pass  # File momentarily missing during replace - acceptable
+
+        threads = [
+            threading.Thread(target=writer, args=(content_a, 50)),
+            threading.Thread(target=writer, args=(content_b, 50)),
+            threading.Thread(target=reader, args=(100,)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert errors == [], f"Partial reads detected: {errors}"
+
+    def test_concurrent_writes_file_never_corrupt(self, tmp_path):
+        """After concurrent writes, the final file must be valid
+        (content from one writer, not a mix)."""
+        path = str(tmp_path / "concurrent")
+
+        content_a = b"AAAA" * 250
+        content_b = b"BBBB" * 250
+
+        def writer(content, count):
+            for _ in range(count):
+                try:
+                    atomic_write(path, content)
+                except OSError:
+                    pass
+
+        threads = [
+            threading.Thread(target=writer, args=(content_a, 100)),
+            threading.Thread(target=writer, args=(content_b, 100)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        # Final content must be entirely from one writer
+        final = safe_open_read(path)
+        assert final in (content_a, content_b), "File content is corrupt (mixed writers)"
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix permission model")
+    def test_concurrent_writes_preserve_secure_permissions(self, tmp_path):
+        """After concurrent writes, file must still have 0o600."""
+        path = str(tmp_path / "perms")
+
+        def writer(tag, count):
+            for i in range(count):
+                try:
+                    atomic_write(path, f"{tag}-{i}".encode())
+                except OSError:
+                    pass
+
+        threads = [
+            threading.Thread(target=writer, args=("A", 50)),
+            threading.Thread(target=writer, args=("B", 50)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        mode = os.stat(path).st_mode & 0o777
+        assert mode == 0o600, f"Permissions after concurrent writes: {oct(mode)}"
+
+    def test_no_temp_files_after_concurrent_writes(self, tmp_path):
+        """After concurrent writes complete, no temp files should remain."""
+        path = str(tmp_path / "target")
+
+        def writer(tag, count):
+            for i in range(count):
+                try:
+                    atomic_write(path, f"{tag}-{i}".encode())
+                except OSError:
+                    pass
+
+        threads = [
+            threading.Thread(target=writer, args=("A", 50)),
+            threading.Thread(target=writer, args=("B", 50)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        files = os.listdir(tmp_path)
+        assert files == ["target"], f"Leftover temp files: {files}"
+
+
+# ---------------------------------------------------------------------------
+# Integration: symlink protection at config/jwt_cache boundaries
+# ---------------------------------------------------------------------------
+
+class TestSymlinkProtectionIntegration:
+    """End-to-end tests verifying symlink protection at the config and
+    JWT cache write paths, not just the file_utils primitives."""
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
+    def test_save_config_refuses_symlinked_config_path(self, monkeypatch, tmp_path):
+        """config.save_config uses atomic_write which rejects symlinks."""
+        from limacharlie.config import _reset_config_cache, save_config
+        from limacharlie.paths import _reset_path_cache
+
+        monkeypatch.delenv("LC_EPHEMERAL_CREDS", raising=False)
+
+        # Create a real file that the symlink points to
+        target = str(tmp_path / "sensitive")
+        with open(target, "w") as f:
+            f.write("do not overwrite")
+
+        # Set up config directory with a symlinked config.yaml
+        config_dir = str(tmp_path / "config_dir")
+        os.makedirs(config_dir, mode=0o700)
+        config_file = os.path.join(config_dir, "config.yaml")
+        os.symlink(target, config_file)
+
+        monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
+        monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        _reset_config_cache()
+
+        try:
+            with pytest.raises(OSError, match="symlink"):
+                save_config({"oid": "test-org"})
+            # Target must be untouched
+            with open(target, "r") as f:
+                assert f.read() == "do not overwrite"
+        finally:
+            _reset_path_cache()
+            _reset_config_cache()
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
+    def test_load_config_refuses_symlinked_config_path(self, monkeypatch, tmp_path):
+        """config.load_config uses safe_open_read which rejects symlinks.
+
+        The OSError from symlink rejection propagates to the caller -
+        load_config does not silently swallow it. This is the correct
+        behavior: a symlinked config file is a security issue that should
+        be surfaced, not hidden.
+        """
+        from limacharlie.config import _reset_config_cache, load_config
+        from limacharlie.paths import _reset_path_cache
+
+        # Create an attacker-controlled file
+        target = str(tmp_path / "attacker_config")
+        with open(target, "w") as f:
+            f.write("oid: attacker-org\napi_key: stolen-key\n")
+
+        # Set up config directory with a symlinked config.yaml
+        config_dir = str(tmp_path / "config_dir")
+        os.makedirs(config_dir, mode=0o700)
+        config_file = os.path.join(config_dir, "config.yaml")
+        os.symlink(target, config_file)
+
+        monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
+        monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+        _reset_config_cache()
+
+        try:
+            with pytest.raises(OSError, match="symlink"):
+                load_config()
+        finally:
+            _reset_path_cache()
+            _reset_config_cache()
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix-only symlink test")
+    def test_jwt_cache_clear_does_not_delete_through_symlink(self, tmp_path, monkeypatch):
+        """clear_jwt_cache deletes the path entry, not the symlink target.
+
+        If an attacker places a symlink at the cache path pointing to
+        a valuable file, clear_jwt_cache must not delete the target.
+        """
+        from limacharlie.jwt_cache import clear_jwt_cache
+        from limacharlie.paths import _reset_path_cache
+
+        config_dir = str(tmp_path / "config")
+        os.makedirs(config_dir, mode=0o700)
+        monkeypatch.setenv("LC_CONFIG_DIR", config_dir)
+        monkeypatch.delenv("LC_CREDS_FILE", raising=False)
+        monkeypatch.delenv("LC_LEGACY_CONFIG", raising=False)
+        _reset_path_cache()
+
+        target = str(tmp_path / "valuable_file")
+        with open(target, "w") as f:
+            f.write("important data")
+
+        cache_path = os.path.join(config_dir, "jwt_cache.json")
+        os.symlink(target, cache_path)
+
+        try:
+            clear_jwt_cache()
+            # The symlink should be removed (os.unlink removes the symlink)
+            assert not os.path.islink(cache_path)
+            # The target file must still exist
+            assert os.path.isfile(target)
+            with open(target, "r") as f:
+                assert f.read() == "important data"
+        finally:
+            _reset_path_cache()

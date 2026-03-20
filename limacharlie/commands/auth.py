@@ -6,8 +6,6 @@ switching between organizations and environments.
 
 from __future__ import annotations
 
-from typing import Any
-
 import click
 
 from ..cli import pass_context
@@ -20,18 +18,13 @@ from ..config import (
 )
 from ..client import Client
 from ..sdk.organization import Organization
-from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._output_helpers import command_output as _output
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _output(ctx: click.Context, data: Any) -> None:
-    fmt = ctx.obj.output_format or detect_output_format()
-    if not ctx.obj.quiet:
-        click.echo(format_output(data, fmt))
 
 
 def _get_client(ctx: click.Context, oid_override: str | None = None) -> Client:
@@ -59,8 +52,9 @@ def group() -> None:
     """Manage authentication credentials and identity.
 
     Store, test, and switch LimaCharlie credentials.  Credentials are
-    persisted in ~/.limacharlie and can be organized into named
-    environments for multi-org workflows.
+    persisted in ~/.limacharlie.d/config.yaml (or the legacy ~/.limacharlie)
+    and can be organized into named environments for multi-org workflows.
+    Use 'limacharlie config show-paths' to see active config locations.
     """
 
 
@@ -70,8 +64,9 @@ def group() -> None:
 
 _EXPLAIN_LOGIN = """\
 Store LimaCharlie credentials on disk so that subsequent CLI invocations
-can authenticate automatically.  Credentials are written to ~/.limacharlie
-(or the path in LC_CREDS_FILE) with file-mode 0600.
+can authenticate automatically.  Credentials are written to
+~/.limacharlie.d/config.yaml (or the path in LC_CREDS_FILE) with
+file-mode 0600.
 
 Two authentication methods are supported:
 
@@ -90,7 +85,7 @@ The --oid flag is optional with OAuth and can be set later via
 Use --env to store credentials under a named environment so you can
 switch between multiple orgs or accounts.
 
-The credential file (~/.limacharlie) is YAML formatted:
+The credential file (~/.limacharlie.d/config.yaml) is YAML formatted:
 
     oid: <organization-id>
     api_key: <api-key-uuid>

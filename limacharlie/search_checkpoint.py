@@ -6,7 +6,7 @@ searches can be resumed without losing already-fetched data.
 Architecture:
 - Data file (user-specified path): Append-only JSONL, one SearchResult
   dict per line. This is the user's data - lives wherever they want.
-- Metadata file (~/.limacharlie/checkpoints/<id>.meta.json): Query
+- Metadata file (~/.limacharlie.d/search_checkpoints/<id>.meta.json): Query
   parameters, progress state (page, result count, completed). Stored
   in the standard LimaCharlie config area.
 
@@ -37,45 +37,29 @@ from collections.abc import Generator
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import ENV_CREDS_FILE, CONFIG_FILE_PATH
 from .file_utils import (
     _reject_symlink,
     atomic_write,
     secure_file_permissions,
     secure_makedirs,
 )
+from .paths import get_checkpoint_dir as _resolve_checkpoint_dir
 
 
 def get_data_dir() -> str:
     """Return the directory for checkpoint metadata files.
 
-    Path resolution:
-    - Default: ~/.limacharlie/search_checkpoints/
-      Uses a directory named after the config file with a .d suffix
-      to avoid conflicting with the flat config file. For the default
-      ~/.limacharlie config, this gives ~/.limacharlie.d/search_checkpoints/.
-      When the config eventually migrates to a directory layout
-      (~/.limacharlie/ as a dir), this naturally becomes
-      ~/.limacharlie/search_checkpoints/.
-    - Respects LC_CREDS_FILE: if config is at /foo/bar, checkpoints go
-      to /foo/bar.d/search_checkpoints/.
+    Path resolution is delegated to the paths module which handles
+    LC_CREDS_FILE, LC_CONFIG_DIR, LC_LEGACY_CONFIG, and the
+    new-then-legacy fallback logic.
+
+    Default: ~/.limacharlie.d/search_checkpoints/
+    Windows: %APPDATA%/limacharlie/search_checkpoints/
 
     Returns:
         Absolute path to the checkpoints directory.
     """
-    config_path = os.environ.get(ENV_CREDS_FILE, CONFIG_FILE_PATH)
-    config_dir = os.path.dirname(config_path)
-    config_base = os.path.basename(config_path)
-
-    # If the config path is already a directory (future layout or custom),
-    # use <config_path>/search_checkpoints/ directly.
-    if os.path.isdir(config_path):
-        return os.path.join(config_path, "search_checkpoints")
-
-    # Config path is a flat file (current layout) or doesn't exist yet.
-    # Use <config_path>.d/search_checkpoints/ to avoid conflict with the
-    # flat file. For ~/.limacharlie -> ~/.limacharlie.d/search_checkpoints/.
-    return os.path.join(config_dir, config_base + ".d", "search_checkpoints")
+    return _resolve_checkpoint_dir()
 
 
 def _checkpoint_id(data_path: str) -> str:
