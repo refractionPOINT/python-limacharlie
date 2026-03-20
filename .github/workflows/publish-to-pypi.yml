@@ -5,21 +5,35 @@ on:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    name: Run unit tests
+    name: Unit tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "${{ matrix.python-version }}"
+          allow-prereleases: true
       - name: Install dependencies
-        run: pip install ".[dev]"
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+          # Python 3.9 needs tomli for pyproject.toml parsing in tests
+          if python -c "import sys; sys.exit(0 if sys.version_info < (3, 11) else 1)"; then
+            pip install "tomli>=1.0"
+          fi
       - name: Run unit tests and microbenchmarks (correctness only)
         run: pytest tests/unit/ tests/microbenchmarks/ --benchmark-disable -v --reruns 2 --reruns-delay 5
 
@@ -28,12 +42,12 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
           fetch-depth: 0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Install build
@@ -41,7 +55,7 @@ jobs:
       - name: Build sdist and wheel
         run: python -m build
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-package-distributions
           path: dist/
@@ -59,7 +73,7 @@ jobs:
       contents: read
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-package-distributions
           path: dist/
