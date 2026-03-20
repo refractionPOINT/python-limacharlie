@@ -41,6 +41,56 @@ See [Authentication](doc/authentication.md) for OAuth, environments, credential 
 
 Full reference: [doc/README.md](doc/README.md)
 
+## Shell Completion
+
+The CLI supports tab-completion for all commands, subcommands, and options.
+
+**Bash** - add to `~/.bashrc`:
+
+```bash
+eval "$(limacharlie completion bash)"
+```
+
+**Zsh** - add to `~/.zshrc`:
+
+```bash
+eval "$(limacharlie completion zsh)"
+```
+
+**Fish** - run once:
+
+```bash
+mkdir -p ~/.config/fish/completions
+limacharlie completion fish > ~/.config/fish/completions/limacharlie.fish
+```
+
+Restart your shell (or `source` the rc file) for completions to take effect.
+
+### Static completion files
+
+If you prefer not to run `eval` on every shell start, you can write the completion script to a file once. This is slightly faster at shell startup but needs to be re-run after upgrading to pick up new commands and options.
+
+**Bash:**
+
+```bash
+mkdir -p ~/.local/share/bash-completion/completions
+limacharlie completion bash > ~/.local/share/bash-completion/completions/limacharlie
+```
+
+**Zsh:**
+
+```bash
+mkdir -p ~/.zfunc
+limacharlie completion zsh > ~/.zfunc/_limacharlie
+```
+
+Ensure `~/.zfunc` is in your `fpath` by adding this to `~/.zshrc` (before `compinit`):
+
+```bash
+fpath=(~/.zfunc $fpath)
+autoload -Uz compinit && compinit
+```
+
 ## Development
 
 ### Setup
