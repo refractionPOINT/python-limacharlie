@@ -5,7 +5,7 @@ from __future__ import annotations
 from ._hive_shortcut import make_hive_group
 from ..discovery import register_explain
 
-group = make_hive_group("note", "note", "note")
+group = make_hive_group("note", "org_notes", "note")
 
 # Override the generic hive explains with note-specific documentation.
 
