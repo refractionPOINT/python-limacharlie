@@ -211,14 +211,14 @@ class TestListCases:
         cases.list_cases(sensor_id="abc-sensor-123")
         _, kwargs = _extract_call(mock_org)
         qp = kwargs["query_params"]
-        assert qp["sensor_id"] == "abc-sensor-123"
+        assert qp["sid"] == "abc-sensor-123"
 
     def test_sensor_id_none_omitted(self, cases, mock_org):
         mock_org.client.request.return_value = {"cases": []}
         cases.list_cases(sensor_id=None)
         _, kwargs = _extract_call(mock_org)
         qp = kwargs["query_params"]
-        assert "sensor_id" not in qp
+        assert "sid" not in qp
 
 
 class TestGetCase:

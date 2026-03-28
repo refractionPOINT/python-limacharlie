@@ -122,7 +122,7 @@ class Cases:
         if search:
             qp["search"] = search
         if sensor_id:
-            qp["sensor_id"] = sensor_id
+            qp["sid"] = sensor_id
         if tag:
             qp["tag"] = ",".join(tag)
         if sort:
