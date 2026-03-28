@@ -175,7 +175,7 @@ class TestListCases:
     def test_all_filters(self, cases, mock_org):
         mock_org.client.request.return_value = {"cases": []}
         cases.list_cases(
-            status=["new", "acknowledged"],
+            status=["new", "in_progress"],
             severity=["critical"],
             classification=["pending"],
             assignee="alice@example.com",
@@ -188,7 +188,7 @@ class TestListCases:
         _, kwargs = _extract_call(mock_org)
         qp = kwargs["query_params"]
         assert qp["oids"] == "test-oid"
-        assert qp["status"] == "new,acknowledged"
+        assert qp["status"] == "new,in_progress"
         assert qp["severity"] == "critical"
         assert qp["classification"] == "pending"
         assert qp["assignee"] == "alice@example.com"
@@ -233,17 +233,17 @@ class TestGetCase:
 class TestUpdateCase:
     def test_patch_with_fields(self, cases, mock_org):
         mock_org.client.request.return_value = {"case": {}}
-        cases.update_case(42, status="acknowledged", assignee="bob@example.com")
+        cases.update_case(42, status="in_progress", assignees=["bob@example.com"])
         args, kwargs = _extract_call(mock_org)
         assert args == ("PATCH", "api/v1/cases/42")
         assert kwargs["query_params"] == {"oid": "test-oid"}
         body = json.loads(kwargs["raw_body"])
-        assert body == {"status": "acknowledged", "assignee": "bob@example.com"}
+        assert body == {"status": "in_progress", "assignees": ["bob@example.com"]}
         assert kwargs["content_type"] == "application/json"
 
     def test_none_fields_excluded(self, cases, mock_org):
         mock_org.client.request.return_value = {"case": {}}
-        cases.update_case(42, status="resolved", assignee=None, classification=None)
+        cases.update_case(42, status="resolved", assignees=None, classification=None)
         body = _extract_body(mock_org)
         assert body == {"status": "resolved"}
 
@@ -385,27 +385,21 @@ class TestAddEntity:
         mock_org.client.request.return_value = {}
         cases.add_entity(
             42, "hash", "abc123",
-            name="Evil hash",
+            note="Found in startup",
             verdict="malicious",
-            context="Found in startup",
-            first_seen="2026-01-01T00:00:00Z",
-            last_seen="2026-01-02T00:00:00Z",
         )
         body = _extract_body(mock_org)
         assert body["entity_type"] == "hash"
         assert body["entity_value"] == "abc123"
-        assert body["name"] == "Evil hash"
+        assert body["note"] == "Found in startup"
         assert body["verdict"] == "malicious"
-        assert body["context"] == "Found in startup"
-        assert body["first_seen"] == "2026-01-01T00:00:00Z"
-        assert body["last_seen"] == "2026-01-02T00:00:00Z"
 
     def test_none_optional_fields_excluded(self, cases, mock_org):
         mock_org.client.request.return_value = {}
-        cases.add_entity(42, "domain", "evil.com", verdict=None, context=None)
+        cases.add_entity(42, "domain", "evil.com", verdict=None, note=None)
         body = _extract_body(mock_org)
         assert "verdict" not in body
-        assert "context" not in body
+        assert "note" not in body
 
 
 class TestUpdateEntity:
@@ -473,15 +467,13 @@ class TestAddTelemetry:
         mock_org.client.request.return_value = {}
         cases.add_telemetry(
             42, self._SAMPLE_EVENT,
-            event_summary="Suspicious process",
+            note="Suspicious process, related to C2",
             verdict="suspicious",
-            relevance="Related to C2",
         )
         body = _extract_body(mock_org)
         assert body["event"] == self._SAMPLE_EVENT
-        assert body["event_summary"] == "Suspicious process"
+        assert body["note"] == "Suspicious process, related to C2"
         assert body["verdict"] == "suspicious"
-        assert body["relevance"] == "Related to C2"
 
 
 class TestUpdateTelemetry:
@@ -519,20 +511,24 @@ class TestListArtifacts:
 class TestAddArtifact:
     def test_required_fields(self, cases, mock_org):
         mock_org.client.request.return_value = {}
-        cases.add_artifact(42, "pcap")
+        cases.add_artifact(42, "/captures/test.pcap", "sensor-01")
         body = _extract_body(mock_org)
-        assert body["artifact_type"] == "pcap"
+        assert body["path"] == "/captures/test.pcap"
+        assert body["source"] == "sensor-01"
 
     def test_with_optional_fields(self, cases, mock_org):
         mock_org.client.request.return_value = {}
         cases.add_artifact(
-            42, "memory_dump",
-            description="Process memory",
+            42, "/dumps/mem.dmp", "edr-collection",
+            artifact_type="memory_dump",
+            note="Process memory",
             verdict="suspicious",
         )
         body = _extract_body(mock_org)
+        assert body["path"] == "/dumps/mem.dmp"
+        assert body["source"] == "edr-collection"
         assert body["artifact_type"] == "memory_dump"
-        assert body["description"] == "Process memory"
+        assert body["note"] == "Process memory"
         assert body["verdict"] == "suspicious"
 
 

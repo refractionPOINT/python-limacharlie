@@ -36,7 +36,7 @@ List cases for the organization with optional filtering, sorting,
 and pagination.
 
 Filters (all repeatable/comma-separated):
-  --status    new, acknowledged, in_progress, escalated, resolved, closed
+  --status    new, in_progress, resolved, closed
   --severity  critical, high, medium, low, info
   --classification  pending, true_positive, false_positive
   --assignee  filter by assignee email
@@ -57,7 +57,7 @@ for the current filter, useful for building dashboards.
 
 Examples:
   limacharlie case list
-  limacharlie case list --status new,acknowledged --severity critical,high
+  limacharlie case list --status new,in_progress --severity critical,high
   limacharlie case list --assignee alice@example.com --sort severity
   limacharlie case list --search "mimikatz" --limit 20
   limacharlie case list --tag phishing --tag urgent
@@ -80,29 +80,25 @@ Update a case's fields.  Only provided fields are changed;
 omitted fields are left untouched.
 
 Updatable fields:
-  --status           new, acknowledged, in_progress, escalated,
-                     resolved, closed (state machine enforced)
+  --status           new, in_progress, resolved, closed
+                     (state machine enforced)
   --severity         critical, high, medium, low, info
-  --assignee         email of the assignee
+  --assignees        assignee emails (repeatable for multiple)
   --classification   pending, true_positive, false_positive
-  --escalation-group arbitrary group name for escalation routing
-  --investigation-id link to a LimaCharlie investigation
   --summary          investigation findings (max 8192 chars)
   --conclusion       root cause & remediation (max 8192 chars)
   --tag              add/replace tags (repeatable; see case tag subcommand)
 
 Status transitions follow a state machine:
-  new -> acknowledged, in_progress, escalated, closed
-  acknowledged -> in_progress, escalated, closed
-  in_progress -> escalated, resolved, closed
-  escalated -> in_progress, resolved, closed
-  resolved -> closed, in_progress (reopen)
-  closed -> (terminal)
+  new -> in_progress, closed
+  in_progress -> resolved, closed
+  resolved -> closed
+  closed -> in_progress (reopen)
 
 Examples:
-  limacharlie case update --id 42 --status acknowledged
+  limacharlie case update --id 42 --status in_progress
   limacharlie case update --id 42 --severity high
-  limacharlie case update --id 42 --assignee alice@example.com
+  limacharlie case update --id 42 --assignees alice@example.com
   limacharlie case update --id 42 --status resolved \\
       --classification true_positive \\
       --conclusion "Contained via network isolation"
@@ -113,11 +109,13 @@ Add a note to a case.  Notes support categorization for structured
 investigation workflows.
 
 Note types:
-  general      - General notes (default)
-  analysis     - Threat analysis findings
-  remediation  - Remediation steps taken or recommended
-  escalation   - Escalation context and reasoning
-  handoff      - Shift handoff notes
+  general          - General notes (default)
+  analysis         - Threat analysis findings
+  remediation      - Remediation steps taken or recommended
+  escalation       - Escalation context and reasoning
+  handoff          - Shift handoff notes
+  to_stakeholder   - Notes to stakeholders
+  from_stakeholder - Notes from stakeholders
 
 Provide content via --content, --input-file, or stdin.
 
@@ -143,12 +141,13 @@ Examples:
 
 _EXPLAIN_MERGE = """\
 Merge multiple source cases into a single target case.  This
-copies all investigation content (entities, telemetry, artifacts,
-notes) from the source cases into the target and marks the source
-cases with status 'merged' (terminal).
+moves detections from the source cases into the target and closes
+the source cases (with merged_into_case_id set).
 
 This is useful for consolidating duplicate cases created from
 related detections.
+
+Target case must not be closed.  Source cases must not be closed.
 
 Examples:
   limacharlie case merge --target 10 --sources 11,12,13
@@ -172,8 +171,7 @@ _EXPLAIN_ENTITY_ADD = """\
 Add an entity (IOC) to a case.  Duplicate type+value pairs on the
 same case are rejected (409).
 
-Required: --type and --value.  Optional: --name, --verdict, --context,
---first-seen, --last-seen (RFC3339 timestamps).
+Required: --type and --value.  Optional: --note, --verdict.
 
 Entity values are normalized (lowercased) for IP, domain, hash, and
 email types.
@@ -183,17 +181,17 @@ Examples:
       --type ip --value "10.0.0.1" --verdict malicious
   limacharlie case entity add --case 42 \\
       --type hash --value "d41d8cd98f00b204e9800998ecf8427e" \\
-      --verdict suspicious --context "Found in startup folder"
+      --verdict suspicious --note "Found in startup folder"
 """
 
 _EXPLAIN_ENTITY_UPDATE = """\
 Update an existing entity on a case.
 
-Updatable fields: --name, --verdict, --context, --first-seen, --last-seen.
+Updatable fields: --note, --verdict.
 
 Example:
   limacharlie case entity update --case 42 --entity-id <EID> \\
-      --verdict malicious --context "Confirmed C2 server"
+      --verdict malicious --note "Confirmed C2 server"
 """
 
 _EXPLAIN_ENTITY_REMOVE = """\
@@ -227,7 +225,7 @@ Link a LimaCharlie telemetry event to a case.  Pass the full event
 JSON object via --event.  The backend automatically extracts
 routing.this (atom), routing.sid, and routing.event_type.
 
-Optional: --event-summary, --verdict, --relevance.
+Optional: --note, --verdict.
 
 Example:
   limacharlie case telemetry add --case 42 \\
@@ -237,7 +235,7 @@ Example:
 _EXPLAIN_TELEMETRY_UPDATE = """\
 Update a telemetry reference on a case.
 
-Updatable fields: --event-summary, --verdict, --relevance.
+Updatable fields: --note, --verdict.
 
 Example:
   limacharlie case telemetry update --case 42 \\
@@ -263,15 +261,15 @@ Example:
 _EXPLAIN_ARTIFACT_ADD = """\
 Add a forensic artifact reference to a case.
 
-The --type field is free-form (e.g., pcap, memory_dump, disk_image,
-log_export).  Optional: --description, --verdict.
+Required: --path and --source.  Optional: --type, --note, --verdict.
 
 Examples:
   limacharlie case artifact add --case 42 \\
-      --type pcap --description "Network capture during incident"
+      --path "/captures/incident-01.pcap" --source "sensor-01" \\
+      --type pcap --note "Network capture during incident"
   limacharlie case artifact add --case 42 \\
-      --type memory_dump --verdict suspicious \\
-      --description "Process memory from PID 1234"
+      --path "/dumps/pid1234.dmp" --source "edr-collection" \\
+      --type memory_dump --verdict suspicious
 """
 
 _EXPLAIN_ARTIFACT_REMOVE = """\
@@ -513,7 +511,7 @@ def _get_cases(ctx: click.Context) -> Cases:
 # ---------------------------------------------------------------------------
 
 _STATUS_CHOICES = click.Choice(
-    ["new", "acknowledged", "in_progress", "escalated", "resolved", "closed"],
+    ["new", "in_progress", "resolved", "closed"],
     case_sensitive=False,
 )
 _SEVERITY_CHOICES = click.Choice(
@@ -529,7 +527,8 @@ _VERDICT_CHOICES = click.Choice(
     case_sensitive=False,
 )
 _NOTE_TYPE_CHOICES = click.Choice(
-    ["general", "analysis", "remediation", "escalation", "handoff"],
+    ["general", "analysis", "remediation", "escalation", "handoff",
+     "to_stakeholder", "from_stakeholder"],
     case_sensitive=False,
 )
 _ENTITY_TYPE_CHOICES = click.Choice(
@@ -619,7 +618,7 @@ def list_cases(ctx, status, severity, classification, assignee, search,
 
     Examples:
         limacharlie case list
-        limacharlie case list --status new --status acknowledged
+        limacharlie case list --status new --status in_progress
         limacharlie case list --severity critical --severity high
         limacharlie case list --search "mimikatz" --limit 20
         limacharlie case list --tag phishing --tag urgent
@@ -783,24 +782,22 @@ def _export_with_data(ctx: click.Context, t: Cases, data: dict[str, Any],
 @click.option("--id", "case_number", required=True, type=int, help="Case number.")
 @click.option("--status", default=None, type=_STATUS_CHOICES, help="New status.")
 @click.option("--severity", default=None, type=_SEVERITY_CHOICES, help="Case severity (critical, high, medium, low, info).")
-@click.option("--assignee", default=None, help="Assignee email.")
+@click.option("--assignees", multiple=True, help="Assignee email (repeatable for multiple assignees).")
 @click.option("--classification", default=None, type=_CLASSIFICATION_CHOICES, help="Classification.")
-@click.option("--escalation-group", default=None, help="Escalation group name.")
-@click.option("--investigation-id", default=None, help="LC investigation ID to link.")
 @click.option("--summary", default=None, help="Investigation summary (max 8192 chars).")
 @click.option("--conclusion", default=None, help="Root cause & remediation (max 8192 chars).")
 @click.option("--tag", multiple=True, help="Set tags (replaces all existing tags; repeat for multiple).")
 @pass_context
-def update(ctx, case_number, status, severity, assignee, classification,
-           escalation_group, investigation_id, summary, conclusion, tag) -> None:
+def update(ctx, case_number, status, severity, assignees, classification,
+           summary, conclusion, tag) -> None:
     """Update a case.
 
     Only provided fields are changed.
 
     Examples:
-        limacharlie case update --id 42 --status acknowledged
+        limacharlie case update --id 42 --status in_progress
         limacharlie case update --id 42 --severity high
-        limacharlie case update --id 42 --assignee alice@example.com
+        limacharlie case update --id 42 --assignees alice@example.com
         limacharlie case update --id 42 --status resolved \\
             --classification true_positive
         limacharlie case update --id 42 --tag phishing --tag urgent
@@ -808,15 +805,14 @@ def update(ctx, case_number, status, severity, assignee, classification,
     fields = {
         "status": status,
         "severity": severity,
-        "assignee": assignee,
         "classification": classification,
-        "escalation_group": escalation_group,
-        "investigation_id": investigation_id,
         "summary": summary,
         "conclusion": conclusion,
     }
     # Filter out None values
     fields = {k: v for k, v in fields.items() if v is not None}
+    if assignees:
+        fields["assignees"] = list(assignees)
     if tag:
         fields["tags"] = list(tag)
     if not fields:
@@ -942,7 +938,7 @@ def _parse_number_list(numbers_str: str | None, input_file: str | None) -> list[
 def merge(ctx, target, sources) -> None:
     """Merge source cases into a target case.
 
-    Investigation content is copied; source cases become 'merged'.
+    Detections are moved to the target; source cases are closed.
 
     Example:
         limacharlie case merge --target 10 --sources 11,12
@@ -987,27 +983,22 @@ def entity_list(ctx, case) -> None:
 @click.option("--case", required=True, type=int, help="Case number.")
 @click.option("--type", "entity_type", required=True, type=_ENTITY_TYPE_CHOICES, help="Entity type.")
 @click.option("--value", "entity_value", required=True, help="Entity value (max 1024 chars).")
-@click.option("--name", default=None, help="Display name.")
+@click.option("--note", default=None, help="Analyst note (max 2048 chars).")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
-@click.option("--context", default=None, help="Context notes (max 4096 chars).")
-@click.option("--first-seen", default=None, help="First seen timestamp (RFC3339).")
-@click.option("--last-seen", default=None, help="Last seen timestamp (RFC3339).")
 @pass_context
-def entity_add(ctx, case, entity_type, entity_value, name, verdict,
-               context, first_seen, last_seen) -> None:
+def entity_add(ctx, case, entity_type, entity_value, note, verdict) -> None:
     """Add an entity to a case.
 
     Examples:
         limacharlie case entity add --case 42 \\
             --type ip --value "10.0.0.1" --verdict malicious
         limacharlie case entity add --case 42 \\
-            --type hash --value "d41d8..." --context "In startup folder"
+            --type hash --value "d41d8..." --note "In startup folder"
     """
     t = _get_cases(ctx)
     data = t.add_entity(
         case, entity_type, entity_value,
-        name=name, verdict=verdict, context=context,
-        first_seen=first_seen, last_seen=last_seen,
+        note=note, verdict=verdict,
     )
     _output(ctx, data)
 
@@ -1015,30 +1006,21 @@ def entity_add(ctx, case, entity_type, entity_value, name, verdict,
 @entity_group.command("update")
 @click.option("--case", required=True, type=int, help="Case number.")
 @click.option("--entity-id", required=True, help="Entity ID to update.")
-@click.option("--name", default=None, help="Display name.")
+@click.option("--note", default=None, help="Analyst note (max 2048 chars).")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
-@click.option("--context", default=None, help="Context notes (max 4096 chars).")
-@click.option("--first-seen", default=None, help="First seen timestamp (RFC3339).")
-@click.option("--last-seen", default=None, help="Last seen timestamp (RFC3339).")
 @pass_context
-def entity_update(ctx, case, entity_id, name, verdict, context,
-                  first_seen, last_seen) -> None:
+def entity_update(ctx, case, entity_id, note, verdict) -> None:
     """Update an entity on a case.
 
     Example:
         limacharlie case entity update --case 42 \\
             --entity-id <EID> --verdict malicious
     """
-    fields = {
-        "name": name, "verdict": verdict, "context": context,
-        "first_seen": first_seen, "last_seen": last_seen,
-    }
-    fields = {k: v for k, v in fields.items() if v is not None}
-    if not fields:
+    if note is None and verdict is None:
         raise click.UsageError("Provide at least one field to update.")
 
     t = _get_cases(ctx)
-    data = t.update_entity(case, entity_id, **fields)
+    data = t.update_entity(case, entity_id, note=note, verdict=verdict)
     _output(ctx, data)
 
 
@@ -1104,12 +1086,10 @@ def telemetry_list(ctx, case) -> None:
 @click.option("--case", required=True, type=int, help="Case number.")
 @click.option("--event", "event_json", required=True,
               help="Full LC event JSON object.")
-@click.option("--event-summary", default=None, help="Human-readable event summary.")
+@click.option("--note", default=None, help="Analyst note (max 2048 chars).")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
-@click.option("--relevance", default=None, help="Relevance notes (max 1024 chars).")
 @pass_context
-def telemetry_add(ctx, case, event_json, event_summary, verdict,
-                  relevance) -> None:
+def telemetry_add(ctx, case, event_json, note, verdict) -> None:
     """Link a telemetry event to a case.
 
     Example:
@@ -1126,8 +1106,7 @@ def telemetry_add(ctx, case, event_json, event_summary, verdict,
     t = _get_cases(ctx)
     data = t.add_telemetry(
         case, event,
-        event_summary=event_summary,
-        verdict=verdict, relevance=relevance,
+        note=note, verdict=verdict,
     )
     _output(ctx, data)
 
@@ -1135,29 +1114,21 @@ def telemetry_add(ctx, case, event_json, event_summary, verdict,
 @telemetry_group.command("update")
 @click.option("--case", required=True, type=int, help="Case number.")
 @click.option("--telemetry-id", required=True, help="Telemetry reference ID.")
-@click.option("--event-summary", default=None, help="Human-readable event summary.")
+@click.option("--note", default=None, help="Analyst note (max 2048 chars).")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
-@click.option("--relevance", default=None, help="Relevance notes (max 1024 chars).")
 @pass_context
-def telemetry_update(ctx, case, telemetry_id, event_summary, verdict,
-                     relevance) -> None:
+def telemetry_update(ctx, case, telemetry_id, note, verdict) -> None:
     """Update a telemetry reference on a case.
 
     Example:
         limacharlie case telemetry update --case 42 \\
             --telemetry-id <TID> --verdict malicious
     """
-    fields = {
-        "event_summary": event_summary,
-        "verdict": verdict,
-        "relevance": relevance,
-    }
-    fields = {k: v for k, v in fields.items() if v is not None}
-    if not fields:
+    if note is None and verdict is None:
         raise click.UsageError("Provide at least one field to update.")
 
     t = _get_cases(ctx)
-    data = t.update_telemetry(case, telemetry_id, **fields)
+    data = t.update_telemetry(case, telemetry_id, note=note, verdict=verdict)
     _output(ctx, data)
 
 
@@ -1206,24 +1177,28 @@ def artifact_list(ctx, case) -> None:
 
 @artifact_group.command("add")
 @click.option("--case", required=True, type=int, help="Case number.")
-@click.option("--type", "artifact_type", required=True,
+@click.option("--path", required=True, help="Artifact path or location.")
+@click.option("--source", required=True, help="Artifact source identifier.")
+@click.option("--type", "artifact_type", default=None,
               help="Artifact type (e.g., pcap, memory_dump, disk_image, log_export).")
-@click.option("--description", default=None, help="Description (max 2048 chars).")
+@click.option("--note", default=None, help="Analyst note (max 2048 chars).")
 @click.option("--verdict", default=None, type=_VERDICT_CHOICES, help="Verdict assessment.")
 @pass_context
-def artifact_add(ctx, case, artifact_type, description, verdict) -> None:
+def artifact_add(ctx, case, path, source, artifact_type, note, verdict) -> None:
     """Add a forensic artifact reference to a case.
 
     Examples:
         limacharlie case artifact add --case 42 \\
-            --type pcap --description "Network capture"
+            --path "/captures/incident.pcap" --source "sensor-01" \\
+            --type pcap --note "Network capture"
         limacharlie case artifact add --case 42 \\
+            --path "/dumps/mem.dmp" --source "edr" \\
             --type memory_dump --verdict suspicious
     """
     t = _get_cases(ctx)
     data = t.add_artifact(
-        case, artifact_type,
-        description=description, verdict=verdict,
+        case, path, source,
+        artifact_type=artifact_type, note=note, verdict=verdict,
     )
     _output(ctx, data)
 

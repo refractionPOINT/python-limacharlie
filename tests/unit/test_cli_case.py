@@ -248,13 +248,13 @@ class TestCaseList:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "list", "--status", "new", "--status", "acknowledged"],
+                ["case", "list", "--status", "new", "--status", "in_progress"],
                 mock_t_cls,
                 return_value={"cases": [], "total_counts": {}},
             )
             assert result.exit_code == 0
             call_kwargs = mock_t.list_cases.call_args[1]
-            assert call_kwargs["status"] == ["new", "acknowledged"]
+            assert call_kwargs["status"] == ["new", "in_progress"]
 
     def test_list_invalid_status_rejected(self):
         runner = CliRunner()
@@ -576,12 +576,12 @@ class TestCaseUpdate:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "update", "--id", "42", "--status", "acknowledged"],
+                ["case", "update", "--id", "42", "--status", "in_progress"],
                 mock_t_cls,
                 return_value={"case": {}},
             )
             assert result.exit_code == 0
-            mock_t.update_case.assert_called_once_with(42, status="acknowledged")
+            mock_t.update_case.assert_called_once_with(42, status="in_progress")
 
     def test_update_multiple_fields(self):
         p1, p2, p3 = _patch_cases()
@@ -590,7 +590,7 @@ class TestCaseUpdate:
                 ["case", "update", "--id", "42",
                  "--status", "resolved",
                  "--classification", "true_positive",
-                 "--assignee", "bob@example.com"],
+                 "--assignees", "bob@example.com"],
                 mock_t_cls,
                 return_value={"case": {}},
             )
@@ -599,7 +599,7 @@ class TestCaseUpdate:
                 42,
                 status="resolved",
                 classification="true_positive",
-                assignee="bob@example.com",
+                assignees=["bob@example.com"],
             )
 
     def test_update_no_fields_error(self):
@@ -794,8 +794,7 @@ class TestCaseEntity:
             assert result.exit_code == 0
             mock_t.add_entity.assert_called_once_with(
                 42, "ip", "10.0.0.1",
-                name=None, verdict="malicious", context=None,
-                first_seen=None, last_seen=None,
+                note=None, verdict="malicious",
             )
 
     def test_entity_add_invalid_type_rejected(self):
@@ -816,7 +815,7 @@ class TestCaseEntity:
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.update_entity.assert_called_once_with(42, "eid-1", verdict="benign")
+            mock_t.update_entity.assert_called_once_with(42, "eid-1", note=None, verdict="benign")
 
     def test_entity_update_no_fields_error(self):
         p1, p2, p3 = _patch_cases()
@@ -888,8 +887,7 @@ class TestCaseTelemetry:
             assert result.exit_code == 0
             mock_t.add_telemetry.assert_called_once_with(
                 42, json.loads(self._SAMPLE_EVENT),
-                event_summary=None,
-                verdict="suspicious", relevance=None,
+                note=None, verdict="suspicious",
             )
 
     def test_telemetry_add_requires_event(self):
@@ -913,17 +911,16 @@ class TestCaseTelemetry:
             result, mock_t = _invoke(
                 ["case", "telemetry", "add", "--case", "42",
                  "--event", self._SAMPLE_EVENT,
-                 "--event-summary", "Process spawned",
-                 "--verdict", "malicious",
-                 "--relevance", "Key evidence"],
+                 "--note", "Process spawned, key evidence",
+                 "--verdict", "malicious"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
             mock_t.add_telemetry.assert_called_once_with(
                 42, json.loads(self._SAMPLE_EVENT),
-                event_summary="Process spawned",
-                verdict="malicious", relevance="Key evidence",
+                note="Process spawned, key evidence",
+                verdict="malicious",
             )
 
     def test_telemetry_update(self):
@@ -936,7 +933,7 @@ class TestCaseTelemetry:
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.update_telemetry.assert_called_once_with(42, "tel-1", verdict="malicious")
+            mock_t.update_telemetry.assert_called_once_with(42, "tel-1", note=None, verdict="malicious")
 
     def test_telemetry_update_no_fields_error(self):
         p1, p2, p3 = _patch_cases()
@@ -981,15 +978,16 @@ class TestCaseArtifact:
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
                 ["case", "artifact", "add", "--case", "42",
-                 "--type", "pcap", "--description", "Network capture",
+                 "--path", "/captures/test.pcap", "--source", "sensor-01",
+                 "--type", "pcap", "--note", "Network capture",
                  "--verdict", "suspicious"],
                 mock_t_cls,
                 return_value={},
             )
             assert result.exit_code == 0
             mock_t.add_artifact.assert_called_once_with(
-                42, "pcap",
-                description="Network capture", verdict="suspicious",
+                42, "/captures/test.pcap", "sensor-01",
+                artifact_type="pcap", note="Network capture", verdict="suspicious",
             )
 
     def test_artifact_remove(self):
@@ -1351,14 +1349,14 @@ class TestCaseUpdateTag:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "update", "--id", "1", "--status", "acknowledged",
+                ["case", "update", "--id", "1", "--status", "in_progress",
                  "--tag", "phishing"],
                 mock_t_cls,
                 return_value={"case": {}},
             )
             assert result.exit_code == 0
             mock_t.update_case.assert_called_once_with(
-                1, status="acknowledged", tags=["phishing"],
+                1, status="in_progress", tags=["phishing"],
             )
 
 

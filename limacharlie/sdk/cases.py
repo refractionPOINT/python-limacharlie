@@ -146,8 +146,8 @@ class Cases:
     def update_case(self, case_number: int, **fields: Any) -> dict[str, Any]:
         """Update a case.
 
-        Accepted fields: status, severity, assignee, classification,
-        escalation_group, investigation_id, summary, conclusion, tags.
+        Accepted fields: status, severity, assignees, classification,
+        summary, conclusion, tags.
 
         Note: detection-level fields (detection_id, detection_cat,
         detection_source, detection_priority, sensor_id, hostname)
@@ -268,14 +268,28 @@ class Cases:
         case_number: int,
         entity_type: str,
         entity_value: str,
-        **fields: Any,
+        *,
+        note: str | None = None,
+        verdict: str | None = None,
     ) -> dict[str, Any]:
-        """Add an entity/IOC to a case."""
+        """Add an entity/IOC to a case.
+
+        Args:
+            case_number: Case number.
+            entity_type: One of ip, domain, hash, url, user, email,
+                file, process, registry, other.
+            entity_value: Entity value (max 1024 chars).
+            note: Analyst note (max 2048 chars).
+            verdict: Verdict assessment.
+        """
         body: dict[str, Any] = {
             "entity_type": entity_type,
             "entity_value": entity_value,
         }
-        body.update({k: v for k, v in fields.items() if v is not None})
+        if note is not None:
+            body["note"] = note
+        if verdict is not None:
+            body["verdict"] = verdict
         return self._request(
             "POST",
             f"cases/{case_number}/entities",
@@ -287,14 +301,28 @@ class Cases:
         self,
         case_number: int,
         entity_id: str,
-        **fields: Any,
+        *,
+        note: str | None = None,
+        verdict: str | None = None,
     ) -> dict[str, Any]:
-        """Update an entity on a case."""
+        """Update an entity on a case.
+
+        Args:
+            case_number: Case number.
+            entity_id: Entity ID to update.
+            note: Analyst note (max 2048 chars).
+            verdict: Verdict assessment.
+        """
+        body: dict[str, Any] = {}
+        if note is not None:
+            body["note"] = note
+        if verdict is not None:
+            body["verdict"] = verdict
         return self._request(
             "PATCH",
             f"cases/{case_number}/entities/{entity_id}",
             query_params={"oid": self.oid},
-            body={k: v for k, v in fields.items() if v is not None},
+            body=body,
         )
 
     def remove_entity(
@@ -342,9 +370,8 @@ class Cases:
         case_number: int,
         event: dict,
         *,
-        event_summary: str | None = None,
+        note: str | None = None,
         verdict: str | None = None,
-        relevance: str | None = None,
     ) -> dict[str, Any]:
         """Link a telemetry event reference to a case.
 
@@ -353,17 +380,14 @@ class Cases:
             event: Full LC event dict.  The backend extracts
                 routing.this (atom), routing.sid, and
                 routing.event_type automatically.
-            event_summary: Human-readable event summary.
+            note: Analyst note (max 2048 chars).
             verdict: Verdict assessment.
-            relevance: Relevance notes.
         """
         body: dict[str, Any] = {"event": event}
-        if event_summary is not None:
-            body["event_summary"] = event_summary
+        if note is not None:
+            body["note"] = note
         if verdict is not None:
             body["verdict"] = verdict
-        if relevance is not None:
-            body["relevance"] = relevance
         return self._request(
             "POST",
             f"cases/{case_number}/telemetry",
@@ -375,14 +399,28 @@ class Cases:
         self,
         case_number: int,
         telemetry_id: str,
-        **fields: Any,
+        *,
+        note: str | None = None,
+        verdict: str | None = None,
     ) -> dict[str, Any]:
-        """Update a telemetry reference on a case."""
+        """Update a telemetry reference on a case.
+
+        Args:
+            case_number: Case number.
+            telemetry_id: Telemetry reference ID.
+            note: Analyst note (max 2048 chars).
+            verdict: Verdict assessment.
+        """
+        body: dict[str, Any] = {}
+        if note is not None:
+            body["note"] = note
+        if verdict is not None:
+            body["verdict"] = verdict
         return self._request(
             "PATCH",
             f"cases/{case_number}/telemetry/{telemetry_id}",
             query_params={"oid": self.oid},
-            body={k: v for k, v in fields.items() if v is not None},
+            body=body,
         )
 
     def remove_telemetry(
@@ -412,12 +450,30 @@ class Cases:
     def add_artifact(
         self,
         case_number: int,
-        artifact_type: str,
-        **fields: Any,
+        path: str,
+        source: str,
+        *,
+        artifact_type: str | None = None,
+        note: str | None = None,
+        verdict: str | None = None,
     ) -> dict[str, Any]:
-        """Add a forensic artifact reference to a case."""
-        body: dict[str, Any] = {"artifact_type": artifact_type}
-        body.update({k: v for k, v in fields.items() if v is not None})
+        """Add a forensic artifact reference to a case.
+
+        Args:
+            case_number: Case number.
+            path: Artifact path or location.
+            source: Artifact source identifier.
+            artifact_type: Optional artifact type (e.g., pcap, memory_dump).
+            note: Analyst note (max 2048 chars).
+            verdict: Verdict assessment.
+        """
+        body: dict[str, Any] = {"path": path, "source": source}
+        if artifact_type is not None:
+            body["artifact_type"] = artifact_type
+        if note is not None:
+            body["note"] = note
+        if verdict is not None:
+            body["verdict"] = verdict
         return self._request(
             "POST",
             f"cases/{case_number}/artifacts",
