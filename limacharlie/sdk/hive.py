@@ -27,6 +27,7 @@ class HiveRecord:
     enabled: bool | None = None
     tags: list[str] | None = None
     comment: str | None = None
+    ui_actions: list[dict[str, str]] | None = None
     etag: str | None = None
     created_at: int | None = None
     created_by: str | None = None
@@ -59,6 +60,7 @@ class HiveRecord:
             enabled=usr.get("enabled"),
             tags=usr.get("tags"),
             comment=usr.get("comment"),
+            ui_actions=usr.get("ui_actions"),
             etag=sys_mtd.get("etag"),
             created_at=sys_mtd.get("created_at"),
             created_by=sys_mtd.get("created_by"),
@@ -80,6 +82,8 @@ class HiveRecord:
             result["usr_mtd"]["tags"] = self.tags
         if self.comment is not None:
             result["usr_mtd"]["comment"] = self.comment
+        if self.ui_actions is not None:
+            result["usr_mtd"]["ui_actions"] = self.ui_actions
         if self.etag:
             result["sys_mtd"]["etag"] = self.etag
         return result
@@ -182,6 +186,8 @@ class Hive:
             usr_mtd["tags"] = record.tags
         if record.comment is not None:
             usr_mtd["comment"] = record.comment
+        if record.ui_actions is not None:
+            usr_mtd["ui_actions"] = record.ui_actions
         if usr_mtd:
             req["usr_mtd"] = json.dumps(usr_mtd)
 
@@ -231,6 +237,8 @@ class Hive:
             usr_mtd["tags"] = record.tags
         if record.comment is not None:
             usr_mtd["comment"] = record.comment
+        if record.ui_actions is not None:
+            usr_mtd["ui_actions"] = record.ui_actions
         if usr_mtd:
             req["usr_mtd"] = json.dumps(usr_mtd)
 
