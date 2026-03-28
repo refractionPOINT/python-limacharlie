@@ -37,7 +37,7 @@ class TestHiveRecordDataclass:
         assert is_dataclass(HiveRecord)
 
     def test_field_count(self):
-        assert len(fields(HiveRecord)) == 15
+        assert len(fields(HiveRecord)) == 16
 
     def test_simple_construction(self):
         rec = HiveRecord(name="test", data={"key": "val"})
