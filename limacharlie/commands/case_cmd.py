@@ -416,17 +416,17 @@ If --severity is omitted, severity is derived from detect_mtd.level
 in the detection object (or defaults to 'medium').  Valid severities:
 critical, high, medium, low, info.
 
-Use --summary to set an initial case summary at creation time.  When
-provided, the summary is included in the 'created' audit event so
-D&R rules and webhooks can act on it immediately.
+--summary is required.  The summary is included in the 'created' audit
+event so D&R rules and webhooks can act on it immediately.
 
 Examples:
-  limacharlie case create --detection '<full detection JSON>'
+  limacharlie case create --summary "Investigating lateral movement"
   limacharlie case create --detection '<full detection JSON>' \\
-      --severity high
+      --summary "Triage detection"
+  limacharlie case create --detection '<full detection JSON>' \\
+      --severity high --summary "High severity lateral movement"
   limacharlie case create --severity medium \\
       --summary "Investigating lateral movement"
-  limacharlie case create
 """
 
 register_explain("case.create", _EXPLAIN_CREATE)
@@ -568,18 +568,19 @@ def group() -> None:
               help="Full detection JSON object (optional).")
 @click.option("--severity", default=None, type=_SEVERITY_CHOICES,
               help="Case severity override (default: derived from detection).")
-@click.option("--summary", default=None,
-              help="Case summary set at creation time (max 8192 chars).")
+@click.option("--summary", required=True,
+              help="Case summary (required, max 8192 chars).")
 @pass_context
 def create(ctx, detection_json, severity, summary) -> None:
     """Create a new case, optionally from a detection.
 
     Examples:
-        limacharlie case create --detection '<full detection JSON>'
+        limacharlie case create --summary "Investigating lateral movement"
         limacharlie case create --detection '<full detection JSON>' \\
-            --severity high
+            --summary "Triage detection"
+        limacharlie case create --detection '<full detection JSON>' \\
+            --severity high --summary "High severity lateral movement"
         limacharlie case create --severity medium --summary "Investigating lateral movement"
-        limacharlie case create
     """
     detection = None
     if detection_json is not None:
