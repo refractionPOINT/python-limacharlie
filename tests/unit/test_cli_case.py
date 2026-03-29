@@ -115,7 +115,8 @@ class TestCaseCreate:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "create", "--detection", self._SAMPLE_DETECTION],
+                ["case", "create", "--detection", self._SAMPLE_DETECTION,
+                 "--summary", "Triage detection"],
                 mock_t_cls,
                 return_value={"created": 1, "case_id": "tid-new"},
             )
@@ -123,7 +124,7 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 json.loads(self._SAMPLE_DETECTION),
                 severity=None,
-                summary=None,
+                summary="Triage detection",
             )
 
     def test_create_with_severity_override(self):
@@ -132,7 +133,8 @@ class TestCaseCreate:
             result, mock_t = _invoke(
                 ["case", "create",
                  "--detection", self._SAMPLE_DETECTION,
-                 "--severity", "critical"],
+                 "--severity", "critical",
+                 "--summary", "Critical lateral movement"],
                 mock_t_cls,
                 return_value={"created": 1, "case_id": "tid-new"},
             )
@@ -140,14 +142,14 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 json.loads(self._SAMPLE_DETECTION),
                 severity="critical",
-                summary=None,
+                summary="Critical lateral movement",
             )
 
     def test_create_without_detection(self):
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "create"],
+                ["case", "create", "--summary", "Manual investigation"],
                 mock_t_cls,
                 return_value={"created": 1, "case_id": "tid-new"},
             )
@@ -155,14 +157,15 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 None,
                 severity=None,
-                summary=None,
+                summary="Manual investigation",
             )
 
     def test_create_without_detection_with_severity(self):
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "create", "--severity", "medium"],
+                ["case", "create", "--severity", "medium",
+                 "--summary", "Medium severity case"],
                 mock_t_cls,
                 return_value={"created": 1, "case_id": "tid-new"},
             )
@@ -170,7 +173,7 @@ class TestCaseCreate:
             mock_t.create_case.assert_called_once_with(
                 None,
                 severity="medium",
-                summary=None,
+                summary="Medium severity case",
             )
 
     def test_create_with_summary(self):
@@ -188,12 +191,21 @@ class TestCaseCreate:
                 summary="Lateral movement detected",
             )
 
+    def test_create_without_summary_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "case", "create",
+            "--detection", self._SAMPLE_DETECTION,
+        ])
+        assert result.exit_code != 0
+
     def test_create_invalid_severity_rejected(self):
         runner = CliRunner()
         result = runner.invoke(cli, [
             "case", "create",
             "--detection", self._SAMPLE_DETECTION,
             "--severity", "extreme",
+            "--summary", "Test",
         ])
         assert result.exit_code != 0
 
@@ -201,6 +213,7 @@ class TestCaseCreate:
         runner = CliRunner()
         result = runner.invoke(cli, [
             "case", "create", "--detection", "not-json",
+            "--summary", "Test",
         ])
         assert result.exit_code != 0
 
