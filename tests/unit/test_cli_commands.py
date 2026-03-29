@@ -267,6 +267,17 @@ class TestAuthCommands:
         assert parsed["has_perm"] is True
 
     @patch("limacharlie.commands.auth.Client")
+    def test_whoami_check_perm_requires_oid(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client.oid = None
+        mock_client_cls.return_value = mock_client
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "auth", "whoami", "--check-perm", "ai_agent.operate"])
+        assert result.exit_code != 0
+        assert "--check-perm requires an OID" in result.output
+
+    @patch("limacharlie.commands.auth.Client")
     def test_auth_test_success(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client

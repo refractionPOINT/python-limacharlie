@@ -270,6 +270,11 @@ register_explain("auth.whoami", _EXPLAIN_WHOAMI)
 @pass_context
 def whoami(ctx: click.Context, show_perms: bool, check_perm: str | None) -> None:
     client = _get_client(ctx)
+    # --check-perm requires a real OID — fail early before the fallback.
+    if check_perm is not None and client.oid is None:
+        raise click.UsageError(
+            "--check-perm requires an OID to be specified (use --oid or set the LC_OID environment variable)"
+        )
     # whoami works without a specific org — fall back to "-" if no OID resolved.
     if client.oid is None:
         client = _get_client(ctx, oid_override="-")
