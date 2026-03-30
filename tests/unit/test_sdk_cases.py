@@ -79,14 +79,14 @@ class TestCreateCase:
         with patch("limacharlie.sdk.cases.Extensions") as MockExt:
             mock_ext = MagicMock()
             MockExt.return_value = mock_ext
-            mock_ext.request.return_value = {"created": 1, "case_id": "tid-new"}
+            mock_ext.request.return_value = {"created": 1, "case_number": 1}
             result = cases.create_case(self._SAMPLE_DETECTION)
             MockExt.assert_called_once_with(mock_org)
             mock_ext.request.assert_called_once_with(
                 "ext-cases", "create_case",
                 data={"detection": self._SAMPLE_DETECTION},
             )
-            assert result["case_id"] == "tid-new"
+            assert result["case_number"] == 1
 
     def test_all_optional_fields(self, cases, mock_org):
         with patch("limacharlie.sdk.cases.Extensions") as MockExt:

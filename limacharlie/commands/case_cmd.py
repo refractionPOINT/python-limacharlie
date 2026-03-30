@@ -72,7 +72,7 @@ The event timeline provides a full audit trail of the case's
 lifecycle including who made each change and when.
 
 Examples:
-  limacharlie case get --id 42
+  limacharlie case get --case-number 42
 """
 
 _EXPLAIN_UPDATE = """\
@@ -96,10 +96,10 @@ Status transitions follow a state machine:
   closed -> in_progress (reopen)
 
 Examples:
-  limacharlie case update --id 42 --status in_progress
-  limacharlie case update --id 42 --severity high
-  limacharlie case update --id 42 --assignees alice@example.com
-  limacharlie case update --id 42 --status resolved \\
+  limacharlie case update --case-number 42 --status in_progress
+  limacharlie case update --case-number 42 --severity high
+  limacharlie case update --case-number 42 --assignees alice@example.com
+  limacharlie case update --case-number 42 --status resolved \\
       --classification true_positive \\
       --conclusion "Contained via network isolation"
 """
@@ -120,10 +120,10 @@ Note types:
 Provide content via --content, --input-file, or stdin.
 
 Examples:
-  limacharlie case add-note --id 42 --content "Initial triage complete"
-  limacharlie case add-note --id 42 --type analysis \\
+  limacharlie case add-note --case-number 42 --content "Initial triage complete"
+  limacharlie case add-note --case-number 42 --type analysis \\
       --content "Confirmed C2 beacon to 10.0.0.1"
-  echo "Handoff notes" | limacharlie case add-note --id 42 --type handoff
+  echo "Handoff notes" | limacharlie case add-note --case-number 42 --type handoff
 """
 
 _EXPLAIN_BULK_UPDATE = """\
@@ -397,9 +397,9 @@ Fetches that fail (e.g. expired data) emit a warning on stderr and
 are skipped.
 
 Examples:
-  limacharlie case export --id 42
-  limacharlie case export --id 42 --output json > case.json
-  limacharlie case export --id 42 --with-data ./case-export
+  limacharlie case export --case-number 42
+  limacharlie case export --case-number 42 --output json > case.json
+  limacharlie case export --case-number 42 --with-data ./case-export
 """
 
 _EXPLAIN_CREATE = """\
@@ -463,8 +463,8 @@ Replace all tags on a case.  Any existing tags are removed and
 replaced with the provided set.  Use --tag/-t for each tag value.
 
 Examples:
-  limacharlie case tag set --id 42 --tag phishing
-  limacharlie case tag set --id 42 -t phishing -t urgent
+  limacharlie case tag set --case-number 42 --tag phishing
+  limacharlie case tag set --case-number 42 -t phishing -t urgent
 """
 
 _EXPLAIN_TAG_ADD = """\
@@ -472,8 +472,8 @@ Add one or more tags to a case, merging with any existing tags.
 Duplicate tags are automatically deduplicated.
 
 Examples:
-  limacharlie case tag add --id 42 --tag new-tag
-  limacharlie case tag add --id 42 -t phishing -t urgent
+  limacharlie case tag add --case-number 42 --tag new-tag
+  limacharlie case tag add --case-number 42 -t phishing -t urgent
 """
 
 _EXPLAIN_TAG_REMOVE = """\
@@ -481,8 +481,8 @@ Remove one or more tags from a case.  Tags not currently on the
 case are silently ignored.
 
 Examples:
-  limacharlie case tag remove --id 42 --tag old-tag
-  limacharlie case tag remove --id 42 -t phishing -t urgent
+  limacharlie case tag remove --case-number 42 --tag old-tag
+  limacharlie case tag remove --case-number 42 -t phishing -t urgent
 """
 
 register_explain("case.tag.set", _EXPLAIN_TAG_SET)
@@ -647,13 +647,13 @@ def list_cases(ctx, status, severity, classification, assignee, search,
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "case_number", required=True, type=int, help="Case number.")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
 @pass_context
 def get(ctx, case_number) -> None:
     """Get a case with its event timeline.
 
     Example:
-        limacharlie case get --id 42
+        limacharlie case get --case-number 42
     """
     t = _get_cases(ctx)
     data = t.get_case(case_number)
@@ -665,7 +665,7 @@ def get(ctx, case_number) -> None:
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "case_number", required=True, type=int, help="Case number.")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
 @click.option("--with-data", "output_dir", default=None, type=click.Path(),
               help="Export with full data to a directory.")
 @pass_context
@@ -678,8 +678,8 @@ def export(ctx, case_number, output_dir) -> None:
     artifact binaries.
 
     Examples:
-        limacharlie case export --id 42
-        limacharlie case export --id 42 --with-data ./out
+        limacharlie case export --case-number 42
+        limacharlie case export --case-number 42 --with-data ./out
     """
     t = _get_cases(ctx)
     data = t.export_case(case_number)
@@ -780,7 +780,7 @@ def _export_with_data(ctx: click.Context, t: Cases, data: dict[str, Any],
 # ---------------------------------------------------------------------------
 
 @group.command()
-@click.option("--id", "case_number", required=True, type=int, help="Case number.")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
 @click.option("--status", default=None, type=_STATUS_CHOICES, help="New status.")
 @click.option("--severity", default=None, type=_SEVERITY_CHOICES, help="Case severity (critical, high, medium, low, info).")
 @click.option("--assignees", multiple=True, help="Assignee email (repeatable for multiple assignees).")
@@ -796,12 +796,12 @@ def update(ctx, case_number, status, severity, assignees, classification,
     Only provided fields are changed.
 
     Examples:
-        limacharlie case update --id 42 --status in_progress
-        limacharlie case update --id 42 --severity high
-        limacharlie case update --id 42 --assignees alice@example.com
-        limacharlie case update --id 42 --status resolved \\
+        limacharlie case update --case-number 42 --status in_progress
+        limacharlie case update --case-number 42 --severity high
+        limacharlie case update --case-number 42 --assignees alice@example.com
+        limacharlie case update --case-number 42 --status resolved \\
             --classification true_positive
-        limacharlie case update --id 42 --tag phishing --tag urgent
+        limacharlie case update --case-number 42 --tag phishing --tag urgent
     """
     fields = {
         "status": status,
@@ -829,7 +829,7 @@ def update(ctx, case_number, status, severity, assignees, classification,
 # ---------------------------------------------------------------------------
 
 @group.command("add-note")
-@click.option("--id", "case_number", required=True, type=int, help="Case number.")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
 @click.option("--content", default=None, help="Note content.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Read note content from file.")
 @click.option("--type", "note_type", default=None, type=_NOTE_TYPE_CHOICES,
@@ -841,10 +841,10 @@ def add_note(ctx, case_number, content, input_file, note_type) -> None:
     Provide content via --content, --input-file, or stdin.
 
     Examples:
-        limacharlie case add-note --id 42 --content "Triage complete"
-        limacharlie case add-note --id 42 --type analysis \\
+        limacharlie case add-note --case-number 42 --content "Triage complete"
+        limacharlie case add-note --case-number 42 --type analysis \\
             --content "Confirmed C2 beacon"
-        echo "notes" | limacharlie case add-note --id 42
+        echo "notes" | limacharlie case add-note --case-number 42
     """
     if content:
         text = content
@@ -1423,15 +1423,15 @@ def tag_group() -> None:
 
 
 @tag_group.command("set")
-@click.option("--id", "case_number", required=True, type=int, help="Case number.")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
 @click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value (repeatable).")
 @pass_context
 def tag_set(ctx, case_number, tags) -> None:
     """Replace all tags on a case.
 
     Examples:
-        limacharlie case tag set --id 42 --tag phishing
-        limacharlie case tag set --id 42 -t phishing -t urgent
+        limacharlie case tag set --case-number 42 --tag phishing
+        limacharlie case tag set --case-number 42 -t phishing -t urgent
     """
     t = _get_cases(ctx)
     data = t.update_case(case_number, tags=list(tags))
@@ -1439,15 +1439,15 @@ def tag_set(ctx, case_number, tags) -> None:
 
 
 @tag_group.command("add")
-@click.option("--id", "case_number", required=True, type=int, help="Case number.")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
 @click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value to add (repeatable).")
 @pass_context
 def tag_add(ctx, case_number, tags) -> None:
     """Add tags to a case (merged with existing).
 
     Examples:
-        limacharlie case tag add --id 42 --tag new-tag
-        limacharlie case tag add --id 42 -t phishing -t urgent
+        limacharlie case tag add --case-number 42 --tag new-tag
+        limacharlie case tag add --case-number 42 -t phishing -t urgent
     """
     tk = _get_cases(ctx)
     current = tk.get_case(case_number)
@@ -1463,15 +1463,15 @@ def tag_add(ctx, case_number, tags) -> None:
 
 
 @tag_group.command("remove")
-@click.option("--id", "case_number", required=True, type=int, help="Case number.")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
 @click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value to remove (repeatable).")
 @pass_context
 def tag_remove(ctx, case_number, tags) -> None:
     """Remove tags from a case.
 
     Examples:
-        limacharlie case tag remove --id 42 --tag old-tag
-        limacharlie case tag remove --id 42 -t phishing -t urgent
+        limacharlie case tag remove --case-number 42 --tag old-tag
+        limacharlie case tag remove --case-number 42 -t phishing -t urgent
     """
     tk = _get_cases(ctx)
     current = tk.get_case(case_number)
