@@ -24,13 +24,38 @@ class Cases:
 
     def __init__(self, org: Organization, api_root: str | None = None) -> None:
         self._org = org
-        self._api_root = api_root or os.environ.get(
-            "LC_CASES_API_ROOT", _DEFAULT_API_ROOT
+        self._api_root_override = api_root or os.environ.get(
+            "LC_CASES_API_ROOT", None
         )
+        self._resolved_root: str | None = None
 
     @property
     def oid(self) -> str:
         return self._org.oid
+
+    @property
+    def _api_root(self) -> str:
+        """Lazily resolve the cases API root URL.
+
+        Priority: explicit api_root / LC_CASES_API_ROOT env var >
+        org URLs endpoint ("cases" key) > _DEFAULT_API_ROOT fallback.
+        """
+        if self._api_root_override is not None:
+            return self._api_root_override
+        if self._resolved_root is not None:
+            return self._resolved_root
+        try:
+            urls = self._org.get_urls()
+            cases_url = urls.get("cases", "")
+            if cases_url:
+                if not cases_url.startswith("http://") and not cases_url.startswith("https://"):
+                    cases_url = "https://" + cases_url
+                self._resolved_root = cases_url
+            else:
+                self._resolved_root = _DEFAULT_API_ROOT
+        except Exception:
+            self._resolved_root = _DEFAULT_API_ROOT
+        return self._resolved_root
 
     _EXTENSION_NAME = "ext-cases"
 
