@@ -118,7 +118,7 @@ class TestCaseCreate:
                 ["case", "create", "--detection", self._SAMPLE_DETECTION,
                  "--summary", "Triage detection"],
                 mock_t_cls,
-                return_value={"created": 1, "case_id": "tid-new"},
+                return_value={"created": 1, "case_number": 1},
             )
             assert result.exit_code == 0
             mock_t.create_case.assert_called_once_with(
@@ -136,7 +136,7 @@ class TestCaseCreate:
                  "--severity", "critical",
                  "--summary", "Critical lateral movement"],
                 mock_t_cls,
-                return_value={"created": 1, "case_id": "tid-new"},
+                return_value={"created": 1, "case_number": 1},
             )
             assert result.exit_code == 0
             mock_t.create_case.assert_called_once_with(
@@ -151,7 +151,7 @@ class TestCaseCreate:
             result, mock_t = _invoke(
                 ["case", "create", "--summary", "Manual investigation"],
                 mock_t_cls,
-                return_value={"created": 1, "case_id": "tid-new"},
+                return_value={"created": 1, "case_number": 1},
             )
             assert result.exit_code == 0
             mock_t.create_case.assert_called_once_with(
@@ -167,7 +167,7 @@ class TestCaseCreate:
                 ["case", "create", "--severity", "medium",
                  "--summary", "Medium severity case"],
                 mock_t_cls,
-                return_value={"created": 1, "case_id": "tid-new"},
+                return_value={"created": 1, "case_number": 1},
             )
             assert result.exit_code == 0
             mock_t.create_case.assert_called_once_with(
@@ -182,7 +182,7 @@ class TestCaseCreate:
             result, mock_t = _invoke(
                 ["case", "create", "--summary", "Lateral movement detected"],
                 mock_t_cls,
-                return_value={"created": 1, "case_id": "tid-new"},
+                return_value={"created": 1, "case_number": 1},
             )
             assert result.exit_code == 0
             mock_t.create_case.assert_called_once_with(
