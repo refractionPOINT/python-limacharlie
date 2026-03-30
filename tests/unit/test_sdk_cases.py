@@ -13,6 +13,7 @@ def mock_org():
     org.oid = "test-oid"
     org.client = MagicMock()
     org.client._jwt = "fake-jwt-token"
+    org.get_urls.return_value = {}
     return org
 
 
@@ -40,22 +41,53 @@ def _extract_body(mock_org):
 
 class TestCasesInit:
     def test_default_api_root(self, mock_org):
+        """When no override and get_urls has no 'cases' key, falls back to default."""
+        mock_org.get_urls.return_value = {}
+        t = Cases(mock_org)
+        assert t._api_root == "https://cases.limacharlie.io"
+
+    def test_org_url_resolved(self, mock_org):
+        """When get_urls returns a 'cases' key, use it."""
+        mock_org.get_urls.return_value = {"cases": "cases.staging.limacharlie.io"}
+        t = Cases(mock_org)
+        assert t._api_root == "https://cases.staging.limacharlie.io"
+
+    def test_org_url_with_scheme(self, mock_org):
+        """When get_urls returns a URL with scheme, don't double-prefix."""
+        mock_org.get_urls.return_value = {"cases": "https://cases.staging.limacharlie.io"}
+        t = Cases(mock_org)
+        assert t._api_root == "https://cases.staging.limacharlie.io"
+
+    def test_org_url_cached(self, mock_org):
+        """get_urls should only be called once."""
+        mock_org.get_urls.return_value = {"cases": "cases.staging.limacharlie.io"}
+        t = Cases(mock_org)
+        _ = t._api_root
+        _ = t._api_root
+        mock_org.get_urls.assert_called_once()
+
+    def test_org_url_error_fallback(self, mock_org):
+        """When get_urls raises, fall back to default."""
+        mock_org.get_urls.side_effect = Exception("network error")
         t = Cases(mock_org)
         assert t._api_root == "https://cases.limacharlie.io"
 
     def test_custom_api_root(self, mock_org):
         t = Cases(mock_org, api_root="https://custom.example.com")
         assert t._api_root == "https://custom.example.com"
+        mock_org.get_urls.assert_not_called()
 
     def test_env_override(self, mock_org, monkeypatch):
         monkeypatch.setenv("LC_CASES_API_ROOT", "https://env.example.com")
         t = Cases(mock_org)
         assert t._api_root == "https://env.example.com"
+        mock_org.get_urls.assert_not_called()
 
     def test_explicit_api_root_overrides_env(self, mock_org, monkeypatch):
         monkeypatch.setenv("LC_CASES_API_ROOT", "https://env.example.com")
         t = Cases(mock_org, api_root="https://explicit.example.com")
         assert t._api_root == "https://explicit.example.com"
+        mock_org.get_urls.assert_not_called()
 
     def test_oid_property(self, cases):
         assert cases.oid == "test-oid"
