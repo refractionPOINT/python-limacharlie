@@ -290,7 +290,7 @@ class TestCaseGet:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "get", "--id", "42"],
+                ["case", "get", "--case-number", "42"],
                 mock_t_cls,
                 return_value={"case": {"case_id": "tid-1"}, "events": []},
             )
@@ -321,7 +321,7 @@ class TestCaseExport:
                 "artifacts": {"artifacts": []},
             }
             result, mock_t = _invoke(
-                ["case", "export", "--id", "42"],
+                ["case", "export", "--case-number", "42"],
                 mock_t_cls,
                 return_value=export_data,
             )
@@ -365,7 +365,7 @@ class TestCaseExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "case", "export", "--id", "42",
+                cli, ["--output", "json", "case", "export", "--case-number", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0, result.output
@@ -415,7 +415,7 @@ class TestCaseExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "case", "export", "--id", "42",
+                cli, ["--output", "json", "case", "export", "--case-number", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -443,7 +443,7 @@ class TestCaseExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--quiet", "case", "export", "--id", "42",
+                cli, ["--quiet", "case", "export", "--case-number", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -483,7 +483,7 @@ class TestCaseExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "case", "export", "--id", "42",
+                cli, ["--output", "json", "case", "export", "--case-number", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -514,7 +514,7 @@ class TestCaseExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "case", "export", "--id", "42",
+                cli, ["--output", "json", "case", "export", "--case-number", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -544,7 +544,7 @@ class TestCaseExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "case", "export", "--id", "42",
+                cli, ["--output", "json", "case", "export", "--case-number", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -571,7 +571,7 @@ class TestCaseExport:
 
             runner = CliRunner()
             result = runner.invoke(
-                cli, ["--output", "json", "case", "export", "--id", "42",
+                cli, ["--output", "json", "case", "export", "--case-number", "42",
                       "--with-data", out_dir],
             )
             assert result.exit_code == 0
@@ -589,7 +589,7 @@ class TestCaseUpdate:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "update", "--id", "42", "--status", "in_progress"],
+                ["case", "update", "--case-number", "42", "--status", "in_progress"],
                 mock_t_cls,
                 return_value={"case": {}},
             )
@@ -600,7 +600,7 @@ class TestCaseUpdate:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "update", "--id", "42",
+                ["case", "update", "--case-number", "42",
                  "--status", "resolved",
                  "--classification", "true_positive",
                  "--assignees", "bob@example.com"],
@@ -619,7 +619,7 @@ class TestCaseUpdate:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "update", "--id", "42"],
+                ["case", "update", "--case-number", "42"],
                 mock_t_cls,
             )
             assert result.exit_code != 0
@@ -627,7 +627,7 @@ class TestCaseUpdate:
 
     def test_update_invalid_status_rejected(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["case", "update", "--id", "1", "--status", "invalid"])
+        result = runner.invoke(cli, ["case", "update", "--case-number", "1", "--status", "invalid"])
         assert result.exit_code != 0
 
 
@@ -641,7 +641,7 @@ class TestCaseAddNote:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "add-note", "--id", "42", "--content", "Triage complete"],
+                ["case", "add-note", "--case-number", "42", "--content", "Triage complete"],
                 mock_t_cls,
                 return_value={},
             )
@@ -652,7 +652,7 @@ class TestCaseAddNote:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "add-note", "--id", "42", "--content", "Analysis", "--type", "analysis"],
+                ["case", "add-note", "--case-number", "42", "--content", "Analysis", "--type", "analysis"],
                 mock_t_cls,
                 return_value={},
             )
@@ -668,7 +668,7 @@ class TestCaseAddNote:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "add-note", "--id", "42"],
+                ["--output", "json", "case", "add-note", "--case-number", "42"],
                 input="Piped content\n",
             )
             assert result.exit_code == 0
@@ -677,7 +677,7 @@ class TestCaseAddNote:
     def test_add_note_invalid_type_rejected(self):
         runner = CliRunner()
         result = runner.invoke(cli, [
-            "case", "add-note", "--id", "1", "--content", "x", "--type", "invalid",
+            "case", "add-note", "--case-number", "1", "--content", "x", "--type", "invalid",
         ])
         assert result.exit_code != 0
 
@@ -1349,7 +1349,7 @@ class TestCaseUpdateTag:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "update", "--id", "1", "--tag", "phishing", "--tag", "urgent"],
+                ["case", "update", "--case-number", "1", "--tag", "phishing", "--tag", "urgent"],
                 mock_t_cls,
                 return_value={"case": {}},
             )
@@ -1362,7 +1362,7 @@ class TestCaseUpdateTag:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "update", "--id", "1", "--status", "in_progress",
+                ["case", "update", "--case-number", "1", "--status", "in_progress",
                  "--tag", "phishing"],
                 mock_t_cls,
                 return_value={"case": {}},
@@ -1390,7 +1390,7 @@ class TestCaseTagSubcommands:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "tag", "set", "--id", "1", "--tag", "phishing"],
+                ["case", "tag", "set", "--case-number", "1", "--tag", "phishing"],
                 mock_t_cls,
                 return_value={"case": {}},
             )
@@ -1401,7 +1401,7 @@ class TestCaseTagSubcommands:
         p1, p2, p3 = _patch_cases()
         with p1, p2, p3 as mock_t_cls:
             result, mock_t = _invoke(
-                ["case", "tag", "set", "--id", "1", "-t", "phishing", "-t", "urgent"],
+                ["case", "tag", "set", "--case-number", "1", "-t", "phishing", "-t", "urgent"],
                 mock_t_cls,
                 return_value={"case": {}},
             )
@@ -1420,7 +1420,7 @@ class TestCaseTagSubcommands:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "tag", "add", "--id", "1", "--tag", "new-tag"],
+                ["--output", "json", "case", "tag", "add", "--case-number", "1", "--tag", "new-tag"],
             )
             assert result.exit_code == 0
             mock_t.get_case.assert_called_once_with(1)
@@ -1438,7 +1438,7 @@ class TestCaseTagSubcommands:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "tag", "add", "--id", "1", "--tag", "phishing"],
+                ["--output", "json", "case", "tag", "add", "--case-number", "1", "--tag", "phishing"],
             )
             assert result.exit_code == 0
             mock_t.update_case.assert_called_once_with(1, tags=["phishing"])
@@ -1455,7 +1455,7 @@ class TestCaseTagSubcommands:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "tag", "add", "--id", "1", "--tag", "new-tag"],
+                ["--output", "json", "case", "tag", "add", "--case-number", "1", "--tag", "new-tag"],
             )
             assert result.exit_code == 0
             mock_t.update_case.assert_called_once_with(1, tags=["new-tag"])
@@ -1472,7 +1472,7 @@ class TestCaseTagSubcommands:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "tag", "remove", "--id", "1", "--tag", "old-tag"],
+                ["--output", "json", "case", "tag", "remove", "--case-number", "1", "--tag", "old-tag"],
             )
             assert result.exit_code == 0
             mock_t.get_case.assert_called_once_with(1)
@@ -1490,7 +1490,7 @@ class TestCaseTagSubcommands:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "tag", "remove", "--id", "1", "--tag", "no-such-tag"],
+                ["--output", "json", "case", "tag", "remove", "--case-number", "1", "--tag", "no-such-tag"],
             )
             assert result.exit_code == 0
             mock_t.update_case.assert_called_once_with(1, tags=["keep-tag"])
@@ -1508,7 +1508,7 @@ class TestCaseTagSubcommands:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "tag", "add", "--id", "1", "--tag", "PHISHING"],
+                ["--output", "json", "case", "tag", "add", "--case-number", "1", "--tag", "PHISHING"],
             )
             assert result.exit_code == 0
             # The existing 'phishing' wins; no duplicate added.
@@ -1527,7 +1527,7 @@ class TestCaseTagSubcommands:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["--output", "json", "case", "tag", "remove", "--id", "1", "--tag", "PHISHING"],
+                ["--output", "json", "case", "tag", "remove", "--case-number", "1", "--tag", "PHISHING"],
             )
             assert result.exit_code == 0
             mock_t.update_case.assert_called_once_with(1, tags=["keep-tag"])
@@ -1539,5 +1539,5 @@ class TestCaseTagSubcommands:
 
     def test_tag_set_requires_tag(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["case", "tag", "set", "--id", "1"])
+        result = runner.invoke(cli, ["case", "tag", "set", "--case-number", "1"])
         assert result.exit_code != 0
