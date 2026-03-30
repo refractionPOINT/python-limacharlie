@@ -84,7 +84,7 @@ class TestCreateCase:
             MockExt.assert_called_once_with(mock_org)
             mock_ext.request.assert_called_once_with(
                 "ext-cases", "create_case",
-                data={"detection": json.dumps(self._SAMPLE_DETECTION)},
+                data={"detection": self._SAMPLE_DETECTION},
             )
             assert result["case_id"] == "tid-new"
 
@@ -100,7 +100,7 @@ class TestCreateCase:
             )
             call_data = mock_ext.request.call_args[1]["data"]
             assert call_data == {
-                "detection": json.dumps(self._SAMPLE_DETECTION),
+                "detection": self._SAMPLE_DETECTION,
                 "severity": "high",
                 "summary": "Test summary",
             }
@@ -144,7 +144,7 @@ class TestCreateCase:
             )
             call_data = mock_ext.request.call_args[1]["data"]
             assert call_data == {
-                "detection": json.dumps(self._SAMPLE_DETECTION),
+                "detection": self._SAMPLE_DETECTION,
                 "severity": "high",
                 "summary": "Lateral movement detected",
             }
