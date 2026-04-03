@@ -130,8 +130,8 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "case": frozenset({
         "add-note", "artifact", "assignees", "bulk-update",
         "config-get", "config-set", "create", "dashboard", "detection",
-        "entity", "export", "get", "list", "merge", "report", "tag",
-        "telemetry", "update",
+        "entity", "export", "get", "list", "merge", "orgs", "report",
+        "tag", "telemetry", "update", "update-note",
     }),
     "cloud-adapter": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
     "detection": frozenset({"get", "list"}),
