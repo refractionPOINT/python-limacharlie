@@ -302,6 +302,41 @@ class TestAddNote:
         body = _extract_body(mock_org)
         assert "note_type" not in body
 
+    def test_with_is_public_true(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.add_note(42, "Public note", is_public=True)
+        body = _extract_body(mock_org)
+        assert body == {"content": "Public note", "is_public": True}
+
+    def test_with_is_public_false(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.add_note(42, "Private note", is_public=False)
+        body = _extract_body(mock_org)
+        assert body == {"content": "Private note", "is_public": False}
+
+    def test_is_public_none_excluded(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.add_note(42, "Note text", is_public=None)
+        body = _extract_body(mock_org)
+        assert "is_public" not in body
+
+
+class TestUpdateNoteVisibility:
+    def test_set_public(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.update_note_visibility(42, "evt-1", True)
+        args, kwargs = _extract_call(mock_org)
+        assert args == ("PATCH", "api/v1/cases/42/notes/evt-1")
+        assert kwargs["query_params"] == {"oid": "test-oid"}
+        body = json.loads(kwargs["raw_body"])
+        assert body == {"is_public": True}
+
+    def test_set_private(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.update_note_visibility(42, "evt-1", False)
+        body = _extract_body(mock_org)
+        assert body == {"is_public": False}
+
 
 class TestBulkUpdate:
     def test_body_structure(self, cases, mock_org):
@@ -712,6 +747,25 @@ class TestListAssignees:
         args, kwargs = _extract_call(mock_org)
         assert args == ("GET", "api/v1/assignees")
         assert kwargs["query_params"] == {"oids": "test-oid"}
+
+
+# ---------------------------------------------------------------------------
+# Orgs
+# ---------------------------------------------------------------------------
+
+
+class TestListOrgs:
+    def test_path(self, cases, mock_org):
+        mock_org.client.request.return_value = {"oids": ["org-1"]}
+        cases.list_orgs()
+        args, kwargs = _extract_call(mock_org)
+        assert args == ("GET", "api/v1/orgs")
+
+    def test_no_query_params(self, cases, mock_org):
+        mock_org.client.request.return_value = {"oids": []}
+        cases.list_orgs()
+        _, kwargs = _extract_call(mock_org)
+        assert kwargs["query_params"] is None
 
 
 # ---------------------------------------------------------------------------

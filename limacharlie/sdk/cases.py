@@ -193,16 +193,48 @@ class Cases:
         case_number: int,
         content: str,
         note_type: str | None = None,
+        is_public: bool | None = None,
     ) -> dict[str, Any]:
-        """Add a note to a case."""
+        """Add a note to a case.
+
+        Args:
+            case_number: Case number.
+            content: Note content (max 8192 chars).
+            note_type: Note category (general, analysis, remediation,
+                escalation, handoff, to_stakeholder, from_stakeholder).
+            is_public: Whether the note is visible to stakeholders
+                (default false).
+        """
         body: dict[str, Any] = {"content": content}
         if note_type:
             body["note_type"] = note_type
+        if is_public is not None:
+            body["is_public"] = is_public
         return self._request(
             "POST",
             f"cases/{case_number}/notes",
             query_params={"oid": self.oid},
             body=body,
+        )
+
+    def update_note_visibility(
+        self,
+        case_number: int,
+        event_id: str,
+        is_public: bool,
+    ) -> dict[str, Any]:
+        """Update a note's public visibility.
+
+        Args:
+            case_number: Case number.
+            event_id: The event ID of the note to update.
+            is_public: Whether the note is visible to stakeholders.
+        """
+        return self._request(
+            "PATCH",
+            f"cases/{case_number}/notes/{event_id}",
+            query_params={"oid": self.oid},
+            body={"is_public": is_public},
         )
 
     def bulk_update(
@@ -593,3 +625,11 @@ class Cases:
             "assignees",
             query_params={"oids": self.oid},
         )
+
+    # ------------------------------------------------------------------
+    # Orgs
+    # ------------------------------------------------------------------
+
+    def list_orgs(self) -> dict[str, Any]:
+        """List organizations subscribed to ext-cases that the caller can access."""
+        return self._request("GET", "orgs")
