@@ -117,13 +117,28 @@ Note types:
   to_stakeholder   - Notes to stakeholders
   from_stakeholder - Notes from stakeholders
 
+Use --is-public to make the note visible to stakeholders (default: private).
+
 Provide content via --content, --input-file, or stdin.
 
 Examples:
   limacharlie case add-note --case-number 42 --content "Initial triage complete"
   limacharlie case add-note --case-number 42 --type analysis \\
       --content "Confirmed C2 beacon to 10.0.0.1"
+  limacharlie case add-note --case-number 42 --is-public \\
+      --content "Status update for stakeholders"
   echo "Handoff notes" | limacharlie case add-note --case-number 42 --type handoff
+"""
+
+_EXPLAIN_UPDATE_NOTE_VISIBILITY = """\
+Toggle a note's public/private visibility.  Public notes are visible
+to stakeholders.
+
+Requires the event ID of the note (from the case event timeline).
+
+Examples:
+  limacharlie case update-note --case-number 42 --event-id <EID> --is-public
+  limacharlie case update-note --case-number 42 --event-id <EID> --no-is-public
 """
 
 _EXPLAIN_BULK_UPDATE = """\
@@ -371,6 +386,15 @@ Example:
   limacharlie case assignees
 """
 
+_EXPLAIN_ORGS = """\
+List organizations subscribed to ext-cases that the current user
+can access.  Useful for multi-org users to discover which orgs
+have cases enabled.
+
+Example:
+  limacharlie case orgs
+"""
+
 _EXPLAIN_EXPORT = """\
 Export a case with all its components in a single JSON object.
 Fetches the case record (with event timeline), linked detections,
@@ -434,6 +458,7 @@ register_explain("case.list", _EXPLAIN_LIST)
 register_explain("case.get", _EXPLAIN_GET)
 register_explain("case.update", _EXPLAIN_UPDATE)
 register_explain("case.add-note", _EXPLAIN_ADD_NOTE)
+register_explain("case.update-note", _EXPLAIN_UPDATE_NOTE_VISIBILITY)
 register_explain("case.bulk-update", _EXPLAIN_BULK_UPDATE)
 register_explain("case.merge", _EXPLAIN_MERGE)
 register_explain("case.entity.list", _EXPLAIN_ENTITY_LIST)
@@ -456,6 +481,7 @@ register_explain("case.dashboard", _EXPLAIN_DASHBOARD)
 register_explain("case.config-get", _EXPLAIN_CONFIG_GET)
 register_explain("case.config-set", _EXPLAIN_CONFIG_SET)
 register_explain("case.assignees", _EXPLAIN_ASSIGNEES)
+register_explain("case.orgs", _EXPLAIN_ORGS)
 register_explain("case.export", _EXPLAIN_EXPORT)
 
 _EXPLAIN_TAG_SET = """\
@@ -712,7 +738,7 @@ def _export_with_data(ctx: click.Context, t: Cases, data: dict[str, Any],
         det_dir = os.path.join(output_dir, "detections")
         os.makedirs(det_dir, exist_ok=True)
         for det in detections:
-            det_id = det.get("detection_id")
+            det_id = det.get("detect_id")
             if not det_id:
                 continue
             try:
@@ -834,8 +860,10 @@ def update(ctx, case_number, status, severity, assignees, classification,
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Read note content from file.")
 @click.option("--type", "note_type", default=None, type=_NOTE_TYPE_CHOICES,
               help="Note type (default: general).")
+@click.option("--is-public/--no-is-public", default=None,
+              help="Make note visible to stakeholders (default: private).")
 @pass_context
-def add_note(ctx, case_number, content, input_file, note_type) -> None:
+def add_note(ctx, case_number, content, input_file, note_type, is_public) -> None:
     """Add a note to a case.
 
     Provide content via --content, --input-file, or stdin.
@@ -844,6 +872,8 @@ def add_note(ctx, case_number, content, input_file, note_type) -> None:
         limacharlie case add-note --case-number 42 --content "Triage complete"
         limacharlie case add-note --case-number 42 --type analysis \\
             --content "Confirmed C2 beacon"
+        limacharlie case add-note --case-number 42 --is-public \\
+            --content "Status update for stakeholders"
         echo "notes" | limacharlie case add-note --case-number 42
     """
     if content:
@@ -857,7 +887,29 @@ def add_note(ctx, case_number, content, input_file, note_type) -> None:
         raise click.UsageError("Provide content via --content, --input-file, or stdin.")
 
     t = _get_cases(ctx)
-    data = t.add_note(case_number, text.strip(), note_type=note_type)
+    data = t.add_note(case_number, text.strip(), note_type=note_type, is_public=is_public)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# update-note
+# ---------------------------------------------------------------------------
+
+@group.command("update-note")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
+@click.option("--event-id", required=True, help="Event ID of the note.")
+@click.option("--is-public/--no-is-public", required=True,
+              help="Set note visibility for stakeholders.")
+@pass_context
+def update_note(ctx, case_number, event_id, is_public) -> None:
+    """Toggle a note's public/private visibility.
+
+    Examples:
+        limacharlie case update-note --case-number 42 --event-id <EID> --is-public
+        limacharlie case update-note --case-number 42 --event-id <EID> --no-is-public
+    """
+    t = _get_cases(ctx)
+    data = t.update_note_visibility(case_number, event_id, is_public)
     _output(ctx, data)
 
 
@@ -1406,6 +1458,25 @@ def assignees(ctx) -> None:
     """
     t = _get_cases(ctx)
     data = t.list_assignees()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# orgs
+# ---------------------------------------------------------------------------
+
+@group.command()
+@pass_context
+def orgs(ctx) -> None:
+    """List organizations subscribed to ext-cases.
+
+    Returns OIDs the current user can access that have cases enabled.
+
+    Example:
+        limacharlie case orgs
+    """
+    t = _get_cases(ctx)
+    data = t.list_orgs()
     _output(ctx, data)
 
 

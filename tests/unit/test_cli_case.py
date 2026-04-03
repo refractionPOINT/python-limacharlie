@@ -35,7 +35,7 @@ def _invoke(args, mock_cases_cls, return_value=None):
         for name in [
             "create_case",
             "list_cases", "get_case", "export_case",
-            "update_case", "add_note",
+            "update_case", "add_note", "update_note_visibility",
             "bulk_update", "merge",
             "list_detections", "add_detection", "remove_detection",
             "list_entities", "add_entity", "update_entity", "remove_entity",
@@ -43,7 +43,7 @@ def _invoke(args, mock_cases_cls, return_value=None):
             "list_telemetry", "add_telemetry", "update_telemetry", "remove_telemetry",
             "list_artifacts", "add_artifact", "remove_artifact",
             "report_summary", "dashboard_counts",
-            "get_config", "set_config", "list_assignees",
+            "get_config", "set_config", "list_assignees", "list_orgs",
         ]:
             getattr(mock_t, name).return_value = return_value
     runner = CliRunner()
@@ -62,10 +62,11 @@ class TestCaseHelp:
         result = runner.invoke(cli, ["case", "--help"])
         assert result.exit_code == 0
         assert "Manage SOC cases" in result.output
-        for cmd in ["create", "list", "get", "export", "update", "add-note", "merge",
+        for cmd in ["create", "list", "get", "export", "update", "add-note",
+                     "update-note", "merge",
                      "entity", "telemetry", "artifact", "detection", "tag",
                      "report", "dashboard", "config-get", "config-set",
-                     "assignees", "bulk-update"]:
+                     "assignees", "orgs", "bulk-update"]:
             assert cmd in result.output
 
     def test_entity_subgroup_help(self):
@@ -315,7 +316,7 @@ class TestCaseExport:
             export_data = {
                 "case": {"case_id": "tid-1", "status": "new"},
                 "events": [{"type": "created"}],
-                "detections": {"detections": [{"detection_id": "det-1"}]},
+                "detections": {"detections": [{"detect_id": "det-1"}]},
                 "entities": {"entities": [{"entity_type": "ip"}]},
                 "telemetry": {"telemetry": []},
                 "artifacts": {"artifacts": []},
@@ -340,7 +341,7 @@ class TestCaseExport:
         export_data = {
             "case": {"case_id": "tid-1"},
             "events": [],
-            "detections": {"detections": [{"detection_id": "det-1"}]},
+            "detections": {"detections": [{"detect_id": "det-1"}]},
             "entities": {"entities": []},
             "telemetry": {"telemetry": [{"atom": "atom-1", "sid": "sid-1"}]},
             "artifacts": {"artifacts": [{"artifact_id": "art-1"}]},
@@ -400,7 +401,7 @@ class TestCaseExport:
         export_data = {
             "case": {"case_id": "tid-1"},
             "events": [],
-            "detections": {"detections": [{"detection_id": "det-bad"}]},
+            "detections": {"detections": [{"detect_id": "det-bad"}]},
             "entities": {"entities": []},
             "telemetry": {"telemetry": []},
             "artifacts": {"artifacts": []},
@@ -552,7 +553,7 @@ class TestCaseExport:
             assert "Warning" in result.output
 
     def test_export_with_data_skips_empty_ids(self, tmp_path):
-        """Entries missing detection_id/atom/sid/artifact_id are skipped."""
+        """Entries missing detect_id/atom/sid/artifact_id are skipped."""
         out_dir = str(tmp_path / "export-empty")
         export_data = {
             "case": {"case_id": "tid-1"},
@@ -646,7 +647,7 @@ class TestCaseAddNote:
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.add_note.assert_called_once_with(42, "Triage complete", note_type=None)
+            mock_t.add_note.assert_called_once_with(42, "Triage complete", note_type=None, is_public=None)
 
     def test_add_note_with_type(self):
         p1, p2, p3 = _patch_cases()
@@ -657,7 +658,29 @@ class TestCaseAddNote:
                 return_value={},
             )
             assert result.exit_code == 0
-            mock_t.add_note.assert_called_once_with(42, "Analysis", note_type="analysis")
+            mock_t.add_note.assert_called_once_with(42, "Analysis", note_type="analysis", is_public=None)
+
+    def test_add_note_with_is_public(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "add-note", "--case-number", "42", "--content", "Public note", "--is-public"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code == 0
+            mock_t.add_note.assert_called_once_with(42, "Public note", note_type=None, is_public=True)
+
+    def test_add_note_with_no_is_public(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "add-note", "--case-number", "42", "--content", "Private note", "--no-is-public"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code == 0
+            mock_t.add_note.assert_called_once_with(42, "Private note", note_type=None, is_public=False)
 
     def test_add_note_from_stdin(self):
         p1, p2, p3 = _patch_cases()
@@ -672,12 +695,55 @@ class TestCaseAddNote:
                 input="Piped content\n",
             )
             assert result.exit_code == 0
-            mock_t.add_note.assert_called_once_with(42, "Piped content", note_type=None)
+            mock_t.add_note.assert_called_once_with(42, "Piped content", note_type=None, is_public=None)
 
     def test_add_note_invalid_type_rejected(self):
         runner = CliRunner()
         result = runner.invoke(cli, [
             "case", "add-note", "--case-number", "1", "--content", "x", "--type", "invalid",
+        ])
+        assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# case update-note
+# ---------------------------------------------------------------------------
+
+
+class TestCaseUpdateNote:
+    def test_update_note_public(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "update-note", "--case-number", "42", "--event-id", "evt-1", "--is-public"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code == 0
+            mock_t.update_note_visibility.assert_called_once_with(42, "evt-1", True)
+
+    def test_update_note_private(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "update-note", "--case-number", "42", "--event-id", "evt-1", "--no-is-public"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code == 0
+            mock_t.update_note_visibility.assert_called_once_with(42, "evt-1", False)
+
+    def test_update_note_requires_event_id(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "case", "update-note", "--case-number", "1", "--is-public",
+        ])
+        assert result.exit_code != 0
+
+    def test_update_note_requires_visibility_flag(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "case", "update-note", "--case-number", "1", "--event-id", "evt-1",
         ])
         assert result.exit_code != 0
 
@@ -1216,6 +1282,24 @@ class TestCaseAssignees:
             )
             assert result.exit_code == 0
             mock_t.list_assignees.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# case orgs
+# ---------------------------------------------------------------------------
+
+
+class TestCaseOrgs:
+    def test_orgs(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "orgs"],
+                mock_t_cls,
+                return_value={"oids": ["org-1", "org-2"]},
+            )
+            assert result.exit_code == 0
+            mock_t.list_orgs.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
