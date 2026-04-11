@@ -221,36 +221,42 @@ def group() -> None:
 
 @group.command("request-approval")
 @click.option("--channel", required=True, help="Name of the configured feedback channel.")
-@click.option("--question", required=True, help="Prompt to present to the respondent.")
+@click.option("--question", required=True, help="Prompt text shown to the respondent.")
 @click.option("--destination", required=True, type=_DESTINATION_CHOICES,
-              help="Response destination: 'case' or 'playbook'.")
-@click.option("--case-id", default=None, help="Case number (required when destination is 'case').")
+              help="Where to send the response: 'case' (add note) or 'playbook' (trigger).")
+@click.option("--case-id", default=None, help="Case number to attach the response to. Required when --destination=case.")
 @click.option("--playbook", "playbook_name", default=None,
-              help="Playbook name (required when destination is 'playbook').")
+              help="Playbook name to trigger with the response. Required when --destination=playbook.")
 @click.option("--approved-content", default=None,
-              help="JSON data included when approved.")
+              help="JSON object string included in the response payload when approved, e.g. '{\"action\": \"isolate\"}'.")
 @click.option("--denied-content", default=None,
-              help="JSON data included when denied.")
+              help="JSON object string included in the response payload when denied, e.g. '{\"action\": \"skip\"}'.")
 @click.option("--timeout", "timeout_seconds", default=None, type=int,
-              help="Auto-respond after N seconds if no response (minimum 60).")
+              help="Auto-respond after this many seconds with no human response (minimum 60). Requires --timeout-choice.")
 @click.option("--timeout-choice", default=None, type=_TIMEOUT_CHOICE_CHOICES,
-              help="Choice on timeout: 'approved' or 'denied' (required with --timeout).")
+              help="Which choice to auto-select on timeout: 'approved' or 'denied'. Required when --timeout is set.")
 @click.option("--timeout-content", default=None,
-              help="JSON data for the timeout response (overrides choice content).")
+              help="JSON object string for the timeout response payload (overrides --approved-content/--denied-content for the timeout).")
 @pass_context
 def request_approval(ctx, channel, question, destination, case_id,
                      playbook_name, approved_content, denied_content,
                      timeout_seconds, timeout_choice, timeout_content) -> None:
-    """Send an Approve/Deny feedback request.
+    """Send an Approve/Deny feedback request to a channel.
 
+    The respondent sees Approve and Deny buttons. Their choice is
+    dispatched to the specified destination (case note or playbook).
+
+    \b
+    Dependencies:
+      --destination case     => --case-id is required
+      --destination playbook => --playbook is required
+      --timeout              => --timeout-choice is required
+
+    \b
     Examples:
-        limacharlie feedback request-approval \\
-            --channel ops-slack --question "Isolate host?" \\
-            --destination case --case-id 42
-        limacharlie feedback request-approval \\
-            --channel web-default --question "Approve?" \\
-            --destination playbook --playbook my-playbook \\
-            --timeout 300 --timeout-choice denied
+      limacharlie feedback request-approval --channel web --question "Isolate host-01?" --destination case --case-id 42
+      limacharlie feedback request-approval --channel ops-slack --question "Block IP?" --destination playbook --playbook block-ip --approved-content '{"ip":"10.0.0.1"}'
+      limacharlie feedback request-approval --channel web --question "Approve?" --destination case --case-id 7 --timeout 300 --timeout-choice denied
     """
     approved = None
     if approved_content is not None:
@@ -296,31 +302,36 @@ def request_approval(ctx, channel, question, destination, case_id,
 
 @group.command("request-ack")
 @click.option("--channel", required=True, help="Name of the configured feedback channel.")
-@click.option("--question", required=True, help="Prompt to present to the respondent.")
+@click.option("--question", required=True, help="Prompt text shown to the respondent.")
 @click.option("--destination", required=True, type=_DESTINATION_CHOICES,
-              help="Response destination: 'case' or 'playbook'.")
-@click.option("--case-id", default=None, help="Case number (required when destination is 'case').")
+              help="Where to send the response: 'case' (add note) or 'playbook' (trigger).")
+@click.option("--case-id", default=None, help="Case number to attach the response to. Required when --destination=case.")
 @click.option("--playbook", "playbook_name", default=None,
-              help="Playbook name (required when destination is 'playbook').")
+              help="Playbook name to trigger with the response. Required when --destination=playbook.")
 @click.option("--acknowledged-content", default=None,
-              help="JSON data included when acknowledged.")
+              help="JSON object string included in the response payload when acknowledged, e.g. '{\"status\": \"seen\"}'.")
 @click.option("--timeout", "timeout_seconds", default=None, type=int,
-              help="Auto-acknowledge after N seconds if no response (minimum 60).")
+              help="Auto-acknowledge after this many seconds with no human response (minimum 60).")
 @click.option("--timeout-content", default=None,
-              help="JSON data for the timeout response (overrides acknowledged_content).")
+              help="JSON object string for the timeout response payload (overrides --acknowledged-content for the timeout).")
 @pass_context
 def request_ack(ctx, channel, question, destination, case_id,
                 playbook_name, acknowledged_content,
                 timeout_seconds, timeout_content) -> None:
-    """Send an acknowledgement request.
+    """Send an acknowledgement request (single Acknowledge button).
 
+    The respondent sees a single Acknowledge button. When clicked (or
+    on timeout), the response is dispatched to the specified destination.
+
+    \b
+    Dependencies:
+      --destination case     => --case-id is required
+      --destination playbook => --playbook is required
+
+    \b
     Examples:
-        limacharlie feedback request-ack \\
-            --channel ops-slack --question "Ack alert X" \\
-            --destination case --case-id 42
-        limacharlie feedback request-ack \\
-            --channel ops-slack --question "Ack alert X" \\
-            --destination case --case-id 42 --timeout 600
+      limacharlie feedback request-ack --channel web --question "Alert: lateral movement on host-01" --destination case --case-id 42
+      limacharlie feedback request-ack --channel ops-slack --question "Ack incident #7" --destination playbook --playbook ack-handler --timeout 600
     """
     ack_content = None
     if acknowledged_content is not None:
@@ -356,29 +367,34 @@ def request_ack(ctx, channel, question, destination, case_id,
 
 @group.command("request-question")
 @click.option("--channel", required=True, help="Name of the configured feedback channel.")
-@click.option("--question", required=True, help="Question to present to the respondent.")
+@click.option("--question", required=True, help="Question text shown to the respondent (they reply with free-form text).")
 @click.option("--destination", required=True, type=_DESTINATION_CHOICES,
-              help="Response destination: 'case' or 'playbook'.")
-@click.option("--case-id", default=None, help="Case number (required when destination is 'case').")
+              help="Where to send the response: 'case' (add note) or 'playbook' (trigger).")
+@click.option("--case-id", default=None, help="Case number to attach the response to. Required when --destination=case.")
 @click.option("--playbook", "playbook_name", default=None,
-              help="Playbook name (required when destination is 'playbook').")
+              help="Playbook name to trigger with the response. Required when --destination=playbook.")
 @click.option("--timeout", "timeout_seconds", default=None, type=int,
-              help="Auto-answer after N seconds if no response (minimum 60).")
+              help="Auto-answer after this many seconds with no human response (minimum 60). Requires --timeout-content.")
 @click.option("--timeout-content", default=None,
-              help="JSON data for the timeout response (required with --timeout for questions).")
+              help="JSON object string used as the automatic answer on timeout, e.g. '{\"answer\": \"no response\"}'. Required when --timeout is set.")
 @pass_context
 def request_question(ctx, channel, question, destination, case_id,
                      playbook_name, timeout_seconds, timeout_content) -> None:
     """Send a question for free-form text response.
 
+    The respondent sees a text input field. Their typed answer is
+    dispatched to the specified destination.
+
+    \b
+    Dependencies:
+      --destination case     => --case-id is required
+      --destination playbook => --playbook is required
+      --timeout              => --timeout-content is required
+
+    \b
     Examples:
-        limacharlie feedback request-question \\
-            --channel ops-slack --question "Root cause?" \\
-            --destination case --case-id 42
-        limacharlie feedback request-question \\
-            --channel ops-slack --question "Root cause?" \\
-            --destination case --case-id 42 \\
-            --timeout 300 --timeout-content '{"answer": "no response"}'
+      limacharlie feedback request-question --channel web --question "What is the root cause?" --destination case --case-id 42
+      limacharlie feedback request-question --channel ops-slack --question "Remediation steps?" --destination playbook --playbook collect-input --timeout 300 --timeout-content '{"answer": "no response"}'
     """
     tc = None
     if timeout_content is not None:
@@ -405,11 +421,18 @@ def request_question(ctx, channel, question, destination, case_id,
 
 @group.group("channel")
 def channel_group() -> None:
-    """Manage feedback channels.
+    """Manage feedback channels (configure before sending requests).
 
-    Channels define where feedback requests are delivered.
-    Each channel has a name, type, and optional Tailored Output
-    with the channel's credentials.
+    Each channel has a name, a type, and (for non-web types) a
+    Tailored Output that holds credentials.
+
+    \b
+    Channel types:
+      web       Built-in web UI (no output needed, returns a shareable URL)
+      slack     Sends Block Kit message (output needs: slack_api_token, slack_channel)
+      email     Sends HTML email with link (output needs: dest_host, dest_email)
+      telegram  Sends inline keyboard (output needs: bot_token, chat_id)
+      ms_teams  Sends Adaptive Card (output needs: webhook_url)
     """
 
 
@@ -422,8 +445,7 @@ def channel_group() -> None:
 def channel_list(ctx) -> None:
     """List configured feedback channels.
 
-    Example:
-        limacharlie feedback channel list
+    Returns a JSON array of {name, channel_type, output_name} objects.
     """
     fb = _get_feedback(ctx)
     data = fb.list_channels()
@@ -435,19 +457,20 @@ def channel_list(ctx) -> None:
 # ---------------------------------------------------------------------------
 
 @channel_group.command("add")
-@click.option("--name", required=True, help="Unique channel name.")
+@click.option("--name", required=True, help="Unique channel name (used in --channel when sending requests).")
 @click.option("--type", "channel_type", required=True, type=_CHANNEL_TYPE_CHOICES,
-              help="Channel type.")
+              help="Channel type: web, slack, email, telegram, or ms_teams.")
 @click.option("--output-name", default=None,
-              help="Tailored Output name with channel credentials (required for non-web types).")
+              help="Tailored Output holding channel credentials. Required for all types except 'web'.")
 @pass_context
 def channel_add(ctx, name, channel_type, output_name) -> None:
-    """Add a feedback channel.
+    """Add a feedback channel to the organization config.
 
+    \b
     Examples:
-        limacharlie feedback channel add --name web-default --type web
-        limacharlie feedback channel add \\
-            --name ops-slack --type slack --output-name slack-soc
+      limacharlie feedback channel add --name web-default --type web
+      limacharlie feedback channel add --name ops-slack --type slack --output-name slack-soc
+      limacharlie feedback channel add --name tg-alerts --type telegram --output-name telegram-bot
     """
     fb = _get_feedback(ctx)
     data = fb.add_channel(name, channel_type, output_name=output_name)
@@ -464,10 +487,9 @@ def channel_add(ctx, name, channel_type, output_name) -> None:
 @click.option("--name", required=True, help="Channel name to remove.")
 @pass_context
 def channel_remove(ctx, name) -> None:
-    """Remove a feedback channel.
+    """Remove a feedback channel from the organization config.
 
-    Example:
-        limacharlie feedback channel remove --name ops-slack
+    Does not delete the associated Tailored Output.
     """
     fb = _get_feedback(ctx)
     data = fb.remove_channel(name)
