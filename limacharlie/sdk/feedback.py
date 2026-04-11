@@ -77,15 +77,15 @@ class Feedback:
         if playbook_name is not None:
             data["playbook_name"] = playbook_name
         if approved_content is not None:
-            data["approved_content"] = approved_content
+            data["approved_content"] = json.dumps(approved_content)
         if denied_content is not None:
-            data["denied_content"] = denied_content
+            data["denied_content"] = json.dumps(denied_content)
         if timeout_seconds is not None:
             data["timeout_seconds"] = timeout_seconds
         if timeout_choice is not None:
             data["timeout_choice"] = timeout_choice
         if timeout_content is not None:
-            data["timeout_content"] = timeout_content
+            data["timeout_content"] = json.dumps(timeout_content)
         ext = Extensions(self._org)
         return ext.request(_EXTENSION_NAME, "request_simple_approval", data=data)
 
@@ -127,11 +127,11 @@ class Feedback:
         if playbook_name is not None:
             data["playbook_name"] = playbook_name
         if acknowledged_content is not None:
-            data["acknowledged_content"] = acknowledged_content
+            data["acknowledged_content"] = json.dumps(acknowledged_content)
         if timeout_seconds is not None:
             data["timeout_seconds"] = timeout_seconds
         if timeout_content is not None:
-            data["timeout_content"] = timeout_content
+            data["timeout_content"] = json.dumps(timeout_content)
         ext = Extensions(self._org)
         return ext.request(_EXTENSION_NAME, "request_acknowledgement", data=data)
 
@@ -173,7 +173,7 @@ class Feedback:
         if timeout_seconds is not None:
             data["timeout_seconds"] = timeout_seconds
         if timeout_content is not None:
-            data["timeout_content"] = timeout_content
+            data["timeout_content"] = json.dumps(timeout_content)
         ext = Extensions(self._org)
         return ext.request(_EXTENSION_NAME, "request_question", data=data)
 
