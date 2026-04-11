@@ -113,6 +113,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "event": ("event", "group"),
     "exfil": ("exfil", "group"),
     "extension": ("extension", "group"),
+    "feedback": ("feedback", "group"),
     "external-adapter": ("adapter", "group"),
     "fp": ("fp", "group"),
     "group": ("group", "group"),
