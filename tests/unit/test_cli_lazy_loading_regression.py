@@ -47,7 +47,7 @@ del _ctx, _name
 EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
     "ai", "api", "api-key", "arl", "artifact", "audit", "auth", "billing",
     "case", "cloud-adapter", "completion", "config", "detection", "download", "dr",
-    "endpoint-policy", "event", "exfil", "extension", "external-adapter",
+    "endpoint-policy", "event", "exfil", "extension", "external-adapter", "feedback",
     "fp", "group", "help", "hive", "ingestion-key", "installation-key",
     "integrity", "ioc", "job", "logging", "lookup", "note", "org", "output",
     "payload", "playbook", "replay", "schema", "search", "secret", "sensor",
@@ -78,6 +78,7 @@ EXPECTED_MODULE_MAP = {
     "event": ("group", "event"),
     "exfil": ("group", "exfil"),
     "extension": ("group", "extension"),
+    "feedback": ("group", "feedback"),
     "fp": ("group", "fp"),
     "group": ("group", "group"),
     "help_cmd": ("group", "help"),
