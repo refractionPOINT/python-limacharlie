@@ -41,6 +41,11 @@ payload when the recipient approves or denies:
   --approved-content '{"action": "isolate"}'
   --denied-content '{"action": "skip"}'
 
+Timeout: use --timeout to auto-respond after N seconds if no human
+responds.  Requires --timeout-choice (approved or denied).
+  --timeout 300 --timeout-choice denied
+  --timeout 300 --timeout-choice denied --timeout-content '{"reason": "timeout"}'
+
 Examples:
   limacharlie feedback request-approval \\
       --channel ops-slack --question "Isolate host-01?" \\
@@ -52,6 +57,10 @@ Examples:
       --channel ops-slack --question "Block IP 10.0.0.1?" \\
       --destination playbook --playbook block-ip \\
       --approved-content '{"ip": "10.0.0.1"}'
+  limacharlie feedback request-approval \\
+      --channel ops-slack --question "Isolate host?" \\
+      --destination case --case-id 42 \\
+      --timeout 300 --timeout-choice denied
 """
 
 _EXPLAIN_REQUEST_ACK = """\
@@ -64,6 +73,11 @@ destination (case note or playbook trigger).
 Optionally attach JSON data included in the response payload:
   --acknowledged-content '{"status": "seen"}'
 
+Timeout: use --timeout to auto-acknowledge after N seconds if no
+human responds.
+  --timeout 300
+  --timeout 300 --timeout-content '{"status": "auto-ack", "reason": "timeout"}'
+
 Examples:
   limacharlie feedback request-ack \\
       --channel ops-slack --question "Alert: lateral movement detected" \\
@@ -71,6 +85,9 @@ Examples:
   limacharlie feedback request-ack \\
       --channel email-oncall --question "Acknowledge incident #7" \\
       --destination playbook --playbook ack-handler
+  limacharlie feedback request-ack \\
+      --channel ops-slack --question "Ack alert X" \\
+      --destination case --case-id 42 --timeout 600
 """
 
 _EXPLAIN_REQUEST_QUESTION = """\
@@ -78,6 +95,11 @@ Send a question with a free-form text input field to a channel.
 
 The respondent types a text answer which is dispatched to the
 specified destination (case note or playbook trigger).
+
+Timeout: use --timeout to auto-answer after N seconds if no human
+responds.  --timeout-content is required for question type (provides
+the automatic answer).
+  --timeout 300 --timeout-content '{"answer": "no response", "reason": "timeout"}'
 
 Examples:
   limacharlie feedback request-question \\
@@ -87,6 +109,10 @@ Examples:
       --channel web-default \\
       --question "Provide remediation steps for host-01" \\
       --destination playbook --playbook collect-input
+  limacharlie feedback request-question \\
+      --channel ops-slack --question "Root cause?" \\
+      --destination case --case-id 42 \\
+      --timeout 300 --timeout-content '{"answer": "no response"}'
 """
 
 _EXPLAIN_CHANNEL_LIST = """\
@@ -168,6 +194,7 @@ _CHANNEL_TYPE_CHOICES = click.Choice(
     ["web", "slack", "email", "telegram", "ms_teams"],
     case_sensitive=False,
 )
+_TIMEOUT_CHOICE_CHOICES = click.Choice(["approved", "denied"], case_sensitive=False)
 
 
 # ---------------------------------------------------------------------------
@@ -204,9 +231,16 @@ def group() -> None:
               help="JSON data included when approved.")
 @click.option("--denied-content", default=None,
               help="JSON data included when denied.")
+@click.option("--timeout", "timeout_seconds", default=None, type=int,
+              help="Auto-respond after N seconds if no response (minimum 60).")
+@click.option("--timeout-choice", default=None, type=_TIMEOUT_CHOICE_CHOICES,
+              help="Choice on timeout: 'approved' or 'denied' (required with --timeout).")
+@click.option("--timeout-content", default=None,
+              help="JSON data for the timeout response (overrides choice content).")
 @pass_context
 def request_approval(ctx, channel, question, destination, case_id,
-                     playbook_name, approved_content, denied_content) -> None:
+                     playbook_name, approved_content, denied_content,
+                     timeout_seconds, timeout_choice, timeout_content) -> None:
     """Send an Approve/Deny feedback request.
 
     Examples:
@@ -215,7 +249,8 @@ def request_approval(ctx, channel, question, destination, case_id,
             --destination case --case-id 42
         limacharlie feedback request-approval \\
             --channel web-default --question "Approve?" \\
-            --destination playbook --playbook my-playbook
+            --destination playbook --playbook my-playbook \\
+            --timeout 300 --timeout-choice denied
     """
     approved = None
     if approved_content is not None:
@@ -233,6 +268,14 @@ def request_approval(ctx, channel, question, destination, case_id,
             raise click.BadParameter(
                 f"invalid JSON: {exc}", param_hint="--denied-content",
             )
+    tc = None
+    if timeout_content is not None:
+        try:
+            tc = json.loads(timeout_content)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"invalid JSON: {exc}", param_hint="--timeout-content",
+            )
     fb = _get_feedback(ctx)
     data = fb.request_simple_approval(
         channel, question, destination,
@@ -240,6 +283,9 @@ def request_approval(ctx, channel, question, destination, case_id,
         playbook_name=playbook_name,
         approved_content=approved,
         denied_content=denied,
+        timeout_seconds=timeout_seconds,
+        timeout_choice=timeout_choice,
+        timeout_content=tc,
     )
     _output(ctx, data)
 
@@ -258,15 +304,23 @@ def request_approval(ctx, channel, question, destination, case_id,
               help="Playbook name (required when destination is 'playbook').")
 @click.option("--acknowledged-content", default=None,
               help="JSON data included when acknowledged.")
+@click.option("--timeout", "timeout_seconds", default=None, type=int,
+              help="Auto-acknowledge after N seconds if no response (minimum 60).")
+@click.option("--timeout-content", default=None,
+              help="JSON data for the timeout response (overrides acknowledged_content).")
 @pass_context
 def request_ack(ctx, channel, question, destination, case_id,
-                playbook_name, acknowledged_content) -> None:
+                playbook_name, acknowledged_content,
+                timeout_seconds, timeout_content) -> None:
     """Send an acknowledgement request.
 
     Examples:
         limacharlie feedback request-ack \\
             --channel ops-slack --question "Ack alert X" \\
             --destination case --case-id 42
+        limacharlie feedback request-ack \\
+            --channel ops-slack --question "Ack alert X" \\
+            --destination case --case-id 42 --timeout 600
     """
     ack_content = None
     if acknowledged_content is not None:
@@ -276,12 +330,22 @@ def request_ack(ctx, channel, question, destination, case_id,
             raise click.BadParameter(
                 f"invalid JSON: {exc}", param_hint="--acknowledged-content",
             )
+    tc = None
+    if timeout_content is not None:
+        try:
+            tc = json.loads(timeout_content)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"invalid JSON: {exc}", param_hint="--timeout-content",
+            )
     fb = _get_feedback(ctx)
     data = fb.request_acknowledgement(
         channel, question, destination,
         case_id=case_id,
         playbook_name=playbook_name,
         acknowledged_content=ack_content,
+        timeout_seconds=timeout_seconds,
+        timeout_content=tc,
     )
     _output(ctx, data)
 
@@ -298,21 +362,39 @@ def request_ack(ctx, channel, question, destination, case_id,
 @click.option("--case-id", default=None, help="Case number (required when destination is 'case').")
 @click.option("--playbook", "playbook_name", default=None,
               help="Playbook name (required when destination is 'playbook').")
+@click.option("--timeout", "timeout_seconds", default=None, type=int,
+              help="Auto-answer after N seconds if no response (minimum 60).")
+@click.option("--timeout-content", default=None,
+              help="JSON data for the timeout response (required with --timeout for questions).")
 @pass_context
 def request_question(ctx, channel, question, destination, case_id,
-                     playbook_name) -> None:
+                     playbook_name, timeout_seconds, timeout_content) -> None:
     """Send a question for free-form text response.
 
     Examples:
         limacharlie feedback request-question \\
             --channel ops-slack --question "Root cause?" \\
             --destination case --case-id 42
+        limacharlie feedback request-question \\
+            --channel ops-slack --question "Root cause?" \\
+            --destination case --case-id 42 \\
+            --timeout 300 --timeout-content '{"answer": "no response"}'
     """
+    tc = None
+    if timeout_content is not None:
+        try:
+            tc = json.loads(timeout_content)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"invalid JSON: {exc}", param_hint="--timeout-content",
+            )
     fb = _get_feedback(ctx)
     data = fb.request_question(
         channel, question, destination,
         case_id=case_id,
         playbook_name=playbook_name,
+        timeout_seconds=timeout_seconds,
+        timeout_content=tc,
     )
     _output(ctx, data)
 

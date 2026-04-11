@@ -44,6 +44,9 @@ class Feedback:
         playbook_name: str | None = None,
         approved_content: dict | None = None,
         denied_content: dict | None = None,
+        timeout_seconds: int | None = None,
+        timeout_choice: str | None = None,
+        timeout_content: dict | None = None,
     ) -> dict[str, Any]:
         """Send a simple approval (Approve/Deny) request to a channel.
 
@@ -55,6 +58,11 @@ class Feedback:
             playbook_name: Playbook to trigger (required when destination is "playbook").
             approved_content: JSON data included in the response when approved.
             denied_content: JSON data included in the response when denied.
+            timeout_seconds: Auto-respond after this many seconds (minimum 60).
+            timeout_choice: Choice to auto-select on timeout ("approved" or "denied");
+                required when timeout_seconds is set.
+            timeout_content: JSON data to include in the timeout response
+                (overrides the choice's content if set).
 
         Returns:
             dict with request_id and optionally url (for web channels).
@@ -72,6 +80,12 @@ class Feedback:
             data["approved_content"] = approved_content
         if denied_content is not None:
             data["denied_content"] = denied_content
+        if timeout_seconds is not None:
+            data["timeout_seconds"] = timeout_seconds
+        if timeout_choice is not None:
+            data["timeout_choice"] = timeout_choice
+        if timeout_content is not None:
+            data["timeout_content"] = timeout_content
         ext = Extensions(self._org)
         return ext.request(_EXTENSION_NAME, "request_simple_approval", data=data)
 
@@ -84,6 +98,8 @@ class Feedback:
         case_id: str | None = None,
         playbook_name: str | None = None,
         acknowledged_content: dict | None = None,
+        timeout_seconds: int | None = None,
+        timeout_content: dict | None = None,
     ) -> dict[str, Any]:
         """Send an acknowledgement request to a channel.
 
@@ -94,6 +110,9 @@ class Feedback:
             case_id: Case number (required when destination is "case").
             playbook_name: Playbook to trigger (required when destination is "playbook").
             acknowledged_content: JSON data included in the response when acknowledged.
+            timeout_seconds: Auto-acknowledge after this many seconds (minimum 60).
+            timeout_content: JSON data to include in the timeout response
+                (overrides acknowledged_content if set).
 
         Returns:
             dict with request_id and optionally url (for web channels).
@@ -109,6 +128,10 @@ class Feedback:
             data["playbook_name"] = playbook_name
         if acknowledged_content is not None:
             data["acknowledged_content"] = acknowledged_content
+        if timeout_seconds is not None:
+            data["timeout_seconds"] = timeout_seconds
+        if timeout_content is not None:
+            data["timeout_content"] = timeout_content
         ext = Extensions(self._org)
         return ext.request(_EXTENSION_NAME, "request_acknowledgement", data=data)
 
@@ -120,6 +143,8 @@ class Feedback:
         *,
         case_id: str | None = None,
         playbook_name: str | None = None,
+        timeout_seconds: int | None = None,
+        timeout_content: dict | None = None,
     ) -> dict[str, Any]:
         """Send a question with free-form text input to a channel.
 
@@ -129,6 +154,9 @@ class Feedback:
             feedback_destination: "case" or "playbook".
             case_id: Case number (required when destination is "case").
             playbook_name: Playbook to trigger (required when destination is "playbook").
+            timeout_seconds: Auto-answer after this many seconds (minimum 60).
+            timeout_content: JSON data to include in the timeout response
+                (required when timeout_seconds is set for question type).
 
         Returns:
             dict with request_id and optionally url (for web channels).
@@ -142,6 +170,10 @@ class Feedback:
             data["case_id"] = case_id
         if playbook_name is not None:
             data["playbook_name"] = playbook_name
+        if timeout_seconds is not None:
+            data["timeout_seconds"] = timeout_seconds
+        if timeout_content is not None:
+            data["timeout_content"] = timeout_content
         ext = Extensions(self._org)
         return ext.request(_EXTENSION_NAME, "request_question", data=data)
 
