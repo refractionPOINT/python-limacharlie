@@ -41,8 +41,13 @@ def run_attach(sdk: AISDK, session_id: str, *,
                read_only: bool,
                interactive: bool,
                show_history: bool,
-               raw: bool) -> int:
+               raw: bool,
+               initial_prompt: str | None = None) -> int:
     """Run the attach session loop.
+
+    ``initial_prompt`` is sent as the first message after the WebSocket
+    connects.  Used by ``ai chat`` to seed a new session; attach leaves
+    it ``None``.
 
     Returns the process exit code: 0 on clean disconnect, 1 on error.
     """
@@ -53,6 +58,7 @@ def run_attach(sdk: AISDK, session_id: str, *,
             interactive=interactive,
             show_history=show_history,
             raw=raw,
+            initial_prompt=initial_prompt,
         ))
     except KeyboardInterrupt:
         return 0
@@ -66,7 +72,8 @@ async def _attach(sdk: AISDK, session_id: str, *,
                   read_only: bool,
                   interactive: bool,
                   show_history: bool,
-                  raw: bool) -> int:
+                  raw: bool,
+                  initial_prompt: str | None = None) -> int:
     # Choose the endpoint.  If the user didn't force --read-only and the
     # owner endpoint refuses us with 403, fall back transparently.
     att = sdk.attach_session(session_id, read_only=read_only)
@@ -93,6 +100,13 @@ async def _attach(sdk: AISDK, session_id: str, *,
 
     try:
         async with att:
+            if initial_prompt and not read_only:
+                try:
+                    await att.send_prompt(initial_prompt)
+                except Exception as e:
+                    _err(f"failed to send initial prompt: {e}")
+                    return 1
+
             reader = asyncio.create_task(_reader_loop(
                 att,
                 interactive=interactive and not read_only,

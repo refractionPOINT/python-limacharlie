@@ -555,3 +555,342 @@ class TestStartSessionCliHelp:
             "--plugin", "--env", "--anthropic-key", "--lc-api-key", "--lc-uid",
         ):
             assert flag in result.output, f"missing flag in help: {flag}"
+
+
+# ---------------------------------------------------------------------------
+# User-scoped SDK methods backing `ai chat` and `ai auth claude`
+# ---------------------------------------------------------------------------
+
+class TestUserScopedRequestShape:
+    """_user_request routes through client.request with JWT auth only."""
+
+    def test_get_omits_oid_header_and_body(self, ai, mock_org):
+        mock_org.client.request.return_value = {"has_credentials": False}
+
+        result = ai.claude_auth_status()
+
+        assert result == {"has_credentials": False}
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("GET", "v1/auth/claude/status")
+        assert call_args[1]["alt_root"] == _AI_SESSIONS_URL
+        # User-scoped routes must NOT send X-LC-OID and must use JWT auth
+        # (is_no_auth is absent → client.request attaches the JWT).
+        assert "extra_headers" not in call_args[1]
+        assert "is_no_auth" not in call_args[1]
+        assert "raw_body" not in call_args[1]
+
+    def test_post_sets_content_type_and_body(self, ai, mock_org):
+        mock_org.client.request.return_value = {"success": True}
+
+        ai.claude_set_apikey("sk-ant-literal")
+
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("POST", "v1/auth/claude/apikey")
+        assert call_args[1]["content_type"] == "application/json"
+        body = json.loads(call_args[1]["raw_body"])
+        assert body == {"api_key": "sk-ant-literal"}
+
+
+class TestClaudeAuthSDK:
+
+    def test_register_user_sends_empty_body(self, ai, mock_org):
+        mock_org.client.request.return_value = {
+            "registered": True,
+            "registered_at": "2026-04-18T00:00:00Z",
+        }
+
+        result = ai.register_user()
+
+        assert result["registered"] is True
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("POST", "v1/register")
+        # Empty raw_body triggers the JSON content-type path.
+        assert call_args[1]["raw_body"] == b""
+        assert call_args[1]["content_type"] == "application/json"
+
+    def test_claude_login_start(self, ai, mock_org):
+        mock_org.client.request.return_value = {
+            "oauth_session_id": "os-1",
+            "expires_in": 300,
+            "message": "Poll /auth/claude/url for the OAuth URL",
+        }
+
+        result = ai.claude_login_start()
+
+        assert result["oauth_session_id"] == "os-1"
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("POST", "v1/auth/claude/start")
+
+    def test_claude_login_get_url_passes_query_param(self, ai, mock_org):
+        mock_org.client.request.return_value = {
+            "status": "ready",
+            "url": "https://claude.ai/oauth/authorize?code=...",
+        }
+
+        result = ai.claude_login_get_url("os-1")
+
+        assert result["status"] == "ready"
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("GET", "v1/auth/claude/url")
+        assert call_args[1]["query_params"] == {"session_id": "os-1"}
+
+    def test_claude_login_submit_code_body(self, ai, mock_org):
+        mock_org.client.request.return_value = {
+            "success": True,
+            "status": "completed",
+        }
+
+        ai.claude_login_submit_code("os-1", "code-abc")
+
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert body == {"session_id": "os-1", "code": "code-abc"}
+
+    def test_claude_set_apikey_resolves_hive_secret(self, ai, mock_org):
+        """A hive://secret/<name> API key is resolved before sending."""
+        mock_org.client.request.return_value = {"success": True}
+
+        with patch("limacharlie.sdk.hive.Hive") as MockHive:
+            hive_instance = MagicMock()
+            MockHive.return_value = hive_instance
+            hive_instance.get.return_value = _make_hive_record(
+                {"secret": "sk-ant-resolved"},
+            )
+
+            ai.claude_set_apikey("hive://secret/anthropic")
+
+            MockHive.assert_called_with(mock_org, "secret")
+            hive_instance.get.assert_called_with("anthropic")
+
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert body == {"api_key": "sk-ant-resolved"}
+
+    def test_claude_logout_deletes(self, ai, mock_org):
+        mock_org.client.request.return_value = {"success": True}
+
+        ai.claude_logout()
+
+        assert mock_org.client.request.call_args[0] == (
+            "DELETE", "v1/auth/claude",
+        )
+
+
+class TestCreateUserSession:
+
+    def test_omits_fields_when_none(self, ai, mock_org):
+        """Unset kwargs must not appear in the POST body at all, so the
+        server applies its own defaults."""
+        mock_org.client.request.return_value = {
+            "id": "sess-user-1",
+            "status": "starting",
+        }
+
+        ai.create_user_session()
+
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("POST", "v1/sessions")
+        body = json.loads(call_args[1]["raw_body"])
+        assert body == {}
+
+    def test_sends_all_supplied_overrides(self, ai, mock_org):
+        mock_org.client.request.return_value = {"id": "sess-1"}
+
+        ai.create_user_session(
+            name="chat test",
+            idempotent_key="key-1",
+            model="claude-sonnet-4-6",
+            max_turns=10,
+            max_budget_usd=0.5,
+            task_budget_tokens=5000,
+            one_shot=False,
+            permission_mode="acceptEdits",
+            allowed_tools=["Read", "Grep"],
+            denied_tools=["Bash"],
+            plugins=["lc-essentials"],
+        )
+
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert body == {
+            "name": "chat test",
+            "idempotent_key": "key-1",
+            "model": "claude-sonnet-4-6",
+            "max_turns": 10,
+            "max_budget_usd": 0.5,
+            "task_budget_tokens": 5000,
+            "one_shot": False,
+            "permission_mode": "acceptEdits",
+            "allowed_tools": ["Read", "Grep"],
+            "denied_tools": ["Bash"],
+            "plugins": ["lc-essentials"],
+        }
+
+
+# ---------------------------------------------------------------------------
+# CLI: `ai auth claude` and `ai chat`
+# ---------------------------------------------------------------------------
+
+class TestAuthClaudeCommands:
+    """CLI surface around Claude credential management."""
+
+    def test_status_calls_sdk(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.claude_auth_status.return_value = {"has_credentials": False}
+
+            result = runner.invoke(
+                cli, ["--output", "json", "ai", "auth", "claude", "status"],
+            )
+            assert result.exit_code == 0, result.output
+            sdk.claude_auth_status.assert_called_once_with()
+
+    def test_set_key_rejects_both_sources(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            MockSDK.return_value = MagicMock()
+
+            result = runner.invoke(cli, [
+                "ai", "auth", "claude", "set-key",
+                "--key", "sk-literal", "--key-from-stdin",
+            ])
+            # Mutually exclusive flags must fail fast with a usage error.
+            assert result.exit_code != 0
+            assert "mutually exclusive" in result.output.lower()
+
+    def test_set_key_requires_one_source(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            MockSDK.return_value = MagicMock()
+
+            result = runner.invoke(cli, ["ai", "auth", "claude", "set-key"])
+            assert result.exit_code != 0
+            assert "required" in result.output.lower()
+
+    def test_set_key_reads_stdin(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.claude_set_apikey.return_value = {"success": True}
+
+            result = runner.invoke(
+                cli,
+                ["--output", "json", "ai", "auth", "claude", "set-key",
+                 "--key-from-stdin"],
+                input="sk-ant-piped\n",
+            )
+            assert result.exit_code == 0, result.output
+            sdk.claude_set_apikey.assert_called_once_with("sk-ant-piped")
+
+    def test_logout_calls_sdk(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.claude_logout.return_value = {"success": True}
+
+            result = runner.invoke(
+                cli, ["--output", "json", "ai", "auth", "claude", "logout"],
+            )
+            assert result.exit_code == 0, result.output
+            sdk.claude_logout.assert_called_once_with()
+
+
+class TestChatCommand:
+    """CLI surface around the interactive chat command."""
+
+    def test_fails_fast_when_no_claude_credentials(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.claude_auth_status.return_value = {"has_credentials": False}
+
+            result = runner.invoke(cli, ["ai", "chat", "hello"])
+
+            assert result.exit_code != 0
+            assert "No Claude credentials" in result.output
+            # Must not attempt to create a session if creds missing.
+            sdk.create_user_session.assert_not_called()
+            sdk.register_user.assert_not_called()
+
+    def test_happy_path_creates_and_attaches(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK, \
+             patch("limacharlie.commands.ai._split_csv", side_effect=lambda v: None if v is None else v.split(",")), \
+             patch("limacharlie.commands._ai_attach.run_attach", return_value=0) as mock_run:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.claude_auth_status.return_value = {
+                "has_credentials": True, "credential_type": "apikey",
+            }
+            sdk.register_user.return_value = {"registered": True}
+            sdk.create_user_session.return_value = {
+                "id": "sess-user-9", "status": "starting",
+            }
+
+            result = runner.invoke(cli, [
+                "ai", "chat", "hello there",
+                "--model", "claude-sonnet-4-6",
+                "--max-budget-usd", "0.10",
+            ])
+
+            assert result.exit_code == 0, result.output
+            sdk.register_user.assert_called_once_with()
+            # Overrides propagate as kwargs to create_user_session.
+            create_kwargs = sdk.create_user_session.call_args.kwargs
+            assert create_kwargs["model"] == "claude-sonnet-4-6"
+            assert create_kwargs["max_budget_usd"] == 0.10
+            # run_attach called with the created session id, interactive
+            # mode on, initial_prompt from the CLI arg.
+            mock_run.assert_called_once()
+            kwargs = mock_run.call_args.kwargs
+            assert mock_run.call_args.args[1] == "sess-user-9"
+            assert kwargs["interactive"] is True
+            assert kwargs["read_only"] is False
+            assert kwargs["initial_prompt"] == "hello there"
+
+    def test_help_lists_flags(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["ai", "chat", "--help"])
+        assert result.exit_code == 0, result.output
+        for flag in (
+            "--name", "--model", "--max-turns", "--max-budget-usd",
+            "--task-budget-tokens", "--permission-mode",
+            "--allowed-tools", "--denied-tools", "--plugin",
+            "--idempotent-key",
+        ):
+            assert flag in result.output, f"missing flag in chat --help: {flag}"

@@ -742,3 +742,268 @@ def usage_get(ctx, identity) -> None:
     sdk = AISDK(org)
     data = sdk.get_usage(identity)
     _output(ctx, data)
+
+
+# ===========================================================================
+# auth subgroup – per-user Claude credential management
+#
+# The `ai chat` command runs user-owned sessions, which require the
+# caller to have Claude credentials (OAuth token or Anthropic API key)
+# stored server-side.  `ai start-session` and its org-owned workflow
+# are unaffected — those use an anthropic_secret from the ai_agent
+# template and do not depend on these commands.
+# ===========================================================================
+
+@click.group("auth")
+def auth_group() -> None:
+    """Manage per-user credentials for AI sessions.
+
+    The ``claude`` subgroup stores the Anthropic credential that
+    user-owned sessions (``ai chat``) use to talk to Claude.  Org-owned
+    sessions (``ai start-session``) ignore these and use the template's
+    ``anthropic_secret`` instead.
+    """
+
+group.add_command(auth_group)
+
+
+@click.group("claude")
+def claude_auth_group() -> None:
+    """Manage the authenticated user's stored Anthropic credential."""
+
+auth_group.add_command(claude_auth_group)
+
+
+# ---------------------------------------------------------------------------
+# auth claude status
+# ---------------------------------------------------------------------------
+
+@claude_auth_group.command("status")
+@pass_context
+def claude_auth_status(ctx) -> None:
+    """Show whether the authenticated user has Claude credentials stored."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.claude_auth_status())
+
+
+# ---------------------------------------------------------------------------
+# auth claude login  (interactive browser OAuth flow)
+# ---------------------------------------------------------------------------
+
+_CLAUDE_OAUTH_POLL_SECONDS = 2.0
+_CLAUDE_OAUTH_POLL_TIMEOUT = 120.0
+
+
+@claude_auth_group.command("login")
+@pass_context
+def claude_auth_login(ctx) -> None:
+    """Run the interactive browser OAuth flow to store a Claude token.
+
+    Starts a server-side OAuth job, prints the URL to visit in your
+    browser, and prompts for the authorization code returned by Claude.
+    On success the credential is stored server-side and usable by
+    ``ai chat``.
+    """
+    import time
+
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+
+    start = sdk.claude_login_start()
+    oauth_session_id = start.get("oauth_session_id")
+    if not oauth_session_id:
+        raise click.ClickException(
+            f"server returned no oauth_session_id: {start}"
+        )
+
+    # Poll until the URL is ready.
+    url = None
+    deadline = time.monotonic() + _CLAUDE_OAUTH_POLL_TIMEOUT
+    while time.monotonic() < deadline:
+        resp = sdk.claude_login_get_url(oauth_session_id)
+        status = resp.get("status")
+        if status == "ready" and resp.get("url"):
+            url = resp["url"]
+            break
+        if status == "failed":
+            raise click.ClickException(
+                f"OAuth flow failed: {resp.get('error') or resp.get('message')}"
+            )
+        time.sleep(_CLAUDE_OAUTH_POLL_SECONDS)
+    if url is None:
+        raise click.ClickException(
+            "timed out waiting for OAuth URL from server"
+        )
+
+    click.echo("Open this URL in your browser, approve, then paste the code below:")
+    click.echo(f"  {url}")
+    code = click.prompt("Code", hide_input=True)
+
+    result = sdk.claude_login_submit_code(oauth_session_id, code)
+    if not result.get("success"):
+        raise click.ClickException(
+            f"server rejected OAuth code: {result.get('error') or result.get('message')}"
+        )
+    _output(ctx, result)
+
+
+# ---------------------------------------------------------------------------
+# auth claude set-key  (non-interactive, direct API key)
+# ---------------------------------------------------------------------------
+
+@claude_auth_group.command("set-key")
+@click.option("--key", default=None,
+              help="Anthropic API key. Literal value or hive://secret/<name>. "
+                   "Mutually exclusive with --key-from-stdin.")
+@click.option("--key-from-stdin", is_flag=True, default=False,
+              help="Read the API key from stdin (useful for piping).")
+@pass_context
+def claude_auth_set_key(ctx, key, key_from_stdin) -> None:
+    """Store a raw Anthropic API key for the authenticated user."""
+    import sys
+
+    if key and key_from_stdin:
+        raise click.UsageError("--key and --key-from-stdin are mutually exclusive")
+    if not key and not key_from_stdin:
+        raise click.UsageError("one of --key or --key-from-stdin is required")
+    if key_from_stdin:
+        key = sys.stdin.read().strip()
+    if not key:
+        raise click.UsageError("API key is empty")
+
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.claude_set_apikey(key))
+
+
+# ---------------------------------------------------------------------------
+# auth claude logout
+# ---------------------------------------------------------------------------
+
+@claude_auth_group.command("logout")
+@pass_context
+def claude_auth_logout(ctx) -> None:
+    """Remove the authenticated user's stored Claude credential."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.claude_logout())
+
+
+# ===========================================================================
+# chat – user-owned interactive session
+# ===========================================================================
+
+_EXPLAIN_CHAT = """\
+Create a fresh user-owned AI session and drop into an interactive
+chat.  Unlike 'ai start-session' (which runs an ai_agent template
+on behalf of the organization), this command starts a blank session
+owned by the authenticated user and streams an interactive WebSocket
+conversation over it.
+
+Prerequisites:
+  * The user must have stored a Claude credential.  Run one of:
+      limacharlie ai auth claude login        # browser OAuth
+      limacharlie ai auth claude set-key ...  # raw API key
+
+Billing and credentials:
+  * Sessions created here bill against the caller's registered Claude
+    credential (OAuth token or API key), not the org's anthropic_secret.
+
+Supplying a prompt on the command line (argument or via stdin) seeds
+the session; you can keep chatting afterwards by typing into stdin.
+'/interrupt' and '/quit' behave as in 'ai session attach'.
+
+Example:
+  limacharlie ai chat "what sensors do I have in the last 24h?"
+  echo "summarise today's detections" | limacharlie ai chat
+  limacharlie ai chat --model claude-sonnet-4-6 --max-budget-usd 1.00
+"""
+register_explain("ai.chat", _EXPLAIN_CHAT)
+
+
+@group.command("chat")
+@click.argument("prompt", required=False)
+@click.option("--name", default=None, help="Session name.")
+@click.option("--model", default=None,
+              help="Anthropic model (e.g. claude-sonnet-4-6).")
+@click.option("--max-turns", default=None, type=int,
+              help="Maximum number of agent turns before auto-stop.")
+@click.option("--max-budget-usd", default=None, type=float,
+              help="Hard USD cost cap for the session.")
+@click.option("--task-budget-tokens", default=None, type=int,
+              help="Per-task token budget.")
+@click.option("--permission-mode", default=None,
+              type=click.Choice(["acceptEdits", "plan", "bypassPermissions"]),
+              help="Permission mode for tool use.")
+@click.option("--allowed-tools", default=None,
+              help="Comma-separated list of allowed tool names.")
+@click.option("--denied-tools", default=None,
+              help="Comma-separated list of denied tool names.")
+@click.option("--plugin", "plugins", multiple=True,
+              help="Repeatable. Plugin names to enable.")
+@click.option("--idempotent-key", default=None,
+              help="Deduplication key for session creation.")
+@pass_context
+def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
+         task_budget_tokens, permission_mode,
+         allowed_tools, denied_tools, plugins, idempotent_key) -> None:
+    import sys
+    from ._ai_attach import run_attach
+
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+
+    # Verify the user has Claude credentials before spending effort
+    # creating a session that would immediately fail.
+    status = sdk.claude_auth_status()
+    if not status.get("has_credentials"):
+        raise click.ClickException(
+            "No Claude credentials registered for this user. Run one of:\n"
+            "  limacharlie ai auth claude login\n"
+            "  limacharlie ai auth claude set-key --key <ANTHROPIC_API_KEY>"
+        )
+
+    # Register is idempotent server-side; calling it here lets a
+    # first-time user run `ai chat` immediately after `auth claude
+    # set-key` without a separate step.
+    sdk.register_user()
+
+    # If no prompt argument was supplied and stdin is a pipe, consume
+    # it as the opening prompt so `echo ... | ai chat` works.
+    initial_prompt = prompt
+    if initial_prompt is None and not sys.stdin.isatty():
+        data = sys.stdin.read().strip()
+        if data:
+            initial_prompt = data
+
+    plugins_override: list[str] | None = list(plugins) if plugins else None
+
+    created = sdk.create_user_session(
+        name=name,
+        idempotent_key=idempotent_key,
+        model=model,
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        task_budget_tokens=task_budget_tokens,
+        permission_mode=permission_mode,
+        allowed_tools=_split_csv(allowed_tools),
+        denied_tools=_split_csv(denied_tools),
+        plugins=plugins_override,
+    )
+    session_id = created.get("id") or created.get("session_id")
+    if not session_id:
+        raise click.ClickException(
+            f"server response missing session id: {created}"
+        )
+    click.echo(f"Started session {session_id}", err=True)
+
+    exit_code = run_attach(
+        sdk, session_id,
+        read_only=False,
+        interactive=True,
+        show_history=False,
+        raw=False,
+        initial_prompt=initial_prompt,
+    )
+    ctx.exit(exit_code)

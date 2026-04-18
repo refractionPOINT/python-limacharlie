@@ -445,3 +445,176 @@ class AI:
             dict with ``identity`` string and ``usage`` list of data points.
         """
         return self._org_request("GET", f"v1/org/usage/identities/{identity}")
+
+    # ------------------------------------------------------------------
+    # User-scoped endpoints: registration, Claude credential management,
+    # and user-owned session creation.  Unlike the org endpoints above,
+    # these identify the caller by their JWT's UID only and never carry
+    # X-LC-OID.  They back the ``limacharlie ai chat`` and
+    # ``limacharlie ai auth claude`` commands.
+    # ------------------------------------------------------------------
+
+    def _user_request(self, verb: str, path: str,
+                      raw_body: bytes | None = None,
+                      query_params: dict[str, str] | None = None,
+                      ) -> dict[str, Any]:
+        """Call an ai-sessions user-scoped endpoint with the caller's JWT.
+
+        User-scoped endpoints on ai-sessions identify the caller via
+        ``claims.UID()`` alone; sending X-LC-OID is unnecessary here
+        and the routes don't accept raw API keys.
+        """
+        kwargs: dict[str, Any] = {"alt_root": _AI_SESSIONS_URL}
+        if raw_body is not None:
+            kwargs["raw_body"] = raw_body
+            kwargs["content_type"] = "application/json"
+        if query_params:
+            kwargs["query_params"] = query_params
+        return self.client.request(verb, path, **kwargs)
+
+    def register_user(self) -> dict[str, Any]:
+        """Register the authenticated user with ai-sessions (idempotent).
+
+        Required once per UID before creating user-owned sessions or
+        storing Claude credentials.  Safe to call repeatedly: the
+        server returns the same ``registered_at`` on subsequent calls.
+
+        Returns:
+            dict with ``registered: true`` and ``registered_at``.
+        """
+        return self._user_request("POST", "v1/register", raw_body=b"")
+
+    def claude_auth_status(self) -> dict[str, Any]:
+        """Return whether the authenticated user has Claude credentials stored.
+
+        Returns:
+            dict with ``has_credentials`` (bool) and, when True,
+            ``credential_type`` (``"oauth"`` or ``"apikey"``) and
+            ``created_at`` (ISO-8601 string).
+        """
+        return self._user_request("GET", "v1/auth/claude/status")
+
+    def claude_login_start(self) -> dict[str, Any]:
+        """Begin the browser OAuth flow for storing a Claude OAuth token.
+
+        Starts a pooled OAuth job on the server side; the returned
+        ``oauth_session_id`` must be passed to
+        :meth:`claude_login_get_url` (poll) and
+        :meth:`claude_login_submit_code`.
+
+        Returns:
+            dict with ``oauth_session_id``, ``expires_in`` (seconds),
+            and a user-facing ``message``.
+        """
+        return self._user_request("POST", "v1/auth/claude/start", raw_body=b"")
+
+    def claude_login_get_url(self, oauth_session_id: str) -> dict[str, Any]:
+        """Poll for the browser URL that completes the OAuth flow.
+
+        The server spins up a headless browser that produces the URL;
+        the first few calls typically return ``status="pending"`` until
+        the URL is ready.
+
+        Args:
+            oauth_session_id: The ID returned from :meth:`claude_login_start`.
+
+        Returns:
+            dict with ``status`` (``pending``/``ready``/``failed``) and
+            ``url`` when ``status="ready"``.
+        """
+        return self._user_request(
+            "GET", "v1/auth/claude/url",
+            query_params={"session_id": oauth_session_id},
+        )
+
+    def claude_login_submit_code(self, oauth_session_id: str,
+                                 code: str) -> dict[str, Any]:
+        """Complete the OAuth flow by submitting the code from the browser.
+
+        Args:
+            oauth_session_id: The ID returned from :meth:`claude_login_start`.
+            code: The authorization code copied from the browser.
+
+        Returns:
+            dict with ``success`` and ``status`` (``completed`` on success).
+        """
+        body = json.dumps({
+            "session_id": oauth_session_id,
+            "code": code,
+        }).encode()
+        return self._user_request("POST", "v1/auth/claude/code", raw_body=body)
+
+    def claude_set_apikey(self, api_key: str) -> dict[str, Any]:
+        """Store a raw Anthropic API key for the authenticated user.
+
+        Args:
+            api_key: A literal Anthropic API key.  ``hive://secret/<name>``
+                references are resolved before the request is sent.
+
+        Returns:
+            dict with ``success: true``.
+        """
+        resolved = self._resolve_secret(api_key)
+        body = json.dumps({"api_key": resolved}).encode()
+        return self._user_request("POST", "v1/auth/claude/apikey",
+                                  raw_body=body)
+
+    def claude_logout(self) -> dict[str, Any]:
+        """Remove the authenticated user's stored Claude credentials."""
+        return self._user_request("DELETE", "v1/auth/claude")
+
+    def create_user_session(self, *,
+                            name: str | None = None,
+                            idempotent_key: str | None = None,
+                            model: str | None = None,
+                            max_turns: int | None = None,
+                            max_budget_usd: float | None = None,
+                            task_budget_tokens: int | None = None,
+                            one_shot: bool | None = None,
+                            permission_mode: str | None = None,
+                            allowed_tools: list[str] | None = None,
+                            denied_tools: list[str] | None = None,
+                            plugins: list[str] | None = None,
+                            ) -> dict[str, Any]:
+        """Create a user-owned AI session (interactive chat).
+
+        Unlike :meth:`start_session` (org-scoped, runs an ai_agent
+        template), this creates a bare interactive session owned by the
+        authenticated UID.  Use :meth:`attach_session` to send prompts.
+
+        The caller must have Claude credentials stored
+        (:meth:`claude_set_apikey` or :meth:`claude_login_start`).
+
+        Keyword Args mirror the :class:`CreateSessionRequest` fields
+        accepted by ``POST /v1/sessions`` on ai-sessions (see
+        ``internal/sessionmanager/models.go``).
+
+        Returns:
+            dict representation of the created session (``id``,
+            ``status``, ``created_at``, ...).
+        """
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if idempotent_key is not None:
+            body["idempotent_key"] = idempotent_key
+        if model is not None:
+            body["model"] = model
+        if max_turns is not None:
+            body["max_turns"] = max_turns
+        if max_budget_usd is not None:
+            body["max_budget_usd"] = max_budget_usd
+        if task_budget_tokens is not None:
+            body["task_budget_tokens"] = task_budget_tokens
+        if one_shot is not None:
+            body["one_shot"] = one_shot
+        if permission_mode is not None:
+            body["permission_mode"] = permission_mode
+        if allowed_tools is not None:
+            body["allowed_tools"] = allowed_tools
+        if denied_tools is not None:
+            body["denied_tools"] = denied_tools
+        if plugins is not None:
+            body["plugins"] = plugins
+        return self._user_request("POST", "v1/sessions",
+                                  raw_body=json.dumps(body).encode())
