@@ -496,6 +496,74 @@ def session_history(ctx, session_id, raw) -> None:
     _output(ctx, data)
 
 
+# ---------------------------------------------------------------------------
+# session attach
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_SESSION_ATTACH = """\
+Attach to an AI session and stream its messages live over WebSocket.
+
+Two endpoints are exposed by ai-sessions:
+
+  * owner-interactive - /v1/sessions/{id}/ws
+    The authenticated user must own the session.  With --interactive
+    the terminal becomes a chat: type a line and press Enter to send
+    a prompt.  Tool approval requests and questions from the agent
+    are surfaced as interactive prompts.
+
+  * org-scoped read-only - /v1/org/sessions/{id}/ws
+    Requires the ai_agent.get permission on the session's owner org.
+    Use --read-only to connect here directly.  Input is disabled.
+
+If the owner endpoint returns 403 the command automatically falls
+back to the read-only endpoint.
+
+In the interactive input loop:
+  * an empty line is ignored
+  * '/interrupt' sends an interrupt message to the agent
+  * '/quit' detaches from the session
+
+Messages are colour-coded by type.  --raw dumps each message as JSON
+instead, which is useful for piping to another tool.
+
+By default a history block is rendered on connect (the messages that
+preceded your attach).  Use --no-history to skip it.
+
+Example:
+  limacharlie ai session attach --id <SESSION_ID>
+  limacharlie ai session attach --id <SESSION_ID> --interactive
+  limacharlie ai session attach --id <SESSION_ID> --read-only
+  limacharlie ai session attach --id <SESSION_ID> --raw | jq .
+"""
+register_explain("ai.session.attach", _EXPLAIN_SESSION_ATTACH)
+
+
+@session_group.command("attach")
+@click.option("--id", "session_id", required=True, help="Session ID to attach to.")
+@click.option("--read-only", is_flag=True, default=False,
+              help="Use the org-scoped read-only WebSocket endpoint.")
+@click.option("--interactive", "-i", is_flag=True, default=False,
+              help="Enable interactive input (sends stdin lines as prompts).")
+@click.option("--no-history", is_flag=True, default=False,
+              help="Don't render the initial history block on connect.")
+@click.option("--raw", is_flag=True, default=False,
+              help="Print raw JSON messages instead of pretty formatting.")
+@pass_context
+def session_attach(ctx, session_id, read_only, interactive, no_history, raw) -> None:
+    from ._ai_attach import run_attach
+
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    exit_code = run_attach(
+        sdk, session_id,
+        read_only=read_only,
+        interactive=interactive,
+        show_history=not no_history,
+        raw=raw,
+    )
+    ctx.exit(exit_code)
+
+
 # ===========================================================================
 # usage subgroup – AI session usage tracking
 # ===========================================================================

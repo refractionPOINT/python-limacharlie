@@ -316,6 +316,29 @@ class AI:
         """
         return self._org_request("GET", f"v1/org/sessions/{session_id}/history")
 
+    def attach_session(self, session_id: str, *,
+                       read_only: bool = False) -> "SessionAttachment":
+        """Open a WebSocket attachment to a running AI session.
+
+        The returned object is an async context manager yielding parsed
+        JSON messages from the session.  See
+        :mod:`limacharlie.sdk.ai_session` for the full protocol and
+        helper classes.
+
+        Args:
+            session_id: The session to attach to.
+            read_only: Use the org-scoped read-only endpoint instead of
+                the owner-interactive one.  Required when the caller
+                does not own the session.
+
+        Returns:
+            A :class:`SessionAttachment` instance.  Use ``async with``
+            to connect, and :meth:`~SessionAttachment.messages` to
+            iterate over streaming messages.
+        """
+        from .ai_session import SessionAttachment
+        return SessionAttachment(self, session_id, read_only=read_only)
+
     def list_usage_identities(self) -> dict[str, Any]:
         """List all API key identities with AI session usage data.
 
