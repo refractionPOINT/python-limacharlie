@@ -38,15 +38,15 @@ class TestDeriveWsUrl:
 
     def test_https_base_maps_to_wss_owner_endpoint(self):
         url = _derive_ws_url("https://ai.limacharlie.io", "sid-1", read_only=False)
-        assert url == "wss://ai.limacharlie.io/v1/sessions/sid-1/ws"
+        assert url == "wss://ai.limacharlie.io/v1/ws/sessions/sid-1"
 
     def test_https_base_maps_to_wss_org_endpoint(self):
         url = _derive_ws_url("https://ai.limacharlie.io", "sid-1", read_only=True)
-        assert url == "wss://ai.limacharlie.io/v1/org/sessions/sid-1/ws"
+        assert url == "wss://ai.limacharlie.io/v1/ws/org/sessions/sid-1"
 
     def test_http_base_maps_to_ws(self):
         url = _derive_ws_url("http://localhost:8080", "sid-2", read_only=False)
-        assert url == "ws://localhost:8080/v1/sessions/sid-2/ws"
+        assert url == "ws://localhost:8080/v1/ws/sessions/sid-2"
 
     def test_staging_host_preserved(self):
         url = _derive_ws_url(
@@ -227,7 +227,7 @@ class TestSessionAttachmentUrl:
             "sid-42",
             base_url="https://example.test",
         )
-        assert att.url() == "wss://example.test/v1/sessions/sid-42/ws"
+        assert att.url() == "wss://example.test/v1/ws/sessions/sid-42"
 
     def test_url_read_only_uses_org_endpoint(self):
         att = SessionAttachment(
@@ -236,7 +236,7 @@ class TestSessionAttachmentUrl:
             read_only=True,
             base_url="https://example.test",
         )
-        assert att.url() == "wss://example.test/v1/org/sessions/sid-42/ws"
+        assert att.url() == "wss://example.test/v1/ws/org/sessions/sid-42"
 
 
 # ---------------------------------------------------------------------------

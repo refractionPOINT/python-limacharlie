@@ -7,12 +7,17 @@ with the LimaCharlie JWT carried by :class:`limacharlie.Client`.
 
 Two endpoints are exposed by ai-sessions:
 
-* ``/v1/sessions/{id}/ws`` — owner-interactive.  The authenticated user
+* ``/v1/ws/sessions/{id}`` — owner-interactive.  The authenticated user
   must own the session; they can send prompts, interrupts, tool
   approvals, and question answers.
-* ``/v1/org/sessions/{id}/ws`` — org-scoped read-only view.  Requires
+* ``/v1/ws/org/sessions/{id}`` — org-scoped read-only view.  Requires
   ``ai_agent.get`` on the session's owner org.  Write messages are
   rejected locally.
+
+The GCP load balancer routes ``/v1/ws/*`` to the interaction-proxy
+(which serves these WebSockets) and ``/v1/sessions/*`` to the
+session-manager (REST API); the ``/v1/ws/...`` prefix is what the LB
+URL Map actually forwards, so that is the form used here.
 """
 
 from __future__ import annotations
@@ -63,8 +68,8 @@ def _derive_ws_url(base_url: str, session_id: str, read_only: bool) -> str:
     parsed = urlparse(base_url)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     host = parsed.netloc or parsed.path.strip("/")
-    sub = "org/sessions" if read_only else "sessions"
-    return f"{scheme}://{host}/v1/{sub}/{session_id}/ws"
+    sub = "ws/org/sessions" if read_only else "ws/sessions"
+    return f"{scheme}://{host}/v1/{sub}/{session_id}"
 
 
 class SessionAttachment:
