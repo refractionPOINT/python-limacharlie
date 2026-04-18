@@ -855,8 +855,12 @@ class TestChatCommand:
                 "has_credentials": True, "credential_type": "apikey",
             }
             sdk.register_user.return_value = {"registered": True}
+            # POST /v1/sessions wraps the session under "session" — same
+            # shape as `ai session get`.
             sdk.create_user_session.return_value = {
-                "id": "sess-user-9", "status": "starting",
+                "session": {
+                    "id": "sess-user-9", "status": "starting",
+                },
             }
 
             result = runner.invoke(cli, [

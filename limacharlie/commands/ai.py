@@ -991,7 +991,11 @@ def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
         denied_tools=_split_csv(denied_tools),
         plugins=plugins_override,
     )
-    session_id = created.get("id") or created.get("session_id")
+    # The POST /v1/sessions handler returns the session under a
+    # "session" key (same shape as `ai session get`).  Fall back to a
+    # top-level id for forward compatibility if that ever changes.
+    session_obj = created.get("session") or created
+    session_id = session_obj.get("id") or session_obj.get("session_id")
     if not session_id:
         raise click.ClickException(
             f"server response missing session id: {created}"
