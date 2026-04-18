@@ -297,3 +297,261 @@ class TestStartSessionEnvironmentSecrets:
         body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
         assert body["profile"]["environment"]["EXTERNAL_KEY"] == "ext-resolved"
         assert body["profile"]["environment"]["PLAIN"] == "plain-value"
+
+
+# ---------------------------------------------------------------------------
+# Profile field overrides (template-on-top-of-hive-record semantics)
+# ---------------------------------------------------------------------------
+
+def _minimal_defn(**extra):
+    """A hive record with just enough to pass validation."""
+    base = {
+        "prompt": "template prompt",
+        "anthropic_secret": "sk-template",
+        "lc_api_key_secret": "lc-template",
+    }
+    base.update(extra)
+    return base
+
+
+def _run_start(ai, mock_org, defn, extra_records=None, **kwargs):
+    """Run start_session with a stubbed hive and return the posted body."""
+    records = {"agent": _make_hive_record(defn)}
+    if extra_records:
+        for name, data in extra_records.items():
+            records[name] = _make_hive_record(data)
+
+    with patch("limacharlie.sdk.hive.Hive") as MockHive:
+        hive_instance = MagicMock()
+        MockHive.return_value = hive_instance
+        hive_instance.get.side_effect = lambda n: records[n]
+        mock_org.client.request.return_value = {"session_id": "s1"}
+        ai.start_session("agent", **kwargs)
+
+    return json.loads(mock_org.client.request.call_args[1]["raw_body"])
+
+
+class TestStartSessionScalarOverrides:
+    """Individual scalar overrides replace matching template fields."""
+
+    def test_model_override_replaces_template(self, ai, mock_org):
+        defn = _minimal_defn(model="claude-opus-4-6", max_turns=50)
+        body = _run_start(ai, mock_org, defn, model="claude-sonnet-4-6")
+        assert body["profile"]["model"] == "claude-sonnet-4-6"
+        # max_turns stays from template.
+        assert body["profile"]["max_turns"] == 50
+
+    def test_max_budget_override(self, ai, mock_org):
+        defn = _minimal_defn(max_budget_usd=10.0)
+        body = _run_start(ai, mock_org, defn, max_budget_usd=2.5)
+        assert body["profile"]["max_budget_usd"] == 2.5
+
+    def test_max_turns_override(self, ai, mock_org):
+        defn = _minimal_defn(max_turns=100)
+        body = _run_start(ai, mock_org, defn, max_turns=5)
+        assert body["profile"]["max_turns"] == 5
+
+    def test_task_budget_tokens_override(self, ai, mock_org):
+        defn = _minimal_defn()
+        body = _run_start(ai, mock_org, defn, task_budget_tokens=50000)
+        assert body["profile"]["task_budget_tokens"] == 50000
+
+    def test_ttl_seconds_override(self, ai, mock_org):
+        defn = _minimal_defn(ttl_seconds=3600)
+        body = _run_start(ai, mock_org, defn, ttl_seconds=60)
+        assert body["profile"]["ttl_seconds"] == 60
+
+    def test_permission_mode_override(self, ai, mock_org):
+        defn = _minimal_defn(permission_mode="plan")
+        body = _run_start(ai, mock_org, defn, permission_mode="acceptEdits")
+        assert body["profile"]["permission_mode"] == "acceptEdits"
+
+    def test_one_shot_forced_on(self, ai, mock_org):
+        defn = _minimal_defn(one_shot=False)
+        body = _run_start(ai, mock_org, defn, one_shot=True)
+        assert body["profile"]["one_shot"] is True
+
+    def test_one_shot_forced_off(self, ai, mock_org):
+        defn = _minimal_defn(one_shot=True)
+        body = _run_start(ai, mock_org, defn, one_shot=False)
+        assert body["profile"]["one_shot"] is False
+
+    def test_none_overrides_keep_template(self, ai, mock_org):
+        """Passing no overrides leaves every template field intact."""
+        defn = _minimal_defn(
+            model="claude-opus-4-6",
+            max_turns=10,
+            max_budget_usd=5.0,
+            permission_mode="plan",
+            one_shot=True,
+            ttl_seconds=120,
+        )
+        body = _run_start(ai, mock_org, defn)
+        p = body["profile"]
+        assert p["model"] == "claude-opus-4-6"
+        assert p["max_turns"] == 10
+        assert p["max_budget_usd"] == 5.0
+        assert p["permission_mode"] == "plan"
+        assert p["one_shot"] is True
+        assert p["ttl_seconds"] == 120
+
+
+class TestStartSessionListOverrides:
+    """List fields replace (not merge) when overridden."""
+
+    def test_allowed_tools_replaces(self, ai, mock_org):
+        defn = _minimal_defn(allowed_tools=["Read", "Grep", "Bash", "Write"])
+        body = _run_start(ai, mock_org, defn, allowed_tools=["Read"])
+        assert body["profile"]["allowed_tools"] == ["Read"]
+
+    def test_denied_tools_replaces(self, ai, mock_org):
+        defn = _minimal_defn(denied_tools=["Bash"])
+        body = _run_start(ai, mock_org, defn, denied_tools=["Bash", "Write"])
+        assert body["profile"]["denied_tools"] == ["Bash", "Write"]
+
+    def test_plugins_replaces(self, ai, mock_org):
+        defn = _minimal_defn(plugins=["lc-essentials"])
+        body = _run_start(ai, mock_org, defn,
+                          plugins=["lc-essentials", "lc-advanced-skills"])
+        assert body["profile"]["plugins"] == ["lc-essentials", "lc-advanced-skills"]
+
+    def test_empty_list_override_replaces_with_empty(self, ai, mock_org):
+        """Passing [] is distinct from not passing anything.
+
+        An explicit empty list means "clear the template value"; None
+        means "keep it".  This matches the CLI semantic where the flag
+        defaults to None until the user supplies it.
+        """
+        defn = _minimal_defn(allowed_tools=["Read", "Bash"])
+        body = _run_start(ai, mock_org, defn, allowed_tools=[])
+        assert body["profile"]["allowed_tools"] == []
+
+
+class TestStartSessionEnvironmentOverride:
+    """Environment MERGES template + overrides, override wins on collisions."""
+
+    def test_env_override_adds_new_keys(self, ai, mock_org):
+        defn = _minimal_defn(environment={"BASE": "base-value"})
+        body = _run_start(ai, mock_org, defn,
+                          environment={"EXTRA": "extra-value"})
+        env = body["profile"]["environment"]
+        assert env["BASE"] == "base-value"
+        assert env["EXTRA"] == "extra-value"
+
+    def test_env_override_wins_on_collision(self, ai, mock_org):
+        defn = _minimal_defn(environment={"SHARED": "from-template"})
+        body = _run_start(ai, mock_org, defn,
+                          environment={"SHARED": "from-cli"})
+        assert body["profile"]["environment"]["SHARED"] == "from-cli"
+
+    def test_env_override_secrets_resolve(self, ai, mock_org):
+        defn = _minimal_defn(environment={"TEMPLATE_SECRET": "hive://secret/t-key"})
+        body = _run_start(
+            ai, mock_org, defn,
+            environment={"OVERRIDE_SECRET": "hive://secret/o-key"},
+            extra_records={
+                "t-key": {"secret": "template-resolved"},
+                "o-key": {"secret": "override-resolved"},
+            },
+        )
+        env = body["profile"]["environment"]
+        assert env["TEMPLATE_SECRET"] == "template-resolved"
+        assert env["OVERRIDE_SECRET"] == "override-resolved"
+
+    def test_env_override_without_template_env(self, ai, mock_org):
+        defn = _minimal_defn()
+        body = _run_start(ai, mock_org, defn,
+                          environment={"NEW": "value"})
+        assert body["profile"]["environment"] == {"NEW": "value"}
+
+
+class TestStartSessionCredentialOverrides:
+    """anthropic_key / lc_api_key / lc_uid overrides bypass the hive defaults."""
+
+    def test_anthropic_key_literal_override(self, ai, mock_org):
+        defn = _minimal_defn(anthropic_secret="sk-from-template")
+        body = _run_start(ai, mock_org, defn, anthropic_key="sk-override")
+        assert body["anthropic_key"] == "sk-override"
+
+    def test_anthropic_key_secret_ref_override(self, ai, mock_org):
+        defn = _minimal_defn(anthropic_secret="sk-from-template")
+        body = _run_start(
+            ai, mock_org, defn,
+            anthropic_key="hive://secret/different-key",
+            extra_records={"different-key": {"secret": "sk-resolved-via-override"}},
+        )
+        assert body["anthropic_key"] == "sk-resolved-via-override"
+
+    def test_lc_api_key_override(self, ai, mock_org):
+        defn = _minimal_defn(lc_api_key_secret="template-lc")
+        body = _run_start(ai, mock_org, defn, lc_api_key="override-lc")
+        assert body["lc_api_key"] == "override-lc"
+
+    def test_lc_uid_override(self, ai, mock_org):
+        defn = _minimal_defn()
+        body = _run_start(ai, mock_org, defn, lc_uid="override-uid")
+        assert body["lc_uid"] == "override-uid"
+
+
+# ---------------------------------------------------------------------------
+# CLI surface: parsing helpers and Click registration
+# ---------------------------------------------------------------------------
+
+class TestCliOverrideParsing:
+
+    def test_split_csv_none_passthrough(self):
+        from limacharlie.commands.ai import _split_csv
+        assert _split_csv(None) is None
+
+    def test_split_csv_splits_and_strips(self):
+        from limacharlie.commands.ai import _split_csv
+        assert _split_csv("a, b ,c,") == ["a", "b", "c"]
+
+    def test_split_csv_empty_string_yields_empty_list(self):
+        """Explicit empty value (-t '') clears the template list."""
+        from limacharlie.commands.ai import _split_csv
+        assert _split_csv("") == []
+
+    def test_parse_env_kv_empty_tuple_returns_none(self):
+        from limacharlie.commands.ai import _parse_env_kv
+        assert _parse_env_kv(()) is None
+
+    def test_parse_env_kv_builds_dict(self):
+        from limacharlie.commands.ai import _parse_env_kv
+        assert _parse_env_kv(("FOO=bar", "BAZ=qux")) == {"FOO": "bar", "BAZ": "qux"}
+
+    def test_parse_env_kv_preserves_value_equals(self):
+        """Only the first '=' splits; later ones stay in the value."""
+        from limacharlie.commands.ai import _parse_env_kv
+        assert _parse_env_kv(("URL=https://x?a=1",)) == {"URL": "https://x?a=1"}
+
+    def test_parse_env_kv_rejects_bare_value(self):
+        import click
+        from limacharlie.commands.ai import _parse_env_kv
+        with pytest.raises(click.BadParameter):
+            _parse_env_kv(("no-equals-here",))
+
+    def test_parse_env_kv_rejects_empty_key(self):
+        import click
+        from limacharlie.commands.ai import _parse_env_kv
+        with pytest.raises(click.BadParameter):
+            _parse_env_kv(("=bare",))
+
+
+class TestStartSessionCliHelp:
+    """The Click command exposes every override flag in --help output."""
+
+    def test_help_lists_every_override(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        result = runner.invoke(cli, ["ai", "start-session", "--help"])
+        assert result.exit_code == 0, result.output
+        for flag in (
+            "--model", "--max-turns", "--max-budget-usd",
+            "--task-budget-tokens", "--ttl-seconds", "--one-shot",
+            "--permission-mode", "--allowed-tools", "--denied-tools",
+            "--plugin", "--env", "--anthropic-key", "--lc-api-key", "--lc-uid",
+        ):
+            assert flag in result.output, f"missing flag in help: {flag}"

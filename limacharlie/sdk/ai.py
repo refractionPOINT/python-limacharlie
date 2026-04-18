@@ -40,54 +40,142 @@ class AI:
             return m
         return {k: self._resolve_secret(v) for k, v in m.items()}
 
+    # Fields copied verbatim from an ai_agent hive record into the
+    # request's ``profile`` section.  Every entry in this tuple maps
+    # one-to-one to a field on the server's ``ProfileContent`` type
+    # (see ai-sessions/pkg/api/types.go).
+    _PROFILE_SCALAR_FIELDS: tuple[str, ...] = (
+        "allowed_tools", "denied_tools", "permission_mode",
+        "model", "max_turns", "max_budget_usd", "task_budget_tokens",
+        "ttl_seconds", "one_shot", "plugins",
+    )
+
     def start_session(self, definition_name: str, prompt: str | None = None,
                       name: str | None = None,
                       idempotent_key: str | None = None,
-                      data: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Start an AI session using an ai_agent Hive definition.
+                      data: dict[str, Any] | None = None,
+                      *,
+                      model: str | None = None,
+                      max_turns: int | None = None,
+                      max_budget_usd: float | None = None,
+                      task_budget_tokens: int | None = None,
+                      ttl_seconds: int | None = None,
+                      one_shot: bool | None = None,
+                      permission_mode: str | None = None,
+                      allowed_tools: list[str] | None = None,
+                      denied_tools: list[str] | None = None,
+                      plugins: list[str] | None = None,
+                      environment: dict[str, str] | None = None,
+                      anthropic_key: str | None = None,
+                      lc_api_key: str | None = None,
+                      lc_uid: str | None = None) -> dict[str, Any]:
+        """Start an AI session using an ai_agent Hive definition as template.
+
+        The definition stored in the ``ai_agent`` hive is treated as a
+        template.  Any keyword arguments supplied here override the
+        corresponding fields from the template.  ``environment`` is
+        *merged* (override values win for matching keys); all other
+        overrides *replace* the template value outright.
+
+        Override values may be literal strings or ``hive://secret/<name>``
+        references (same semantics as D&R rules); references are
+        resolved automatically before the request is sent.
 
         Args:
-            definition_name: Name of the ai_agent hive record.
-            prompt: Override the prompt from the definition.
-            name: Override the session name.
-            idempotent_key: Optional deduplication key.
-            data: Optional data dictionary to append to the prompt.
-                  When the session is started from a D&R rule the definition's
-                  ``data`` transform extracts fields from the event.  When
-                  starting standalone from the CLI there is no event, so this
-                  parameter lets the caller supply the data directly.
+            definition_name: Name of the ai_agent hive record to use as template.
+            prompt: Replace the prompt from the definition.
+            name: Replace the session name.
+            idempotent_key: Deduplication key.
+            data: Dict appended to the prompt as yaml event data (for
+                standalone CLI invocations that lack a D&R event).
+
+        Keyword Args:
+            model: Replace the Anthropic model (e.g. ``claude-sonnet-4-6``).
+            max_turns: Replace the maximum number of agent turns.
+            max_budget_usd: Replace the hard USD cost cap.
+            task_budget_tokens: Replace the per-task token budget.
+            ttl_seconds: Replace the session time-to-live.
+            one_shot: When True, session auto-terminates after the
+                initial prompt is complete.  Use ``False`` to force the
+                template's one_shot off.
+            permission_mode: Replace the permission mode
+                (``acceptEdits``, ``plan``, ``bypassPermissions``).
+            allowed_tools: Replace the allowed tools list.
+            denied_tools: Replace the denied tools list.
+            plugins: Replace the enabled plugins list.
+            environment: Env vars merged with the template's environment;
+                override values win on conflicts.  Values may be
+                ``hive://secret/<name>`` references.
+            anthropic_key: Replace the Anthropic API key.  May be a
+                literal key or a ``hive://secret/<name>`` reference.
+            lc_api_key: Replace the LC API key (literal or secret ref).
+            lc_uid: Replace the LC user ID (literal or secret ref).
 
         Returns:
             dict: Session creation response with session_id and status.
         """
         from .hive import Hive
 
-        # Fetch the ai_agent definition.
+        # Fetch the ai_agent definition; treat its fields as the template
+        # that overrides stack on top of.
         record = Hive(self._org, "ai_agent").get(definition_name)
         defn = record.data or {}
 
-        # Resolve credential secrets.
-        anthropic_key = self._resolve_secret(defn.get("anthropic_secret", ""))
-        lc_api_key = self._resolve_secret(defn.get("lc_api_key_secret", ""))
-        lc_uid = self._resolve_secret(defn.get("lc_uid_secret", ""))
+        # Credential resolution: override wins, otherwise pull from the
+        # hive record's *_secret field.  Override values are themselves
+        # passed through secret resolution so a caller can still supply
+        # a "hive://secret/..." reference.
+        anthropic_key_final = self._resolve_secret(
+            anthropic_key if anthropic_key is not None
+            else defn.get("anthropic_secret", "")
+        )
+        lc_api_key_final = self._resolve_secret(
+            lc_api_key if lc_api_key is not None
+            else defn.get("lc_api_key_secret", "")
+        )
+        lc_uid_final = self._resolve_secret(
+            lc_uid if lc_uid is not None
+            else defn.get("lc_uid_secret", "")
+        )
 
-        # Fall back to the caller's own API key if none specified.
-        if not lc_api_key:
-            lc_api_key = self.client._api_key
+        # Fall back to the caller's own API key if nothing else produced one.
+        if not lc_api_key_final:
+            lc_api_key_final = self.client._api_key
 
-        # Build the profile section.
+        # Build the profile section by copying template fields verbatim.
         profile: dict[str, Any] = {}
-        for field in ("allowed_tools", "denied_tools", "permission_mode",
-                       "model", "max_turns", "max_budget_usd",
-                       "ttl_seconds", "one_shot"):
+        for field in self._PROFILE_SCALAR_FIELDS:
             if field in defn:
                 profile[field] = defn[field]
 
-        # Resolve secrets in environment values.
-        if defn.get("environment"):
-            profile["environment"] = self._resolve_map_secrets(defn["environment"])
+        # Apply scalar / list overrides.  A None override means "keep template".
+        scalar_overrides: dict[str, Any] = {
+            "model": model,
+            "max_turns": max_turns,
+            "max_budget_usd": max_budget_usd,
+            "task_budget_tokens": task_budget_tokens,
+            "ttl_seconds": ttl_seconds,
+            "one_shot": one_shot,
+            "permission_mode": permission_mode,
+            "allowed_tools": allowed_tools,
+            "denied_tools": denied_tools,
+            "plugins": plugins,
+        }
+        for field, value in scalar_overrides.items():
+            if value is not None:
+                profile[field] = value
 
-        # Resolve secrets in MCP server configs.
+        # Environment: merge template + overrides (override wins on key collision).
+        template_env = defn.get("environment") or {}
+        if template_env or environment:
+            merged_env: dict[str, str] = {}
+            merged_env.update(template_env)
+            if environment:
+                merged_env.update(environment)
+            profile["environment"] = self._resolve_map_secrets(merged_env)
+
+        # Resolve secrets in MCP server configs (not currently overridable
+        # from the CLI -- the template wins).
         if defn.get("mcp_servers"):
             resolved_servers: dict[str, Any] = {}
             for srv_name, srv_cfg in defn["mcp_servers"].items():
@@ -108,13 +196,13 @@ class AI:
         # Build the request body.
         request_body: dict[str, Any] = {
             "prompt": final_prompt,
-            "anthropic_key": anthropic_key,
+            "anthropic_key": anthropic_key_final,
             "trigger_source": "cli",
         }
-        if lc_api_key:
-            request_body["lc_api_key"] = lc_api_key
-        if lc_uid:
-            request_body["lc_uid"] = lc_uid
+        if lc_api_key_final:
+            request_body["lc_api_key"] = lc_api_key_final
+        if lc_uid_final:
+            request_body["lc_uid"] = lc_uid_final
         if name or defn.get("name"):
             request_body["name"] = name or defn["name"]
         if idempotent_key:

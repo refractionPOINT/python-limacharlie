@@ -263,48 +263,169 @@ def summarize_detection(ctx, detection_id) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_START_SESSION = """\
-Start an AI session using an ai_agent Hive definition.  The definition
-contains the full session configuration including prompt, model,
-credentials (as hive://secret/ references), tool permissions, and
-MCP server configs.
+Start an AI session using an ai_agent Hive definition as a TEMPLATE.
 
-All hive://secret/ references in the definition are resolved
-automatically before the session is created.
+The hive record named by --definition supplies all the default session
+configuration: prompt, model, credentials (as hive://secret/
+references), tool permissions, MCP servers, environment, budgets, and
+so on.  Any --option flag below overrides the matching field from the
+template; the rest of the template is used as-is.
 
-When starting a session from the CLI (as opposed to a D&R rule),
-there is no event to apply the definition's data transform to.
-Use --data to supply a JSON dictionary that will be appended to
-the prompt as event data.
+This lets you reuse one ai_agent definition as a starting point and
+vary only the bits you need per-run (swap the prompt, cap the budget,
+change the model, add an env var, etc.).
 
-Example:
+Override rules:
+  * Scalars and lists REPLACE the template value when supplied.
+  * --env values are MERGED with the template's environment (override
+    values win on key collisions).
+  * Omitted flags leave the template's value untouched.
+  * Override values may be "hive://secret/<name>" refs (resolved
+    before sending), matching D&R rule semantics.
+
+All hive://secret/ references (in the template or in overrides) are
+resolved automatically before the request is sent.
+
+When starting a session from the CLI there is no D&R event; use --data
+to supply a JSON dictionary that will be appended to the prompt as
+event data.
+
+Examples:
   limacharlie ai start-session --definition my-security-analyst
 
+  # Reuse the template but swap the prompt.
   limacharlie ai start-session --definition my-agent \\
     --prompt "Investigate this specific alert" \\
     --name "Alert investigation"
 
+  # Cap budget and force a specific model on top of the template.
   limacharlie ai start-session --definition my-agent \\
-    --data '{"hostname": "srv-01", "alert_id": "abc-123"}'
+    --model claude-sonnet-4-6 --max-budget-usd 2.50
+
+  # Add an env var on top of the template.
+  limacharlie ai start-session --definition my-agent \\
+    --env SLACK_WEBHOOK=hive://secret/slack-webhook
+
+  # Restrict tools for this run only.
+  limacharlie ai start-session --definition my-agent \\
+    --allowed-tools Read,Grep --denied-tools Bash,Write
 """
 register_explain("ai.start-session", _EXPLAIN_START_SESSION)
 
 
+def _split_csv(value: str | None) -> list[str] | None:
+    """Split a comma-separated CLI value into a list.
+
+    Empty/whitespace-only segments are dropped.  Returns ``None`` when
+    the caller did not pass the flag at all, so the SDK sees "no
+    override" rather than "override with []".
+    """
+    if value is None:
+        return None
+    parts = [p.strip() for p in value.split(",")]
+    return [p for p in parts if p]
+
+
+def _parse_env_kv(items: tuple[str, ...]) -> dict[str, str] | None:
+    """Parse ``--env KEY=VALUE`` pairs into a dict.
+
+    Returns ``None`` when no ``--env`` flag was passed so the SDK
+    doesn't clobber the template's environment with an empty dict.
+    """
+    if not items:
+        return None
+    env: dict[str, str] = {}
+    for item in items:
+        if "=" not in item:
+            raise click.BadParameter(
+                f"--env value '{item}' must be in KEY=VALUE form",
+                param_hint="--env",
+            )
+        key, _, value = item.partition("=")
+        key = key.strip()
+        if not key:
+            raise click.BadParameter(
+                f"--env value '{item}' has empty key",
+                param_hint="--env",
+            )
+        env[key] = value
+    return env
+
+
 @group.command("start-session")
-@click.option("--definition", required=True, help="Name of the ai_agent hive record to use.")
-@click.option("--prompt", default=None, help="Override the prompt from the definition.")
-@click.option("--name", default=None, help="Override the session name.")
+@click.option("--definition", required=True,
+              help="Name of the ai_agent hive record to use as template.")
+@click.option("--prompt", default=None, help="Replace the prompt from the definition.")
+@click.option("--name", default=None, help="Replace the session name.")
 @click.option("--idempotent-key", default=None, help="Deduplication key for the session.")
 @click.option("--data", default=None, help="JSON dictionary of data to include with the session prompt.")
+# Profile field overrides.
+@click.option("--model", default=None,
+              help="Replace the Anthropic model (e.g. claude-sonnet-4-6).")
+@click.option("--max-turns", default=None, type=int,
+              help="Replace the maximum number of agent turns.")
+@click.option("--max-budget-usd", default=None, type=float,
+              help="Replace the hard USD cost cap (positive float).")
+@click.option("--task-budget-tokens", default=None, type=int,
+              help="Replace the per-task token budget.")
+@click.option("--ttl-seconds", default=None, type=int,
+              help="Replace the session time-to-live in seconds.")
+@click.option("--one-shot/--no-one-shot", "one_shot", default=None,
+              help="Force one_shot on or off; omit to keep the template value.")
+@click.option("--permission-mode", default=None,
+              type=click.Choice(["acceptEdits", "plan", "bypassPermissions"]),
+              help="Replace the permission mode.")
+@click.option("--allowed-tools", default=None,
+              help="Comma-separated list of tool names that REPLACES the template's allowed_tools.")
+@click.option("--denied-tools", default=None,
+              help="Comma-separated list of tool names that REPLACES the template's denied_tools.")
+@click.option("--plugin", "plugins", multiple=True,
+              help="Repeatable. Replaces the template's plugins list with the values given.")
+@click.option("--env", "env_pairs", multiple=True,
+              help="Repeatable KEY=VALUE pair merged into the template's environment. "
+                   "VALUE may be hive://secret/<name>.")
+# Credential overrides.
+@click.option("--anthropic-key", default=None,
+              help="Replace anthropic_secret. Literal key or hive://secret/<name>.")
+@click.option("--lc-api-key", default=None,
+              help="Replace lc_api_key_secret. Literal key or hive://secret/<name>.")
+@click.option("--lc-uid", default=None,
+              help="Replace lc_uid_secret. Literal UID or hive://secret/<name>.")
 @pass_context
-def start_session(ctx, definition, prompt, name, idempotent_key, data) -> None:
+def start_session(ctx, definition, prompt, name, idempotent_key, data,
+                  model, max_turns, max_budget_usd, task_budget_tokens,
+                  ttl_seconds, one_shot, permission_mode,
+                  allowed_tools, denied_tools, plugins, env_pairs,
+                  anthropic_key, lc_api_key, lc_uid) -> None:
     import json as _json
     parsed_data = None
     if data is not None:
         parsed_data = _json.loads(data)
+    plugins_override: list[str] | None = list(plugins) if plugins else None
+    environment_override = _parse_env_kv(env_pairs)
     org = _get_org(ctx)
     sdk = AISDK(org)
-    result = sdk.start_session(definition, prompt=prompt, name=name,
-                               idempotent_key=idempotent_key, data=parsed_data)
+    result = sdk.start_session(
+        definition,
+        prompt=prompt,
+        name=name,
+        idempotent_key=idempotent_key,
+        data=parsed_data,
+        model=model,
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        task_budget_tokens=task_budget_tokens,
+        ttl_seconds=ttl_seconds,
+        one_shot=one_shot,
+        permission_mode=permission_mode,
+        allowed_tools=_split_csv(allowed_tools),
+        denied_tools=_split_csv(denied_tools),
+        plugins=plugins_override,
+        environment=environment_override,
+        anthropic_key=anthropic_key,
+        lc_api_key=lc_api_key,
+        lc_uid=lc_uid,
+    )
     _output(ctx, result)
 
 
