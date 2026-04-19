@@ -678,29 +678,87 @@ class TestUserSessionManagementSDK:
     """list/get/terminate/history mirror their org counterparts but
     target the user-scoped routes."""
 
-    def test_list_user_sessions_no_filters(self, ai, mock_org):
+    # --- single-page (list_user_sessions_page) ---
+
+    def test_list_user_sessions_page_no_filters(self, ai, mock_org):
         mock_org.client.request.return_value = {
             "sessions": [], "next_cursor": "",
         }
 
-        ai.list_user_sessions()
+        ai.list_user_sessions_page()
 
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("GET", "v1/sessions")
         # No qp argument when no filters were passed.
         assert "query_params" not in call_args[1] or call_args[1]["query_params"] is None
 
-    def test_list_user_sessions_passes_filters(self, ai, mock_org):
+    def test_list_user_sessions_page_passes_filters(self, ai, mock_org):
         mock_org.client.request.return_value = {
             "sessions": [], "next_cursor": "",
         }
 
-        ai.list_user_sessions(status="running", limit=25, cursor="c-1")
+        ai.list_user_sessions_page(status="running", limit=25, cursor="c-1")
 
         call_args = mock_org.client.request.call_args
         assert call_args[0] == ("GET", "v1/sessions")
         assert call_args[1]["query_params"] == {
             "status": "running", "limit": "25", "cursor": "c-1",
+        }
+
+    # --- auto-drain generator (list_user_sessions) ---
+
+    def test_list_user_sessions_drains_cursor(self, ai, mock_org):
+        mock_org.client.request.side_effect = [
+            {"sessions": [{"id": "s1"}, {"id": "s2"}], "next_cursor": "c-2"},
+            {"sessions": [{"id": "s3"}], "next_cursor": None},
+        ]
+
+        result = list(ai.list_user_sessions())
+
+        assert [s["id"] for s in result] == ["s1", "s2", "s3"]
+        assert mock_org.client.request.call_count == 2
+        # Second request carries the cursor from the first response.
+        second_qp = mock_org.client.request.call_args_list[1][1]["query_params"]
+        assert second_qp == {"cursor": "c-2"}
+
+    def test_list_user_sessions_limit_stops_iteration(self, ai, mock_org):
+        # Even when the server offers a next_cursor, reaching the total
+        # limit on the current page stops draining and does not issue
+        # another request.
+        mock_org.client.request.return_value = {
+            "sessions": [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}],
+            "next_cursor": "more",
+        }
+
+        result = list(ai.list_user_sessions(limit=2))
+
+        assert [s["id"] for s in result] == ["s1", "s2"]
+        assert mock_org.client.request.call_count == 1
+
+    def test_list_user_sessions_empty_cursor_stops(self, ai, mock_org):
+        # next_cursor == "" is treated the same as None: done.
+        mock_org.client.request.return_value = {
+            "sessions": [{"id": "s1"}],
+            "next_cursor": "",
+        }
+
+        result = list(ai.list_user_sessions())
+
+        assert [s["id"] for s in result] == ["s1"]
+        assert mock_org.client.request.call_count == 1
+
+    def test_list_user_sessions_page_size_maps_to_server_limit(self, ai, mock_org):
+        # page_size is the server-side per-page cap; `limit` is the
+        # client-side total cap and must not leak into the request qp.
+        mock_org.client.request.return_value = {
+            "sessions": [], "next_cursor": "",
+        }
+
+        list(ai.list_user_sessions(status="running", page_size=25))
+
+        call_args = mock_org.client.request.call_args
+        assert call_args[1]["query_params"] == {
+            "status": "running", "limit": "25",
         }
 
     def test_get_user_session(self, ai, mock_org):
@@ -994,7 +1052,8 @@ class TestChatsGroup:
             patch("limacharlie.commands.ai.AISDK"),
         )
 
-    def test_list_calls_user_endpoint(self):
+    def test_list_drains_by_default(self):
+        # Default `chats list` auto-drains via the generator API.
         import click.testing
         from limacharlie.cli import cli
 
@@ -1003,9 +1062,7 @@ class TestChatsGroup:
              patch("limacharlie.commands.ai.AISDK") as MockSDK:
             mock_get_org.return_value = MagicMock()
             sdk = MockSDK.return_value
-            sdk.list_user_sessions.return_value = {
-                "sessions": [], "next_cursor": "",
-            }
+            sdk.list_user_sessions.return_value = iter([])
 
             result = runner.invoke(
                 cli, ["--output", "json", "ai", "chats", "list",
@@ -1013,8 +1070,39 @@ class TestChatsGroup:
             )
             assert result.exit_code == 0, result.output
             sdk.list_user_sessions.assert_called_once_with(
-                status="running", limit=10, cursor=None,
+                status="running", limit=10,
             )
+            # Must not have touched the single-page path.
+            sdk.list_user_sessions_page.assert_not_called()
+
+    def test_list_with_cursor_uses_single_page(self):
+        # Explicit --cursor opts into the single-page API so callers
+        # can resume pagination themselves; output is the raw dict.
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.list_user_sessions_page.return_value = {
+                "sessions": [], "next_cursor": "c-next",
+            }
+
+            result = runner.invoke(
+                cli, ["--output", "json", "ai", "chats", "list",
+                      "--status", "running", "--limit", "10",
+                      "--cursor", "c-here"],
+            )
+            assert result.exit_code == 0, result.output
+            sdk.list_user_sessions_page.assert_called_once_with(
+                status="running", limit=10, cursor="c-here",
+            )
+            # Must not have fallen back to the auto-drain path.
+            sdk.list_user_sessions.assert_not_called()
+            # Raw pagination response preserved for the caller.
+            assert "c-next" in result.output
 
     def test_get_truncates_prompt_by_default(self):
         import click.testing

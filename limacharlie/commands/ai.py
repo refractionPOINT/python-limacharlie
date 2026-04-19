@@ -464,12 +464,18 @@ group.add_command(session_group)
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_SESSION_LIST = """\
-List AI sessions for the organization.  By default all sessions are
-returned; use --status to filter by state.
+List AI sessions for the organization.  By default every matching
+session is returned; pagination is drained automatically.
 
 Statuses: running, starting, ended.
 
-Pagination is supported via --limit and --cursor.
+Flags:
+  --status   Filter by session status.
+  --limit    Total cap on returned sessions (default: unlimited).
+  --cursor   Fetch a single page starting from this cursor.  Switches
+             output to a raw {sessions, next_cursor} dict so callers
+             can resume pagination explicitly.  Intended for scripted
+             / streaming access; most users should omit this flag.
 
 The initial_prompt field is truncated in the listing.  Use
 'ai session get --id <ID>' to see the full prompt.
@@ -478,23 +484,32 @@ Example:
   limacharlie ai session list
   limacharlie ai session list --status running
   limacharlie ai session list --limit 10
+  limacharlie ai session list --cursor <CURSOR>
 """
 register_explain("ai.session.list", _EXPLAIN_SESSION_LIST)
 
 
 @session_group.command("list")
 @click.option("--status", default=None, help="Filter by session status (running, starting, ended).")
-@click.option("--limit", default=None, type=int, help="Max results per page (1-200, default 50).")
-@click.option("--cursor", default=None, help="Pagination cursor from a previous response.")
+@click.option("--limit", default=None, type=int,
+              help="Total cap on returned sessions (or per-page size if --cursor is given).")
+@click.option("--cursor", default=None,
+              help="Fetch a single page from this cursor; disables auto-drain.")
 @pass_context
 def session_list(ctx, status, limit, cursor) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
-    data = sdk.list_sessions(status=status, limit=limit, cursor=cursor)
-    # Truncate prompts in the listing to keep output readable.
-    if "sessions" in data:
-        data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
-    _output(ctx, data)
+    if cursor is not None:
+        # Explicit pagination: single page, raw response so the caller
+        # can grab next_cursor.
+        data = sdk.list_sessions_page(status=status, limit=limit, cursor=cursor)
+        if "sessions" in data:
+            data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
+        _output(ctx, data)
+        return
+    sessions = [_clean_session_for_list(s)
+                for s in sdk.list_sessions(status=status, limit=limit)]
+    _output(ctx, sessions)
 
 
 # ---------------------------------------------------------------------------
@@ -1037,18 +1052,30 @@ group.add_command(chats_group)
 @click.option("--status", default=None,
               help="Filter by session status (running, starting, ended).")
 @click.option("--limit", default=None, type=int,
-              help="Max results per page.")
+              help="Total cap on returned sessions (or per-page size if --cursor is given).")
 @click.option("--cursor", default=None,
-              help="Pagination cursor from a previous response.")
+              help="Fetch a single page from this cursor; disables auto-drain.")
 @pass_context
 def chats_list(ctx, status, limit, cursor) -> None:
-    """List the authenticated user's AI sessions."""
+    """List the authenticated user's AI sessions.
+
+    By default every matching session is returned; pagination is
+    drained automatically.  Pass --cursor to fetch a single page and
+    receive the raw {sessions, next_cursor} dict for explicit
+    pagination control (intended for scripted access).
+    """
     org = _get_org(ctx)
     sdk = AISDK(org)
-    data = sdk.list_user_sessions(status=status, limit=limit, cursor=cursor)
-    if "sessions" in data:
-        data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
-    _output(ctx, data)
+    if cursor is not None:
+        data = sdk.list_user_sessions_page(status=status, limit=limit,
+                                           cursor=cursor)
+        if "sessions" in data:
+            data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
+        _output(ctx, data)
+        return
+    sessions = [_clean_session_for_list(s)
+                for s in sdk.list_user_sessions(status=status, limit=limit)]
+    _output(ctx, sessions)
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, TYPE_CHECKING
+from typing import Any, Generator, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -348,14 +348,18 @@ class AI:
             extra_headers=extra,
         )
 
-    def list_sessions(self, status: str | None = None,
-                      limit: int | None = None,
-                      cursor: str | None = None) -> dict[str, Any]:
-        """List AI sessions for the organization.
+    def list_sessions_page(self, status: str | None = None,
+                           limit: int | None = None,
+                           cursor: str | None = None,
+                           ) -> dict[str, Any]:
+        """Fetch a single page of AI sessions for the organization.
+
+        Prefer :meth:`list_sessions` unless you specifically need raw
+        pagination control (e.g. resuming from a stored cursor).
 
         Args:
             status: Filter by session status (running, ended, starting).
-            limit: Maximum number of results (1-200, default 50).
+            limit: Max results per page (1-200, server default if unset).
             cursor: Pagination cursor from a previous response.
 
         Returns:
@@ -370,6 +374,35 @@ class AI:
             qp["cursor"] = cursor
         return self._org_request("GET", "v1/org/sessions",
                                  query_params=qp or None)
+
+    def list_sessions(self, status: str | None = None,
+                      limit: int | None = None,
+                      page_size: int | None = None,
+                      ) -> Generator[dict[str, Any], None, None]:
+        """Iterate AI sessions for the organization, draining pagination.
+
+        Args:
+            status: Filter by session status (running, ended, starting).
+            limit: Total cap on yielded sessions across all pages.
+            page_size: Per-request page size sent to the server
+                (1-200, server default if unset).
+
+        Yields:
+            dict: Session records.
+        """
+        cursor: str | None = None
+        n_returned = 0
+        while True:
+            resp = self.list_sessions_page(status=status, limit=page_size,
+                                           cursor=cursor)
+            for s in resp.get("sessions", []) or []:
+                yield s
+                n_returned += 1
+                if limit is not None and n_returned >= limit:
+                    return
+            cursor = resp.get("next_cursor") or None
+            if not cursor:
+                return
 
     def get_session(self, session_id: str) -> dict[str, Any]:
         """Get details of a specific AI session.
@@ -563,19 +596,18 @@ class AI:
         """Remove the authenticated user's stored Claude credentials."""
         return self._user_request("DELETE", "v1/auth/claude")
 
-    def list_user_sessions(self, status: str | None = None,
-                           limit: int | None = None,
-                           cursor: str | None = None) -> dict[str, Any]:
-        """List sessions owned by the authenticated user.
+    def list_user_sessions_page(self, status: str | None = None,
+                                limit: int | None = None,
+                                cursor: str | None = None,
+                                ) -> dict[str, Any]:
+        """Fetch a single page of user-owned sessions.
 
-        Mirrors :meth:`list_sessions` but hits the user-scoped
-        ``GET /v1/sessions`` route, so it sees sessions created via
-        :meth:`create_user_session` / ``ai chat`` instead of org-scoped
-        sessions started via :meth:`start_session` / ``ai start-session``.
+        Prefer :meth:`list_user_sessions` unless you specifically need
+        raw pagination control (e.g. resuming from a stored cursor).
 
         Args:
             status: Filter by session status (running, ended, starting).
-            limit: Maximum number of results.
+            limit: Max results per page.
             cursor: Pagination cursor from a previous response.
 
         Returns:
@@ -590,6 +622,40 @@ class AI:
             qp["cursor"] = cursor
         return self._user_request("GET", "v1/sessions",
                                   query_params=qp or None)
+
+    def list_user_sessions(self, status: str | None = None,
+                           limit: int | None = None,
+                           page_size: int | None = None,
+                           ) -> Generator[dict[str, Any], None, None]:
+        """Iterate sessions owned by the authenticated user.
+
+        Mirrors :meth:`list_sessions` but hits the user-scoped
+        ``GET /v1/sessions`` route, so it sees sessions created via
+        :meth:`create_user_session` / ``ai chat`` instead of org-scoped
+        sessions started via :meth:`start_session` / ``ai start-session``.
+
+        Args:
+            status: Filter by session status (running, ended, starting).
+            limit: Total cap on yielded sessions across all pages.
+            page_size: Per-request page size sent to the server
+                (server default if unset).
+
+        Yields:
+            dict: Session records.
+        """
+        cursor: str | None = None
+        n_returned = 0
+        while True:
+            resp = self.list_user_sessions_page(status=status, limit=page_size,
+                                                cursor=cursor)
+            for s in resp.get("sessions", []) or []:
+                yield s
+                n_returned += 1
+                if limit is not None and n_returned >= limit:
+                    return
+            cursor = resp.get("next_cursor") or None
+            if not cursor:
+                return
 
     def get_user_session(self, session_id: str) -> dict[str, Any]:
         """Get details of a user-owned session.
