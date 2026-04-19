@@ -948,7 +948,6 @@ register_explain("ai.chat", _EXPLAIN_CHAT)
 def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
          task_budget_tokens, permission_mode,
          allowed_tools, denied_tools, plugins, idempotent_key) -> None:
-    import sys
     from ._ai_attach import run_attach
 
     org = _get_org(ctx)
@@ -969,13 +968,11 @@ def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
     # set-key` without a separate step.
     sdk.register_user()
 
-    # If no prompt argument was supplied and stdin is a pipe, consume
-    # it as the opening prompt so `echo ... | ai chat` works.
+    # The opening prompt is the PROMPT argument; further turns come
+    # from interactive stdin once the session is attached.  We do NOT
+    # consume stdin as the prompt: piping multiple lines used to glue
+    # them into one prompt and then leave stdin empty for follow-ups.
     initial_prompt = prompt
-    if initial_prompt is None and not sys.stdin.isatty():
-        data = sys.stdin.read().strip()
-        if data:
-            initial_prompt = data
 
     plugins_override: list[str] | None = list(plugins) if plugins else None
 
@@ -1011,3 +1008,99 @@ def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
         initial_prompt=initial_prompt,
     )
     ctx.exit(exit_code)
+
+
+# ===========================================================================
+# chats subgroup – manage user-owned sessions (the counterpart to
+# `ai session`, which manages org-owned sessions).  Mirrors the org
+# commands one-for-one but routes through the user-scoped REST API.
+# ===========================================================================
+
+@click.group("chats")
+def chats_group() -> None:
+    """Manage user-owned AI sessions (started via ``ai chat``).
+
+    The ``ai session`` group manages org-owned sessions (started via
+    ``ai start-session``); this group is the same surface for the
+    user-owned sessions that ``ai chat`` creates.  Sessions of one
+    kind are not visible from the other group's commands.
+    """
+
+group.add_command(chats_group)
+
+
+# ---------------------------------------------------------------------------
+# chats list
+# ---------------------------------------------------------------------------
+
+@chats_group.command("list")
+@click.option("--status", default=None,
+              help="Filter by session status (running, starting, ended).")
+@click.option("--limit", default=None, type=int,
+              help="Max results per page.")
+@click.option("--cursor", default=None,
+              help="Pagination cursor from a previous response.")
+@pass_context
+def chats_list(ctx, status, limit, cursor) -> None:
+    """List the authenticated user's AI sessions."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.list_user_sessions(status=status, limit=limit, cursor=cursor)
+    if "sessions" in data:
+        data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# chats get
+# ---------------------------------------------------------------------------
+
+@chats_group.command("get")
+@click.option("--id", "session_id", required=True, help="Session ID.")
+@click.option("--full-prompt", is_flag=True, default=False,
+              help="Include the full initial_prompt text.")
+@pass_context
+def chats_get(ctx, session_id, full_prompt) -> None:
+    """Get details of one of the user's AI sessions."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.get_user_session(session_id)
+    if not full_prompt and "session" in data:
+        s = data["session"]
+        if isinstance(s, dict) and "initial_prompt" in s:
+            s["initial_prompt"] = _truncate_prompt(s["initial_prompt"])
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# chats terminate
+# ---------------------------------------------------------------------------
+
+@chats_group.command("terminate")
+@click.option("--id", "session_id", required=True,
+              help="Session ID to terminate.")
+@pass_context
+def chats_terminate(ctx, session_id) -> None:
+    """Terminate one of the user's running AI sessions."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.terminate_user_session(session_id))
+
+
+# ---------------------------------------------------------------------------
+# chats history
+# ---------------------------------------------------------------------------
+
+@chats_group.command("history")
+@click.option("--id", "session_id", required=True, help="Session ID.")
+@click.option("--raw", is_flag=True, default=False,
+              help="Include all messages including internal system init.")
+@pass_context
+def chats_history(ctx, session_id, raw) -> None:
+    """Show the conversation history of one of the user's AI sessions."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.get_user_session_history(session_id)
+    if not raw and "messages" in data:
+        data["messages"] = _filter_history(data["messages"])
+    _output(ctx, data)

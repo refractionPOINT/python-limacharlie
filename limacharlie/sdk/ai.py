@@ -563,6 +563,67 @@ class AI:
         """Remove the authenticated user's stored Claude credentials."""
         return self._user_request("DELETE", "v1/auth/claude")
 
+    def list_user_sessions(self, status: str | None = None,
+                           limit: int | None = None,
+                           cursor: str | None = None) -> dict[str, Any]:
+        """List sessions owned by the authenticated user.
+
+        Mirrors :meth:`list_sessions` but hits the user-scoped
+        ``GET /v1/sessions`` route, so it sees sessions created via
+        :meth:`create_user_session` / ``ai chat`` instead of org-scoped
+        sessions started via :meth:`start_session` / ``ai start-session``.
+
+        Args:
+            status: Filter by session status (running, ended, starting).
+            limit: Maximum number of results.
+            cursor: Pagination cursor from a previous response.
+
+        Returns:
+            dict with ``sessions`` list and ``next_cursor`` string.
+        """
+        qp: dict[str, str] = {}
+        if status:
+            qp["status"] = status
+        if limit is not None:
+            qp["limit"] = str(limit)
+        if cursor:
+            qp["cursor"] = cursor
+        return self._user_request("GET", "v1/sessions",
+                                  query_params=qp or None)
+
+    def get_user_session(self, session_id: str) -> dict[str, Any]:
+        """Get details of a user-owned session.
+
+        Args:
+            session_id: The session ID.
+
+        Returns:
+            dict with ``session`` object.
+        """
+        return self._user_request("GET", f"v1/sessions/{session_id}")
+
+    def terminate_user_session(self, session_id: str) -> dict[str, Any]:
+        """Terminate a running user-owned session.
+
+        Args:
+            session_id: The session ID to terminate.
+
+        Returns:
+            dict with ``terminated: true``.
+        """
+        return self._user_request("DELETE", f"v1/sessions/{session_id}")
+
+    def get_user_session_history(self, session_id: str) -> dict[str, Any]:
+        """Get the conversation history of a user-owned session.
+
+        Args:
+            session_id: The session ID.
+
+        Returns:
+            dict with ``messages`` list.
+        """
+        return self._user_request("GET", f"v1/sessions/{session_id}/history")
+
     def create_user_session(self, *,
                             name: str | None = None,
                             idempotent_key: str | None = None,

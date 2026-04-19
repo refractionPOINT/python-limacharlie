@@ -674,6 +674,63 @@ class TestClaudeAuthSDK:
         )
 
 
+class TestUserSessionManagementSDK:
+    """list/get/terminate/history mirror their org counterparts but
+    target the user-scoped routes."""
+
+    def test_list_user_sessions_no_filters(self, ai, mock_org):
+        mock_org.client.request.return_value = {
+            "sessions": [], "next_cursor": "",
+        }
+
+        ai.list_user_sessions()
+
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("GET", "v1/sessions")
+        # No qp argument when no filters were passed.
+        assert "query_params" not in call_args[1] or call_args[1]["query_params"] is None
+
+    def test_list_user_sessions_passes_filters(self, ai, mock_org):
+        mock_org.client.request.return_value = {
+            "sessions": [], "next_cursor": "",
+        }
+
+        ai.list_user_sessions(status="running", limit=25, cursor="c-1")
+
+        call_args = mock_org.client.request.call_args
+        assert call_args[0] == ("GET", "v1/sessions")
+        assert call_args[1]["query_params"] == {
+            "status": "running", "limit": "25", "cursor": "c-1",
+        }
+
+    def test_get_user_session(self, ai, mock_org):
+        mock_org.client.request.return_value = {"session": {"id": "u-1"}}
+
+        ai.get_user_session("u-1")
+
+        assert mock_org.client.request.call_args[0] == (
+            "GET", "v1/sessions/u-1",
+        )
+
+    def test_terminate_user_session(self, ai, mock_org):
+        mock_org.client.request.return_value = {"terminated": True}
+
+        ai.terminate_user_session("u-1")
+
+        assert mock_org.client.request.call_args[0] == (
+            "DELETE", "v1/sessions/u-1",
+        )
+
+    def test_get_user_session_history(self, ai, mock_org):
+        mock_org.client.request.return_value = {"messages": []}
+
+        ai.get_user_session_history("u-1")
+
+        assert mock_org.client.request.call_args[0] == (
+            "GET", "v1/sessions/u-1/history",
+        )
+
+
 class TestCreateUserSession:
 
     def test_omits_fields_when_none(self, ai, mock_org):
@@ -898,3 +955,170 @@ class TestChatCommand:
             "--idempotent-key",
         ):
             assert flag in result.output, f"missing flag in chat --help: {flag}"
+
+    def test_does_not_consume_stdin_as_prompt(self):
+        """Piping stdin must NOT become the initial prompt — gap-2 fix.
+
+        Previously `echo 'hello' | ai chat` would silently use 'hello'
+        as the opening prompt; now stdin is reserved for the
+        interactive input loop after attach.
+        """
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK, \
+             patch("limacharlie.commands._ai_attach.run_attach", return_value=0) as mock_run:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.claude_auth_status.return_value = {"has_credentials": True}
+            sdk.register_user.return_value = {"registered": True}
+            sdk.create_user_session.return_value = {
+                "session": {"id": "s-1", "status": "starting"},
+            }
+
+            result = runner.invoke(
+                cli, ["ai", "chat"], input="should-not-become-prompt\n",
+            )
+            assert result.exit_code == 0, result.output
+            assert mock_run.call_args.kwargs["initial_prompt"] is None
+
+
+class TestChatsGroup:
+    """`ai chats` subgroup mirrors `ai session` for user-owned sessions."""
+
+    def _patched(self):
+        return (
+            patch("limacharlie.commands.ai._get_org"),
+            patch("limacharlie.commands.ai.AISDK"),
+        )
+
+    def test_list_calls_user_endpoint(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.list_user_sessions.return_value = {
+                "sessions": [], "next_cursor": "",
+            }
+
+            result = runner.invoke(
+                cli, ["--output", "json", "ai", "chats", "list",
+                      "--status", "running", "--limit", "10"],
+            )
+            assert result.exit_code == 0, result.output
+            sdk.list_user_sessions.assert_called_once_with(
+                status="running", limit=10, cursor=None,
+            )
+
+    def test_get_truncates_prompt_by_default(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        long_prompt = "x" * 500
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.get_user_session.return_value = {
+                "session": {"id": "u-1", "initial_prompt": long_prompt},
+            }
+
+            result = runner.invoke(
+                cli, ["--output", "json", "ai", "chats", "get", "--id", "u-1"],
+            )
+            assert result.exit_code == 0, result.output
+            # Truncation marker present, full text not.
+            assert "..." in result.output
+            assert long_prompt not in result.output
+            sdk.get_user_session.assert_called_once_with("u-1")
+
+    def test_get_full_prompt_flag_disables_truncation(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        long_prompt = "y" * 500
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.get_user_session.return_value = {
+                "session": {"id": "u-1", "initial_prompt": long_prompt},
+            }
+
+            result = runner.invoke(cli, [
+                "--output", "json", "ai", "chats", "get",
+                "--id", "u-1", "--full-prompt",
+            ])
+            assert result.exit_code == 0, result.output
+            assert long_prompt in result.output
+
+    def test_terminate_calls_sdk(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.terminate_user_session.return_value = {"terminated": True}
+
+            result = runner.invoke(cli, [
+                "--output", "json", "ai", "chats", "terminate", "--id", "u-1",
+            ])
+            assert result.exit_code == 0, result.output
+            sdk.terminate_user_session.assert_called_once_with("u-1")
+
+    def test_history_filters_internal_subtypes(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.get_user_session_history.return_value = {
+                "messages": [
+                    {"type": "system", "payload": {"subtype": "model_set"}},
+                    {"type": "assistant", "payload": {"text": "hi"}},
+                ],
+            }
+
+            result = runner.invoke(
+                cli, ["--output", "json", "ai", "chats", "history", "--id", "u-1"],
+            )
+            assert result.exit_code == 0, result.output
+            # Internal model_set subtype filtered out, assistant kept.
+            assert "model_set" not in result.output
+            assert "assistant" in result.output
+
+    def test_history_raw_keeps_everything(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org") as mock_get_org, \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            mock_get_org.return_value = MagicMock()
+            sdk = MockSDK.return_value
+            sdk.get_user_session_history.return_value = {
+                "messages": [
+                    {"type": "system", "payload": {"subtype": "model_set"}},
+                ],
+            }
+
+            result = runner.invoke(cli, [
+                "--output", "json", "ai", "chats", "history",
+                "--id", "u-1", "--raw",
+            ])
+            assert result.exit_code == 0, result.output
+            assert "model_set" in result.output

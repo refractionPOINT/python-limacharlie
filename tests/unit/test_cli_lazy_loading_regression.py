@@ -114,7 +114,7 @@ EXPECTED_MODULE_MAP = {
 # Every (group, subcommand) pair that must exist.
 EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "ai": frozenset({
-        "auth", "chat",
+        "auth", "chat", "chats",
         "generate-detection", "generate-playbook", "generate-query",
         "generate-response", "generate-rule", "generate-selector",
         "session", "start-session", "summarize-detection", "usage",
