@@ -589,31 +589,20 @@ Example:
 """
 register_explain("ai.session.history", _EXPLAIN_SESSION_HISTORY)
 
-# System subtypes that are internal plumbing, not useful conversation.
-_SYSTEM_INIT_SUBTYPES = frozenset({
-    "credential_diagnostics",
-    "init_received",
-    "claude_md_loaded",
-    "mcp_config_debug",
-    "mcp_servers_set",
-    "model_set",
-    "max_turns_set",
-    "max_budget_set",
-    "oid_added_to_system_prompt",
-    "permission_mode_set",
-    "tools_configured",
-    "system_prompt_set",
-    "sdk_session_id",
-})
-
-
 def _filter_history(messages: list[dict]) -> list[dict]:
-    """Remove internal system init messages from history."""
+    """Remove internal system init messages from history.
+
+    Reuses the single source-of-truth noise set defined alongside the
+    live-stream renderer in ``_ai_attach`` so both surfaces hide the
+    same plumbing subtypes.
+    """
+    from ._ai_attach import _NOISY_SYSTEM_SUBTYPES
+
     filtered = []
     for m in messages:
         if m.get("type") == "system":
             payload = m.get("payload", {})
-            if isinstance(payload, dict) and payload.get("subtype") in _SYSTEM_INIT_SUBTYPES:
+            if isinstance(payload, dict) and payload.get("subtype") in _NOISY_SYSTEM_SUBTYPES:
                 continue
         filtered.append(m)
     return filtered
@@ -684,8 +673,10 @@ register_explain("ai.session.attach", _EXPLAIN_SESSION_ATTACH)
               help="Don't render the initial history block on connect.")
 @click.option("--raw", is_flag=True, default=False,
               help="Print raw JSON messages instead of pretty formatting.")
+@click.option("--verbose", "-v", is_flag=True, default=False,
+              help="Show plumbing system/status messages and full ISO timestamps.")
 @pass_context
-def session_attach(ctx, session_id, read_only, interactive, no_history, raw) -> None:
+def session_attach(ctx, session_id, read_only, interactive, no_history, raw, verbose) -> None:
     from ._ai_attach import run_attach
 
     org = _get_org(ctx)
@@ -696,6 +687,7 @@ def session_attach(ctx, session_id, read_only, interactive, no_history, raw) -> 
         interactive=interactive,
         show_history=not no_history,
         raw=raw,
+        verbose=verbose,
     )
     ctx.exit(exit_code)
 
@@ -959,10 +951,12 @@ register_explain("ai.chat", _EXPLAIN_CHAT)
               help="Repeatable. Plugin names to enable.")
 @click.option("--idempotent-key", default=None,
               help="Deduplication key for session creation.")
+@click.option("--verbose", "-v", is_flag=True, default=False,
+              help="Show plumbing system/status messages and full ISO timestamps.")
 @pass_context
 def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
          task_budget_tokens, permission_mode,
-         allowed_tools, denied_tools, plugins, idempotent_key) -> None:
+         allowed_tools, denied_tools, plugins, idempotent_key, verbose) -> None:
     from ._ai_attach import run_attach
 
     org = _get_org(ctx)
@@ -1020,6 +1014,7 @@ def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
         interactive=True,
         show_history=False,
         raw=False,
+        verbose=verbose,
         initial_prompt=initial_prompt,
     )
     ctx.exit(exit_code)

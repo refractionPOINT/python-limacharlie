@@ -390,6 +390,37 @@ class TestExtractAssistantText:
 
         assert _extract_assistant_text({}) == ""
 
+    def test_leading_newlines_stripped(self):
+        """Claude frequently opens a turn with a text block that begins
+        with one or two bare newlines; when indented under the
+        ``assistant:`` header these render as empty "  " lines that
+        look like a bug.  The extractor strips them.
+        """
+        from limacharlie.commands._ai_attach import _extract_assistant_text
+
+        assert _extract_assistant_text({"content": [
+            {"type": "text", "text": "\n\nYes, I'm here."},
+        ]}) == "Yes, I'm here."
+
+    def test_whitespace_only_blocks_dropped(self):
+        from limacharlie.commands._ai_attach import _extract_assistant_text
+
+        assert _extract_assistant_text({"content": [
+            {"type": "text", "text": "\n"},
+            {"type": "text", "text": "  "},
+            {"type": "text", "text": "hello"},
+        ]}) == "hello"
+
+    def test_internal_paragraph_breaks_preserved(self):
+        """Stripping outer whitespace must not collapse intentional
+        paragraph breaks inside a single text block.
+        """
+        from limacharlie.commands._ai_attach import _extract_assistant_text
+
+        assert _extract_assistant_text({"content": [
+            {"type": "text", "text": "Paragraph 1\n\nParagraph 2"},
+        ]}) == "Paragraph 1\n\nParagraph 2"
+
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -441,6 +472,213 @@ class TestCliRegistration:
         # option is missing.
         assert result.exit_code != 0
         assert "--id" in result.output or "id" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Noise filter + verbose-aware rendering
+# ---------------------------------------------------------------------------
+
+class TestShouldSkipMessage:
+    """Guard the rules that decide whether the live stream renders a
+    message.  These govern the signal-to-noise ratio the user sees in
+    ``ai chat`` / ``ai session attach`` — regressions here re-introduce
+    the firehose we explicitly suppressed.
+    """
+
+    def test_verbose_never_skips(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        msg = {"type": "system", "payload": {"subtype": "init_received"}}
+        assert _should_skip_message(msg, verbose=True) is False
+
+    def test_skips_session_status_ping(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        assert _should_skip_message(
+            {"type": "session_status", "payload": {"status": "running"}},
+            verbose=False,
+        )
+
+    def test_skips_usage_delta(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        assert _should_skip_message(
+            {"type": "usage_delta", "payload": {"input_tokens": 3}},
+            verbose=False,
+        )
+
+    def test_skips_plumbing_system_subtypes(self):
+        from limacharlie.commands._ai_attach import (
+            _NOISY_SYSTEM_SUBTYPES, _should_skip_message,
+        )
+
+        # Spot-check a subtype from each source (bridge + Claude SDK).
+        for subtype in ("init_received", "model_set", "hook_started",
+                        "autoinit_loaded", "ttl_added_to_system_prompt"):
+            assert subtype in _NOISY_SYSTEM_SUBTYPES
+            assert _should_skip_message(
+                {"type": "system", "payload": {"subtype": subtype}},
+                verbose=False,
+            )
+
+    def test_keeps_unknown_system_subtype(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        # Something we haven't explicitly marked as noise should still
+        # surface — e.g. a server-emitted warning the user needs to see.
+        assert not _should_skip_message(
+            {"type": "system", "payload": {"subtype": "budget_exceeded",
+                                            "message": "over cap"}},
+            verbose=False,
+        )
+
+    def test_skips_empty_assistant(self):
+        """Tool-use-only turns produce an ``assistant`` frame whose
+        content holds no text blocks; the separate ``tool_use`` message
+        already renders, so the bare "assistant:" header was pure
+        noise.
+        """
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        assert _should_skip_message(
+            {"type": "assistant", "payload": {"content": [
+                {"type": "tool_use", "id": "t1", "name": "Bash",
+                 "input": {"command": "ls"}},
+            ]}},
+            verbose=False,
+        )
+
+    def test_keeps_assistant_with_text(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        assert not _should_skip_message(
+            {"type": "assistant", "payload": {"content": [
+                {"type": "text", "text": "hi"},
+            ]}},
+            verbose=False,
+        )
+
+    def test_skips_user_tool_result_wrapper(self):
+        """``user`` frames that carry only a tool_result block would
+        render as an empty "user:" line — skip them; the ``tool_result``
+        sibling already shows the output.
+        """
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        assert _should_skip_message(
+            {"type": "user", "payload": {"content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+            ]}},
+            verbose=False,
+        )
+
+    def test_skips_empty_result_ping(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        assert _should_skip_message(
+            {"type": "result", "payload": {"subtype": "success",
+                                            "num_turns": 1}},
+            verbose=False,
+        )
+
+    def test_keeps_result_with_summary(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        assert not _should_skip_message(
+            {"type": "result", "payload": {"summary": "done"}},
+            verbose=False,
+        )
+
+
+class TestFormatTimestamp:
+
+    def test_default_shortens_to_hhmmss(self):
+        from limacharlie.commands._ai_attach import _format_timestamp
+
+        # Python isoformat with microseconds + offset.
+        assert _format_timestamp("2026-04-19T02:43:59.801738+00:00",
+                                  verbose=False) == "[02:43:59] "
+
+    def test_default_handles_nanoseconds_and_z_suffix(self):
+        from limacharlie.commands._ai_attach import _format_timestamp
+
+        # Go RFC3339Nano-ish shape with a 'Z' instead of an offset.
+        assert _format_timestamp("2026-04-19T02:43:59.162704816Z",
+                                  verbose=False) == "[02:43:59] "
+
+    def test_verbose_preserves_full_string(self):
+        from limacharlie.commands._ai_attach import _format_timestamp
+
+        ts = "2026-04-19T02:43:59.801738+00:00"
+        assert _format_timestamp(ts, verbose=True) == f"[{ts}] "
+
+    def test_empty_returns_empty(self):
+        from limacharlie.commands._ai_attach import _format_timestamp
+
+        assert _format_timestamp(None, verbose=False) == ""
+        assert _format_timestamp("", verbose=False) == ""
+
+
+class TestUserContentExtraction:
+    """The server sends ``user`` payloads as ``{"content": [blocks]}``
+    (same shape as assistant), not ``{"text": "..."}``; the renderer
+    needs to handle both so the user line isn't perpetually blank.
+    """
+
+    def test_content_blocks_extracted(self):
+        from limacharlie.commands._ai_attach import _extract_user_text
+
+        text = _extract_user_text({"content": [
+            {"type": "text", "text": "hello"},
+            {"type": "text", "text": "world"},
+        ]})
+        assert "hello" in text and "world" in text
+
+    def test_tool_result_wrapper_is_empty(self):
+        from limacharlie.commands._ai_attach import _extract_user_text
+
+        text = _extract_user_text({"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+        ]})
+        assert text == ""
+
+    def test_legacy_text_key_still_works(self):
+        from limacharlie.commands._ai_attach import _extract_user_text
+
+        assert _extract_user_text({"text": "list files"}) == "list files"
+
+
+class TestRenderTimestampFormatting:
+
+    def _render(self, msg: dict, verbose: bool = False) -> str:
+        from limacharlie.commands import _ai_attach
+
+        runner = click.testing.CliRunner()
+
+        @click.command()
+        def dump():
+            _ai_attach._render_message(msg, verbose=verbose)
+
+        result = runner.invoke(dump, [])
+        assert result.exit_code == 0, result.output
+        return result.output
+
+    def test_render_uses_short_timestamp_by_default(self):
+        out = self._render({
+            "type": "assistant",
+            "timestamp": "2026-04-19T02:43:59.801738+00:00",
+            "payload": {"content": [{"type": "text", "text": "hi"}]},
+        }, verbose=False)
+        assert "02:43:59" in out
+        assert "2026-04-19T" not in out
+
+    def test_render_uses_full_timestamp_in_verbose(self):
+        out = self._render({
+            "type": "assistant",
+            "timestamp": "2026-04-19T02:43:59.801738+00:00",
+            "payload": {"content": [{"type": "text", "text": "hi"}]},
+        }, verbose=True)
+        assert "2026-04-19T02:43:59.801738+00:00" in out
 
 
 # ---------------------------------------------------------------------------
