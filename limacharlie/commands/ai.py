@@ -464,12 +464,18 @@ group.add_command(session_group)
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_SESSION_LIST = """\
-List AI sessions for the organization.  By default all sessions are
-returned; use --status to filter by state.
+List AI sessions for the organization.  By default every matching
+session is returned; pagination is drained automatically.
 
 Statuses: running, starting, ended.
 
-Pagination is supported via --limit and --cursor.
+Flags:
+  --status   Filter by session status.
+  --limit    Total cap on returned sessions (default: unlimited).
+  --cursor   Fetch a single page starting from this cursor.  Switches
+             output to a raw {sessions, next_cursor} dict so callers
+             can resume pagination explicitly.  Intended for scripted
+             / streaming access; most users should omit this flag.
 
 The initial_prompt field is truncated in the listing.  Use
 'ai session get --id <ID>' to see the full prompt.
@@ -478,23 +484,32 @@ Example:
   limacharlie ai session list
   limacharlie ai session list --status running
   limacharlie ai session list --limit 10
+  limacharlie ai session list --cursor <CURSOR>
 """
 register_explain("ai.session.list", _EXPLAIN_SESSION_LIST)
 
 
 @session_group.command("list")
 @click.option("--status", default=None, help="Filter by session status (running, starting, ended).")
-@click.option("--limit", default=None, type=int, help="Max results per page (1-200, default 50).")
-@click.option("--cursor", default=None, help="Pagination cursor from a previous response.")
+@click.option("--limit", default=None, type=int,
+              help="Total cap on returned sessions (or per-page size if --cursor is given).")
+@click.option("--cursor", default=None,
+              help="Fetch a single page from this cursor; disables auto-drain.")
 @pass_context
 def session_list(ctx, status, limit, cursor) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
-    data = sdk.list_sessions(status=status, limit=limit, cursor=cursor)
-    # Truncate prompts in the listing to keep output readable.
-    if "sessions" in data:
-        data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
-    _output(ctx, data)
+    if cursor is not None:
+        # Explicit pagination: single page, raw response so the caller
+        # can grab next_cursor.
+        data = sdk.list_sessions_page(status=status, limit=limit, cursor=cursor)
+        if "sessions" in data:
+            data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
+        _output(ctx, data)
+        return
+    sessions = [_clean_session_for_list(s)
+                for s in sdk.list_sessions(status=status, limit=limit)]
+    _output(ctx, sessions)
 
 
 # ---------------------------------------------------------------------------
@@ -574,31 +589,20 @@ Example:
 """
 register_explain("ai.session.history", _EXPLAIN_SESSION_HISTORY)
 
-# System subtypes that are internal plumbing, not useful conversation.
-_SYSTEM_INIT_SUBTYPES = frozenset({
-    "credential_diagnostics",
-    "init_received",
-    "claude_md_loaded",
-    "mcp_config_debug",
-    "mcp_servers_set",
-    "model_set",
-    "max_turns_set",
-    "max_budget_set",
-    "oid_added_to_system_prompt",
-    "permission_mode_set",
-    "tools_configured",
-    "system_prompt_set",
-    "sdk_session_id",
-})
-
-
 def _filter_history(messages: list[dict]) -> list[dict]:
-    """Remove internal system init messages from history."""
+    """Remove internal system init messages from history.
+
+    Reuses the single source-of-truth noise set defined alongside the
+    live-stream renderer in ``_ai_attach`` so both surfaces hide the
+    same plumbing subtypes.
+    """
+    from ._ai_attach import _NOISY_SYSTEM_SUBTYPES
+
     filtered = []
     for m in messages:
         if m.get("type") == "system":
             payload = m.get("payload", {})
-            if isinstance(payload, dict) and payload.get("subtype") in _SYSTEM_INIT_SUBTYPES:
+            if isinstance(payload, dict) and payload.get("subtype") in _NOISY_SYSTEM_SUBTYPES:
                 continue
         filtered.append(m)
     return filtered
@@ -669,8 +673,10 @@ register_explain("ai.session.attach", _EXPLAIN_SESSION_ATTACH)
               help="Don't render the initial history block on connect.")
 @click.option("--raw", is_flag=True, default=False,
               help="Print raw JSON messages instead of pretty formatting.")
+@click.option("--verbose", "-v", is_flag=True, default=False,
+              help="Show plumbing system/status messages and full ISO timestamps.")
 @pass_context
-def session_attach(ctx, session_id, read_only, interactive, no_history, raw) -> None:
+def session_attach(ctx, session_id, read_only, interactive, no_history, raw, verbose) -> None:
     from ._ai_attach import run_attach
 
     org = _get_org(ctx)
@@ -681,6 +687,7 @@ def session_attach(ctx, session_id, read_only, interactive, no_history, raw) -> 
         interactive=interactive,
         show_history=not no_history,
         raw=raw,
+        verbose=verbose,
     )
     ctx.exit(exit_code)
 
@@ -741,4 +748,381 @@ def usage_get(ctx, identity) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.get_usage(identity)
+    _output(ctx, data)
+
+
+# ===========================================================================
+# auth subgroup – per-user Claude credential management
+#
+# The `ai chat` command runs user-owned sessions, which require the
+# caller to have Claude credentials (OAuth token or Anthropic API key)
+# stored server-side.  `ai start-session` and its org-owned workflow
+# are unaffected — those use an anthropic_secret from the ai_agent
+# template and do not depend on these commands.
+# ===========================================================================
+
+@click.group("auth")
+def auth_group() -> None:
+    """Manage per-user credentials for AI sessions.
+
+    The ``claude`` subgroup stores the Anthropic credential that
+    user-owned sessions (``ai chat``) use to talk to Claude.  Org-owned
+    sessions (``ai start-session``) ignore these and use the template's
+    ``anthropic_secret`` instead.
+    """
+
+group.add_command(auth_group)
+
+
+@click.group("claude")
+def claude_auth_group() -> None:
+    """Manage the authenticated user's stored Anthropic credential."""
+
+auth_group.add_command(claude_auth_group)
+
+
+# ---------------------------------------------------------------------------
+# auth claude status
+# ---------------------------------------------------------------------------
+
+@claude_auth_group.command("status")
+@pass_context
+def claude_auth_status(ctx) -> None:
+    """Show whether the authenticated user has Claude credentials stored."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.claude_auth_status())
+
+
+# ---------------------------------------------------------------------------
+# auth claude login  (interactive browser OAuth flow)
+# ---------------------------------------------------------------------------
+
+_CLAUDE_OAUTH_POLL_SECONDS = 2.0
+_CLAUDE_OAUTH_POLL_TIMEOUT = 120.0
+
+
+@claude_auth_group.command("login")
+@pass_context
+def claude_auth_login(ctx) -> None:
+    """Run the interactive browser OAuth flow to store a Claude token.
+
+    Starts a server-side OAuth job, prints the URL to visit in your
+    browser, and prompts for the authorization code returned by Claude.
+    On success the credential is stored server-side and usable by
+    ``ai chat``.
+    """
+    import time
+
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+
+    start = sdk.claude_login_start()
+    oauth_session_id = start.get("oauth_session_id")
+    if not oauth_session_id:
+        raise click.ClickException(
+            f"server returned no oauth_session_id: {start}"
+        )
+
+    # Poll until the URL is ready.
+    url = None
+    deadline = time.monotonic() + _CLAUDE_OAUTH_POLL_TIMEOUT
+    while time.monotonic() < deadline:
+        resp = sdk.claude_login_get_url(oauth_session_id)
+        status = resp.get("status")
+        if status == "ready" and resp.get("url"):
+            url = resp["url"]
+            break
+        if status == "failed":
+            raise click.ClickException(
+                f"OAuth flow failed: {resp.get('error') or resp.get('message')}"
+            )
+        time.sleep(_CLAUDE_OAUTH_POLL_SECONDS)
+    if url is None:
+        raise click.ClickException(
+            "timed out waiting for OAuth URL from server"
+        )
+
+    click.echo("Open this URL in your browser, approve, then paste the code below:")
+    click.echo(f"  {url}")
+    code = click.prompt("Code", hide_input=True)
+
+    result = sdk.claude_login_submit_code(oauth_session_id, code)
+    if not result.get("success"):
+        raise click.ClickException(
+            f"server rejected OAuth code: {result.get('error') or result.get('message')}"
+        )
+    _output(ctx, result)
+
+
+# ---------------------------------------------------------------------------
+# auth claude set-key  (non-interactive, direct API key)
+# ---------------------------------------------------------------------------
+
+@claude_auth_group.command("set-key")
+@click.option("--key", default=None,
+              help="Anthropic API key. Literal value or hive://secret/<name>. "
+                   "Mutually exclusive with --key-from-stdin.")
+@click.option("--key-from-stdin", is_flag=True, default=False,
+              help="Read the API key from stdin (useful for piping).")
+@pass_context
+def claude_auth_set_key(ctx, key, key_from_stdin) -> None:
+    """Store a raw Anthropic API key for the authenticated user."""
+    import sys
+
+    if key and key_from_stdin:
+        raise click.UsageError("--key and --key-from-stdin are mutually exclusive")
+    if not key and not key_from_stdin:
+        raise click.UsageError("one of --key or --key-from-stdin is required")
+    if key_from_stdin:
+        key = sys.stdin.read().strip()
+    if not key:
+        raise click.UsageError("API key is empty")
+
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.claude_set_apikey(key))
+
+
+# ---------------------------------------------------------------------------
+# auth claude logout
+# ---------------------------------------------------------------------------
+
+@claude_auth_group.command("logout")
+@pass_context
+def claude_auth_logout(ctx) -> None:
+    """Remove the authenticated user's stored Claude credential."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.claude_logout())
+
+
+# ===========================================================================
+# chat – user-owned interactive session
+# ===========================================================================
+
+_EXPLAIN_CHAT = """\
+Create a fresh user-owned AI session and drop into an interactive
+chat.  Unlike 'ai start-session' (which runs an ai_agent template
+on behalf of the organization), this command starts a blank session
+owned by the authenticated user and streams an interactive WebSocket
+conversation over it.
+
+Prerequisites:
+  * The user must have stored a Claude credential.  Run one of:
+      limacharlie ai auth claude login        # browser OAuth
+      limacharlie ai auth claude set-key ...  # raw API key
+
+Billing and credentials:
+  * Sessions created here bill against the caller's registered Claude
+    credential (OAuth token or API key), not the org's anthropic_secret.
+
+Supplying a prompt on the command line (argument or via stdin) seeds
+the session; you can keep chatting afterwards by typing into stdin.
+'/interrupt' and '/quit' behave as in 'ai session attach'.
+
+Example:
+  limacharlie ai chat "what sensors do I have in the last 24h?"
+  echo "summarise today's detections" | limacharlie ai chat
+  limacharlie ai chat --model claude-sonnet-4-6 --max-budget-usd 1.00
+"""
+register_explain("ai.chat", _EXPLAIN_CHAT)
+
+
+@group.command("chat")
+@click.argument("prompt", required=False)
+@click.option("--name", default=None, help="Session name.")
+@click.option("--model", default=None,
+              help="Anthropic model (e.g. claude-sonnet-4-6).")
+@click.option("--max-turns", default=None, type=int,
+              help="Maximum number of agent turns before auto-stop.")
+@click.option("--max-budget-usd", default=None, type=float,
+              help="Hard USD cost cap for the session.")
+@click.option("--task-budget-tokens", default=None, type=int,
+              help="Per-task token budget.")
+@click.option("--permission-mode", default=None,
+              type=click.Choice(["acceptEdits", "plan", "bypassPermissions"]),
+              help="Permission mode for tool use.")
+@click.option("--allowed-tools", default=None,
+              help="Comma-separated list of allowed tool names.")
+@click.option("--denied-tools", default=None,
+              help="Comma-separated list of denied tool names.")
+@click.option("--plugin", "plugins", multiple=True,
+              help="Repeatable. Plugin names to enable.")
+@click.option("--idempotent-key", default=None,
+              help="Deduplication key for session creation.")
+@click.option("--verbose", "-v", is_flag=True, default=False,
+              help="Show plumbing system/status messages and full ISO timestamps.")
+@pass_context
+def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
+         task_budget_tokens, permission_mode,
+         allowed_tools, denied_tools, plugins, idempotent_key, verbose) -> None:
+    from ._ai_attach import run_attach
+
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+
+    # Verify the user has Claude credentials before spending effort
+    # creating a session that would immediately fail.
+    status = sdk.claude_auth_status()
+    if not status.get("has_credentials"):
+        raise click.ClickException(
+            "No Claude credentials registered for this user. Run one of:\n"
+            "  limacharlie ai auth claude login\n"
+            "  limacharlie ai auth claude set-key --key <ANTHROPIC_API_KEY>"
+        )
+
+    # Register is idempotent server-side; calling it here lets a
+    # first-time user run `ai chat` immediately after `auth claude
+    # set-key` without a separate step.
+    sdk.register_user()
+
+    # The opening prompt is the PROMPT argument; further turns come
+    # from interactive stdin once the session is attached.  We do NOT
+    # consume stdin as the prompt: piping multiple lines used to glue
+    # them into one prompt and then leave stdin empty for follow-ups.
+    initial_prompt = prompt
+
+    plugins_override: list[str] | None = list(plugins) if plugins else None
+
+    created = sdk.create_user_session(
+        name=name,
+        idempotent_key=idempotent_key,
+        model=model,
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        task_budget_tokens=task_budget_tokens,
+        permission_mode=permission_mode,
+        allowed_tools=_split_csv(allowed_tools),
+        denied_tools=_split_csv(denied_tools),
+        plugins=plugins_override,
+    )
+    # The POST /v1/sessions handler returns the session under a
+    # "session" key (same shape as `ai session get`).  Fall back to a
+    # top-level id for forward compatibility if that ever changes.
+    session_obj = created.get("session") or created
+    session_id = session_obj.get("id") or session_obj.get("session_id")
+    if not session_id:
+        raise click.ClickException(
+            f"server response missing session id: {created}"
+        )
+    click.echo(f"Started session {session_id}", err=True)
+
+    exit_code = run_attach(
+        sdk, session_id,
+        read_only=False,
+        interactive=True,
+        show_history=False,
+        raw=False,
+        verbose=verbose,
+        initial_prompt=initial_prompt,
+    )
+    ctx.exit(exit_code)
+
+
+# ===========================================================================
+# chats subgroup – manage user-owned sessions (the counterpart to
+# `ai session`, which manages org-owned sessions).  Mirrors the org
+# commands one-for-one but routes through the user-scoped REST API.
+# ===========================================================================
+
+@click.group("chats")
+def chats_group() -> None:
+    """Manage user-owned AI sessions (started via ``ai chat``).
+
+    The ``ai session`` group manages org-owned sessions (started via
+    ``ai start-session``); this group is the same surface for the
+    user-owned sessions that ``ai chat`` creates.  Sessions of one
+    kind are not visible from the other group's commands.
+    """
+
+group.add_command(chats_group)
+
+
+# ---------------------------------------------------------------------------
+# chats list
+# ---------------------------------------------------------------------------
+
+@chats_group.command("list")
+@click.option("--status", default=None,
+              help="Filter by session status (running, starting, ended).")
+@click.option("--limit", default=None, type=int,
+              help="Total cap on returned sessions (or per-page size if --cursor is given).")
+@click.option("--cursor", default=None,
+              help="Fetch a single page from this cursor; disables auto-drain.")
+@pass_context
+def chats_list(ctx, status, limit, cursor) -> None:
+    """List the authenticated user's AI sessions.
+
+    By default every matching session is returned; pagination is
+    drained automatically.  Pass --cursor to fetch a single page and
+    receive the raw {sessions, next_cursor} dict for explicit
+    pagination control (intended for scripted access).
+    """
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    if cursor is not None:
+        data = sdk.list_user_sessions_page(status=status, limit=limit,
+                                           cursor=cursor)
+        if "sessions" in data:
+            data["sessions"] = [_clean_session_for_list(s) for s in data["sessions"]]
+        _output(ctx, data)
+        return
+    sessions = [_clean_session_for_list(s)
+                for s in sdk.list_user_sessions(status=status, limit=limit)]
+    _output(ctx, sessions)
+
+
+# ---------------------------------------------------------------------------
+# chats get
+# ---------------------------------------------------------------------------
+
+@chats_group.command("get")
+@click.option("--id", "session_id", required=True, help="Session ID.")
+@click.option("--full-prompt", is_flag=True, default=False,
+              help="Include the full initial_prompt text.")
+@pass_context
+def chats_get(ctx, session_id, full_prompt) -> None:
+    """Get details of one of the user's AI sessions."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.get_user_session(session_id)
+    if not full_prompt and "session" in data:
+        s = data["session"]
+        if isinstance(s, dict) and "initial_prompt" in s:
+            s["initial_prompt"] = _truncate_prompt(s["initial_prompt"])
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# chats terminate
+# ---------------------------------------------------------------------------
+
+@chats_group.command("terminate")
+@click.option("--id", "session_id", required=True,
+              help="Session ID to terminate.")
+@pass_context
+def chats_terminate(ctx, session_id) -> None:
+    """Terminate one of the user's running AI sessions."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    _output(ctx, sdk.terminate_user_session(session_id))
+
+
+# ---------------------------------------------------------------------------
+# chats history
+# ---------------------------------------------------------------------------
+
+@chats_group.command("history")
+@click.option("--id", "session_id", required=True, help="Session ID.")
+@click.option("--raw", is_flag=True, default=False,
+              help="Include all messages including internal system init.")
+@pass_context
+def chats_history(ctx, session_id, raw) -> None:
+    """Show the conversation history of one of the user's AI sessions."""
+    org = _get_org(ctx)
+    sdk = AISDK(org)
+    data = sdk.get_user_session_history(session_id)
+    if not raw and "messages" in data:
+        data["messages"] = _filter_history(data["messages"])
     _output(ctx, data)
