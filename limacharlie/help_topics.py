@@ -601,7 +601,7 @@ CLI usage:
   limacharlie billing plans    - Available plan options
   limacharlie billing invoice  - Invoice history
 
-Billing API uses a separate endpoint (billing.limacharlie.io).
+Billing endpoints are served under api.limacharlie.io at /v1/orgs/{oid}/billing/ and /v1/plans.
 
 Related commands: billing, org
 """
