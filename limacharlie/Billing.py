@@ -12,10 +12,10 @@ class Billing( object ):
         self._manager = manager
 
     def getOrgStatus( self ):
-        return self._manager._apiCall( 'orgs/%s/status' % ( self._manager._oid, ), GET, altRoot = 'https://billing.limacharlie.io/' )
+        return self._manager._apiCall( 'orgs/%s/billing/status' % ( self._manager._oid, ), GET )
 
     def getOrgDetails( self ):
-        return self._manager._apiCall( 'orgs/%s/details' % ( self._manager._oid, ), GET, altRoot = 'https://billing.limacharlie.io/' )
+        return self._manager._apiCall( 'orgs/%s/billing/details' % ( self._manager._oid, ), GET )
 
     def getOrgInvoiceURL( self, year, month, format = None ):
         year = str( int( year ) )
@@ -23,13 +23,13 @@ class Billing( object ):
         params = {}
         if format:
             params[ 'format' ] = format
-        return self._manager._apiCall( 'orgs/%s/invoice_url/%s/%s' % ( self._manager._oid, year, month ), GET, altRoot = 'https://billing.limacharlie.io/', queryParams = params )
+        return self._manager._apiCall( 'orgs/%s/billing/invoice/%s/%s' % ( self._manager._oid, year, month ), GET, queryParams = params )
 
     def getAvailablePlans( self ):
-        return self._manager._apiCall( 'user/self/plans', GET, altRoot = 'https://billing.limacharlie.io/' )
-
-    def getUserAuthRequirements( self ):
-        return self._manager._apiCall( 'user/self/auth', GET, altRoot = 'https://billing.limacharlie.io/' )
+        return self._manager._apiCall( 'plans', GET )
 
     def getSkuDefinitions( self ):
-        return self._manager._apiCall( 'orgs/%s/sku-definitions' % ( self._manager._oid, ), GET, altRoot = 'https://billing.limacharlie.io/' )
+        return self._manager._apiCall( 'orgs/%s/billing/sku' % ( self._manager._oid, ), GET )
+
+    def getUserAuthRequirements( self ):
+        return self._manager._apiCall( 'user/self/auth', GET )
