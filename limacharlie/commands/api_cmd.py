@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from typing import Any
 from urllib.parse import quote
@@ -26,12 +27,33 @@ from ..discovery import register_explain
 
 _TARGETS = {
     "api": "https://api.limacharlie.io",
-    "billing": "https://billing.limacharlie.io",
     "jwt": "https://jwt.limacharlie.io",
     "stream": "https://stream-tmp.limacharlie.io",
     "downloads": "https://downloads.limacharlie.io",
     "cases": "https://cases.limacharlie.io",
 }
+
+# Compat shim: the legacy billing.limacharlie.io host is retired and its
+# endpoints have been folded into lc_api under api.limacharlie.io/v1/.
+# --target billing continues to accept the old relative paths and rewrites
+# them to the new lc_api routes. Paths with no legacy counterpart (e.g.
+# /v1/orgs/{oid}/billing/sku, which never existed on the old host) are
+# passed through as-is.
+_BILLING_PATH_REWRITES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^orgs/([^/]+)/status$"), r"orgs/\1/billing/status"),
+    (re.compile(r"^orgs/([^/]+)/details$"), r"orgs/\1/billing/details"),
+    (re.compile(r"^orgs/([^/]+)/invoice_url/(\d{4})/(\d{1,2})$"), r"orgs/\1/billing/invoice/\2/\3"),
+    (re.compile(r"^user/self/plans$"), "plans"),
+]
+
+
+def _rewrite_billing_endpoint(endpoint: str) -> str:
+    """Rewrite a legacy billing-service relative path to its lc_api equivalent."""
+    for pattern, replacement in _BILLING_PATH_REWRITES:
+        rewritten, n = pattern.subn(replacement, endpoint)
+        if n:
+            return rewritten
+    return endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +171,10 @@ Use --json to send a JSON body instead.  -F coerces bools, ints, and supports
 @file for reading values from files.  Alternatively, use --input to send
 a raw body from a file or stdin.
 
-Target aliases: api (default), billing, jwt, stream, downloads, cases.
+Target aliases: api (default), jwt, stream, downloads, cases.
+The deprecated 'billing' alias is still accepted; legacy billing-service
+paths (orgs/{oid}/status, user/self/plans, invoice_url/...) are rewritten
+to their new /v1/ counterparts on api.limacharlie.io.
 Any other value is treated as a raw https:// URL.
 
 Non-200 responses are NOT errors: the raw response body is printed and the
@@ -166,7 +191,7 @@ register_explain("api", _EXPLAIN_API)
 @click.option("--json", "use_json", is_flag=True, help="Send fields as JSON body instead of form-encoded.")
 @click.option("--input", "input_file", default=None, help="Request body from file (use '-' for stdin).")
 @click.option("--content-type", "content_type_override", default=None, help="Content-Type for --input body (default: auto-detect).")
-@click.option("--target", default="api", help="API host alias or URL (aliases: api, billing, jwt, stream, downloads, cases).")
+@click.option("--target", default="api", help="API host alias or URL (aliases: api, jwt, stream, downloads, cases; billing is a deprecated alias that rewrites legacy paths to api).")
 @click.option("-i", "--include", "include_status", is_flag=True, help="Show HTTP status code in output.")
 @click.option("--silent", is_flag=True, help="Suppress response body.")
 @click.option("--no-auth", is_flag=True, help="Skip authentication.")
@@ -200,16 +225,19 @@ def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[
         effective_method = method.upper()
 
     # --- Resolve target ---
-    if target in _TARGETS:
-        target_url = _TARGETS[target]
+    # The legacy "billing" alias is a compat shim: rewrite the endpoint and
+    # route through api.limacharlie.io/v1/ like the default "api" target.
+    if target == "billing":
+        endpoint = _rewrite_billing_endpoint(endpoint)
+        alt_root = None
+    elif target == "api":
+        alt_root = None
+    elif target in _TARGETS:
+        alt_root = _TARGETS[target]
     elif target.startswith("https://") or target.startswith("http://"):
-        target_url = target
+        alt_root = target
     else:
-        target_url = f"https://{target}"
-
-    # For the default "api" target, use alt_root=None so _rest_call
-    # builds ROOT_URL/v1/<endpoint>.  For everything else, use alt_root.
-    alt_root = None if target == "api" else target_url
+        alt_root = f"https://{target}"
 
     # --- Create client ---
     client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
