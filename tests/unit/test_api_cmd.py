@@ -98,13 +98,54 @@ class TestTargetResolution:
             _, kwargs = mock_cls.return_value.raw_request.call_args
             assert kwargs.get("alt_root") is None
 
-    def test_billing_target(self):
+    def test_billing_target_is_rewritten_to_api(self):
+        # --target billing is a deprecated shim: it routes through api.limacharlie.io
+        # (alt_root=None) and rewrites legacy billing-service paths to /v1/ paths.
         with _patch_client() as mock_cls:
             runner = CliRunner()
             result = runner.invoke(cli, ["api", "--target", "billing", "orgs/{oid}/status"])
             assert result.exit_code == 0
-            _, kwargs = mock_cls.return_value.raw_request.call_args
-            assert kwargs["alt_root"] == "https://billing.limacharlie.io"
+            args, kwargs = mock_cls.return_value.raw_request.call_args
+            assert kwargs["alt_root"] is None
+            assert args[1] == f"orgs/{_MOCK_OID}/billing/status"
+
+    def test_billing_target_rewrites_details(self):
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "--target", "billing", "orgs/{oid}/details"])
+            assert result.exit_code == 0
+            args, kwargs = mock_cls.return_value.raw_request.call_args
+            assert kwargs["alt_root"] is None
+            assert args[1] == f"orgs/{_MOCK_OID}/billing/details"
+
+    def test_billing_target_rewrites_invoice_url(self):
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "--target", "billing", "orgs/{oid}/invoice_url/2024/03"])
+            assert result.exit_code == 0
+            args, kwargs = mock_cls.return_value.raw_request.call_args
+            assert kwargs["alt_root"] is None
+            assert args[1] == f"orgs/{_MOCK_OID}/billing/invoice/2024/03"
+
+    def test_billing_target_rewrites_plans(self):
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "--target", "billing", "user/self/plans"])
+            assert result.exit_code == 0
+            args, kwargs = mock_cls.return_value.raw_request.call_args
+            assert kwargs["alt_root"] is None
+            assert args[1] == "plans"
+
+    def test_billing_target_passes_through_unmapped_paths(self):
+        # Paths whose path didn't change (user/self/auth, orgs/{oid}/quota,
+        # domain/{d}/auth) still route through api — endpoint unchanged.
+        with _patch_client() as mock_cls:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["api", "--target", "billing", "user/self/auth"])
+            assert result.exit_code == 0
+            args, kwargs = mock_cls.return_value.raw_request.call_args
+            assert kwargs["alt_root"] is None
+            assert args[1] == "user/self/auth"
 
     def test_cases_target(self):
         with _patch_client() as mock_cls:

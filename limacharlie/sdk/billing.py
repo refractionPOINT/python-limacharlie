@@ -7,8 +7,6 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from .organization import Organization
 
-BILLING_URL = "https://billing.limacharlie.io/"
-
 
 class Billing:
     """Billing and subscription management for a LimaCharlie organization."""
@@ -23,11 +21,11 @@ class Billing:
 
     def get_status(self) -> dict[str, Any]:
         """Get the current billing status for the organization."""
-        return self.client.request("GET", f"orgs/{self._org.oid}/status", alt_root=BILLING_URL)
+        return self.client.request("GET", f"orgs/{self._org.oid}/billing/status")
 
     def get_details(self) -> dict[str, Any]:
         """Get detailed billing information for the organization."""
-        return self.client.request("GET", f"orgs/{self._org.oid}/details", alt_root=BILLING_URL)
+        return self.client.request("GET", f"orgs/{self._org.oid}/billing/details")
 
     def get_invoice_url(self, year: int | str, month: int | str, fmt: str | None = None) -> dict[str, Any]:
         """Get the invoice URL for a specific month.
@@ -45,10 +43,9 @@ class Billing:
         qp: dict[str, str] = {}
         if fmt:
             qp["format"] = fmt
-        return self.client.request("GET", f"orgs/{self._org.oid}/invoice_url/{year}/{month}",
-                                   alt_root=BILLING_URL, query_params=qp or None)
+        return self.client.request("GET", f"orgs/{self._org.oid}/billing/invoice/{year}/{month}",
+                                   query_params=qp or None)
 
     def get_plans(self) -> dict[str, Any]:
         """Get available billing plans."""
-        return self.client.request("GET", "user/self/plans", alt_root=BILLING_URL)
-
+        return self.client.request("GET", "plans")
