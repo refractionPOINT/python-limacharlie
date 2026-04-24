@@ -10,7 +10,7 @@ Global options can appear anywhere on the command line:
 
 ```
 --oid TEXT          Organization ID (overrides env/config)
---output FORMAT     Output format: json, yaml, csv, table, jsonl
+--output FORMAT     Output format: json, yaml, toon, csv, table, jsonl
 --filter EXPR       JMESPath expression to filter/transform output
 --wide / -W         Disable table value truncation (show full values)
 --debug             Print request details
@@ -25,6 +25,7 @@ All commands support `--output` to control the format:
 ```bash
 limacharlie sensor list --output json     # JSON (default when piped)
 limacharlie sensor list --output yaml     # YAML
+limacharlie sensor list --output toon     # TOON (token-efficient, LLM-friendly)
 limacharlie sensor list --output csv      # CSV
 limacharlie sensor list --output table    # Rich table (default for TTY)
 limacharlie sensor list --output jsonl    # Newline-delimited JSON

@@ -3,7 +3,7 @@
 Validates that search results are correctly unwrapped from raw API
 SearchResult objects into user-friendly table output, including event
 row flattening, facet extraction, timeseries extraction, and stats
-summary formatting.  Machine-readable formats (json, yaml, csv, jsonl)
+summary formatting.  Machine-readable formats (json, yaml, toon, csv, jsonl)
 should pass through unchanged.
 """
 
@@ -501,6 +501,16 @@ class TestOutputSearchResults:
         ctx = self._make_ctx(output_format="yaml")
         _output_search_results(ctx, results)
         captured = capsys.readouterr()
+        assert "type: events" in captured.out
+
+    def test_toon_format_passes_raw(self, capsys):
+        """TOON output should pass raw results unchanged."""
+        results = [_make_search_result("events", rows=[_make_event_row()])]
+        ctx = self._make_ctx(output_format="toon")
+        _output_search_results(ctx, results)
+        captured = capsys.readouterr()
+        # TOON encodes strings containing ":" by quoting; the key/value
+        # pair for "type" stays as "type: events" regardless.
         assert "type: events" in captured.out
 
     def test_jsonl_format_passes_raw(self, capsys):

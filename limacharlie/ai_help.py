@@ -136,7 +136,7 @@ def _top_level_help(cli: click.Group) -> str:
     lines.append("These can appear anywhere on the command line:")
     lines.append("```")
     lines.append("--oid OID          Override organization ID")
-    lines.append("--output FORMAT    json | yaml | table | csv | jsonl")
+    lines.append("--output FORMAT    json | yaml | toon | table | csv | jsonl")
     lines.append("--wide             Don't truncate table columns")
     lines.append("--filter JMESPATH  Filter/transform output")
     lines.append("--fields f1,f2     Select specific output fields")

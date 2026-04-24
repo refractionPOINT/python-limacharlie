@@ -332,7 +332,7 @@ class _LazyCommandGroup(click.Group):
 @click.option("--oid", default=None, help="Organization ID (overrides env/config).")
 @click.option(
     "--output", "output_format",
-    type=click.Choice(["json", "yaml", "csv", "table", "jsonl"], case_sensitive=False),
+    type=click.Choice(["json", "yaml", "toon", "csv", "table", "jsonl"], case_sensitive=False),
     default=None,
     help="Output format. Default: table (TTY) or json (piped).",
 )
