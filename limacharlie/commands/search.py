@@ -2203,9 +2203,9 @@ def checkpoint_show(ctx: click.Context, checkpoint_path: str | None, raw: bool, 
     - json: streaming JSON array
     - expand: one event block at a time
 
-    For CSV and YAML, loads all results into memory (inherent to those
-    formats). For large checkpoints with these formats, use ``--output
-    jsonl`` and pipe to external tools.
+    For CSV, YAML, and TOON, loads all results into memory (inherent to
+    those formats). For large checkpoints with these formats, use
+    ``--output jsonl`` and pipe to external tools.
     """
     if not checkpoint_path:
         click.echo("Error: --checkpoint is required.", err=True)

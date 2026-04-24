@@ -73,8 +73,44 @@ class TestFormatToon:
         assert toon_format.decode(result) == data
 
     def test_none(self):
-        # TOON encodes None as 'null'; decode returns it back.
         assert toon_format.decode(format_toon(None)) is None
+
+    def test_list_of_dicts_uses_tabular_form(self):
+        """Uniform list-of-dicts should emit the compact tabular form
+        ([N]{fields}:) rather than repeating keys per row. This is the
+        whole point of TOON for token-efficient LLM prompts."""
+        data = [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
+        result = format_toon(data)
+        # Header line declares length + field names once.
+        first_line = result.splitlines()[0]
+        assert first_line.startswith("[2]")
+        assert "a" in first_line and "b" in first_line
+
+    def test_nested_structure_roundtrip(self):
+        data = {"org": "acme", "sensors": [{"sid": "s1", "plat": "win"}]}
+        result = format_toon(data)
+        assert toon_format.decode(result) == data
+
+    def test_unicode(self):
+        data = {"name": "héllo 🎉"}
+        result = format_toon(data)
+        assert toon_format.decode(result) == data
+
+    def test_empty_list(self):
+        assert toon_format.decode(format_toon([])) == []
+
+    def test_raises_import_error_when_missing(self):
+        """format_toon should raise a descriptive ImportError if the
+        toon_format package is unavailable at call time."""
+        import limacharlie.output as output_mod
+        saved = output_mod._toon_format
+        output_mod._toon_format = None
+        try:
+            import pytest
+            with pytest.raises(ImportError, match="toon_format"):
+                format_toon({"a": 1})
+        finally:
+            output_mod._toon_format = saved
 
 
 class TestFormatCsv:
@@ -187,6 +223,23 @@ class TestFormatOutput:
     def test_toon_format(self):
         result = format_output({"key": "val"}, fmt="toon")
         assert toon_format.decode(result) == {"key": "val"}
+
+    def test_toon_respects_field_selection(self):
+        data = [{"name": "a", "value": 1, "extra": "x"}]
+        result = format_output(data, fmt="toon", fields=["name", "value"])
+        decoded = toon_format.decode(result)
+        assert decoded == [{"name": "a", "value": 1}]
+
+    def test_toon_respects_jmespath_filter(self):
+        data = {"items": [1, 2, 3]}
+        result = format_output(data, fmt="toon", filter_expr="items[0]")
+        assert toon_format.decode(result) == 1
+
+    def test_toon_respects_sort(self):
+        data = [{"n": "b"}, {"n": "a"}, {"n": "c"}]
+        result = format_output(data, fmt="toon", sort_by="n")
+        decoded = toon_format.decode(result)
+        assert [item["n"] for item in decoded] == ["a", "b", "c"]
 
     def test_csv_format(self):
         result = format_output([{"a": 1}], fmt="csv")
