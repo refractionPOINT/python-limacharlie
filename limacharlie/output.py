@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Output formatting for LimaCharlie CLI v2.
 
-Supports multiple output formats: json, yaml, csv, table, jsonl.
+Supports multiple output formats: json, yaml, toon, csv, table, jsonl.
 Handles field selection, jmespath filtering, sorting, and auto-detection
 of output mode based on whether stdout is a TTY.
 """
@@ -27,6 +27,11 @@ try:
     from tabulate import tabulate
 except ImportError:
     tabulate = None
+
+try:
+    import toon_format as _toon_format
+except ImportError:
+    _toon_format = None
 
 # Module-level flags set by the CLI before any command runs.
 _wide_mode: bool = False
@@ -69,7 +74,7 @@ def format_output(
 
     Args:
         data: The data to format (dict, list, or primitive).
-        fmt: Output format ('json', 'yaml', 'csv', 'table', 'jsonl').
+        fmt: Output format ('json', 'yaml', 'toon', 'csv', 'table', 'jsonl').
              None means auto-detect.
         fields: List of field names to include (for list-of-dicts data).
         filter_expr: JMESPath expression for filtering.
@@ -109,6 +114,8 @@ def format_output(
         return format_json(data)
     elif fmt == "yaml":
         return format_yaml(data)
+    elif fmt == "toon":
+        return format_toon(data)
     elif fmt == "csv":
         return format_csv(data)
     elif fmt == "table":
@@ -131,6 +138,24 @@ def format_json(data: Any) -> str:
 def format_yaml(data: Any) -> str:
     """Format data as YAML."""
     return yaml.dump(data, default_flow_style=False, allow_unicode=True).rstrip()
+
+
+def format_toon(data: Any) -> str:
+    """Format data as TOON (Token-Oriented Object Notation).
+
+    TOON is a compact, LLM-friendly serialization format that combines
+    YAML-style indentation with CSV-style tabular arrays for uniform data.
+    Useful for feeding CLI output into LLM prompts with ~30-60% fewer
+    tokens than equivalent JSON.
+
+    See https://toonformat.dev for the spec.
+    """
+    if _toon_format is None:
+        raise ImportError(
+            "toon_format is required for --output toon. "
+            "Install with: pip install toon_format"
+        )
+    return _toon_format.encode(data)
 
 
 def format_csv(data: Any) -> str:

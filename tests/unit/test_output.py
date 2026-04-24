@@ -9,6 +9,7 @@ from limacharlie.output import (
     format_output,
     format_json,
     format_yaml,
+    format_toon,
     format_csv,
     format_table,
     format_jsonl,
@@ -19,6 +20,8 @@ from limacharlie.output import (
     _max_value_width,
     _table_value,
 )
+
+import toon_format
 
 
 class TestFormatJson:
@@ -51,6 +54,27 @@ class TestFormatYaml:
         result = format_yaml([1, 2, 3])
         parsed = yaml.safe_load(result)
         assert parsed == [1, 2, 3]
+
+
+class TestFormatToon:
+    def test_dict_roundtrip(self):
+        data = {"name": "Alice", "age": 30}
+        result = format_toon(data)
+        assert toon_format.decode(result) == data
+
+    def test_list_of_dicts_roundtrip(self):
+        data = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+        result = format_toon(data)
+        assert toon_format.decode(result) == data
+
+    def test_list_of_primitives_roundtrip(self):
+        data = [1, 2, 3]
+        result = format_toon(data)
+        assert toon_format.decode(result) == data
+
+    def test_none(self):
+        # TOON encodes None as 'null'; decode returns it back.
+        assert toon_format.decode(format_toon(None)) is None
 
 
 class TestFormatCsv:
@@ -159,6 +183,10 @@ class TestFormatOutput:
     def test_yaml_format(self):
         result = format_output({"key": "val"}, fmt="yaml")
         assert yaml.safe_load(result) == {"key": "val"}
+
+    def test_toon_format(self):
+        result = format_output({"key": "val"}, fmt="toon")
+        assert toon_format.decode(result) == {"key": "val"}
 
     def test_csv_format(self):
         result = format_output([{"a": 1}], fmt="csv")

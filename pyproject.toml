@@ -39,6 +39,7 @@ dependencies = [
     "orjson>=3.10.0,<3.11; python_version < '3.10'",
     "orjson>=3.10.0; python_version >= '3.10'",
     "websockets>=13.0",
+    "toon_format>=0.9.0b1,<1.0",
 ]
 
 [project.optional-dependencies]

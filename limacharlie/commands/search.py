@@ -8,7 +8,7 @@ metadata like searchResultId, type, nextToken, and stats.  For human-
 readable table output, these wrappers are unwrapped: event rows are
 flattened into a single table, facets and timeseries are shown as
 separate tables, and a stats summary is printed to stderr.  Machine-
-readable formats (json, yaml, csv, jsonl) pass through the raw API
+readable formats (json, yaml, toon, csv, jsonl) pass through the raw API
 response unchanged.
 """
 
@@ -579,7 +579,7 @@ def _stream_search_output(
         _stream_table_events(results_iter, wide=ctx.obj.wide)
         return True
 
-    # CSV, YAML, raw: cannot stream - need full list.
+    # CSV, YAML, TOON, raw: cannot stream - need full list.
     return False
 
 
@@ -938,7 +938,7 @@ def _output_search_results(
     For --expand: prints each event as a pretty-printed JSON block with
     a header showing timestamp, stream, and event type.
 
-    For machine-readable formats (json, yaml, csv, jsonl): passes the
+    For machine-readable formats (json, yaml, toon, csv, jsonl): passes the
     raw API results through unchanged.
 
     Note: requires the full results list in memory. Table formatting
@@ -1223,7 +1223,7 @@ Examples:
 
 Output formats:
   By default, results are rendered as a table (TTY) or JSON (piped).
-  Use --output to choose: json, jsonl, yaml, csv, table.
+  Use --output to choose: json, jsonl, yaml, toon, csv, table.
 
   Streaming behavior (constant memory):
     --output jsonl  - one JSON object per line, streamed immediately
@@ -1234,6 +1234,7 @@ Output formats:
   Buffered (loads all results into memory):
     --output csv    - needs all rows for column headers
     --output yaml   - needs all rows for YAML structure
+    --output toon   - needs all rows to infer tabular schema
 
   Use --expand to show each event as a full pretty-printed JSON block
   with a header showing timestamp, stream, and event type. Useful for
@@ -1373,7 +1374,7 @@ def _run_normal(
     time_range = end - start
     fmt = ctx.obj.output_format or detect_output_format()
     _warn_cost_if_over_30_days(ctx, query, start, end, stream, checkpoint_path=None)
-    if time_range > _LARGE_TIME_RANGE_WARN_SECONDS and fmt in ("csv", "yaml"):
+    if time_range > _LARGE_TIME_RANGE_WARN_SECONDS and fmt in ("csv", "yaml", "toon"):
         days = time_range / 86400
         _warn(
             ctx,
