@@ -201,6 +201,25 @@ class TestHiveSet:
         assert "rule%2Fwith%2Fslashes" in call_args[0][1]
 
 
+class TestHiveGetSchema:
+    def test_get_schema(self, hive, mock_org):
+        mock_org.client.request.return_value = {
+            "schema": {"$ref": "#/$defs/SecretRecord"},
+        }
+        result = hive.get_schema()
+        assert result == {"schema": {"$ref": "#/$defs/SecretRecord"}}
+        mock_org.client.request.assert_called_once_with(
+            "GET", "hive/dr-general/schema"
+        )
+
+    def test_get_schema_url_escapes_hive_name(self, mock_org):
+        h = Hive(mock_org, "weird/name")
+        mock_org.client.request.return_value = {"schema": {}}
+        h.get_schema()
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][1] == "hive/weird%2Fname/schema"
+
+
 class TestHiveDelete:
     def test_delete(self, hive, mock_org):
         hive.delete("old-rule")
