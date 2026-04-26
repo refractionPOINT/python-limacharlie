@@ -388,6 +388,37 @@ def validate(ctx, hive_name, key, input_file) -> None:
 
 
 # ---------------------------------------------------------------------------
+# schema
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_SCHEMA = """\
+Get the JSON Schema describing the record type for a given hive.  The
+schema documents the structure, fields, and types accepted by records
+in that hive — useful for tooling, code generation, or validating
+records before calling 'set'.
+
+Not all hives expose a typed schema.  Hives without a typed record
+format (e.g., dr-general, dr-managed, dr-service, fp,
+extension_config) return an error indicating no schema is available.
+
+Example:
+  limacharlie hive schema --hive-name secret
+  limacharlie hive schema --hive-name lookup
+"""
+register_explain("hive.schema", _EXPLAIN_SCHEMA)
+
+
+@group.command()
+@click.option("--hive-name", required=True, help="Hive name (e.g., secret, lookup, yara).")
+@pass_context
+def schema(ctx, hive_name) -> None:
+    org = _get_org(ctx)
+    hive = Hive(org, hive_name)
+    data = hive.get_schema()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
 # rename
 # ---------------------------------------------------------------------------
 

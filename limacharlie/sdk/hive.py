@@ -251,6 +251,17 @@ class Hive:
             params=req,
         )
 
+    def get_schema(self) -> dict[str, Any]:
+        """Get the JSON Schema describing this hive's record type.
+
+        Returns:
+            dict: API response with a 'schema' field containing the JSON Schema.
+        """
+        return self.client.request(
+            "GET",
+            f"hive/{urlescape(self._hive_name, safe='')}/schema",
+        )
+
     def rename(self, record_name: str, new_name: str) -> dict[str, Any]:
         """Rename a record.
 

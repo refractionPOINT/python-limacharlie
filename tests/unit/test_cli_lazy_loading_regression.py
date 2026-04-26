@@ -163,7 +163,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "help": frozenset({"cheatsheet", "discover", "topic"}),
     "hive": frozenset({
         "delete", "disable", "enable", "export", "get", "import",
-        "list", "list-types", "rename", "set", "validate",
+        "list", "list-types", "rename", "schema", "set", "validate",
     }),
     "ingestion-key": frozenset({"create", "delete", "list"}),
     "installation-key": frozenset({"create", "delete", "get", "list"}),
