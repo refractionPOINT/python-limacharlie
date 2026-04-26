@@ -70,7 +70,11 @@ def test_v2_org_list_accessible_orgs(oid, key):
         assert "orgs" in result, f"Expected 'orgs' key, got keys: {list(result.keys())}"
     except LimaCharlieError as e:
         # list_accessible_orgs requires a user-scoped JWT (oid="-") which
-        # API keys cannot obtain.
-        assert "unknown api key" in str(e).lower() or "unauthorized" in str(e).lower(), (
-            f"Unexpected error (expected auth failure): {e}"
-        )
+        # API keys cannot obtain — the JWT service rejects with one of
+        # several auth-failure phrasings depending on backend version.
+        msg = str(e).lower()
+        assert (
+            "unknown api key" in msg
+            or "unauthorized" in msg
+            or "user not found" in msg
+        ), f"Unexpected error (expected auth failure): {e}"
