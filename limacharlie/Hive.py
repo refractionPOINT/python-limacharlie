@@ -28,6 +28,184 @@ def reportError( msg ):
     sys.stderr.write( msg + '\n' )
     sys.exit( 1 )
 
+
+class HiveID( object ):
+    def __init__( self, name, partition ):
+        self.name = name
+        self.partition = partition
+    
+    def to_dict( self ):
+        return {
+            'name': self.name,
+            'partition': self.partition
+        }
+
+
+class RecordID( object ):
+    def __init__( self, hive, name, guid = None ):
+        self.hive = hive if isinstance( hive, HiveID ) else HiveID( hive[ 'name' ], hive[ 'partition' ] )
+        self.name = name
+        self.guid = guid
+    
+    def to_dict( self ):
+        result = {
+            'hive': self.hive.to_dict(),
+            'name': self.name
+        }
+        if self.guid:
+            result[ 'guid' ] = self.guid
+        return result
+
+
+class ConfigRecordMutation( object ):
+    def __init__( self, data = None, usr_mtd = None, sys_mtd = None, arl = None ):
+        self.data = data
+        self.usr_mtd = usr_mtd
+        self.sys_mtd = sys_mtd
+        self.arl = arl
+    
+    def to_dict( self ):
+        result = {}
+        if self.data is not None:
+            result[ 'data' ] = self.data
+        if self.usr_mtd is not None:
+            result[ 'usr_mtd' ] = self.usr_mtd
+        if self.sys_mtd is not None:
+            result[ 'sys_mtd' ] = self.sys_mtd
+        if self.arl is not None:
+            result[ 'arl' ] = self.arl
+        return result
+
+
+class HiveBatch( object ):
+    def __init__( self, hive ):
+        self._hive = hive
+        self._requests = []
+    
+    def get_record( self, record_id ):
+        '''Add a get record operation to the batch.
+        
+        Args:
+            record_id: RecordID object or dict with hive, name, and optional guid
+        '''
+        if not isinstance( record_id, RecordID ):
+            record_id = RecordID( 
+                record_id.get( 'hive' ), 
+                record_id.get( 'name' ), 
+                record_id.get( 'guid' )
+            )
+        self._requests.append( {
+            'get_record': {
+                'record_id': record_id.to_dict()
+            }
+        } )
+    
+    def get_record_mtd( self, record_id ):
+        '''Add a get record metadata operation to the batch.
+        
+        Args:
+            record_id: RecordID object or dict with hive, name, and optional guid
+        '''
+        if not isinstance( record_id, RecordID ):
+            record_id = RecordID( 
+                record_id.get( 'hive' ), 
+                record_id.get( 'name' ), 
+                record_id.get( 'guid' )
+            )
+        self._requests.append( {
+            'get_record_mtd': {
+                'record_id': record_id.to_dict()
+            }
+        } )
+    
+    def set_record( self, record_id, config ):
+        '''Add a set record operation to the batch.
+        
+        Args:
+            record_id: RecordID object or dict with hive, name, and optional guid
+            config: ConfigRecordMutation object or dict with data, usr_mtd, sys_mtd, arl
+        '''
+        if not isinstance( record_id, RecordID ):
+            record_id = RecordID( 
+                record_id.get( 'hive' ), 
+                record_id.get( 'name' ), 
+                record_id.get( 'guid' )
+            )
+        if not isinstance( config, ConfigRecordMutation ):
+            config = ConfigRecordMutation( 
+                config.get( 'data' ),
+                config.get( 'usr_mtd' ),
+                config.get( 'sys_mtd' ),
+                config.get( 'arl' )
+            )
+        self._requests.append( {
+            'set_record': {
+                'record_id': record_id.to_dict(),
+                'record': config.to_dict()
+            }
+        } )
+    
+    def set_record_mtd( self, record_id, usr_mtd, sys_mtd ):
+        '''Add a set record metadata operation to the batch.
+        
+        Args:
+            record_id: RecordID object or dict with hive, name, and optional guid
+            usr_mtd: User metadata dict
+            sys_mtd: System metadata dict
+        '''
+        if not isinstance( record_id, RecordID ):
+            record_id = RecordID( 
+                record_id.get( 'hive' ), 
+                record_id.get( 'name' ), 
+                record_id.get( 'guid' )
+            )
+        self._requests.append( {
+            'set_record_mtd': {
+                'record_id': record_id.to_dict(),
+                'usr_mtd': usr_mtd,
+                'sys_mtd': sys_mtd
+            }
+        } )
+    
+    def del_record( self, record_id ):
+        '''Add a delete record operation to the batch.
+        
+        Args:
+            record_id: RecordID object or dict with hive, name, and optional guid
+        '''
+        if not isinstance( record_id, RecordID ):
+            record_id = RecordID( 
+                record_id.get( 'hive' ), 
+                record_id.get( 'name' ), 
+                record_id.get( 'guid' )
+            )
+        self._requests.append( {
+            'delete_record': {
+                'record_id': record_id.to_dict()
+            }
+        } )
+    
+    def execute( self ):
+        '''Execute all batched operations in a single API call.
+        
+        Returns:
+            List of response dicts, each containing 'data' and/or 'error' fields
+        '''
+        if not self._requests:
+            return []
+        
+        # Prepare the request parameters
+        params = {}
+        for req in self._requests:
+            params.setdefault( 'request', [] ).append( json.dumps( req ) )
+        
+        # Make the API call
+        resp = self._hive._man._apiCall( 'hive', POST, params )
+        
+        # Return the responses
+        return resp.get( 'responses', [] )
+
+
 class Hive( object ):
     def __init__( self, man, hiveName, altPartitionKey = None ):
         self._hiveName = hiveName
@@ -114,6 +292,14 @@ class Hive( object ):
 
         return self._man._apiCall(
             'hive/%s/%s/%s/%s' % (self._hiveName, self._partitionKey, urlescape(record_name, safe=''), target), POST, queryParams=params)
+    
+    def new_batch_operations( self ):
+        '''Create a new batch operations context for this hive.
+        
+        Returns:
+            HiveBatch object for building and executing batch operations
+        '''
+        return HiveBatch( self )
 
 class HiveRecord( object ):
     def __init__( self, recordName, data, api = None ):
