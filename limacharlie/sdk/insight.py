@@ -64,21 +64,29 @@ class Insight:
             query_params=qp,
         )
 
-    def batch_search(self, objects: dict[str, list[str]], case_sensitive: bool = True) -> dict[str, Any]:
+    def batch_search(self, objects: dict[str, list[str]], case_sensitive: bool = True,
+                     info: str = "summary", limit: int | None = None) -> dict[str, Any]:
         """Batch IOC search.
 
         Args:
             objects: Dict of type -> list of values.
             case_sensitive: Case-sensitive matching.
+            info: Type of information to receive ('summary' or 'locations').
+                'summary' returns the four-bucket prevalence counts per indicator.
+                'locations' additionally returns a per-indicator capped list of sensor IDs.
+            limit: Per-indicator location cap when info='locations' (default 100, max 1000).
+                Ignored when info='summary'.
 
         Returns:
             dict: Batch results.
         """
-        # V1 uses form-encoded params
         params = {
             "objects": json.dumps({k: list(v) for k, v in objects.items()}),
             "case_sensitive": "true" if case_sensitive else "false",
+            "info": info,
         }
+        if limit is not None:
+            params["limit"] = str(limit)
         return self.client.request(
             "POST",
             f"insight/{self._org.oid}/objects",
