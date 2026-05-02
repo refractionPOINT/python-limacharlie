@@ -139,17 +139,30 @@ service_name, package_name.
 This is more efficient than running individual searches when you have
 many IOCs to check.  Data can also be piped via stdin.
 
+--info controls the response shape:
+  summary    four-bucket prevalence counts per indicator (default).
+  locations  prevalence counts plus a capped list of sensor IDs that
+             observed each indicator. Use --limit to set the per-indicator
+             cap (default 100, max 1000).
+
+The whole batch consumes a single ioc-search rate-limit charge regardless
+of --info, which is the main reason to prefer batch-search over fanning
+out per-IOC search calls.
+
 Example:
   limacharlie ioc batch-search --input-file iocs.json
   cat iocs.yaml | limacharlie ioc batch-search
+  limacharlie ioc batch-search --input-file iocs.json --info locations --limit 50
 """
 register_explain("ioc.batch-search", _EXPLAIN_BATCH_SEARCH)
 
 
 @group.command("batch-search")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to JSON file with IOCs ({type: [values]}). Reads stdin if omitted.")
+@click.option("--info", "info", type=click.Choice(["summary", "locations"]), default="summary", show_default=True, help="Response shape: 'summary' counts only, or 'locations' to also return per-indicator sensor IDs.")
+@click.option("--limit", type=int, default=None, help="Per-indicator location cap when --info=locations (default 100, max 1000).")
 @pass_context
-def batch_search(ctx: click.Context, input_file: str | None) -> None:
+def batch_search(ctx: click.Context, input_file: str | None, info: str, limit: int | None) -> None:
     data = _load_input(input_file)
     if data is None:
         click.echo(
@@ -167,7 +180,7 @@ def batch_search(ctx: click.Context, input_file: str | None) -> None:
 
     org = _get_org(ctx)
     insight = Insight(org)
-    result = insight.batch_search(data)
+    result = insight.batch_search(data, info=info, limit=limit)
     _output(ctx, result)
 
 

@@ -109,6 +109,8 @@ class TestInsightBatchSearch:
         decoded = json.loads(params["objects"])
         assert decoded == objects
         assert params["case_sensitive"] == "true"
+        assert params["info"] == "summary"
+        assert "limit" not in params
 
     def test_case_insensitive(self, insight, mock_org):
         mock_org.client.request.return_value = {"results": {}}
@@ -116,6 +118,27 @@ class TestInsightBatchSearch:
         call_args = mock_org.client.request.call_args
         params = call_args[1]["params"]
         assert params["case_sensitive"] == "false"
+
+    def test_info_locations(self, insight, mock_org):
+        mock_org.client.request.return_value = {"results": {}}
+        insight.batch_search({"domain": ["evil.com"]}, info="locations")
+        call_args = mock_org.client.request.call_args
+        params = call_args[1]["params"]
+        assert params["info"] == "locations"
+
+    def test_limit_included_when_set(self, insight, mock_org):
+        mock_org.client.request.return_value = {"results": {}}
+        insight.batch_search({"domain": ["evil.com"]}, info="locations", limit=50)
+        call_args = mock_org.client.request.call_args
+        params = call_args[1]["params"]
+        assert params["limit"] == "50"
+
+    def test_limit_excluded_when_none(self, insight, mock_org):
+        mock_org.client.request.return_value = {"results": {}}
+        insight.batch_search({"domain": ["evil.com"]}, info="locations")
+        call_args = mock_org.client.request.call_args
+        params = call_args[1]["params"]
+        assert "limit" not in params
 
 
 class TestInsightGetObjectInformation:
