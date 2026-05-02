@@ -69,10 +69,15 @@ in seconds.  If not provided, defaults to the last 24 hours.
 
 Use --limit to cap the number of results returned.
 
+Filter results server-side with --event-type (e.g. hive_set, send_task,
+remove_sensor) or --sid (limit to events relating to a specific sensor).
+
 Examples:
   limacharlie audit list
   limacharlie audit list --start 1700000000 --end 1700100000
   limacharlie audit list --limit 50
+  limacharlie audit list --event-type hive_set
+  limacharlie audit list --sid 37270c5f-53b5-4215-b1ed-d4f60e818a7f
 """
 register_explain("audit.list", _EXPLAIN_LIST)
 
@@ -87,8 +92,16 @@ register_explain("audit.list", _EXPLAIN_LIST)
     help="End time (Unix seconds).  Defaults to now.",
 )
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option(
+    "--event-type", "event_type", default=None,
+    help="Server-side filter: only return events of this type (e.g. hive_set, send_task).",
+)
+@click.option(
+    "--sid", default=None,
+    help="Server-side filter: only return events relating to this sensor ID.",
+)
 @pass_context
-def list_audit(ctx, start, end, limit) -> None:
+def list_audit(ctx, start, end, limit, event_type, sid) -> None:
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
 
@@ -99,5 +112,8 @@ def list_audit(ctx, start, end, limit) -> None:
         start = now - 86400  # 24 hours ago
 
     org = _get_org(ctx)
-    data = list(org.get_audit_logs(start=start, end=end, limit=limit))
+    data = list(org.get_audit_logs(
+        start=start, end=end, limit=limit,
+        event_type=event_type, sid=sid,
+    ))
     _output(ctx, data)
