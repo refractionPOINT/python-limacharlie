@@ -58,11 +58,21 @@ administrative actions including rule changes, user management,
 sensor operations, and API key usage.
 
 Each audit entry contains:
-  ts         - Timestamp of the action
-  who        - Email or API key hash of the actor
-  action     - Action performed (e.g. dr.set, sensor.del)
-  target     - Resource affected
-  details    - Action-specific context
+  oid        - Organization ID
+  ts         - Timestamp of the action (UTC string, "YYYY-MM-DD HH:MM:SS")
+  etype      - Event type (e.g. hive_set, send_task, remove_sensor)
+  msg        - Human-readable description of the action
+
+V2 fields (preferred for new callers):
+  time       - Timestamp (Unix milliseconds)
+  ident      - Identity performing the action (email, API key hash,
+               extension ID, or DR rule)
+  entity     - Object the action is performed on (e.g. {sid: ...})
+  mtd        - Characteristics of the action (action-specific metadata)
+
+Legacy field (V1, retained for backward compatibility):
+  origin     - Pre-V2 actor identity; superseded by ident.  When ident
+               is empty, origin holds the actor.
 
 Time range is specified with --start and --end as Unix timestamps
 in seconds.  If not provided, defaults to the last 24 hours.
