@@ -65,6 +65,8 @@ _SYNC_FLAGS = [
     click.option("--hive-query", is_flag=True, default=False, help="Sync saved queries (hive)."),
     click.option("--hive-playbook", is_flag=True, default=False, help="Sync playbooks (hive)."),
     click.option("--hive-ai-agent", is_flag=True, default=False, help="Sync AI agents (hive)."),
+    click.option("--hive-ai-skill", is_flag=True, default=False, help="Sync AI skills (hive)."),
+    click.option("--hive-ai-memory", is_flag=True, default=False, help="Sync AI agent memories (hive)."),
     click.option("--hive-external-adapter", is_flag=True, default=False, help="Sync external adapters (hive)."),
 ]
 
@@ -82,6 +84,8 @@ _HIVE_FLAG_MAP = {
     "hive_query": "query",
     "hive_playbook": "playbook",
     "hive_ai_agent": "ai_agent",
+    "hive_ai_skill": "ai_skill",
+    "hive_ai_memory": "ai_memory",
     "hive_external_adapter": "external_adapter",
 }
 
@@ -201,6 +205,8 @@ Hive flags (for syncing hive-based resources):
   --hive-query           Saved queries
   --hive-playbook        Playbooks
   --hive-ai-agent        AI agents
+  --hive-ai-skill        AI skills (Claude Code skill definitions)
+  --hive-ai-memory       AI agent memories (partial-merge updates)
   --hive-external-adapter  External adapters
 
 Examples:
@@ -224,7 +230,8 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
          hive_dr_general, hive_dr_managed, hive_dr_service,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
-         hive_playbook, hive_ai_agent, hive_external_adapter) -> None:
+         hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
+         hive_external_adapter) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
@@ -241,6 +248,8 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
         hive_query=hive_query,
         hive_playbook=hive_playbook,
         hive_ai_agent=hive_ai_agent,
+        hive_ai_skill=hive_ai_skill,
+        hive_ai_memory=hive_ai_memory,
         hive_external_adapter=hive_external_adapter,
     )
 
@@ -314,7 +323,8 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
          hive_dr_general, hive_dr_managed, hive_dr_service,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
-         hive_playbook, hive_ai_agent, hive_external_adapter) -> None:
+         hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
+         hive_external_adapter) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
@@ -331,6 +341,8 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
         hive_query=hive_query,
         hive_playbook=hive_playbook,
         hive_ai_agent=hive_ai_agent,
+        hive_ai_skill=hive_ai_skill,
+        hive_ai_memory=hive_ai_memory,
         hive_external_adapter=hive_external_adapter,
     )
 

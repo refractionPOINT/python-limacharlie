@@ -200,7 +200,8 @@ class TestAllHives:
         expected = {
             "dr-general", "dr-managed", "dr-service", "fp",
             "cloud_sensor", "extension_config", "yara", "lookup",
-            "secret", "query", "playbook", "ai_agent", "external_adapter",
+            "secret", "query", "playbook", "ai_agent",
+            "ai_skill", "ai_memory", "external_adapter",
         }
         assert Configs.ALL_HIVES == expected
 

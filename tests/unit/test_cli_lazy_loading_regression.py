@@ -45,14 +45,14 @@ del _ctx, _name
 
 # Every top-level command/group that must be registered on cli.
 EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
-    "ai", "api", "api-key", "arl", "artifact", "audit", "auth", "billing",
-    "case", "cloud-adapter", "completion", "config", "detection", "download", "dr",
-    "endpoint-policy", "event", "exfil", "extension", "external-adapter", "feedback",
-    "fp", "group", "help", "hive", "ingestion-key", "installation-key",
-    "integrity", "ioc", "job", "logging", "lookup", "note", "org", "output",
-    "payload", "playbook", "replay", "schema", "search", "secret", "sensor",
-    "sop", "spotcheck", "stream", "sync", "tag", "task", "user", "usp",
-    "yara",
+    "ai", "ai-memory", "ai-skill", "api", "api-key", "arl", "artifact",
+    "audit", "auth", "billing", "case", "cloud-adapter", "completion", "config",
+    "detection", "download", "dr", "endpoint-policy", "event", "exfil",
+    "extension", "external-adapter", "feedback", "fp", "group", "help", "hive",
+    "ingestion-key", "installation-key", "integrity", "ioc", "job", "logging",
+    "lookup", "note", "org", "output", "payload", "playbook", "replay",
+    "schema", "search", "secret", "sensor", "sop", "spotcheck", "stream",
+    "sync", "tag", "task", "user", "usp", "yara",
 })
 
 # Module filename -> (attribute name, Click command name).
@@ -60,6 +60,8 @@ EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
 EXPECTED_MODULE_MAP = {
     "adapter": ("group", "external-adapter"),
     "ai": ("group", "ai"),
+    "ai_memory": ("group", "ai-memory"),
+    "ai_skill": ("group", "ai-skill"),
     "api_cmd": ("cmd", "api"),
     "api_key": ("group", "api-key"),
     "arl": ("group", "arl"),
@@ -119,6 +121,10 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "generate-response", "generate-rule", "generate-selector",
         "session", "start-session", "summarize-detection", "usage",
     }),
+    "ai-memory": frozenset({
+        "delete", "delete-record", "get", "list", "list-records", "set",
+    }),
+    "ai-skill": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
     "api-key": frozenset({"create", "delete", "list"}),
     "arl": frozenset({"get"}),
     "artifact": frozenset({"download", "list", "upload"}),

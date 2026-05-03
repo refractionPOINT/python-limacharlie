@@ -94,6 +94,8 @@ _KNOWN_HIVE_TYPES = [
     "query",
     "playbook",
     "ai_agent",
+    "ai_skill",
+    "ai_memory",
     "external_adapter",
     "sop",
     "org_notes",
@@ -136,6 +138,8 @@ hold configuration data.  Common hive names include:
   sop              - Standard operating procedures
   org_notes        - Organization notes
   ai_agent         - AI agent configurations
+  ai_skill         - Claude Code skill definitions
+  ai_memory        - AI agent memories (partial-merge updates)
 
 Each record returned contains:
   data     - The record payload (structure varies by hive type)
@@ -454,11 +458,12 @@ Hives are key-value stores that hold different types of configuration
 data for a LimaCharlie organization.  Each hive type stores a specific
 kind of data.  Known types: dr-general, dr-managed, dr-service, fp,
 cloud_sensor, extension_config, yara, lookup, secret, query, playbook,
-ai_agent, external_adapter, sop, org_notes.
+ai_agent, ai_skill, ai_memory, external_adapter, sop, org_notes.
 
 Use these names with --hive-name in other hive commands.  Some hive
 types also have dedicated shortcut commands (e.g. "limacharlie lookup",
-"limacharlie secret", "limacharlie yara").
+"limacharlie secret", "limacharlie yara", "limacharlie ai-skill",
+"limacharlie ai-memory").
 """
 register_explain("hive.list-types", _EXPLAIN_LIST_TYPES)
 
