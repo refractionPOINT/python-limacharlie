@@ -1246,6 +1246,8 @@ Features in the API gateway that are **NOT** in the current CLI and are **added 
 | `query` | Saved LCQL queries | Reusable queries |
 | `playbook` | Automation playbooks | Response automation |
 | `ai_agent` | AI agent configurations | AI agent settings |
+| `ai_skill` | Claude Code skill definitions | Reusable AI skill specs |
+| `ai_memory` | AI agent memories (partial-merge) | Per-agent memory store |
 | `external_adapter` | External adapter configs | Third-party integrations |
 | `sop` | Standard Operating Procedures | Runbooks |
 | `note` | Organization notes | Documentation |

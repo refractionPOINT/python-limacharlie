@@ -52,6 +52,8 @@ class Configs:
         "query",
         "playbook",
         "ai_agent",
+        "ai_skill",
+        "ai_memory",
         "external_adapter",
     }
 

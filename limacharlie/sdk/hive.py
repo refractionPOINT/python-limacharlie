@@ -155,7 +155,14 @@ class Hive:
             "GET",
             f"hive/{self._hive_name}/{self._partition_key}/{urlescape(record_name, safe='')}/mtd",
         )
-        return HiveRecord.from_raw(record_name, resp)
+        record = HiveRecord.from_raw(record_name, resp)
+        # The /mtd endpoint serializes ``data`` as ``{}`` even though only
+        # metadata is being returned. Clearing the field here keeps
+        # ``set()`` on the round-tripped record routing to /mtd (rather
+        # than /data with an empty payload, which trips required-field
+        # validators on typed hives like ai_skill or ai_agent).
+        record.data = None
+        return record
 
     def set(self, record: HiveRecord) -> dict[str, Any]:
         """Create or update a record.
