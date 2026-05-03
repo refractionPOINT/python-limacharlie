@@ -134,6 +134,27 @@ class TestHiveGet:
             "GET", "hive/dr-general/test-oid/my-key/mtd"
         )
 
+    def test_get_metadata_clears_empty_data_envelope(self, hive, mock_org):
+        """The /mtd endpoint returns ``"data": {}`` even though it is a
+        metadata-only fetch. ``get_metadata`` must drop that envelope so
+        a subsequent ``set()`` stays on the /mtd routing path — otherwise
+        typed hives with required fields (ai_skill, ai_agent, ...) reject
+        the disable/enable flow on an empty data validator pass."""
+        mock_org.client.request.return_value = {
+            "data": {},
+            "usr_mtd": {"enabled": True},
+            "sys_mtd": {"etag": "e3"},
+        }
+        rec = hive.get_metadata("my-key")
+        assert rec.data is None
+
+        # Round-trip: a follow-up set() must target /mtd, not /data.
+        mock_org.client.request.reset_mock()
+        rec.enabled = False
+        hive.set(rec)
+        url = mock_org.client.request.call_args[0][1]
+        assert url.endswith("/my-key/mtd"), url
+
 
 class TestHiveSet:
     def test_set_record_with_data(self, hive, mock_org):
