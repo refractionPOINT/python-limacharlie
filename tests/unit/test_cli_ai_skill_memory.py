@@ -87,6 +87,7 @@ class TestAiMemorySetCli:
     @patch("limacharlie.commands.ai_memory.Organization")
     def test_set_with_content_flag(self, mock_org_cls, mock_client_cls):
         mock_client = MagicMock()
+        mock_client.request.return_value = {}
         mock_client_cls.return_value = mock_client
         mock_org = MagicMock()
         mock_org.oid = "test-oid"
@@ -114,6 +115,7 @@ class TestAiMemorySetCli:
     @patch("limacharlie.commands.ai_memory.Organization")
     def test_set_with_stdin(self, mock_org_cls, mock_client_cls):
         mock_client = MagicMock()
+        mock_client.request.return_value = {}
         mock_client_cls.return_value = mock_client
         mock_org = MagicMock()
         mock_org.oid = "test-oid"
@@ -135,6 +137,7 @@ class TestAiMemorySetCli:
         """Critical: the CLI must trust the merge hook, not round-trip
         through GET to fetch the existing record."""
         mock_client = MagicMock()
+        mock_client.request.return_value = {}
         mock_client_cls.return_value = mock_client
         mock_org = MagicMock()
         mock_org.oid = "test-oid"
@@ -164,6 +167,7 @@ class TestAiMemoryDeleteCli:
     @patch("limacharlie.commands.ai_memory.Organization")
     def test_delete_sends_null_for_named_memory(self, mock_org_cls, mock_client_cls):
         mock_client = MagicMock()
+        mock_client.request.return_value = {}
         mock_client_cls.return_value = mock_client
         mock_org = MagicMock()
         mock_org.oid = "test-oid"
@@ -193,6 +197,7 @@ class TestAiMemoryDeleteCli:
     def test_delete_record_uses_delete_verb(self, mock_org_cls, mock_client_cls):
         """delete-record removes the whole agent record, not via the merge."""
         mock_client = MagicMock()
+        mock_client.request.return_value = {}
         mock_client_cls.return_value = mock_client
         mock_org = MagicMock()
         mock_org.oid = "test-oid"
