@@ -146,6 +146,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "task": ("task", "group"),
     "user": ("user", "group"),
     "usp": ("usp", "group"),
+    "vulnerability": ("vulnerability", "group"),
     "yara": ("yara", "group"),
 }
 
