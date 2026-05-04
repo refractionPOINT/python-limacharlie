@@ -52,7 +52,7 @@ EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
     "ingestion-key", "installation-key", "integrity", "ioc", "job", "logging",
     "lookup", "note", "org", "output", "payload", "playbook", "replay",
     "schema", "search", "secret", "sensor", "sop", "spotcheck", "stream",
-    "sync", "tag", "task", "user", "usp", "yara",
+    "sync", "tag", "task", "user", "usp", "vulnerability", "yara",
 })
 
 # Module filename -> (attribute name, Click command name).
@@ -110,6 +110,7 @@ EXPECTED_MODULE_MAP = {
     "task": ("group", "task"),
     "user": ("group", "user"),
     "usp": ("group", "usp"),
+    "vulnerability": ("group", "vulnerability"),
     "yara": ("group", "yara"),
 }
 
@@ -210,6 +211,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     }),
     "user": frozenset({"invite", "list", "permissions", "remove"}),
     "usp": frozenset({"validate"}),
+    "vulnerability": frozenset({"cve", "dashboard", "host", "scan"}),
     "yara": frozenset({
         "rule-add", "rule-delete", "rules-list", "scan",
         "source-add", "source-delete", "source-get", "sources-list",

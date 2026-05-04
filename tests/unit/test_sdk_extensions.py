@@ -155,3 +155,21 @@ class TestExtensionsRequest:
         mock_org.client.request.return_value = {}
         ext.request("ext-zeek", "get_logs", {}, is_impersonated=True)
         mock_org.client.refresh_jwt.assert_called_once()
+
+    def test_unwrap_default_false_returns_envelope(self, ext, mock_org):
+        envelope = {"data": {"x": 1}, "error": "", "retry": False}
+        mock_org.client.request.return_value = envelope
+        assert ext.request("ext-zeek", "ping") == envelope
+
+    def test_unwrap_true_returns_data_field(self, ext, mock_org):
+        mock_org.client.request.return_value = {
+            "data": {"x": 1}, "error": "", "retry": False,
+        }
+        assert ext.request("ext-zeek", "ping", unwrap=True) == {"x": 1}
+
+    def test_unwrap_true_with_no_data_key_returns_envelope(self, ext, mock_org):
+        # Defensive: if the API ever returns something that isn't the
+        # standard envelope, unwrap=True must not crash — just hand back
+        # whatever we got.
+        mock_org.client.request.return_value = {"unexpected": "shape"}
+        assert ext.request("ext-zeek", "ping", unwrap=True) == {"unexpected": "shape"}
