@@ -70,11 +70,16 @@ file-mode 0600.
 
 Two authentication methods are supported:
 
-  API Key:   limacharlie auth login --oid <OID> --api-key <KEY>
-  OAuth:     limacharlie auth login --oauth [--oid <OID>]
+  API Key (org-scoped):   limacharlie auth login --oid <OID> --api-key <KEY>
+  API Key (user-scoped):  limacharlie auth login --uid <UID> --api-key <KEY>
+  OAuth:                  limacharlie auth login --oauth [--oid <OID>]
 
-For API key login, supply --oid and --api-key.  If you are using a
-user-scoped API key, also pass --uid.
+For API key login, supply --api-key together with either --oid (for an
+Organization API Key generated under an org's settings) or --uid (for a
+User API Key generated under your account profile).  User-scoped keys
+do not require --oid and are the right choice for brand-new accounts
+that have not created an org yet -- run 'auth list-orgs' afterwards to
+discover your OIDs.
 
 For OAuth login, pass --oauth to authenticate via your browser using
 Google or Microsoft.  Use --provider to choose (default: google).
@@ -155,8 +160,27 @@ def login(ctx: click.Context, oid: str | None, api_key: str | None, environment:
         return
 
     write_credentials(env_name, oid=oid, api_key=api_key, uid=uid or "")
+
+    # User-scoped login (--uid + --api-key, no --oid): clear any stale oid
+    # left over from a previous org-scoped login in this env, otherwise the
+    # new user creds would silently inherit the old org context.
+    if not oid and uid:
+        _clear_stale_oid(env_name)
+
     if not ctx.obj.quiet:
         click.echo(f"Credentials saved for environment '{env_name}'.")
+
+
+def _clear_stale_oid(env_name: str) -> None:
+    """Remove any stale ``oid`` field from the given environment block."""
+    config = load_config() or {}
+    if env_name == "default" or env_name is None:
+        if config.pop("oid", None) is not None:
+            save_config(config)
+    else:
+        env_data = config.get("env", {}).get(env_name, {})
+        if env_data.pop("oid", None) is not None:
+            save_config(config)
 
 
 def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: str, no_browser: bool) -> None:
