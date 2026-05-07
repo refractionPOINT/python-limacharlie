@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=75.8.0", "wheel", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "limacharlie"
+dynamic = ["version"]
+description = "Python SDK and CLI for the LimaCharlie endpoint detection and response platform"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{name = "Maxime Lamothe-Brassard", email = "maxime@refractionpoint.com"}]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests==2.32.3",
+    "passlib==1.7.4",
+    "pyyaml==6.0.2",
+    "tabulate==0.9.0",
+    "termcolor==2.5.0",
+    "pygments==2.19.1",
+    "rich==13.9.4",
+    "cryptography==46.0.3",
+    "click==8.1.8",
+    "jmespath==1.1.0",
+    "orjson>=3.10.0,<3.11; python_version < '3.10'",
+    "orjson>=3.10.0; python_version >= '3.10'",
+    "websockets>=13.0",
+    "toon_format>=0.9.0b1,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-rerunfailures==15.0",
+    "pytest-benchmark>=5.0.0",
+    "tomli>=1.0; python_version < '3.11'",
+]
+
+[project.scripts]
+limacharlie = "limacharlie.cli:main"
+
+[project.urls]
+Homepage = "https://limacharlie.io"
+Documentation = "https://docs.limacharlie.io"
+Repository = "https://github.com/refractionPOINT/python-limacharlie"
+Issues = "https://github.com/refractionPOINT/python-limacharlie/issues"
+Changelog = "https://github.com/refractionPOINT/python-limacharlie/blob/master/CHANGELOG.md"
+"REST API Docs" = "https://docs.limacharlie.io/apidocs"
+
+[tool.pytest.ini_options]
+# Default: run unit tests and microbenchmarks (as single-run correctness tests).
+# Microbenchmarks use --benchmark-disable so each test runs once without timing.
+# Integration tests are excluded (require --oid/--key credentials).
+# To run actual benchmarks with timing: pytest tests/microbenchmarks/ --benchmark-only
+testpaths = ["tests/unit", "tests/microbenchmarks"]
+addopts = "--benchmark-disable"
+
+[tool.setuptools.packages.find]
+include = ["limacharlie*"]
+
+[tool.setuptools_scm]
+version_file = "limacharlie/_version.py"

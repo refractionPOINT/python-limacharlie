@@ -1,77 +1,577 @@
+# Use a larger machine for parallel steps. E2_HIGHCPU_8 gives 8 vCPUs
+# which helps when running ~10+ steps concurrently.
+options:
+  machineType: 'E2_HIGHCPU_8'
+
 steps:
-- id: "Run Unit Tests"
-  name: "python:3.11-slim"
+# ---------------------------------------------------------------------------
+# Distribution install checks for each supported Python version (all parallel).
+# Each step: build wheel from source, install in clean dir, verify package.
+# ---------------------------------------------------------------------------
+
+- id: "Dist (Python 3.9)"
+  name: 'python:3.9'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Dist Check: Python 3.9"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-39 && cd /tmp/build-39
+      pip install --upgrade pip setuptools wheel build -q
+      # Create a local-only tag so setuptools-scm generates a real version
+      # instead of 0.0.0.dev0. This tag is never pushed.
+      git tag 99.0.0.dev39 2>/dev/null || true
+      python -m build -q
+      ls -lh dist/
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- Verifying version consistency ---"
+      python -c "
+      from importlib.metadata import version as pkg_version
+      import limacharlie
+
+      meta_ver = pkg_version('limacharlie')
+      attr_ver = limacharlie.__version__
+
+      print(f'importlib.metadata: {meta_ver}')
+      print(f'limacharlie.__version__: {attr_ver}')
+
+      assert meta_ver == attr_ver, (
+          f'Version mismatch: importlib.metadata={meta_ver!r} vs '
+          f'__version__={attr_ver!r}'
+      )
+      assert attr_ver != '0.0.0.dev0', (
+          f'__version__ is the fallback 0.0.0.dev0 - _version.py import failed'
+      )
+      print(f'Version consistency: OK ({meta_ver})')
+      "
+
+      echo "--- Verifying orjson (expect 3.10.x on Python 3.9) ---"
+      python -c "
+      import orjson
+      v = tuple(int(x) for x in orjson.__version__.split('.'))
+      assert v[0] == 3 and v[1] == 10, f'Expected orjson 3.10.x, got {orjson.__version__}'
+      print(f'orjson {orjson.__version__} (OK)')
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.9'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+
+      echo "--- Dist check passed ---"
+  waitFor: ["-"]
+
+- id: "Dist (Python 3.10)"
+  name: 'python:3.10'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Dist Check: Python 3.10"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-310 && cd /tmp/build-310
+      pip install --upgrade pip setuptools wheel build -q
+      git tag 99.0.0.dev310 2>/dev/null || true
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- Verifying version consistency ---"
+      python -c "
+      from importlib.metadata import version as pkg_version
+      import limacharlie
+      meta_ver = pkg_version('limacharlie')
+      attr_ver = limacharlie.__version__
+      assert meta_ver == attr_ver, f'Version mismatch: metadata={meta_ver!r} vs __version__={attr_ver!r}'
+      assert attr_ver != '0.0.0.dev0', '__version__ is fallback 0.0.0.dev0'
+      print(f'Version consistency: OK ({meta_ver})')
+      "
+
+      echo "--- Verifying orjson ---"
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.10+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+
+      echo "--- Dist check passed ---"
+  waitFor: ["-"]
+
+- id: "Dist (Python 3.11)"
+  name: 'python:3.11'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Dist Check: Python 3.11"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-311 && cd /tmp/build-311
+      pip install --upgrade pip setuptools wheel build -q
+      git tag 99.0.0.dev311 2>/dev/null || true
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- Verifying version consistency ---"
+      python -c "
+      from importlib.metadata import version as pkg_version
+      import limacharlie
+      meta_ver = pkg_version('limacharlie')
+      attr_ver = limacharlie.__version__
+      assert meta_ver == attr_ver, f'Version mismatch: metadata={meta_ver!r} vs __version__={attr_ver!r}'
+      assert attr_ver != '0.0.0.dev0', '__version__ is fallback 0.0.0.dev0'
+      print(f'Version consistency: OK ({meta_ver})')
+      "
+
+      echo "--- Verifying orjson ---"
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.11+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+
+      echo "--- Dist check passed ---"
+  waitFor: ["-"]
+
+- id: "Dist (Python 3.12)"
+  name: 'python:3.12'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Dist Check: Python 3.12"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-312 && cd /tmp/build-312
+      pip install --upgrade pip setuptools wheel build -q
+      git tag 99.0.0.dev312 2>/dev/null || true
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- Verifying version consistency ---"
+      python -c "
+      from importlib.metadata import version as pkg_version
+      import limacharlie
+      meta_ver = pkg_version('limacharlie')
+      attr_ver = limacharlie.__version__
+      assert meta_ver == attr_ver, f'Version mismatch: metadata={meta_ver!r} vs __version__={attr_ver!r}'
+      assert attr_ver != '0.0.0.dev0', '__version__ is fallback 0.0.0.dev0'
+      print(f'Version consistency: OK ({meta_ver})')
+      "
+
+      echo "--- Verifying orjson ---"
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.12+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+
+      echo "--- Dist check passed ---"
+  waitFor: ["-"]
+
+- id: "Dist (Python 3.13)"
+  name: 'python:3.13'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Dist Check: Python 3.13"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-313 && cd /tmp/build-313
+      pip install --upgrade pip setuptools wheel build -q
+      git tag 99.0.0.dev313 2>/dev/null || true
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- Verifying version consistency ---"
+      python -c "
+      from importlib.metadata import version as pkg_version
+      import limacharlie
+      meta_ver = pkg_version('limacharlie')
+      attr_ver = limacharlie.__version__
+      assert meta_ver == attr_ver, f'Version mismatch: metadata={meta_ver!r} vs __version__={attr_ver!r}'
+      assert attr_ver != '0.0.0.dev0', '__version__ is fallback 0.0.0.dev0'
+      print(f'Version consistency: OK ({meta_ver})')
+      "
+
+      echo "--- Verifying orjson ---"
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.13+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+
+      echo "--- Dist check passed ---"
+  waitFor: ["-"]
+
+- id: "Dist (Python 3.14)"
+  name: 'python:3.14'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Dist Check: Python 3.14"
+      echo "=========================================="
+
+      echo "--- Building wheel ---"
+      cp -r /workspace /tmp/build-314 && cd /tmp/build-314
+      pip install --upgrade pip setuptools wheel build -q
+      git tag 99.0.0.dev314 2>/dev/null || true
+      python -m build -q
+
+      echo "--- Installing wheel ---"
+      pip install dist/limacharlie-*-py3-none-any.whl -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- Verifying version consistency ---"
+      python -c "
+      from importlib.metadata import version as pkg_version
+      import limacharlie
+      meta_ver = pkg_version('limacharlie')
+      attr_ver = limacharlie.__version__
+      assert meta_ver == attr_ver, f'Version mismatch: metadata={meta_ver!r} vs __version__={attr_ver!r}'
+      assert attr_ver != '0.0.0.dev0', '__version__ is fallback 0.0.0.dev0'
+      print(f'Version consistency: OK ({meta_ver})')
+      "
+
+      echo "--- Verifying orjson ---"
+      python -c "
+      from limacharlie.json_compat import backend_name, HAS_ORJSON
+      assert HAS_ORJSON, 'orjson should be available on Python 3.14+'
+      print(f'JSON backend: {backend_name()} (OK)')
+      "
+
+      echo "--- Dist check passed ---"
+  waitFor: ["-"]
+
+- id: "Dist sdist (Python 3.14)"
+  name: 'python:3.14'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  sdist Check: Python 3.14"
+      echo "=========================================="
+
+      echo "--- Building sdist ---"
+      cp -r /workspace /tmp/build-sdist && cd /tmp/build-sdist
+      pip install --upgrade pip setuptools wheel build -q
+      git tag 99.0.0.dev999 2>/dev/null || true
+      python -m build --sdist -q
+      ls -lh dist/
+
+      echo "--- Installing sdist ---"
+      pip install dist/limacharlie-*.tar.gz -q
+
+      echo "--- Verifying installation ---"
+      pip show limacharlie
+      limacharlie --version
+
+      echo "--- Verifying version consistency ---"
+      python -c "
+      from importlib.metadata import version as pkg_version
+      import limacharlie
+      meta_ver = pkg_version('limacharlie')
+      attr_ver = limacharlie.__version__
+      assert meta_ver == attr_ver, f'Version mismatch: metadata={meta_ver!r} vs __version__={attr_ver!r}'
+      assert attr_ver != '0.0.0.dev0', '__version__ is fallback 0.0.0.dev0'
+      print(f'Version consistency: OK ({meta_ver})')
+      "
+
+      echo "--- sdist check passed ---"
+  waitFor: ["-"]
+
+# ---------------------------------------------------------------------------
+# Unit tests for each supported Python version (all parallel).
+# Install from source (editable-like) to get test dependencies.
+# ---------------------------------------------------------------------------
+
+- id: "Unit Tests (Python 3.9)"
+  name: 'python:3.9'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.9"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-39 && cd /tmp/test-39
+      pip install --upgrade pip -q
+      pip install ".[dev]" "tomli>=1.0" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.10)"
+  name: 'python:3.10'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.10"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-310 && cd /tmp/test-310
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.11)"
+  name: 'python:3.11'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.11"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-311 && cd /tmp/test-311
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.12)"
+  name: 'python:3.12'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.12"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-312 && cd /tmp/test-312
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.13)"
+  name: 'python:3.13'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.13"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-313 && cd /tmp/test-313
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+- id: "Unit Tests (Python 3.14)"
+  name: 'python:3.14'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  Unit Tests: Python 3.14"
+      echo "=========================================="
+
+      cp -r /workspace /tmp/test-314 && cd /tmp/test-314
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
+
+      echo "--- Running unit tests ---"
+      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
+
+      echo "--- Unit tests passed ---"
+  waitFor: ["-"]
+
+# ---------------------------------------------------------------------------
+# Sanity check: latest stable release from PyPI.
+# Installs the currently published version (not the PR branch) and verifies
+# it works. Catches PyPI packaging issues, broken uploads, and dependency
+# regressions in the published package.
+# ---------------------------------------------------------------------------
+
+- id: "PyPI Stable Sanity Check"
+  name: 'python:3.11'
+  entrypoint: "bash"
+  args:
+    - '-c'
+    - |
+      set -e
+      echo "=========================================="
+      echo "  PyPI Stable Sanity Check"
+      echo "=========================================="
+
+      echo "--- Installing latest stable from PyPI ---"
+      pip install --upgrade pip -q
+      pip install limacharlie -q
+      INSTALLED_VERSION=$(python -c "from importlib.metadata import version; print(version('limacharlie'))")
+      echo "Installed version: $${INSTALLED_VERSION}"
+
+      echo "--- Verifying package metadata ---"
+      pip show limacharlie
+
+      echo "--- Verifying version is valid semver ---"
+      python -c "
+      import re
+      from importlib.metadata import version
+      v = version('limacharlie')
+      assert v, 'version is empty'
+      assert re.match(r'^\d+\.\d+\.\d+', v), f'version {v!r} does not look like semver'
+      print(f'Package version: {v} (OK)')
+      "
+
+      echo "--- Verifying CLI entry point ---"
+      limacharlie --version
+
+      echo "--- Verifying CLI --help ---"
+      limacharlie --help | head -20
+
+      echo "--- Verifying SDK core imports ---"
+      python -c "
+      from limacharlie.client import Client
+      from limacharlie.config import resolve_credentials, load_config
+      print('SDK core imports OK')
+      "
+
+      echo "--- Verifying CLI command groups load ---"
+      for cmd in auth sensor org dr search tag hive event; do
+        echo -n "  $${cmd} --help: "
+        limacharlie $${cmd} --help > /dev/null 2>&1 && echo 'OK' || echo 'FAILED'
+      done
+
+      echo "--- Verifying completion generation ---"
+      limacharlie completion bash > /dev/null
+      echo "Bash completion: OK"
+
+      echo "--- PyPI sanity check passed (version $${INSTALLED_VERSION}) ---"
+  waitFor: ["-"]
+
+# ---------------------------------------------------------------------------
+# Integration tests and benchmarks (Python 3.14 only - tests API behavior,
+# not Python version compat).
+# ---------------------------------------------------------------------------
+
+- id: "Integration Tests"
+  name: "python:3.14"
   entrypoint: "bash"
   args:
     - "-c"
     - |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install -r requirements-tests.txt
+      set -e
+      echo "=========================================="
+      echo "  Integration Tests: Python 3.14"
+      echo "=========================================="
 
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 tests/unit/
-  waitFor: ["-"]  # Run in parallel with other steps.
+      cp -r /workspace /tmp/integ && cd /tmp/integ
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
 
-- id: "Run Integration Tests"
-  name: "python:3.11-slim"
-  entrypoint: "bash"
-  args:
-    - "-c"
-    - |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install -r requirements-tests.txt
-
-      # We use rerun since tests are flaky
+      echo "--- Running integration tests ---"
       pytest -s -v --durations=10 tests/integration/ --oid=${_OID} --key=${_KEY}
-  waitFor: ["-"]  # Run in parallel with other steps.
 
-- id: "Run wheel Sanity Checks"
-  name: 'python:3.9-slim'
+      echo "--- Integration tests passed ---"
+  waitFor: ["-"]
+
+- id: "Microbenchmarks"
+  name: "python:3.14"
   entrypoint: "bash"
   args:
-    - '-c'
+    - "-c"
     - |
       set -e
+      echo "=========================================="
+      echo "  Microbenchmarks: Python 3.14"
+      echo "=========================================="
 
-      cd /workspace/
+      cp -r /workspace /tmp/bench && cd /tmp/bench
+      pip install --upgrade pip -q
+      pip install ".[dev]" -q
 
-      # Install deps
-      pip install --upgrade pip setuptools wheel build
+      echo "--- Running microbenchmarks ---"
+      pytest -v -o 'addopts=' --benchmark-only --benchmark-columns=mean,stddev,rounds tests/microbenchmarks/
 
-      # Build package
-      rm -rf dist/*
-      python -m build
-
-      # Install it
-      pip install dist/limacharlie-*-py3-none-any.whl
-
-      # Verify it works (basic sanity check)
-      pip show limacharlie
-      limacharlie version
-  waitFor: ["-"]  # Run in parallel with other steps.
-
-- id: "Run sdist Sanity Checks"
-  name: 'python:3.9-slim'
-  entrypoint: "bash"
-  args:
-    - '-c'
-    - |
-      set -e
-
-      cd /workspace/
-
-      # Install deps
-      pip install --upgrade pip setuptools wheel build
-
-      # Build package
-      rm -rf dist/*
-      python -m build
-
-      # Install it
-      pip install dist/limacharlie-*.tar.gz
-
-      # Verify it works (basic sanity check)
-      pip show limacharlie
-      limacharlie version
-  waitFor: ["Run wheel Sanity Checks"]  # This can't run in parallel with previous step since it shares workspace
+      echo "--- Microbenchmarks passed ---"
+  waitFor: ["-"]

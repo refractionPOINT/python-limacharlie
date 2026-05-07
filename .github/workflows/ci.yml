@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - cli-v2
+  pull_request:
+    branches:
+      - master
+      - cli-v2
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: "${{ matrix.python-version }}"
+          allow-prereleases: true
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+          # Python 3.9 needs tomli for pyproject.toml parsing in tests
+          if python -c "import sys; sys.exit(0 if sys.version_info < (3, 11) else 1)"; then
+            pip install "tomli>=1.0"
+          fi
+      - name: Run unit tests and microbenchmarks (correctness only)
+        run: pytest tests/unit/ tests/microbenchmarks/ --benchmark-disable -v --reruns 2 --reruns-delay 5

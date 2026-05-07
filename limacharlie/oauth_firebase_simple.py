@@ -222,7 +222,8 @@ class SimpleFirebaseAuth:
                     mfa_pending_credential,
                     mfa_info,
                     provider_id,
-                    data.get('localId')
+                    data.get('localId'),
+                    data.get('email'),
                 )
 
             # No MFA required - return tokens as normal
@@ -244,6 +245,11 @@ class SimpleFirebaseAuth:
             if firebase_uid:
                 result['uid'] = firebase_uid
 
+            # Include email if available (used for account signup)
+            email = data.get('email')
+            if email:
+                result['email'] = email
+
             return result
 
         except requests.exceptions.RequestException as e:
@@ -251,7 +257,8 @@ class SimpleFirebaseAuth:
 
     def _handle_mfa_verification(self, mfa_pending_credential: str,
                                 mfa_info: list, provider_id: str,
-                                firebase_uid: Optional[str]) -> Dict[str, str]:
+                                firebase_uid: Optional[str],
+                                email: Optional[str] = None) -> Dict[str, str]:
         """
         Handle MFA verification flow after OAuth sign-in.
 
@@ -260,6 +267,7 @@ class SimpleFirebaseAuth:
             mfa_info: List of enrolled MFA factors
             provider_id: OAuth provider ID
             firebase_uid: Firebase user ID
+            email: User email from initial signInWithIdp response
 
         Returns:
             Dictionary with MFA-verified tokens
@@ -275,6 +283,8 @@ class SimpleFirebaseAuth:
             tokens['provider'] = provider_id
             if firebase_uid:
                 tokens['uid'] = firebase_uid
+            if email:
+                tokens['email'] = email
 
             return tokens
 

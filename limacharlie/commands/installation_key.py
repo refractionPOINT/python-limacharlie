@@ -1,0 +1,221 @@
+"""Installation key commands for LimaCharlie CLI v2.
+
+Commands for listing, creating, and deleting installation keys.
+Installation keys are used to enroll new sensors into an organization.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import click
+
+from ..cli import pass_context
+from ..client import Client
+from ..sdk.organization import Organization
+from ..sdk.installation_keys import InstallationKeys
+from ..output import format_output, detect_output_format
+from ..discovery import register_explain
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _output(ctx: click.Context, data: Any) -> None:
+    fmt = ctx.obj.output_format or detect_output_format()
+    if not ctx.obj.quiet:
+        click.echo(format_output(data, fmt))
+
+
+def _get_org(ctx: click.Context) -> Organization:
+    client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
+    return Organization(client)
+
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+@click.group("installation-key")
+def group() -> None:
+    """Manage installation keys.
+
+    Installation keys are used to enroll new sensors into the
+    organization.  Each key can have tags that are automatically
+    applied to sensors at enrollment time.
+    """
+
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_LIST = """\
+List all installation keys for the organization.  Installation keys
+are used to enroll new sensors and adapters.
+
+Each key record contains:
+  iid   - Installation key ID (auto-generated UUID, unique per key)
+  desc  - Human-readable description of the key's purpose
+  tags  - List of tags automatically applied at enrollment
+  created - Creation timestamp
+
+The response also includes two key strings that are commonly confused:
+
+  key      - The BINARY installation key (Base64-encoded RPCM payload).
+             This is used to install NATIVE SENSORS (EDR agents) on
+             endpoints.  Pass this value to the sensor installer:
+               ./lc_sensor_64 -i <VALUE_OF_key>
+
+  json_key - The JSON installation key (Base64-encoded JSON object).
+             This is used for BROWSER SENSORS and ADAPTERS (USP).
+             When base64-decoded it contains PRIMARY_URL, SECONDARY_URL,
+             and HCP_IDENT fields.
+
+IMPORTANT: When a user asks to "install a sensor", they almost always
+need the "key" field (the binary key), NOT "json_key".  The "json_key"
+is only needed for browser-based sensors or adapter configurations.
+Do NOT confuse the two.
+
+Use separate keys per deployment segment (e.g., 'production-linux',
+'staging-windows') so tags automatically classify sensors at
+enrollment time.
+"""
+register_explain("installation-key.list", _EXPLAIN_LIST)
+
+
+@group.command("list")
+@pass_context
+def list_keys(ctx) -> None:
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.list()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# get
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_GET = """\
+Get a specific installation key by its IID.  Returns the key's
+description, tags, creation date, and both installation key strings.
+
+The response includes two key strings:
+  key      - Binary installation key (for native sensor installers).
+             Use this value with: ./lc_sensor_64 -i <VALUE_OF_key>
+  json_key - JSON installation key (for browser sensors and adapters).
+
+When a user needs to "install a sensor", provide the "key" field.
+
+Example:
+  limacharlie installation-key get --iid <IID>
+"""
+register_explain("installation-key.get", _EXPLAIN_GET)
+
+
+@group.command("get")
+@click.option("--iid", required=True, help="Installation key ID.")
+@pass_context
+def get_key(ctx, iid) -> None:
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.get(iid)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_CREATE = """\
+Create a new installation key.  The --description is required and
+should identify the purpose of the key (e.g., 'production-linux',
+'staging-windows').
+
+Use --tags to apply tags to sensors enrolled with this key.  Multiple
+tags can be comma-separated.  Tags are applied automatically at
+enrollment and can be used in sensor selectors, D&R rule targeting,
+and fleet filtering.
+
+After creation, use --get to fetch the full key details.  The response
+will include two key strings:
+
+  key      - Binary installation key for NATIVE SENSOR installation.
+             This is the value to pass to the sensor installer:
+               ./lc_sensor_64 -i <VALUE_OF_key>
+
+  json_key - JSON installation key for BROWSER SENSORS and ADAPTERS.
+
+IMPORTANT: For sensor installation, always use the "key" field, not
+"json_key".
+
+Examples:
+  limacharlie installation-key create --description "production linux"
+  limacharlie installation-key create --description "staging" --tags "env:staging,os:windows"
+  limacharlie installation-key create --description "prod" --get
+"""
+register_explain("installation-key.create", _EXPLAIN_CREATE)
+
+
+@group.command()
+@click.option("--description", required=True, help="Key description.")
+@click.option("--tags", default=None, help="Comma-separated tags to apply to enrolled sensors.")
+@click.option("--get", "get_after", is_flag=True, default=False, help="Fetch the full key details after creation.")
+@pass_context
+def create(ctx, description, tags, get_after) -> None:
+    tag_list = None
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.create(description, tags=tag_list)
+    if not ctx.obj.quiet:
+        click.echo("Installation key created.")
+
+    if get_after:
+        iid = data.get("iid") if isinstance(data, dict) else None
+        if iid:
+            data = keys.get(iid)
+
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# delete
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_DELETE = """\
+Delete an installation key by its IID.  Sensors already enrolled
+with this key will not be affected, but no new sensors can enroll
+using it.  The --confirm flag is required to prevent accidental
+deletion.
+
+Example:
+  limacharlie installation-key delete --iid <IID> --confirm
+"""
+register_explain("installation-key.delete", _EXPLAIN_DELETE)
+
+
+@group.command()
+@click.option("--iid", required=True, help="Installation key ID to delete.")
+@click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
+@pass_context
+def delete(ctx, iid, confirm) -> None:
+    if not confirm:
+        click.echo(
+            "Error: Destructive operation requires --confirm flag.\n"
+            "Suggestion: Re-run with --confirm to delete the installation key.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    org = _get_org(ctx)
+    keys = InstallationKeys(org)
+    data = keys.delete(iid)
+    if not ctx.obj.quiet:
+        click.echo(f"Installation key '{iid}' deleted.")
+    _output(ctx, data)
