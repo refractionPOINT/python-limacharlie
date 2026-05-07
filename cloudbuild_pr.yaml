@@ -2,6 +2,30 @@
 # which helps when running ~10+ steps concurrently.
 options:
   machineType: 'E2_HIGHCPU_8'
+  # Workaround for recurring transient PyPI/CDN failures and flaky CI.
+  # We have repeatedly seen pip in this build fail with:
+  #   "Cache entry deserialization failed, entry ignored"
+  #   "Skipping page https://pypi.org/simple/<pkg>/ because the GET request
+  #    got Content-Type: Unknown"
+  # See pypa/pip#11340, pypi/warehouse#12088, pex-tool/pex#2163.
+  # Root causes are PyPI occasionally returning a non-PEP-691 Content-Type
+  # under burst, and cross-pip-version cache deserialization issues. We
+  # cannot fix PyPI, so we make pip resilient instead:
+  #   - PIP_NO_CACHE_DIR: disables the on-disk HTTP cache that triggers the
+  #     deserialization warnings; in this Cloud Build context the cache is
+  #     never reused across builds so we lose nothing meaningful.
+  #   - PIP_RETRIES: pip retries each request up to 10 times before failing.
+  #   - PIP_TIMEOUT: bump per-request timeout so retries actually have time
+  #     to land before the build hits its overall step deadline.
+  #   - PIP_DISABLE_PIP_VERSION_CHECK: silences the version-check probe to
+  #     PyPI on every invocation, removing one more chance to hit the flake.
+  # These vars are inherited into `python -m build`'s isolated env so they
+  # apply to the inner pip used for build-system requirements too.
+  env:
+    - 'PIP_NO_CACHE_DIR=1'
+    - 'PIP_RETRIES=10'
+    - 'PIP_TIMEOUT=60'
+    - 'PIP_DISABLE_PIP_VERSION_CHECK=1'
 
 steps:
 # ---------------------------------------------------------------------------
