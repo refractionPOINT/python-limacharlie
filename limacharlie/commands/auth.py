@@ -129,18 +129,34 @@ def login(ctx: click.Context, oid: str | None, api_key: str | None, environment:
 
     if oauth:
         _login_oauth(ctx, oid, env_name, provider, no_browser)
-    else:
-        if not oid or not api_key:
-            click.echo(
-                "Error: --oid and --api-key are required for API key login.\n"
-                "Suggestion: Use --oauth for browser-based OAuth login, or provide both --oid and --api-key.",
-                err=True,
-            )
-            ctx.exit(4)
-            return
-        write_credentials(env_name, oid=oid, api_key=api_key, uid=uid or "")
-        if not ctx.obj.quiet:
-            click.echo(f"Credentials saved for environment '{env_name}'.")
+        return
+
+    # API key login. Two valid shapes:
+    #   1. --oid + --api-key                — org-scoped key (and optional --uid for service accounts).
+    #   2. --uid + --api-key (oid optional) — user-scoped key on a brand-new account with no orgs yet.
+    if not api_key:
+        click.echo(
+            "Error: --api-key is required for API key login.\n"
+            "Suggestion: Use --oauth for browser-based OAuth login, or provide --api-key with "
+            "either --oid (org-scoped key) or --uid (user-scoped key).",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    if not oid and not uid:
+        click.echo(
+            "Error: provide either --oid (org-scoped key) or --uid (user-scoped key) along with --api-key.\n"
+            "Suggestion: --uid is correct for User API Keys generated under your account profile; "
+            "--oid is correct for Organization API Keys generated under an org's settings.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    write_credentials(env_name, oid=oid, api_key=api_key, uid=uid or "")
+    if not ctx.obj.quiet:
+        click.echo(f"Credentials saved for environment '{env_name}'.")
 
 
 def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: str, no_browser: bool) -> None:
