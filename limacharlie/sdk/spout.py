@@ -1,0 +1,234 @@
+"""Spout (streaming pull) SDK for LimaCharlie v2."""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+from queue import Queue, Empty
+from typing import Any, TYPE_CHECKING
+
+import requests
+
+from ..errors import ValidationError, ApiError
+
+if TYPE_CHECKING:
+    from .organization import Organization
+
+_CLOUD_KEEP_ALIVES = 60
+_TIMEOUT_SEC = (_CLOUD_KEEP_ALIVES * 2) + 1
+_STREAM_URL = "https://stream-tmp.limacharlie.io"
+_VALID_DATA_TYPES = ("event", "detect", "audit", "deployment", "billing")
+
+
+class Spout:
+    """Pull-mode streaming listener for events, detections, or audit logs.
+
+    Connects to stream.limacharlie.io via HTTP POST and receives a
+    continuous stream of newline-delimited JSON records.
+
+    Usage:
+        spout = Spout(org, "event", tag="my-tag")
+        try:
+            while True:
+                data = spout.get(timeout=5)
+                if data is not None:
+                    process(data)
+        finally:
+            spout.shutdown()
+    """
+
+    def __init__(self, org: Organization, data_type: str, is_parse: bool = True,
+                 max_buffer: int = 1024, inv_id: str | None = None, tag: str | None = None,
+                 cat: str | None = None, sid: str | None = None,
+                 extra_params: dict[str, str] | None = None) -> None:
+        """Connect to limacharlie.io to start receiving streaming data.
+
+        Args:
+            org: Organization SDK object (has oid, client with api_key/jwt).
+            data_type: Type of data to stream: event, detect, audit, deployment, billing.
+            is_parse: If True (default), parse each line as JSON.
+            max_buffer: Maximum number of messages to buffer in queue.
+            inv_id: Only receive events with this investigation ID.
+            tag: Only receive events from sensors with this tag.
+            cat: Only receive detections of this category.
+            sid: Only receive events/detections from this sensor.
+            extra_params: Additional parameters for the spout request.
+        """
+        if data_type not in _VALID_DATA_TYPES:
+            raise ValidationError(f"Invalid data type: {data_type}. Must be one of {_VALID_DATA_TYPES}")
+
+        self._org = org
+        self._oid = org.oid
+        self._data_type = data_type
+        self._is_parse = is_parse
+        self._max_buffer = max_buffer
+        self._dropped = 0
+        self._is_stop = False
+        self._connected = threading.Event()
+        self._error: str | None = None
+
+        # Build spout parameters.
+        # Prefer JWT over raw API key: when OAuth is active the Client
+        # generates JWTs from the OAuth token, while a stale api_key may
+        # still be present in the config.  Using the JWT keeps auth
+        # consistent with what Client.request() does.
+        self._spout_params: dict[str, str] = {"type": self._data_type}
+        if hasattr(org, 'client') and org.client._jwt:
+            self._spout_params["jwt"] = org.client._jwt
+        elif hasattr(org, 'client') and org.client._api_key:
+            self._spout_params["api_key"] = org.client._api_key
+        if inv_id is not None:
+            self._spout_params["inv_id"] = inv_id
+        if tag is not None:
+            self._spout_params["tag"] = tag
+        if cat is not None:
+            self._spout_params["cat"] = cat
+        if sid is not None:
+            self._spout_params["sid"] = sid
+        if hasattr(org, 'client') and org.client._uid:
+            self._spout_params["uid"] = org.client._uid
+        if extra_params:
+            self._spout_params.update(extra_params)
+
+        self.queue: Queue[Any] = Queue(maxsize=self._max_buffer)
+        self._threads: list[threading.Thread] = []
+
+        # Connect to stream.
+        self._conn = self._get_stream()
+        if self._conn.status_code != 200:
+            raise ApiError(f"Failed to open spout ({self._conn.status_code}): {self._conn.text}")
+
+        t = threading.Thread(target=self._handle_connection, daemon=True)
+        self._threads.append(t)
+        t.start()
+
+    def _get_stream(self) -> requests.Response:
+        return requests.post(
+            f"{_STREAM_URL}/{self._oid}",
+            data=self._spout_params,
+            stream=True,
+            allow_redirects=False,
+            timeout=_TIMEOUT_SEC,
+        )
+
+    def shutdown(self) -> None:
+        """Stop receiving data and clean up."""
+        if self._is_stop:
+            return
+        self._is_stop = True
+        if self._conn is not None:
+            # We must force-close the underlying socket.  The normal
+            # Response.close() path drains remaining body data for
+            # connection reuse, which blocks indefinitely on a streaming
+            # connection that keeps sending keepalives.  Closing the fd
+            # directly is the only reliable way to unblock iter_lines().
+            try:
+                self._conn.raw._fp.fp.raw.close()
+            except Exception:
+                pass
+            # Close the Response object itself so the iter_lines/iter_content
+            # generator is torn down cleanly.  Without this, GC finalization
+            # of the generator triggers urllib3's _error_catcher which tries
+            # to flush an already-closed socket, causing a ValueError warning
+            # on Python 3.14+.
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+        for t in self._threads:
+            t.join(timeout=2)
+
+    def wait_connected(self, timeout: float = 10) -> bool:
+        """Block until the server confirms the subscription is active.
+
+        The stream-tmp endpoint sends a ``{"__trace":"connected"}`` message
+        once the output subscription has been created and propagated.
+        Callers should wait for this before sending tasks to avoid a race
+        where the task response arrives before the subscription is ready.
+
+        Args:
+            timeout: Seconds to wait for the connected signal.
+
+        Returns:
+            True if connected, False if timeout expired.
+
+        Raises:
+            ApiError: if the server sent an error (auth failure, etc.).
+        """
+        self._connected.wait(timeout=timeout)
+        if self._error is not None:
+            raise ApiError(f"Spout connection failed: {self._error}")
+        return self._connected.is_set()
+
+    def get(self, timeout: int = 1) -> Any | None:
+        """Get next message from the queue.
+
+        Args:
+            timeout: Seconds to wait for a message.
+
+        Returns:
+            The next message, or None if timeout expired.
+        """
+        try:
+            return self.queue.get(timeout=timeout)
+        except Empty:
+            return None
+
+    @property
+    def dropped(self) -> int:
+        """Number of messages dropped because the queue was full."""
+        return self._dropped
+
+    def reset_dropped(self) -> None:
+        """Reset the dropped message counter."""
+        self._dropped = 0
+
+    @property
+    def is_running(self) -> bool:
+        """Whether the spout is still running."""
+        return not self._is_stop
+
+    def _handle_connection(self) -> None:
+        while not self._is_stop:
+            try:
+                for line in self._conn.iter_lines(chunk_size=1024 * 1024 * 10):
+                    if self._is_stop:
+                        break
+                    try:
+                        if self._is_parse:
+                            parsed = json.loads(line.decode())
+                            if "__trace" in parsed:
+                                if parsed["__trace"] == "connected":
+                                    self._connected.set()
+                                elif parsed["__trace"] == "dropped":
+                                    self._dropped += int(parsed.get("n", 0))
+                                continue
+                            self.queue.put_nowait(parsed)
+                        else:
+                            self.queue.put_nowait(line)
+                    except (ValueError, UnicodeDecodeError):
+                        # The stream-tmp server writes plain-text error
+                        # messages (e.g. "error: unauthorized") when auth
+                        # or output creation fails.  Surface these instead
+                        # of silently dropping them.
+                        text = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line)
+                        if text.startswith("error:"):
+                            self._error = text
+                            self._connected.set()  # unblock wait_connected
+                            return
+                        self._dropped += 1
+                    except Exception:
+                        self._dropped += 1
+            except Exception:
+                if self._is_stop:
+                    break
+
+            # Reconnect if not stopped.
+            if not self._is_stop:
+                try:
+                    self._conn = self._get_stream()
+                except Exception:
+                    if not self._is_stop:
+                        time.sleep(5)

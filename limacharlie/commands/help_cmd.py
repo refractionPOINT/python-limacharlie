@@ -1,0 +1,177 @@
+"""Help, discovery, and cheatsheet commands for LimaCharlie CLI v2.
+
+Provides inline help topics, command discovery by use-case profile,
+and quick-reference cheatsheets.
+"""
+
+from __future__ import annotations
+
+import click
+
+from ..cli import pass_context
+from ..help_topics import get_help_topic, list_help_topics, get_cheatsheet, list_cheatsheets
+from ..discovery import format_discovery, register_explain
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Group
+# ---------------------------------------------------------------------------
+
+class _HelpGroup(click.Group):
+    """Help group that falls through to topic lookup for unknown subcommands.
+
+    This allows ``limacharlie help auth`` to work as a shortcut for
+    ``limacharlie help topic auth``.
+    """
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        # Try real subcommands first (topic, discover, cheatsheet).
+        rv = super().get_command(ctx, cmd_name)
+        if rv is not None:
+            return rv
+
+        # Fall through: treat the name as a help topic.
+        content = get_help_topic(cmd_name)
+        if content is not None:
+            @click.command(cmd_name, hidden=True)
+            def _show_topic() -> None:
+                click.echo(content)
+            return _show_topic
+
+        return None
+
+    def resolve_command(self, ctx: click.Context, args: list[str]) -> tuple:
+        # Override so Click doesn't reject unknown names before get_command runs.
+        cmd_name = click.utils.make_str(args[0]) if args else None
+        if cmd_name and super().get_command(ctx, cmd_name) is None:
+            cmd = self.get_command(ctx, cmd_name)
+            if cmd is not None:
+                return cmd_name, cmd, args[1:]
+        return super().resolve_command(ctx, args)
+
+
+@click.group("help", cls=_HelpGroup, invoke_without_command=True)
+@click.pass_context
+def group(ctx) -> None:
+    """Inline help topics, command discovery, and cheatsheets.
+
+    Use 'limacharlie help <name>' for a concept guide (e.g. auth, hive, lcql).
+    Use 'limacharlie help discover' to explore commands by use-case.
+    Use 'limacharlie help cheatsheet' for quick-reference examples.
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+# ---------------------------------------------------------------------------
+# topic
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_TOPIC = """\
+Show an inline help topic.  Topics provide concept guides for
+LimaCharlie features such as D&R rules, hive data, LCQL queries,
+sensors, and more.
+
+Use without arguments to list all available topics.
+
+Examples:
+  limacharlie help topic
+  limacharlie help topic d&r-rules
+  limacharlie help topic lcql
+"""
+register_explain("help.topic", _EXPLAIN_TOPIC)
+
+
+@group.command()
+@click.argument("name", required=False, default=None)
+def topic(name) -> None:
+    if name is None:
+        topics = list_help_topics()
+        if not topics:
+            click.echo("No help topics available yet.")
+            return
+        click.echo("Available help topics:")
+        for t in topics:
+            click.echo(f"  {t}")
+        click.echo("\nUse 'limacharlie help topic <name>' to read a topic.")
+        return
+
+    content = get_help_topic(name)
+    if content is None:
+        topics = list_help_topics()
+        click.echo(f"Unknown help topic: {name}", err=True)
+        if topics:
+            click.echo(f"Available topics: {', '.join(topics)}", err=True)
+        raise SystemExit(3)
+
+    click.echo(content)
+
+
+# ---------------------------------------------------------------------------
+# discover
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_DISCOVER = """\
+Discover available CLI commands grouped by use-case profile.
+Profiles organize commands by workflow (e.g., sensor management,
+detection engineering, live investigation).
+
+Use --profile to filter by a specific profile.
+
+Examples:
+  limacharlie help discover
+  limacharlie help discover --profile detection_engineering
+"""
+register_explain("help.discover", _EXPLAIN_DISCOVER)
+
+
+@group.command()
+@click.option("--profile", default=None, help="Filter by use-case profile name.")
+def discover(profile) -> None:
+    click.echo(format_discovery(profile_name=profile))
+
+
+# ---------------------------------------------------------------------------
+# cheatsheet
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_CHEATSHEET = """\
+Show a quick-reference cheatsheet.  Cheatsheets provide common
+command examples for frequent workflows.
+
+Use without arguments to list all available cheatsheets.
+
+Examples:
+  limacharlie help cheatsheet
+  limacharlie help cheatsheet --name getting-started
+"""
+register_explain("help.cheatsheet", _EXPLAIN_CHEATSHEET)
+
+
+@group.command()
+@click.option("--name", default=None, help="Cheatsheet name.")
+def cheatsheet(name) -> None:
+    if name is None:
+        sheets = list_cheatsheets()
+        if not sheets:
+            click.echo("No cheatsheets available yet.")
+            return
+        click.echo("Available cheatsheets:")
+        for s in sheets:
+            click.echo(f"  {s}")
+        click.echo("\nUse 'limacharlie help cheatsheet --name <name>' to view one.")
+        return
+
+    content = get_cheatsheet(name)
+    if content is None:
+        sheets = list_cheatsheets()
+        click.echo(f"Unknown cheatsheet: {name}", err=True)
+        if sheets:
+            click.echo(f"Available cheatsheets: {', '.join(sheets)}", err=True)
+        raise SystemExit(3)
+
+    click.echo(content)

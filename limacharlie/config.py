@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+"""Configuration management for LimaCharlie SDK & CLI v2.
+
+Handles credential resolution, environment/profile management, and config file I/O.
+
+Credential resolution order (highest priority first):
+    1. Explicit parameters passed to Client()
+    2. LC_OID, LC_API_KEY, LC_UID environment variables
+    3. Named environment from LC_CURRENT_ENV (or 'default')
+    4. Default credentials in config file (~/.limacharlie.d/config.yaml)
+"""
+
+import copy
+import os
+from typing import Any, TypedDict
+
+import yaml
+
+from .errors import ConfigError
+from .file_utils import atomic_write, safe_open_read
+from .paths import get_config_path as _resolve_config_path
+
+
+class Credentials(TypedDict):
+    """Credential dict returned by resolve_credentials and get_environment_creds."""
+
+    oid: str | None
+    uid: str | None
+    api_key: str | None
+    oauth: dict[str, str] | None
+
+
+# Environment variable names
+ENV_OID = "LC_OID"
+ENV_API_KEY = "LC_API_KEY"
+ENV_UID = "LC_UID"
+ENV_CURRENT_ENV = "LC_CURRENT_ENV"
+ENV_CREDS_FILE = "LC_CREDS_FILE"
+ENV_EPHEMERAL_CREDS = "LC_EPHEMERAL_CREDS"
+ENV_NO_JWT_CACHE = "LC_NO_JWT_CACHE"
+
+
+def _get_config_path() -> str:
+    """Return the config file path, resolved via paths module.
+
+    Respects LC_CREDS_FILE, LC_CONFIG_DIR, LC_LEGACY_CONFIG, and the
+    new-then-legacy fallback logic in paths.py.
+    """
+    return _resolve_config_path()
+
+
+def is_ephemeral() -> bool:
+    """Return True if ephemeral credentials mode is enabled."""
+    return bool(os.environ.get(ENV_EPHEMERAL_CREDS))
+
+
+# Per-process cache for config file. Each CLI invocation is a separate
+# process, so the config file won't change mid-execution. Avoids
+# repeated disk I/O and YAML parsing when multiple subsystems
+# (resolve_credentials, jwt_cache, etc.) call load_config().
+_cached_config: dict[str, Any] | None = None
+_config_loaded: bool = False
+
+
+def load_config() -> dict[str, Any] | None:
+    """Load the config file as a dict.
+
+    Result is cached per-process. The config file does not change
+    mid-execution for a CLI tool, so one read is sufficient.
+
+    Returns:
+        dict or None if the file does not exist or ephemeral mode is active.
+    """
+    global _cached_config, _config_loaded
+    if _config_loaded:
+        return _cached_config
+    if is_ephemeral():
+        _cached_config = None
+        _config_loaded = True
+        return None
+    path = _get_config_path()
+    if not os.path.isfile(path):
+        _cached_config = None
+        _config_loaded = True
+        return None
+    data = yaml.safe_load(safe_open_read(path))
+    _cached_config = data or {}
+    _config_loaded = True
+    return _cached_config
+
+
+def _reset_config_cache() -> None:
+    """Reset the cached config. For testing only."""
+    global _cached_config, _config_loaded
+    _cached_config = None
+    _config_loaded = False
+
+
+def save_config(config: dict[str, Any]) -> None:
+    """Securely write the config dict to the config file.
+
+    Uses atomic write (write to temp, chmod 600, then move) to prevent
+    race conditions where another user could read credentials mid-write.
+
+    Args:
+        config: dict to serialize as YAML.
+
+    Raises:
+        ConfigError: if ephemeral mode is active.
+    """
+    if is_ephemeral():
+        raise ConfigError(
+            "Cannot write config in ephemeral credentials mode (LC_EPHEMERAL_CREDS is set).",
+            suggestion="Use environment variables (LC_OID, LC_API_KEY) instead of config files.",
+        )
+
+    global _cached_config, _config_loaded
+    path = _get_config_path()
+    # Ensure the parent directory exists (needed for new layout where
+    # config lives in ~/.limacharlie.d/ which may not exist yet).
+    parent = os.path.dirname(path)
+    if parent and not os.path.isdir(parent):
+        from .file_utils import secure_makedirs
+        secure_makedirs(parent)
+    content = yaml.safe_dump(config, default_flow_style=False).encode()
+    atomic_write(path, content)
+    # Update the per-process cache so subsequent load_config() calls
+    # see the new data without re-reading from disk.
+    _cached_config = config
+    _config_loaded = True
+
+
+def get_environment_creds(name: str = "default") -> Credentials:
+    """Load credentials for a named environment from the config file.
+
+    Args:
+        name: environment name ('default' for top-level creds).
+
+    Returns:
+        dict with keys: oid, uid, api_key, oauth (any may be None).
+    """
+    result = {"oid": None, "uid": None, "api_key": None, "oauth": None}
+
+    if is_ephemeral():
+        return result
+
+    config = load_config()
+    if config is None:
+        return result
+
+    if name == "default":
+        result["oid"] = config.get("oid")
+        result["uid"] = config.get("uid")
+        result["api_key"] = config.get("api_key")
+        result["oauth"] = config.get("oauth")
+    else:
+        env_data = config.get("env", {}).get(name, {})
+        result["oid"] = env_data.get("oid")
+        result["uid"] = env_data.get("uid")
+        result["api_key"] = env_data.get("api_key")
+        result["oauth"] = env_data.get("oauth")
+
+    return result
+
+
+def resolve_credentials(
+    oid: str | None = None,
+    api_key: str | None = None,
+    uid: str | None = None,
+    environment: str | None = None,
+) -> Credentials:
+    """Resolve credentials from all sources in priority order.
+
+    Priority: explicit params > env vars > config file.
+
+    Args:
+        oid: explicit org ID.
+        api_key: explicit API key.
+        uid: explicit user ID.
+        environment: named environment to load from config.
+
+    Returns:
+        dict with keys: oid, uid, api_key, oauth.
+    """
+    result = {"oid": None, "uid": None, "api_key": None, "oauth": None}
+
+    # 1. If a specific environment is requested, load it first as the base
+    if environment is not None:
+        result = get_environment_creds(environment)
+    else:
+        # Try env vars first, then default config
+        env_oid = os.environ.get(ENV_OID)
+        env_key = os.environ.get(ENV_API_KEY)
+        env_uid = os.environ.get(ENV_UID)
+
+        if env_key is not None:
+            # If LC_API_KEY is set, use env vars
+            result["oid"] = env_oid
+            result["uid"] = env_uid
+            result["api_key"] = env_key
+        else:
+            # Fall back to config file (named env or default)
+            env_name = os.environ.get(ENV_CURRENT_ENV) or None
+            if env_name is None:
+                # Check if a current_env is set in the config file
+                cfg = load_config()
+                if cfg is not None:
+                    env_name = cfg.get("current_env")
+            env_name = env_name or "default"
+            result = get_environment_creds(env_name)
+
+            # Even if we loaded from file, env vars for OID/UID override
+            if env_oid is not None:
+                result["oid"] = env_oid
+            if env_uid is not None:
+                result["uid"] = env_uid
+
+    # 2. Explicit parameters always override
+    if oid is not None:
+        result["oid"] = oid
+    if api_key is not None:
+        result["api_key"] = api_key
+        # If an explicit API key is provided, clear any OAuth creds
+        # and uid from config file fallback since the API key takes
+        # precedence. Including a stale uid with an API key causes
+        # the JWT endpoint to reject the request.
+        result["oauth"] = None
+        result["uid"] = None
+    if uid is not None:
+        result["uid"] = uid
+
+    return result
+
+
+def write_credentials(environment: str | None, oid: str | None, api_key: str | None, uid: str = "", oauth_creds: dict[str, str] | None = None) -> None:
+    """Write credentials to the config file for a named environment.
+
+    Args:
+        environment: environment name ('default' for top-level).
+        oid: organization ID.
+        api_key: API key (may be None for OAuth).
+        uid: user ID (empty string to clear).
+        oauth_creds: OAuth credentials dict.
+    """
+    # Deep copy so mutations below don't corrupt the per-process
+    # config cache if save_config() later fails.
+    config = copy.deepcopy(load_config() or {})
+
+    if environment == "default" or environment is None:
+        if oid is not None:
+            config["oid"] = oid
+        if api_key is not None:
+            config["api_key"] = api_key
+        if uid != "":
+            config["uid"] = uid
+        elif uid == "" and "uid" in config:
+            config.pop("uid", None)
+        if oauth_creds is not None:
+            config["oauth"] = oauth_creds
+    else:
+        config.setdefault("env", {})
+        config["env"].setdefault(environment, {})
+        env = config["env"][environment]
+        if oid is not None:
+            env["oid"] = oid
+        if api_key is not None:
+            env["api_key"] = api_key
+        if uid != "":
+            env["uid"] = uid
+        elif uid == "" and "uid" in env:
+            env.pop("uid", None)
+        if oauth_creds is not None:
+            env["oauth"] = oauth_creds
+
+    save_config(config)
+
+
+def get_config_value(key: str, default: Any = None, environment: str | None = None) -> Any:
+    """Read a single configuration value from the config file.
+
+    Looks up ``key`` in the active environment section (or top-level for
+    'default'). Returns ``default`` if the key is missing, the config file
+    does not exist, or ephemeral mode is active.
+
+    Args:
+        key: Configuration key to look up.
+        default: Value to return when the key is absent.
+        environment: Named environment to read from. When *None*, the
+            active environment is determined the same way as
+            ``resolve_credentials`` (LC_CURRENT_ENV > config current_env
+            > 'default').
+
+    Returns:
+        The configuration value, or *default*.
+    """
+    if is_ephemeral():
+        return default
+
+    config = load_config()
+    if config is None:
+        return default
+
+    # Determine which environment to read from.
+    env_name = environment
+    if env_name is None:
+        env_name = os.environ.get(ENV_CURRENT_ENV) or config.get("current_env") or "default"
+
+    if env_name == "default":
+        return config.get(key, default)
+
+    env_data = config.get("env", {}).get(env_name, {})
+    return env_data.get(key, default)
+
+
+def list_environments() -> list[str]:
+    """List all configured environment names.
+
+    Returns:
+        list of environment name strings.
+    """
+    config = load_config()
+    if config is None:
+        return []
+    envs = list(config.get("env", {}).keys())
+    # Add 'default' if top-level creds exist
+    if config.get("oid") or config.get("api_key") or config.get("oauth"):
+        envs.insert(0, "default")
+    return envs

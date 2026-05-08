@@ -1,8 +1,3 @@
-import os
-
-# Path to the configuration file. Can be overriden for tests.
-CONFIG_FILE_PATH = os.path.expanduser( '~/.limacharlie' )
-
 # OAuth-related constants
 OAUTH_CALLBACK_TIMEOUT = 300  # 5 minutes
 OAUTH_TOKEN_REFRESH_BUFFER = 300  # 5 minutes before expiry
@@ -20,3 +15,9 @@ EPHEMERAL_CREDS_ENV_VAR = 'LC_EPHEMERAL_CREDS'
 # protected by Firebase Security Rules and domain restrictions.
 # See: https://firebase.google.com/docs/projects/api-keys#api-keys-for-firebase-are-different
 FIREBASE_API_KEY = 'AIzaSyB5VyO6qS-XlnVD3zOIuEVNBD5JFn22_1w'
+
+# Firebase Cloud Function for user signup
+SIGNUP_URL = 'https://us-central1-refractionpoint-lce.cloudfunctions.net/signUp'
+
+# Internal email domains for LimaCharlie employees
+INTERNAL_EMAIL_DOMAINS = ('limacharlie.io', 'refractionpoint.com')
