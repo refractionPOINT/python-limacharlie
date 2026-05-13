@@ -211,7 +211,9 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     }),
     "user": frozenset({"invite", "list", "permissions", "remove"}),
     "usp": frozenset({"validate"}),
-    "vulnerability": frozenset({"cve", "dashboard", "host", "scan"}),
+    "vulnerability": frozenset({
+        "cve", "dashboard", "finding", "host", "scan", "snapshot",
+    }),
     "yara": frozenset({
         "rule-add", "rule-delete", "rules-list", "scan",
         "source-add", "source-delete", "source-get", "sources-list",
