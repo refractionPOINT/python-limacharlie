@@ -19,6 +19,10 @@ def mock_org():
     org.client = MagicMock()
     org.client._api_key = "test-api-key"
     org.client._oid = "test-oid"
+    # Org-scoped credentials by default: no user id.  (Without this the
+    # MagicMock would auto-vivify a truthy _uid and leak an X-LC-UID
+    # header into every request.)
+    org.client._uid = None
     return org
 
 
@@ -83,6 +87,52 @@ class TestStartSessionBasic:
         assert body["profile"]["max_turns"] == 10
 
         assert result == {"session_id": "sess-123", "status": "pending"}
+
+
+class TestOrgRequestUidHeader:
+    """X-LC-UID is forwarded for User API Keys so jwt.limacharlie.io
+    can resolve a user-scoped key against the requested org."""
+
+    def _start(self, ai, mock_org):
+        with patch("limacharlie.sdk.hive.Hive") as MockHive:
+            hive_instance = MagicMock()
+            MockHive.return_value = hive_instance
+            hive_instance.get.return_value = _make_hive_record(
+                {"prompt": "p", "anthropic_secret": "sk", "lc_api_key_secret": "k"}
+            )
+            mock_org.client.request.return_value = {"session_id": "s1"}
+            ai.start_session("agent")
+        return mock_org.client.request.call_args[1]["extra_headers"]
+
+    def test_org_scoped_key_omits_uid_header(self, ai, mock_org):
+        # mock_org defaults to _uid = None (org-scoped).
+        headers = self._start(ai, mock_org)
+        assert headers["X-LC-OID"] == "test-oid"
+        assert "X-LC-UID" not in headers
+
+    def test_user_scoped_key_sends_uid_header(self, ai, mock_org):
+        mock_org.client._uid = "user-123"
+        headers = self._start(ai, mock_org)
+        assert headers["X-LC-OID"] == "test-oid"
+        assert headers["X-LC-UID"] == "user-123"
+        assert headers["Authorization"] == "Bearer test-api-key"
+
+    def test_org_request_path_forwards_uid(self, ai, mock_org):
+        # The same identity headers must reach the org session
+        # management endpoints (list/get/terminate), not just
+        # start-session.
+        mock_org.client._uid = "user-123"
+        mock_org.client.request.return_value = {"session": {}}
+        ai.get_session("sess-1")
+        headers = mock_org.client.request.call_args[1]["extra_headers"]
+        assert headers["X-LC-OID"] == "test-oid"
+        assert headers["X-LC-UID"] == "user-123"
+
+    def test_org_request_omits_uid_when_org_scoped(self, ai, mock_org):
+        mock_org.client.request.return_value = {"session": {}}
+        ai.get_session("sess-1")
+        headers = mock_org.client.request.call_args[1]["extra_headers"]
+        assert "X-LC-UID" not in headers
 
 
 class TestStartSessionSecretResolution:
