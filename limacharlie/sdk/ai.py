@@ -40,6 +40,21 @@ class AI:
             return m
         return {k: self._resolve_secret(v) for k, v in m.items()}
 
+    def _org_auth_headers(self) -> dict[str, str]:
+        """Identity headers for the org-scoped ai-sessions endpoints.
+
+        Always carries ``X-LC-OID``.  A User API Key is scoped to a
+        user rather than an org, so jwt.limacharlie.io can only resolve
+        it when the UID accompanies the secret -- forward it via
+        ``X-LC-UID``.  ai-sessions' OrgDualAuthMiddleware reads
+        ``X-LC-UID`` only for the raw-API-key path and ignores it for
+        JWT auth, so sending it whenever a uid is known is always safe.
+        """
+        headers = {"X-LC-OID": self.client._oid}
+        if self.client._uid:
+            headers["X-LC-UID"] = self.client._uid
+        return headers
+
     # Fields copied verbatim from an ai_agent hive record into the
     # request's ``profile`` section.  Every entry in this tuple maps
     # one-to-one to a field on the server's ``ProfileContent`` type
@@ -210,7 +225,7 @@ class AI:
         if profile:
             request_body["profile"] = profile
 
-        extra = {"X-LC-OID": self.client._oid}
+        extra = self._org_auth_headers()
 
         # Use the raw API key when available (works with current and future
         # ai-sessions deployments).  Fall back to JWT auth for OAuth users
@@ -331,7 +346,7 @@ class AI:
         OrgDualAuthMiddleware. We send the raw API key when available
         (same pattern as start_session) for maximum compatibility.
         """
-        extra: dict[str, str] = {"X-LC-OID": self.client._oid}
+        extra: dict[str, str] = self._org_auth_headers()
         if self.client._api_key is not None:
             extra["Authorization"] = f"Bearer {self.client._api_key}"
             return self.client.request(
