@@ -189,7 +189,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "payload": frozenset({"delete", "download", "list", "upload"}),
     "playbook": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
     "replay": frozenset({"run"}),
-    "schema": frozenset({"get", "list"}),
+    "schema": frozenset({"get", "list", "reset"}),
     "search": frozenset({
         "checkpoint-show", "checkpoints", "estimate", "run",
         "saved-create", "saved-delete", "saved-get", "saved-list",
