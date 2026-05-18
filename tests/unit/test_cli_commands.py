@@ -509,3 +509,41 @@ class TestHiveEnableDisable:
         assert record.tags == ["keep-me"]
 
 
+class TestSchemaCommands:
+    @patch("limacharlie.commands.schema.Client")
+    @patch("limacharlie.commands.schema.Organization")
+    def test_schema_list(self, mock_org_cls, mock_client_cls):
+        mock_org = MagicMock()
+        mock_org.get_schemas.return_value = {"event_types": ["NEW_PROCESS"]}
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "schema", "list"])
+        assert result.exit_code == 0
+        mock_org.get_schemas.assert_called_once_with()
+
+    @patch("limacharlie.commands.schema.Client")
+    @patch("limacharlie.commands.schema.Organization")
+    def test_schema_reset_without_confirm(self, mock_org_cls, mock_client_cls):
+        mock_org = MagicMock()
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schema", "reset"])
+        assert result.exit_code == 4
+        assert "--confirm" in result.output
+        mock_org.reset_schemas.assert_not_called()
+
+    @patch("limacharlie.commands.schema.Client")
+    @patch("limacharlie.commands.schema.Organization")
+    def test_schema_reset_with_confirm(self, mock_org_cls, mock_client_cls):
+        mock_org = MagicMock()
+        mock_org.reset_schemas.return_value = {"success": True}
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "schema", "reset", "--confirm"])
+        assert result.exit_code == 0
+        mock_org.reset_schemas.assert_called_once_with()
+
+
