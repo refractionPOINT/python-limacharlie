@@ -103,3 +103,46 @@ def get(ctx, name) -> None:
     org = _get_org(ctx)
     data = org.get_schema(name)
     _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# reset
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_RESET = """\
+Reset (rebuild) all event schemas for the organization.  This clears
+the cached schema/ontology so it is rebuilt from newly observed
+events.
+
+This is useful when the recorded schema has gone stale -- for example
+after telemetry shape changes -- and event fields are missing from
+'schema list' or 'schema get'.  The schema repopulates as new events
+flow in; there may be a short window where schemas are incomplete.
+
+This is a destructive, organization-wide operation and requires the
+--confirm flag.
+
+Examples:
+  limacharlie schema reset --confirm
+"""
+register_explain("schema.reset", _EXPLAIN_RESET)
+
+
+@group.command()
+@click.option("--confirm", is_flag=True, default=False, help="Confirm the reset (required).")
+@pass_context
+def reset(ctx, confirm) -> None:
+    """Reset (rebuild) all event schemas for the organization."""
+    if not confirm:
+        click.echo(
+            "Error: Destructive operation requires --confirm flag.\n"
+            "Suggestion: Re-run with --confirm to reset all org schemas.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+    org = _get_org(ctx)
+    data = org.reset_schemas()
+    if not ctx.obj.quiet:
+        click.echo("Org schemas reset; they will rebuild as new events are observed.")
+    _output(ctx, data)
