@@ -62,6 +62,74 @@ class TestAiSkillCli:
         result = CliRunner().invoke(cli, ["ai-skill", "delete", "--key", "x"])
         assert result.exit_code != 0
 
+    @patch("limacharlie.commands._hive_shortcut.Client")
+    @patch("limacharlie.commands._hive_shortcut.Organization")
+    @patch("limacharlie.commands._hive_shortcut.Hive")
+    def test_set_enabled_flag_creates_enabled(self, mock_hive_cls, _org, _client):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        result = CliRunner().invoke(
+            cli, ["ai-skill", "set", "--key", "triage", "--enabled"],
+            input=json.dumps({"content": "..."}),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+
+    @patch("limacharlie.commands._hive_shortcut.Client")
+    @patch("limacharlie.commands._hive_shortcut.Organization")
+    @patch("limacharlie.commands._hive_shortcut.Hive")
+    def test_set_no_flag_leaves_enabled_unset(self, mock_hive_cls, _org, _client):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        result = CliRunner().invoke(
+            cli, ["ai-skill", "set", "--key", "triage"],
+            input=json.dumps({"content": "..."}),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        # Without the flag, enabled stays None so the API default applies.
+        assert record.enabled is None
+
+    @patch("limacharlie.commands._hive_shortcut.Client")
+    @patch("limacharlie.commands._hive_shortcut.Organization")
+    @patch("limacharlie.commands._hive_shortcut.Hive")
+    def test_set_enabled_flag_overrides_input_file_value(self, mock_hive_cls, _org, _client):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        payload = {"data": {"content": "..."}, "usr_mtd": {"enabled": False}}
+        result = CliRunner().invoke(
+            cli, ["ai-skill", "set", "--key", "triage", "--enabled"],
+            input=json.dumps(payload),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+
+    @patch("limacharlie.commands._hive_shortcut.Client")
+    @patch("limacharlie.commands._hive_shortcut.Organization")
+    @patch("limacharlie.commands._hive_shortcut.Hive")
+    def test_set_disabled_flag_works(self, mock_hive_cls, _org, _client):
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        # Input file says enabled=true, --disabled forces it off.
+        payload = {"data": {"content": "..."}, "usr_mtd": {"enabled": True}}
+        result = CliRunner().invoke(
+            cli, ["ai-skill", "set", "--key", "triage", "--disabled"],
+            input=json.dumps(payload),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is False
+
 
 # ---------------------------------------------------------------------------
 # ai-memory (custom commands with partial-merge payloads)
