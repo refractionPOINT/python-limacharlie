@@ -47,7 +47,12 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
 
     explain_list = f"List all {noun_plural} stored in the '{hive_name}' hive."
     explain_get = f"Get a specific {noun_singular} by its key name from the '{hive_name}' hive."
-    explain_set = f"Create or update {article} {noun_singular} in the '{hive_name}' hive. Provide data via --input-file (JSON/YAML) or stdin."
+    explain_set = (
+        f"Create or update {article} {noun_singular} in the '{hive_name}' hive. "
+        f"Provide data via --input-file (JSON/YAML) or stdin. "
+        f"New hive records default to disabled — pass --enabled to create-and-enable in one shot, "
+        f"or include usr_mtd.enabled: true in the input file."
+    )
     explain_delete = f"Delete {article} {noun_singular} from the '{hive_name}' hive. Requires --confirm for safety."
 
     @click.group(group_name)
@@ -77,8 +82,12 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     @grp.command("set", help=f"Create or update {article} {noun_singular}.")
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--input-file", type=click.Path(exists=True), default=None, help="JSON or YAML file with record data.")
+    @click.option(
+        "--enabled/--disabled", "enabled", default=None,
+        help=f"Set usr_mtd.enabled on the {noun_singular}. Overrides any value in the input file. Records default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+    )
     @pass_context
-    def set_cmd(ctx, key, input_file) -> None:
+    def set_cmd(ctx, key, input_file, enabled) -> None:
         if input_file:
             with open(input_file, "r") as f:
                 content = f.read()
@@ -108,6 +117,8 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
             record = HiveRecord.from_raw(key, raw)
         else:
             record = HiveRecord(key, data=data)
+        if enabled is not None:
+            record.enabled = enabled
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         result = hive.set(record)

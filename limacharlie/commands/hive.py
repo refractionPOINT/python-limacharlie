@@ -210,12 +210,15 @@ Create or update a record in a hive.  The record data is read from
 --input-file or from stdin if no file is specified.  The input should
 be a JSON or YAML document.
 
+New hive records are created DISABLED by default.  Pass --enabled to
+create-and-enable in one shot, or set usr_mtd.enabled in the input.
+
 Full record format (YAML):
 
     data:
       key: value          # payload varies by hive type
     usr_mtd:
-      enabled: true       # optional, default true
+      enabled: true       # optional, default false on new records
       expiry: 0           # optional, unix epoch (0 = never)
       tags:               # optional
         - my-tag
@@ -225,6 +228,9 @@ Full record format (YAML):
 If the input has no "data" key, the entire input is treated as the
 record data payload.
 
+The --enabled/--disabled flag, when given, overrides any value in
+the input file's usr_mtd.enabled.
+
 Data payload examples per hive type:
   secret:  {secret: "my-api-key"}
   yara:    {rule: "rule MyRule { ... }"}
@@ -233,10 +239,10 @@ Data payload examples per hive type:
 
 Examples:
   echo '{"data": {"key": "value"}}' | limacharlie hive set \\
-      --hive-name lookup --key my-lookup
+      --hive-name lookup --key my-lookup --enabled
 
   limacharlie hive set --hive-name lookup --key my-lookup \\
-      --input-file record.yaml
+      --input-file record.yaml --enabled
 """
 register_explain("hive.set", _EXPLAIN_SET)
 
@@ -245,8 +251,12 @@ register_explain("hive.set", _EXPLAIN_SET)
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
+@click.option(
+    "--enabled/--disabled", "enabled", default=None,
+    help="Set usr_mtd.enabled on the record. Overrides any value in the input file. New records default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+)
 @pass_context
-def set_record(ctx, hive_name, key, input_file) -> None:
+def set_record(ctx, hive_name, key, input_file, enabled) -> None:
     data = _load_input(input_file)
     if data is None:
         click.echo(
@@ -260,6 +270,8 @@ def set_record(ctx, hive_name, key, input_file) -> None:
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
     record = _record_from_input(key, data)
+    if enabled is not None:
+        record.enabled = enabled
     result = hive.set(record)
     if not ctx.obj.quiet:
         click.echo(f"Record '{key}' set in hive '{hive_name}'.")

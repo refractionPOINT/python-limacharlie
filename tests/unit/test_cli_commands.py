@@ -509,6 +509,103 @@ class TestHiveEnableDisable:
         assert record.tags == ["keep-me"]
 
 
+class TestHiveSetEnabledFlag:
+    """The `--enabled/--disabled` flag on the create/update commands lets
+    AIs and operators create-and-enable a record in one shot, so they don't
+    forget the separate `enable` step and end up with silently-disabled
+    records.
+    """
+
+    @patch("limacharlie.commands.hive.Client")
+    @patch("limacharlie.commands.hive.Organization")
+    @patch("limacharlie.commands.hive.Hive")
+    def test_hive_set_with_enabled_flag(self, mock_hive_cls, _org, _client):
+        import json as _json
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        result = CliRunner().invoke(
+            cli, ["hive", "set", "--hive-name", "lookup", "--key", "k", "--enabled"],
+            input=_json.dumps({"data": {"v": 1}}),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+
+    @patch("limacharlie.commands.hive.Client")
+    @patch("limacharlie.commands.hive.Organization")
+    @patch("limacharlie.commands.hive.Hive")
+    def test_hive_set_flag_overrides_input_file(self, mock_hive_cls, _org, _client):
+        import json as _json
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        payload = {"data": {"v": 1}, "usr_mtd": {"enabled": False}}
+        result = CliRunner().invoke(
+            cli, ["hive", "set", "--hive-name", "lookup", "--key", "k", "--enabled"],
+            input=_json.dumps(payload),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+
+    @patch("limacharlie.commands.hive.Client")
+    @patch("limacharlie.commands.hive.Organization")
+    @patch("limacharlie.commands.hive.Hive")
+    def test_hive_set_no_flag_preserves_input_file_value(self, mock_hive_cls, _org, _client):
+        import json as _json
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        payload = {"data": {"v": 1}, "usr_mtd": {"enabled": True}}
+        result = CliRunner().invoke(
+            cli, ["hive", "set", "--hive-name", "lookup", "--key", "k"],
+            input=_json.dumps(payload),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+
+    @patch("limacharlie.commands.dr.Client")
+    @patch("limacharlie.commands.dr.Organization")
+    @patch("limacharlie.commands.dr.Hive")
+    def test_dr_set_with_enabled_flag(self, mock_hive_cls, _org, _client):
+        import json as _json
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        rule = {"detect": {"event": "NEW_PROCESS", "op": "is", "path": "event/FILE_PATH", "value": "x"}, "respond": [{"action": "report", "name": "x"}]}
+        result = CliRunner().invoke(
+            cli, ["dr", "set", "--key", "my-rule", "--enabled"],
+            input=_json.dumps(rule),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+
+    @patch("limacharlie.commands.dr.Client")
+    @patch("limacharlie.commands.dr.Organization")
+    @patch("limacharlie.commands.dr.Hive")
+    def test_dr_set_no_flag_leaves_enabled_unset(self, mock_hive_cls, _org, _client):
+        import json as _json
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "e2"}
+        mock_hive_cls.return_value = mock_hive
+
+        rule = {"detect": {"event": "NEW_PROCESS", "op": "is", "path": "event/FILE_PATH", "value": "x"}, "respond": [{"action": "report", "name": "x"}]}
+        result = CliRunner().invoke(
+            cli, ["dr", "set", "--key", "my-rule"],
+            input=_json.dumps(rule),
+        )
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is None
+
+
 class TestSchemaCommands:
     @patch("limacharlie.commands.schema.Client")
     @patch("limacharlie.commands.schema.Organization")
