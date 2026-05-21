@@ -254,9 +254,13 @@ wrapper and 'usr_mtd' for metadata like enabled/expiry/tags:
     tags: []
     comment: "rule description"
 
+New D&R rules are created DISABLED by default for safety.  Pass
+--enabled to create-and-enable in one shot, or set usr_mtd.enabled
+in the input.
+
 Examples:
-  limacharlie dr set --key my-rule --input-file rule.yaml
-  cat rule.json | limacharlie dr set --key my-rule
+  limacharlie dr set --key my-rule --input-file rule.yaml --enabled
+  cat rule.json | limacharlie dr set --key my-rule --enabled
   limacharlie dr set --key my-rule --namespace managed --input-file rule.yaml
 
 IMPORTANT: Do not write D&R rules from scratch. Use
@@ -278,8 +282,12 @@ register_explain("dr.set", _EXPLAIN_SET)
     "--namespace", default=None, type=_NS_CHOICES,
     help="Namespace (default: general).",
 )
+@click.option(
+    "--enabled/--disabled", "enabled", default=None,
+    help="Set usr_mtd.enabled on the rule. Overrides any value in the input file. New rules default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+)
 @pass_context
-def set_cmd(ctx, key, input_file, namespace) -> None:
+def set_cmd(ctx, key, input_file, namespace, enabled) -> None:
     if input_file:
         with open(input_file, "r") as f:
             content = f.read()
@@ -306,6 +314,9 @@ def set_cmd(ctx, key, input_file, namespace) -> None:
         record = HiveRecord.from_raw(key, raw)
     else:
         record = HiveRecord(key, data=data)
+
+    if enabled is not None:
+        record.enabled = enabled
 
     org = _get_org(ctx)
     hive = Hive(org, _hive_name(namespace))
