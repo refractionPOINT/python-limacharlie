@@ -79,6 +79,12 @@ Each returned event has a two-level structure:
   routing:  oid, sid, event_type, event_time (ms), hostname, ext_ip, int_ip, tags
   event:    fields vary by event_type (e.g. FILE_PATH, COMMAND_LINE, DOMAIN_NAME)
 
+Empty result: the command returns "[]" (literal empty list).  Use
+that as the empty-check when polling for "did anything arrive yet?".
+Do NOT poll by greping for in-payload strings like "event_type" —
+the structural empty-vs-non-empty test against "[]" is the reliable
+signal.
+
 Events are linked by atom hashes: routing/this identifies the event,
 routing/parent links to the parent process.  Use 'event get' and
 'event children' to navigate the event tree.
@@ -178,9 +184,29 @@ def children(ctx: click.Context, sid: str, atom: str) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_OVERVIEW = """\
-Get an event overview (timeline) for a sensor.  The overview provides
-a high-level summary of event activity within a time range, showing
-when events occurred without returning full event data.
+Get an event overview (timeline) for a sensor.  The overview shows
+WHEN events occurred — NOT what they were.  No event_type, no
+payload, no fields.
+
+Output shape (--output yaml / json):
+  populated:  a flat list of millisecond-epoch timestamps, one per
+              bucketed event, e.g.
+                - 1779720718401
+                - 1779720598401
+                - 1779720478399
+  empty:      [] (literal empty list)
+
+Use this for:
+  - "did any events arrive in this window?" (non-empty test).
+  - rough activity heatmap / silence detection on a sensor.
+
+Do NOT use this for:
+  - sampling an event to inspect its content — overview NEVER returns
+    fields.  Use 'event list --limit N' instead.
+  - polling whose predicate keys on in-payload content (event_type,
+    methodName, serviceName, etc.) — overview's output is just
+    timestamps; such a predicate is unreachable against this command
+    and will spin until your timeout.
 
 You must provide --sid (sensor ID) and a time range via --start and
 --end (unix epoch seconds).
@@ -210,8 +236,10 @@ def overview(ctx: click.Context, sid: str, start: int, end: int) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_TIMELINE = """\
-Alias for 'event overview'.  Get an event timeline for a sensor showing
-when events occurred within a time range.
+Alias for 'event overview'.  Returns a flat list of millisecond-epoch
+timestamps showing WHEN events occurred — no event content.  See
+'event overview --ai-help' for output shape and the "use 'event list'
+to sample content" caveat.
 
 Example:
   limacharlie event timeline --sid <SID> --start 1700000000 --end 1700086400
