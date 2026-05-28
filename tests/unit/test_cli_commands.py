@@ -428,6 +428,70 @@ class TestDRCommands:
         assert "my-rule" in parsed
         mock_hive.list.assert_called_once()
 
+    @staticmethod
+    def _existing_record(name="my-rule", enabled=True):
+        from limacharlie.sdk.hive import HiveRecord
+        return HiveRecord(
+            name=name, enabled=enabled,
+            tags=["keep-me"], expiry=1234, comment="preserve this",
+            etag="old-etag",
+        )
+
+    @patch("limacharlie.commands.dr.Client")
+    @patch("limacharlie.commands.dr.Organization")
+    @patch("limacharlie.commands.dr.Hive")
+    def test_dr_enable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
+        mock_hive = MagicMock()
+        mock_hive.get_metadata.return_value = self._existing_record(enabled=False)
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["dr", "enable", "--key", "my-rule"])
+        assert result.exit_code == 0
+        # Defaults to the dr-general hive.
+        assert mock_hive_cls.call_args[0][1] == "dr-general"
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is True
+        assert record.data is None  # only metadata update
+        assert record.tags == ["keep-me"]
+        assert record.expiry == 1234
+        assert record.comment == "preserve this"
+
+    @patch("limacharlie.commands.dr.Client")
+    @patch("limacharlie.commands.dr.Organization")
+    @patch("limacharlie.commands.dr.Hive")
+    def test_dr_disable(self, mock_hive_cls, mock_org_cls, mock_client_cls):
+        mock_hive = MagicMock()
+        mock_hive.get_metadata.return_value = self._existing_record(enabled=True)
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["dr", "disable", "--key", "my-rule"])
+        assert result.exit_code == 0
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is False
+        assert record.data is None
+        assert record.tags == ["keep-me"]
+
+    @patch("limacharlie.commands.dr.Client")
+    @patch("limacharlie.commands.dr.Organization")
+    @patch("limacharlie.commands.dr.Hive")
+    def test_dr_disable_namespace(self, mock_hive_cls, mock_org_cls, mock_client_cls):
+        mock_hive = MagicMock()
+        mock_hive.get_metadata.return_value = self._existing_record(enabled=True)
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["dr", "disable", "--key", "my-rule", "--namespace", "managed"])
+        assert result.exit_code == 0
+        # Namespace maps to the dr-managed hive.
+        assert mock_hive_cls.call_args[0][1] == "dr-managed"
+        record = mock_hive.set.call_args[0][0]
+        assert record.enabled is False
+
 
 class TestHiveEnableDisable:
     @staticmethod

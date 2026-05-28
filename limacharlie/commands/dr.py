@@ -362,6 +362,79 @@ def delete(ctx, key, namespace, confirm) -> None:
 
 
 # ---------------------------------------------------------------------------
+# enable / disable
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_ENABLE = """\
+Enable a D&R rule by setting its usr_mtd.enabled flag to true.  Only the
+enabled flag is changed; all other metadata (tags, expiry, comment) and
+the rule data (detect/respond) are preserved.
+
+If the rule is in the 'managed' or 'service' namespace, pass --namespace
+accordingly.
+
+Examples:
+  limacharlie dr enable --key my-rule
+  limacharlie dr enable --key some-managed-rule --namespace managed
+"""
+register_explain("dr.enable", _EXPLAIN_ENABLE)
+
+_EXPLAIN_DISABLE = """\
+Disable a D&R rule by setting its usr_mtd.enabled flag to false.  Only
+the enabled flag is changed; all other metadata (tags, expiry, comment)
+and the rule data (detect/respond) are preserved.
+
+If the rule is in the 'managed' or 'service' namespace, pass --namespace
+accordingly.
+
+Examples:
+  limacharlie dr disable --key my-rule
+  limacharlie dr disable --key some-managed-rule --namespace managed
+"""
+register_explain("dr.disable", _EXPLAIN_DISABLE)
+
+
+def _set_enabled(ctx: click.Context, namespace: str | None, key: str, enabled: bool) -> None:
+    """Toggle the enabled flag on a D&R rule.
+
+    Reads the current metadata first so that tags, expiry, and comment
+    are preserved (the API replaces usr_mtd wholesale).
+    """
+    hive_name = _hive_name(namespace)
+    org = _get_org(ctx)
+    hive = Hive(org, hive_name)
+    record = hive.get_metadata(key)
+    record.enabled = enabled
+    result = hive.set(record)
+    state = "enabled" if enabled else "disabled"
+    if not ctx.obj.quiet:
+        click.echo(f"Rule '{key}' {state} in namespace '{namespace or 'general'}'.")
+    _output(ctx, result)
+
+
+@group.command()
+@click.option("--key", required=True, help="Rule key name.")
+@click.option(
+    "--namespace", default=None, type=_NS_CHOICES,
+    help="Namespace (default: general).",
+)
+@pass_context
+def enable(ctx, key, namespace) -> None:
+    _set_enabled(ctx, namespace, key, True)
+
+
+@group.command()
+@click.option("--key", required=True, help="Rule key name.")
+@click.option(
+    "--namespace", default=None, type=_NS_CHOICES,
+    help="Namespace (default: general).",
+)
+@pass_context
+def disable(ctx, key, namespace) -> None:
+    _set_enabled(ctx, namespace, key, False)
+
+
+# ---------------------------------------------------------------------------
 # Helpers for loading events
 # ---------------------------------------------------------------------------
 
