@@ -374,15 +374,15 @@ def rename(ctx: click.Context, name: str) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_QUOTA = """\
-Set the sensor quota for the organization.  The quota limits how many
-sensors can be enrolled simultaneously.  Set to 0 to remove the quota
-limit (billing still applies).
+Set the sensor quota for the organization.  The quota is the number of
+sensors the organization is licensed (billed) for.  Set to 0 to put the
+organization on the free tier (no paid sensor quota).
 """
 register_explain("org.quota", _EXPLAIN_QUOTA)
 
 
 @group.command()
-@click.option("--quota", required=True, type=int, help="Sensor quota (0 to remove limit).")
+@click.option("--quota", required=True, type=int, help="Sensor quota: number of licensed sensors (0 = free tier).")
 @pass_context
 def quota(ctx: click.Context, quota: int) -> None:
     org = _get_org(ctx)
