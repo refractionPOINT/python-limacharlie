@@ -258,10 +258,17 @@ New D&R rules are created DISABLED by default for safety.  Pass
 --enabled to create-and-enable in one shot, or set usr_mtd.enabled
 in the input.
 
+Instead of a full record, you can assemble a rule from separate
+component files: --detect <file> and --respond <file> are loaded
+and combined into {data: {detect, respond}, usr_mtd: {...}}.  They
+must be given together and are mutually exclusive with --input-file
+(stdin is ignored in this mode).  --tag (repeatable) adds usr_mtd tags.
+
 Examples:
   limacharlie dr set --key my-rule --input-file rule.yaml --enabled
   cat rule.json | limacharlie dr set --key my-rule --enabled
   limacharlie dr set --key my-rule --namespace managed --input-file rule.yaml
+  limacharlie dr set --key my-rule --detect detect.yaml --respond respond.yaml --tag prod --enabled
 
 IMPORTANT: Do not write D&R rules from scratch. Use
 'limacharlie ai generate-rule --prompt "<description>"' to generate
@@ -279,6 +286,15 @@ register_explain("dr.set", _EXPLAIN_SET)
     help="JSON or YAML file with rule data.",
 )
 @click.option(
+    "--detect", "detect_path", type=click.Path(exists=True), default=None,
+    help="Path to the detection component (JSON/YAML). Use with --respond to assemble a rule. Mutually exclusive with --input-file/stdin.",
+)
+@click.option(
+    "--respond", "respond_path", type=click.Path(exists=True), default=None,
+    help="Path to the response component (JSON/YAML). Use with --detect to assemble a rule. Mutually exclusive with --input-file/stdin.",
+)
+@click.option("--tag", "tags", multiple=True, help="Tag to set in usr_mtd (repeatable).")
+@click.option(
     "--namespace", default=None, type=_NS_CHOICES,
     help="Namespace (default: general).",
 )
@@ -287,33 +303,55 @@ register_explain("dr.set", _EXPLAIN_SET)
     help="Set usr_mtd.enabled on the rule. Overrides any value in the input file. New rules default to disabled if neither this flag nor usr_mtd.enabled is provided.",
 )
 @pass_context
-def set_cmd(ctx, key, input_file, namespace, enabled) -> None:
-    if input_file:
-        with open(input_file, "r") as f:
-            content = f.read()
-    elif not sys.stdin.isatty():
-        content = sys.stdin.read()
-    else:
-        raise click.UsageError("Provide data via --input-file or pipe to stdin.")
+def set_cmd(ctx, key, input_file, detect_path, respond_path, tags, namespace, enabled) -> None:
+    using_components = detect_path is not None or respond_path is not None
 
-    try:
-        data = yaml.safe_load(content)
-    except Exception:
-        data = json.loads(content)
-
-    # Support the full hive record format (with "data" wrapper) or
-    # a bare rule dict with detect/respond at the top level.
-    if isinstance(data, dict) and "data" in data:
-        raw = {
-            "data": data["data"],
-            "usr_mtd": data.get("usr_mtd", {}),
-            "sys_mtd": {},
-        }
-        if data.get("etag"):
-            raw["sys_mtd"]["etag"] = data["etag"]
-        record = HiveRecord.from_raw(key, raw)
+    if using_components:
+        # --detect/--respond assemble a rule in-command and express explicit
+        # intent, so they cannot be combined with a full record from
+        # --input-file (which would be ambiguous).  Stdin is ignored in this
+        # mode rather than consulted.
+        if input_file:
+            raise click.UsageError(
+                "--detect/--respond are mutually exclusive with --input-file/stdin."
+            )
+        if detect_path is None or respond_path is None:
+            raise click.UsageError("--detect and --respond must be provided together.")
+        detection = _load_file(detect_path)
+        response = _load_file(respond_path)
+        record = HiveRecord(key, data={"detect": detection, "respond": response})
     else:
-        record = HiveRecord(key, data=data)
+        if input_file:
+            with open(input_file, "r") as f:
+                content = f.read()
+        elif not sys.stdin.isatty():
+            content = sys.stdin.read()
+        else:
+            raise click.UsageError(
+                "Provide data via --input-file, stdin, or --detect/--respond."
+            )
+
+        try:
+            data = yaml.safe_load(content)
+        except Exception:
+            data = json.loads(content)
+
+        # Support the full hive record format (with "data" wrapper) or
+        # a bare rule dict with detect/respond at the top level.
+        if isinstance(data, dict) and "data" in data:
+            raw = {
+                "data": data["data"],
+                "usr_mtd": data.get("usr_mtd", {}),
+                "sys_mtd": {},
+            }
+            if data.get("etag"):
+                raw["sys_mtd"]["etag"] = data["etag"]
+            record = HiveRecord.from_raw(key, raw)
+        else:
+            record = HiveRecord(key, data=data)
+
+    if tags:
+        record.tags = list(tags)
 
     if enabled is not None:
         record.enabled = enabled

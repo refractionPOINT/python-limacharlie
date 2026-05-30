@@ -140,6 +140,8 @@ def _top_level_help(cli: click.Group) -> str:
     lines.append("--wide             Don't truncate table columns")
     lines.append("--filter JMESPATH  Filter/transform output")
     lines.append("--fields f1,f2     Select specific output fields")
+    lines.append("--sort-by FIELD    Sort list output by a field")
+    lines.append("--reverse          Reverse sorted order (with --sort-by)")
     lines.append("--quiet            Suppress non-data output")
     lines.append("--debug            Print HTTP request details")
     lines.append("--env NAME         Use a named environment from config")

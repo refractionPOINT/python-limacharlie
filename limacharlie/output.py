@@ -36,6 +36,9 @@ except ImportError:
 # Module-level flags set by the CLI before any command runs.
 _wide_mode: bool = False
 _filter_expr: str | None = None
+_fields: list[str] | None = None
+_sort_by: str | None = None
+_reverse: bool = False
 
 
 
@@ -49,6 +52,24 @@ def set_filter_expr(expr: str | None) -> None:
     """Set a JMESPath filter expression applied to all output."""
     global _filter_expr
     _filter_expr = expr
+
+
+def set_fields(fields: list[str] | None) -> None:
+    """Set the list of fields to project, applied to all output."""
+    global _fields
+    _fields = fields
+
+
+def set_sort_by(sort_by: str | None) -> None:
+    """Set the field name to sort list output by, applied to all output."""
+    global _sort_by
+    _sort_by = sort_by
+
+
+def set_reverse(reverse: bool) -> None:
+    """Set whether sorted list output is reversed, applied to all output."""
+    global _reverse
+    _reverse = reverse
 
 
 def detect_output_format() -> str:
@@ -87,9 +108,18 @@ def format_output(
     if fmt is None:
         fmt = detect_output_format()
 
-    # Fall back to module-level filter if none passed explicitly.
+    # Fall back to module-level projection state if none passed explicitly.
+    # Mirrors the set_filter_expr/_filter_expr mechanism so the global
+    # --filter/--fields/--sort-by/--reverse flags flow into every command's
+    # output without each command needing to thread them through.
     if filter_expr is None:
         filter_expr = _filter_expr
+    if fields is None:
+        fields = _fields
+    if sort_by is None:
+        sort_by = _sort_by
+    if not reverse:
+        reverse = _reverse
 
     # Apply jmespath filter
     if filter_expr and data is not None:

@@ -279,6 +279,11 @@ common ones across platforms:
 Use 'event schema --event-type <TYPE>' to see the full field list for
 any given event type.
 
+The schema is OBSERVED, not declared: it is built from events the org
+has actually seen.  On a fresh org with no telemetry yet, an empty
+result is expected — it means no events have been observed, NOT a
+misconfiguration.  Types appear as sensors start reporting.
+
 Examples:
   limacharlie event types
   limacharlie event types --platform windows
@@ -290,6 +295,12 @@ register_explain("event.types", _EXPLAIN_TYPES)
 @click.option("--platform", default=None, help="Filter by platform (e.g., windows, linux, macos).")
 @pass_context
 def types(ctx: click.Context, platform: str | None) -> None:
+    """List observed event types and their schemas.
+
+    The schema is observed (built from events the org has seen), not
+    declared, so an empty result on a fresh org just means no events
+    have been observed yet — it is not a misconfiguration.
+    """
     org = _get_org(ctx)
     data = org.get_schemas(platform=platform)
     _output(ctx, data)
