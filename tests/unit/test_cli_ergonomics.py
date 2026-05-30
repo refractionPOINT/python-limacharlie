@@ -258,6 +258,34 @@ class TestSecretValueAndTag:
         assert record.tags == ["prod"]
         assert record.comment == "note"
 
+    def test_value_not_offered_for_structured_hive(self):
+        # A hive without a single scalar value field (no value_key) must NOT
+        # expose --value — the secret-style {data: {secret: ...}} wrapper would
+        # be wrong for its data shape. Click rejects the unknown option.
+        runner = CliRunner()
+        result = runner.invoke(cli, ["lookup", "set", "--key", "k", "--value", "x"])
+        assert result.exit_code != 0
+        assert "no such option" in result.output.lower() or "No such option" in result.output
+
+    @patch("limacharlie.commands._hive_shortcut.Client")
+    @patch("limacharlie.commands._hive_shortcut.Organization")
+    @patch("limacharlie.commands._hive_shortcut.Hive")
+    def test_tag_works_for_structured_hive(self, mock_hive_cls, _org, _client, tmp_path):
+        # --tag/--comment are generic metadata and remain available on every
+        # hive shortcut, even those without --value.
+        mock_hive = MagicMock()
+        mock_hive.set.return_value = {"etag": "new"}
+        mock_hive_cls.return_value = mock_hive
+        f = tmp_path / "l.yaml"
+        f.write_text("data:\n  a: 1\n")
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "lookup", "set", "--key", "k", "--input-file", str(f), "--tag", "prod",
+        ])
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.tags == ["prod"]
+
     @patch("limacharlie.commands._hive_shortcut.Client")
     @patch("limacharlie.commands._hive_shortcut.Organization")
     @patch("limacharlie.commands._hive_shortcut.Hive")

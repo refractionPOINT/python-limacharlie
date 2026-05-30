@@ -5,7 +5,7 @@ from __future__ import annotations
 from ._hive_shortcut import make_hive_group
 from ..discovery import register_explain
 
-group = make_hive_group("secret", "secret", "secret")
+group = make_hive_group("secret", "secret", "secret", value_key="secret")
 
 # Override the generic hive explains with secret-specific documentation.
 
