@@ -1260,3 +1260,34 @@ class TestChatsGroup:
             ])
             assert result.exit_code == 0, result.output
             assert "model_set" in result.output
+
+
+class TestStartSessionHiveUri:
+    """start_session accepts both a bare key and the hive://ai_agent/<name>
+    URI form (the form the D&R 'start ai agent' action references)."""
+
+    def test_strips_hive_ai_agent_prefix(self, ai, mock_org):
+        defn = {"prompt": "Go", "anthropic_secret": "sk", "lc_api_key_secret": "lc"}
+        with patch("limacharlie.sdk.hive.Hive") as MockHive:
+            hive_instance = MagicMock()
+            MockHive.return_value = hive_instance
+            hive_instance.get.return_value = _make_hive_record(defn)
+            mock_org.client.request.return_value = {"session_id": "s", "status": "pending"}
+
+            ai.start_session("hive://ai_agent/my-agent")
+
+        # The URI prefix must be stripped before the hive lookup so it
+        # resolves to the same record as the bare key.
+        hive_instance.get.assert_called_with("my-agent")
+
+    def test_bare_key_unchanged(self, ai, mock_org):
+        defn = {"prompt": "Go", "anthropic_secret": "sk", "lc_api_key_secret": "lc"}
+        with patch("limacharlie.sdk.hive.Hive") as MockHive:
+            hive_instance = MagicMock()
+            MockHive.return_value = hive_instance
+            hive_instance.get.return_value = _make_hive_record(defn)
+            mock_org.client.request.return_value = {"session_id": "s", "status": "pending"}
+
+            ai.start_session("my-agent")
+
+        hive_instance.get.assert_called_with("my-agent")

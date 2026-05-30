@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from ._hive_shortcut import make_hive_group
+from ._adapter_types import add_list_types
 from ..discovery import register_explain
 
 group = make_hive_group("cloud-adapter", "cloud_sensor", "cloud adapter")
+add_list_types(group, "cloud-adapter.list-types", "cloud_sensor")
 
 # Override the generic hive explains with cloud adapter documentation.
 
@@ -59,7 +61,9 @@ sensor_type selects the adapter kind, and client_options are shared
 across all types.
 
 Supported cloud adapter types include: webhook, s3, gcs, pubsub,
-office365, 1password, crowdstrike, duo, sophos, and others.
+office365, 1password, crowdstrike, duo, sophos, threatlocker, okta,
+google_workspace, sentinelone, mimecast, and more.  Run
+'limacharlie cloud-adapter list-types' for the full, up-to-date list.
 
 Secrets can be referenced with hive://secret/name syntax to avoid
 storing credentials inline.

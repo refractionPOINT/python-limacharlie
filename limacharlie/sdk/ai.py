@@ -97,7 +97,11 @@ class AI:
         resolved automatically before the request is sent.
 
         Args:
-            definition_name: Name of the ai_agent hive record to use as template.
+            definition_name: Name of the ai_agent hive record to use as
+                template.  Accepts either a bare record key (``my-agent``)
+                or the ``hive://ai_agent/<name>`` URI form used by the
+                D&R ``start ai agent`` action; the prefix is stripped and
+                both resolve to the same record.
             prompt: Replace the prompt from the definition.
             name: Replace the session name.
             idempotent_key: Deduplication key.
@@ -130,6 +134,13 @@ class AI:
             dict: Session creation response with session_id and status.
         """
         from .hive import Hive
+
+        # Accept both a bare record key and the hive://ai_agent/<name> URI
+        # form (the form the D&R 'start ai agent' action references), so the
+        # same identifier works from a rule and from the CLI/SDK.
+        _HIVE_PREFIX = "hive://ai_agent/"
+        if definition_name.startswith(_HIVE_PREFIX):
+            definition_name = definition_name[len(_HIVE_PREFIX):]
 
         # Fetch the ai_agent definition; treat its fields as the template
         # that overrides stack on top of.

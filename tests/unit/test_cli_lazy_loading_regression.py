@@ -125,7 +125,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "ai-memory": frozenset({
         "delete", "delete-record", "get", "list", "list-records", "set",
     }),
-    "ai-skill": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
+    "ai-skill": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "api-key": frozenset({"create", "delete", "list"}),
     "arl": frozenset({"get"}),
     "artifact": frozenset({"download", "list", "upload"}),
@@ -142,7 +142,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "entity", "export", "get", "list", "merge", "orgs", "report",
         "tag", "telemetry", "update", "update-note",
     }),
-    "cloud-adapter": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
+    "cloud-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "set", "tag"}),
     "detection": frozenset({"get", "list"}),
     "download": frozenset({"adapter", "list", "sensor"}),
     "dr": frozenset({
@@ -160,8 +160,8 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "list", "list-available", "rekey", "request", "schema",
         "subscribe", "unsubscribe",
     }),
-    "external-adapter": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
-    "fp": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
+    "external-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "set", "tag"}),
+    "fp": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "group": frozenset({
         "create", "delete", "get", "list", "logs",
         "member-add", "member-remove", "org-add", "org-remove",
@@ -178,8 +178,8 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "ioc": frozenset({"batch-enrich", "batch-search", "enrich", "hosts", "search"}),
     "job": frozenset({"delete", "get", "list", "wait"}),
     "logging": frozenset({"create", "delete", "get", "list"}),
-    "lookup": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
-    "note": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
+    "lookup": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
+    "note": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "org": frozenset({
         "check-name", "config-get", "config-set", "create", "delete",
         "dismiss-error", "errors", "info", "list", "mitre", "quota",
@@ -187,7 +187,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     }),
     "output": frozenset({"create", "delete", "list"}),
     "payload": frozenset({"delete", "download", "list", "upload"}),
-    "playbook": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
+    "playbook": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "replay": frozenset({"run"}),
     "schema": frozenset({"get", "list", "reset"}),
     "search": frozenset({
@@ -195,12 +195,12 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "saved-create", "saved-delete", "saved-get", "saved-list",
         "saved-run", "validate",
     }),
-    "secret": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
+    "secret": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "sensor": frozenset({
         "delete", "dump", "export", "get", "list", "set-version",
         "sweep", "upgrade", "wait-online",
     }),
-    "sop": frozenset({"delete", "disable", "enable", "get", "list", "set"}),
+    "sop": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "spotcheck": frozenset({"run"}),
     "stream": frozenset({"audit", "detections", "events", "firehose"}),
     "sync": frozenset({"pull", "push"}),
@@ -223,8 +223,8 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
 # Global options that must be present on the top-level cli group.
 EXPECTED_GLOBAL_OPTIONS = frozenset({
     "oid", "output_format", "debug", "debug_full", "debug_curl",
-    "quiet", "wide", "no_warnings", "filter_expr", "profile",
-    "environment",
+    "quiet", "wide", "no_warnings", "filter_expr", "fields",
+    "sort_by", "reverse", "profile", "environment",
 })
 
 

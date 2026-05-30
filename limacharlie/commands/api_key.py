@@ -56,6 +56,13 @@ _EXPLAIN_LIST = """\
 List all API keys in the organization.  Each key entry shows the
 key name, hash, creation date, and associated permissions.
 
+With --output json the result is an OBJECT keyed by key-hash, whose
+values carry the key's name and permissions (it is not a list).
+
+Use --name <key-name> to filter the result down to the single
+matching key entry; the output keeps the same key-hash-keyed shape
+(an object with one entry, or an empty object if no key matches).
+
 The actual secret key value is only returned at creation time and
 cannot be retrieved later.  Use --output json to get the full
 key metadata for auditing purposes.
@@ -63,11 +70,24 @@ key metadata for auditing purposes.
 register_explain("api-key.list", _EXPLAIN_LIST)
 
 
+def _key_name(entry: Any) -> str | None:
+    """Extract the human name from an API key entry value."""
+    if isinstance(entry, dict):
+        # The API has used both 'name' and 'key_name' over time; accept either.
+        return entry.get("name") or entry.get("key_name")
+    return None
+
+
 @group.command("list")
+@click.option("--name", "name", default=None, help="Filter to the single API key with this name (output keeps the key-hash-keyed object shape).")
 @pass_context
-def list_keys(ctx) -> None:
+def list_keys(ctx, name) -> None:
     org = _get_org(ctx)
     data = org.get_api_keys()
+    if name is not None and isinstance(data, dict):
+        # Keep the raw shape (object keyed by key-hash); just narrow it down
+        # to the matching entry/entries for back-compat with json consumers.
+        data = {h: v for h, v in data.items() if _key_name(v) == name}
     _output(ctx, data)
 
 
