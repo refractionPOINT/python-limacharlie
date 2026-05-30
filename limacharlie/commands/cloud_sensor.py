@@ -7,7 +7,7 @@ from ._adapter_types import add_list_types
 from ..discovery import register_explain
 
 group = make_hive_group("cloud-adapter", "cloud_sensor", "cloud adapter")
-add_list_types(group, "cloud-adapter.list-types")
+add_list_types(group, "cloud-adapter.list-types", "cloud_sensor")
 
 # Override the generic hive explains with cloud adapter documentation.
 

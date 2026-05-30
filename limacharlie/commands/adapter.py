@@ -7,7 +7,7 @@ from ._adapter_types import add_list_types
 from ..discovery import register_explain
 
 group = make_hive_group("external-adapter", "external_adapter", "external adapter")
-add_list_types(group, "external-adapter.list-types")
+add_list_types(group, "external-adapter.list-types", "external_adapter")
 
 # Override the generic hive explains with adapter-specific documentation.
 

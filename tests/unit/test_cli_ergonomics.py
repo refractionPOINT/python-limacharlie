@@ -382,17 +382,52 @@ class TestAdapterListTypes:
         assert "threatlocker" in types
         assert "webhook" in types
 
-    def test_derived_from_schema(self):
+    def test_derived_from_ref_rooted_schema(self):
+        # Mirrors the real reflected shape: a {"schema": {...}} wrapper whose
+        # root $refs into $defs/<Record>; type names are that record's
+        # properties (minus the discriminator), NOT the bare $defs keys.
         from limacharlie.commands._adapter_types import _types_from_schema
         schema = {"schema": {
-            "$defs": {"S3Config": {}, "SyslogConfig": {}},
+            "$ref": "#/$defs/CloudSensorRecord",
+            "$defs": {
+                "CloudSensorRecord": {
+                    "properties": {
+                        "s3": {}, "office365": {}, "threatlocker": {}, "sensor_type": {},
+                    },
+                },
+                "ClientOptions": {}, "AckBufferOptions": {},  # helper structs
+            },
+        }}
+        names = _types_from_schema(schema)
+        assert set(names) == {"s3", "office365", "threatlocker"}
+        # The discriminator and helper-struct $defs names must NOT leak in.
+        assert "sensor_type" not in names
+        assert "ClientOptions" not in names and "AckBufferOptions" not in names
+
+    def test_derived_from_inline_properties_schema(self):
+        # Fallback shape: no $ref, properties inline on the root.
+        from limacharlie.commands._adapter_types import _types_from_schema
+        schema = {"schema": {
             "properties": {"s3": {}, "syslog": {}, "sensor_type": {}, "client_options": {}},
         }}
         names = _types_from_schema(schema)
-        # Non-type shared fields are excluded.
-        assert "sensor_type" not in names
-        assert "client_options" not in names
+        assert "sensor_type" not in names and "client_options" not in names
         assert "s3" in names and "syslog" in names
+
+    def test_per_hive_schema_selection(self):
+        # cloud-adapter and external-adapter must enumerate their OWN hive.
+        from limacharlie.commands import _adapter_types as at
+        captured = {}
+
+        class _FakeHive:
+            def __init__(self, org, hive_name):
+                captured["hive_name"] = hive_name
+            def get_schema(self):
+                return {"schema": {"$ref": "#/$defs/R", "$defs": {"R": {"properties": {"s3": {}}}}}}
+
+        with patch.object(at, "Hive", _FakeHive):
+            at.adapter_types(None, "external_adapter")
+        assert captured["hive_name"] == "external_adapter"
 
     @patch("limacharlie.commands._adapter_types.Hive")
     @patch("limacharlie.commands._adapter_types.Client", create=True)

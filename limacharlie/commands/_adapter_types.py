@@ -67,50 +67,75 @@ _FALLBACK_ADAPTER_TYPES: dict[str, str] = {
 }
 
 
-def _types_from_schema(schema: Any) -> list[str] | None:
-    """Derive adapter type names from a cloud_sensor JSON-Schema.
+def _resolve_ref(root: dict, ref: str) -> dict | None:
+    """Resolve a local JSON-Schema ``$ref`` (e.g. ``#/$defs/CloudSensorRecord``)."""
+    if not isinstance(ref, str) or not ref.startswith("#/"):
+        return None
+    node: Any = root
+    for part in ref[2:].split("/"):
+        if not isinstance(node, dict):
+            return None
+        node = node.get(part)
+    return node if isinstance(node, dict) else None
 
-    The per-adapter config lives in a sibling sub-struct keyed by the
-    adapter type name (e.g. ``s3``, ``syslog``), so the type names are
-    the object properties (minus the shared/non-type fields).  Returns
+
+def _describe(name: str) -> str:
+    """Best-effort human description for a derived type name (blank if unknown)."""
+    return (
+        _FALLBACK_ADAPTER_TYPES.get(name)
+        or _FALLBACK_ADAPTER_TYPES.get(name.replace("_", ""))
+        or ""
+    )
+
+
+def _types_from_schema(schema: Any) -> list[str] | None:
+    """Derive adapter type names from an adapter hive JSON-Schema.
+
+    The reflected schema is a root that ``$ref``s into ``$defs`` (e.g.
+    ``CloudSensorRecord`` / ``ExternalAdapterConfig``); the per-adapter config
+    lives in that record as a property keyed by the adapter type name
+    (``s3``, ``office365``, ``threatlocker``, …), alongside the ``sensor_type``
+    discriminator. The type names are therefore the record's ``properties``
+    minus the shared/non-type fields — NOT the bare ``$defs`` keys, which are
+    helper structs (``ClientOptions``, ``AckBufferOptions``, …). Returns
     ``None`` if the schema does not expose any usable type names.
     """
-    if isinstance(schema, dict) and "schema" in schema and isinstance(schema["schema"], dict):
+    if isinstance(schema, dict) and isinstance(schema.get("schema"), dict):
         schema = schema["schema"]
     if not isinstance(schema, dict):
         return None
 
-    names: set[str] = set()
-    props = schema.get("properties")
-    if isinstance(props, dict):
-        names.update(props.keys())
-    defs = schema.get("$defs") or schema.get("definitions")
-    if isinstance(defs, dict):
-        names.update(defs.keys())
+    # Follow a top-level $ref into the record definition.
+    record = schema
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        resolved = _resolve_ref(schema, ref)
+        if resolved is not None:
+            record = resolved
 
-    names -= _NON_TYPE_FIELDS
-    cleaned = sorted(n for n in names if n and not n.startswith("_"))
-    return cleaned or None
+    props = record.get("properties")
+    if not isinstance(props, dict):
+        return None
+
+    names = {n for n in props if n and not n.startswith("_")} - _NON_TYPE_FIELDS
+    return sorted(names) or None
 
 
-def adapter_types(org: Any) -> list[dict[str, str]]:
-    """Return the supported adapter types as name/description rows.
+def adapter_types(org: Any, hive_name: str = "cloud_sensor") -> list[dict[str, str]]:
+    """Return the supported adapter types for a hive as name/description rows.
 
-    Prefers the live cloud_sensor hive schema; falls back to the curated
-    constant when the schema is unavailable or does not advertise types.
+    Prefers the live hive schema (so it tracks the backend); falls back to the
+    curated constant when the schema is unavailable or does not advertise types.
     """
     derived: list[str] | None = None
     try:
-        schema = Hive(org, "cloud_sensor").get_schema()
+        schema = Hive(org, hive_name).get_schema()
         derived = _types_from_schema(schema)
     except Exception:
         derived = None
 
     if derived:
-        return [
-            {"type": name, "description": _FALLBACK_ADAPTER_TYPES.get(name, "")}
-            for name in derived
-        ]
+        return [{"type": name, "description": _describe(name)} for name in derived]
     return [
         {"type": name, "description": desc}
         for name, desc in sorted(_FALLBACK_ADAPTER_TYPES.items())
@@ -120,18 +145,24 @@ def adapter_types(org: Any) -> list[dict[str, str]]:
 _EXPLAIN_LIST_TYPES = """\
 List the supported adapter/sensor type names with a short description.
 
-The list is derived from the live cloud_sensor hive JSON-Schema when
+The list is derived from the live adapter hive JSON-Schema when
 available (so it tracks the backend), with a curated fallback otherwise.
 Use a type name as the top-level sensor_type when calling 'set'.
 
-Note: a few types are only meaningful for external (on-prem) adapters
-(e.g. stdin, wel) versus cloud adapters; consult the set --ai-help for
+The cloud-adapter and external-adapter type sets differ: cloud adapters
+run in LimaCharlie's infrastructure, external (on-prem) adapters add
+types like syslog, file, stdin and wel. Consult the set --ai-help for
 the per-type config shape.
 """
 
 
-def add_list_types(group: click.Group, command_path: str) -> None:
-    """Attach a ``list-types`` subcommand to an adapter command group."""
+def add_list_types(group: click.Group, command_path: str, hive_name: str = "cloud_sensor") -> None:
+    """Attach a ``list-types`` subcommand to an adapter command group.
+
+    ``hive_name`` selects which adapter hive's schema to enumerate
+    (``cloud_sensor`` vs ``external_adapter``) so each group lists its own
+    supported types.
+    """
     from ..cli import pass_context
     from ..client import Client
     from ..sdk.organization import Organization
@@ -150,7 +181,7 @@ def add_list_types(group: click.Group, command_path: str) -> None:
             debug_verbose=ctx.obj.debug_verbose,
         )
         org = Organization(client)
-        data = adapter_types(org)
+        data = adapter_types(org, hive_name)
         if not ctx.obj.quiet:
             fmt = ctx.obj.output_format or detect_output_format()
             click.echo(format_output(data, fmt))
