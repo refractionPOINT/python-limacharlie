@@ -9,6 +9,11 @@ if TYPE_CHECKING:
     from .organization import Organization
 
 _HIVE_SECRET_PREFIX = "hive://secret/"
+
+# Fallback only.  The real ai-sessions host is resolved per-org from the
+# ``ai`` entry of ``orgs/{oid}/url`` (see :meth:`AI._get_ai_url`) because
+# it differs by deployment -- e.g. staging orgs return
+# ``ai-staging.limacharlie.io``.
 _AI_SESSIONS_URL = "https://ai.limacharlie.io"
 
 
@@ -17,11 +22,31 @@ class AI:
 
     def __init__(self, org: Organization) -> None:
         self._org = org
+        self._ai_url: str | None = None
 
     @property
     def client(self) -> Any:
         """The underlying API client."""
         return self._org.client
+
+    def _get_ai_url(self) -> str:
+        """Resolve the ai-sessions base URL for this org.
+
+        The per-org service URLs (``orgs/{oid}/url``) carry an ``ai``
+        entry whose value depends on the deployment the org lives in
+        (production orgs resolve to ``ai.limacharlie.io``, staging orgs
+        to ``ai-staging.limacharlie.io``, etc.), so the host must not be
+        hardcoded.  Mirrors the lazy, cached resolution used by
+        :class:`~limacharlie.sdk.search.Search`.  Falls back to
+        :data:`_AI_SESSIONS_URL` only when the org URL set has no ``ai``
+        entry.
+        """
+        if self._ai_url is None:
+            ai_url = self._org.get_urls().get("ai", "")
+            if ai_url and not ai_url.startswith(("http://", "https://")):
+                ai_url = "https://" + ai_url
+            self._ai_url = ai_url or _AI_SESSIONS_URL
+        return self._ai_url
 
     def _resolve_secret(self, value: str) -> str:
         """Resolve a value that may be a hive://secret/ reference."""
@@ -248,7 +273,7 @@ class AI:
                 raw_body=json.dumps(request_body).encode(),
                 content_type="application/json",
                 is_no_auth=True,
-                alt_root=_AI_SESSIONS_URL,
+                alt_root=self._get_ai_url(),
                 extra_headers=extra,
             )
 
@@ -256,7 +281,7 @@ class AI:
             "POST", "v1/api/sessions",
             raw_body=json.dumps(request_body).encode(),
             content_type="application/json",
-            alt_root=_AI_SESSIONS_URL,
+            alt_root=self._get_ai_url(),
             extra_headers=extra,
         )
 
@@ -364,13 +389,13 @@ class AI:
                 verb, path,
                 query_params=query_params,
                 is_no_auth=True,
-                alt_root=_AI_SESSIONS_URL,
+                alt_root=self._get_ai_url(),
                 extra_headers=extra,
             )
         return self.client.request(
             verb, path,
             query_params=query_params,
-            alt_root=_AI_SESSIONS_URL,
+            alt_root=self._get_ai_url(),
             extra_headers=extra,
         )
 
@@ -523,7 +548,7 @@ class AI:
         ``claims.UID()`` alone; sending X-LC-OID is unnecessary here
         and the routes don't accept raw API keys.
         """
-        kwargs: dict[str, Any] = {"alt_root": _AI_SESSIONS_URL}
+        kwargs: dict[str, Any] = {"alt_root": self._get_ai_url()}
         if raw_body is not None:
             kwargs["raw_body"] = raw_body
             kwargs["content_type"] = "application/json"

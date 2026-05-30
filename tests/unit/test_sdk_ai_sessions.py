@@ -23,6 +23,9 @@ def mock_org():
     # MagicMock would auto-vivify a truthy _uid and leak an X-LC-UID
     # header into every request.)
     org.client._uid = None
+    # ai-sessions host is resolved per-org from orgs/{oid}/url; return the
+    # production host so the resolved alt_root matches _AI_SESSIONS_URL.
+    org.get_urls.return_value = {"ai": "ai.limacharlie.io"}
     return org
 
 

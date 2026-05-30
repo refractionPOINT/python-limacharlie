@@ -85,12 +85,13 @@ class SessionAttachment:
     def __init__(self, ai: "AI", session_id: str, *,
                  read_only: bool = False,
                  base_url: str | None = None) -> None:
-        from .ai import _AI_SESSIONS_URL
-
         self._ai = ai
         self._session_id = session_id
         self._read_only = read_only
-        self._base_url = base_url or _AI_SESSIONS_URL
+        # When no explicit override is supplied, resolve the per-org
+        # ai-sessions host lazily (in :meth:`url`) so we honour the org's
+        # deployment (prod vs staging) rather than a hardcoded host.
+        self._base_url = base_url
         self._ws: Any = None
         self._heartbeat_task: asyncio.Task | None = None
 
@@ -107,7 +108,8 @@ class SessionAttachment:
         return self._read_only
 
     def url(self) -> str:
-        return _derive_ws_url(self._base_url, self._session_id, self._read_only)
+        base_url = self._base_url or self._ai._get_ai_url()
+        return _derive_ws_url(base_url, self._session_id, self._read_only)
 
     # ------------------------------------------------------------------
     # Connection lifecycle
