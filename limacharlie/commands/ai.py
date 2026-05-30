@@ -271,6 +271,10 @@ references), tool permissions, MCP servers, environment, budgets, and
 so on.  Any --option flag below overrides the matching field from the
 template; the rest of the template is used as-is.
 
+--definition accepts BOTH a bare record key (e.g. "my-agent") and the
+"hive://ai_agent/<name>" URI form (the form the D&R "start ai agent"
+action uses); both resolve to the same ai_agent record.
+
 This lets you reuse one ai_agent definition as a starting point and
 vary only the bits you need per-run (swap the prompt, cap the budget,
 change the model, add an env var, etc.).
@@ -354,7 +358,7 @@ def _parse_env_kv(items: tuple[str, ...]) -> dict[str, str] | None:
 
 @group.command("start-session")
 @click.option("--definition", required=True,
-              help="Name of the ai_agent hive record to use as template.")
+              help="ai_agent hive record to use as template. Accepts a bare key (my-agent) or the hive://ai_agent/<name> URI form.")
 @click.option("--prompt", default=None, help="Replace the prompt from the definition.")
 @click.option("--name", default=None, help="Replace the session name.")
 @click.option("--idempotent-key", default=None, help="Deduplication key for the session.")
