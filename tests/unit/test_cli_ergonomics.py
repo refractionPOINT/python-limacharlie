@@ -495,3 +495,195 @@ class TestHiveSchemaFlat:
         parsed = json.loads(result.output)
         # Raw JSON Schema preserved, nothing lost.
         assert parsed == self._SCHEMA
+
+
+# ---------------------------------------------------------------------------
+# adapter schema --type  (per-type config schema)
+# ---------------------------------------------------------------------------
+
+class TestAdapterTypeSchema:
+    _SCHEMA = {"schema": {
+        "$ref": "#/$defs/CloudSensorRecord",
+        "$defs": {
+            "CloudSensorRecord": {"properties": {
+                "sensor_type": {"type": "string"},
+                "threatlocker": {"$ref": "#/$defs/ThreatLockerConfig"},
+            }},
+            "ThreatLockerConfig": {"properties": {
+                "api_key": {"type": "string"}, "instance_letter": {"type": "string"},
+            }, "required": ["api_key"]},
+        },
+    }}
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_resolves_known_type(self, mock_hive_cls):
+        from limacharlie.commands._adapter_types import adapter_type_schema
+        mock_hive = MagicMock(); mock_hive.get_schema.return_value = self._SCHEMA
+        mock_hive_cls.return_value = mock_hive
+        root, node = adapter_type_schema(None, "cloud_sensor", "threatlocker")
+        assert node is not None
+        assert node.get("$ref", "").endswith("ThreatLockerConfig")
+        # root retains $defs so the caller can resolve/flatten.
+        assert "ThreatLockerConfig" in root["$defs"]
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_unknown_type_returns_none(self, mock_hive_cls):
+        from limacharlie.commands._adapter_types import adapter_type_schema
+        mock_hive = MagicMock(); mock_hive.get_schema.return_value = self._SCHEMA
+        mock_hive_cls.return_value = mock_hive
+        _root, node = adapter_type_schema(None, "cloud_sensor", "bogus")
+        assert node is None
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_cli_table_render(self, mock_hive_cls):
+        mock_hive = MagicMock(); mock_hive.get_schema.return_value = self._SCHEMA
+        mock_hive_cls.return_value = mock_hive
+        runner = CliRunner()
+        with patch("limacharlie.client.Client"):
+            result = runner.invoke(cli, [
+                "--output", "table", "cloud-adapter", "schema", "--type", "threatlocker"])
+        assert result.exit_code == 0, result.output
+        # Flattened field listing resolves the type config's properties.
+        assert "api_key" in result.output and "instance_letter" in result.output
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_cli_unknown_type_errors_with_valid_list(self, mock_hive_cls):
+        mock_hive = MagicMock(); mock_hive.get_schema.return_value = self._SCHEMA
+        mock_hive_cls.return_value = mock_hive
+        runner = CliRunner()
+        with patch("limacharlie.client.Client"):
+            result = runner.invoke(cli, ["cloud-adapter", "schema", "--type", "bogus"])
+        assert result.exit_code != 0
+        assert "Unknown adapter type 'bogus'" in result.output
+        assert "threatlocker" in result.output  # lists the valid types
+
+
+# ---------------------------------------------------------------------------
+# adapter sensors --key  (find an adapter's sensor(s) by iid)
+# ---------------------------------------------------------------------------
+
+class TestAdapterSensors:
+    _IID = "11111111-1111-1111-1111-111111111111"
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_matches_by_iid_via_selector(self, mock_hive_cls):
+        from limacharlie.commands._adapter_types import adapter_sensors
+        rec = MagicMock()
+        rec.data = {"sensor_type": "s3", "s3": {"client_options": {
+            "identity": {"installation_key": self._IID}, "hostname": "ignored"}}}
+        mock_hive_cls.return_value.get.return_value = rec
+        org = MagicMock()
+        # The server applies the selector; the mock returns the filtered set.
+        org.list_sensors.return_value = [
+            {"iid": self._IID, "sid": "S1", "hostname": "h1", "is_online": True, "alive": "t"},
+        ]
+        out = adapter_sensors(org, "cloud_sensor", "my-adapter")
+        org.list_sensors.assert_called_once_with(selector=f'iid == "{self._IID}"')
+        assert out["match_by"] == "iid" and out["match_value"] == self._IID
+        assert out["selector"] == f'iid == "{self._IID}"'
+        assert [s["sid"] for s in out["sensors"]] == ["S1"]
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_empty_when_not_registered(self, mock_hive_cls):
+        from limacharlie.commands._adapter_types import adapter_sensors
+        rec = MagicMock()
+        rec.data = {"sensor_type": "s3", "s3": {"client_options": {
+            "identity": {"installation_key": self._IID}}}}
+        mock_hive_cls.return_value.get.return_value = rec
+        org = MagicMock(); org.list_sensors.return_value = []
+        out = adapter_sensors(org, "cloud_sensor", "a")
+        assert out["sensors"] == [] and "note" in out
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_hostname_fallback_when_key_not_uuid(self, mock_hive_cls):
+        from limacharlie.commands._adapter_types import adapter_sensors
+        rec = MagicMock()
+        rec.data = {"sensor_type": "webhook", "webhook": {"client_options": {
+            "identity": {"installation_key": "AAAAbase64notuuid=="}, "hostname": "wh-1"}}}
+        mock_hive_cls.return_value.get.return_value = rec
+        org = MagicMock()
+        org.list_sensors.return_value = [
+            {"iid": "x", "sid": "S1", "hostname": "wh-1", "is_online": True, "alive": "t"},
+        ]
+        out = adapter_sensors(org, "cloud_sensor", "wh")
+        org.list_sensors.assert_called_once_with(selector='hostname == "wh-1"')
+        assert out["match_by"] == "hostname" and [s["sid"] for s in out["sensors"]] == ["S1"]
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_no_resolvable_identity_does_not_query(self, mock_hive_cls):
+        from limacharlie.commands._adapter_types import adapter_sensors
+        rec = MagicMock()
+        rec.data = {"sensor_type": "s3", "s3": {"client_options": {}}}
+        mock_hive_cls.return_value.get.return_value = rec
+        org = MagicMock()
+        out = adapter_sensors(org, "cloud_sensor", "a")
+        assert out["match_by"] is None and out["sensors"] == []
+        org.list_sensors.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# api-key create --store-secret  (atomic mint -> secret)
+# ---------------------------------------------------------------------------
+
+class TestApiKeyStoreSecret:
+    @patch("limacharlie.sdk.hive.Hive")
+    @patch("limacharlie.commands.api_key.Client")
+    @patch("limacharlie.commands.api_key.Organization")
+    def test_store_secret_writes_value_new(self, mock_org_cls, _client, mock_hive_cls):
+        mock_org = MagicMock()
+        mock_org.add_api_key.return_value = {"api_key": "minted-value", "key_name": "k", "success": True}
+        mock_org_cls.return_value = mock_org
+        mock_hive = MagicMock(); mock_hive_cls.return_value = mock_hive
+        # No existing secret of this name -> get_metadata raises -> create (no etag).
+        mock_hive.get_metadata.side_effect = Exception("not found")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "api-key", "create", "--name", "k", "--permissions", "org.get",
+            "--store-secret", "k-secret", "--store-secret-tag", "clitest",
+        ])
+        assert result.exit_code == 0, result.output
+        # The secret hive received the minted value verbatim.
+        mock_hive_cls.assert_called_once()
+        assert mock_hive_cls.call_args[0][1] == "secret"
+        record = mock_hive.set.call_args[0][0]
+        assert record.data == {"secret": "minted-value"}
+        assert record.tags == ["clitest"]
+        assert record.enabled is True
+        assert record.etag is None  # creating a new secret, no conditional etag
+        assert "new secret" in result.output
+
+    @patch("limacharlie.sdk.hive.Hive")
+    @patch("limacharlie.commands.api_key.Client")
+    @patch("limacharlie.commands.api_key.Organization")
+    def test_store_secret_updates_existing_with_etag(self, mock_org_cls, _client, mock_hive_cls):
+        from limacharlie.sdk.hive import HiveRecord
+        mock_org = MagicMock()
+        mock_org.add_api_key.return_value = {"api_key": "minted-value", "key_name": "k"}
+        mock_org_cls.return_value = mock_org
+        mock_hive = MagicMock(); mock_hive_cls.return_value = mock_hive
+        # An existing secret -> carry its etag so the write is a conditional update.
+        mock_hive.get_metadata.return_value = HiveRecord(name="k-secret", etag="ETAG-1")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "api-key", "create", "--name", "k", "--permissions", "org.get",
+            "--store-secret", "k-secret",
+        ])
+        assert result.exit_code == 0, result.output
+        record = mock_hive.set.call_args[0][0]
+        assert record.data == {"secret": "minted-value"}
+        assert record.etag == "ETAG-1"
+        assert "Updated existing" in result.output
+
+    @patch("limacharlie.sdk.hive.Hive")
+    @patch("limacharlie.commands.api_key.Client")
+    @patch("limacharlie.commands.api_key.Organization")
+    def test_no_store_secret_does_not_touch_hive(self, mock_org_cls, _client, mock_hive_cls):
+        mock_org = MagicMock()
+        mock_org.add_api_key.return_value = {"api_key": "v", "key_name": "k"}
+        mock_org_cls.return_value = mock_org
+        runner = CliRunner()
+        result = runner.invoke(cli, ["api-key", "create", "--name", "k", "--permissions", "org.get"])
+        assert result.exit_code == 0, result.output
+        mock_hive_cls.assert_not_called()
