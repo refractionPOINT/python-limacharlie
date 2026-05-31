@@ -142,7 +142,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "entity", "export", "get", "list", "merge", "orgs", "report",
         "tag", "telemetry", "update", "update-note",
     }),
-    "cloud-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "set", "tag"}),
+    "cloud-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "schema", "sensors", "set", "tag"}),
     "detection": frozenset({"get", "list"}),
     "download": frozenset({"adapter", "list", "sensor"}),
     "dr": frozenset({
@@ -160,7 +160,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "list", "list-available", "rekey", "request", "schema",
         "subscribe", "unsubscribe",
     }),
-    "external-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "set", "tag"}),
+    "external-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "schema", "sensors", "set", "tag"}),
     "fp": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "group": frozenset({
         "create", "delete", "get", "list", "logs",

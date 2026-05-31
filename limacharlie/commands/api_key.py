@@ -128,8 +128,19 @@ register_explain("api-key.create", _EXPLAIN_CREATE)
     "--permissions", required=True,
     help="Comma-separated list of permissions (e.g., 'dr.list,dr.set').",
 )
+@click.option(
+    "--store-secret", "store_secret", default=None,
+    help="Also store the freshly-minted key value into the secret hive under this "
+         "key name ({data: {secret: <value>}}), so it can be referenced as "
+         "hive://secret/<name>. The value is written directly without transiting "
+         "intermediate files — collapses the mint -> store -> reference chain.",
+)
+@click.option(
+    "--store-secret-tag", "store_secret_tags", multiple=True,
+    help="Tag to apply to the stored secret record (repeatable). Only used with --store-secret.",
+)
 @pass_context
-def create(ctx, name, permissions) -> None:
+def create(ctx, name, permissions, store_secret, store_secret_tags) -> None:
     perm_list = [p.strip() for p in permissions.split(",") if p.strip()]
     if not perm_list:
         click.echo("Error: At least one permission is required.", err=True)
@@ -140,6 +151,25 @@ def create(ctx, name, permissions) -> None:
     data = org.add_api_key(name, perm_list)
     if not ctx.obj.quiet:
         click.echo(f"API key '{name}' created.")
+
+    if store_secret:
+        # The key value is only shown once; persist it into the secret hive in
+        # the same step so callers never have to capture and re-pipe it.
+        value = data.get("api_key") or data.get("secret") or data.get("key")
+        if not value:
+            click.echo(
+                "Error: API key created but no key value was returned to store as a secret.",
+                err=True,
+            )
+            ctx.exit(4)
+            return
+        from ..sdk.hive import Hive, HiveRecord
+        record = HiveRecord(store_secret, data={"secret": value},
+                            tags=list(store_secret_tags), enabled=True)
+        Hive(org, "secret").set(record)
+        if not ctx.obj.quiet:
+            click.echo(f"Stored key value in secret '{store_secret}' (reference it as hive://secret/{store_secret}).")
+
     _output(ctx, data)
 
 
