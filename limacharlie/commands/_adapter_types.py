@@ -217,20 +217,22 @@ def adapter_sensors(org: Any, hive_name: str, key: str) -> dict[str, Any]:
 
     if isinstance(install_key, str) and _UUID_RE.match(install_key):
         match_by, match_val = "iid", install_key
-        pred = lambda s: s.get("iid") == install_key
     elif hostname:
         match_by, match_val = "hostname", hostname
-        pred = lambda s: s.get("hostname") == hostname
     else:
-        return {"adapter": key, "match_by": None, "match_value": None, "sensors": [],
+        return {"adapter": key, "match_by": None, "match_value": None, "selector": None, "sensors": [],
                 "note": "Adapter record has no resolvable installation_key (iid) or hostname to match on."}
 
+    # Filter server-side with a sensor selector (both iid and hostname are
+    # supported selector fields), so this scales to large fleets instead of
+    # paging every sensor and filtering client-side.
+    selector = f'{match_by} == "{match_val}"'
     sensors = [
         {"sid": s.get("sid"), "hostname": s.get("hostname"), "iid": s.get("iid"),
          "is_online": s.get("is_online"), "last_seen": s.get("alive")}
-        for s in org.list_sensors() if pred(s)
+        for s in org.list_sensors(selector=selector)
     ]
-    out = {"adapter": key, "match_by": match_by, "match_value": match_val, "sensors": sensors}
+    out = {"adapter": key, "match_by": match_by, "match_value": match_val, "selector": selector, "sensors": sensors}
     if not sensors:
         out["note"] = ("No sensor registered for this adapter yet — it has not delivered any "
                        "events (a cloud adapter materializes a sensor on first event). Normal "
@@ -281,14 +283,19 @@ def add_schema(group: click.Group, command_path: str, hive_name: str = "cloud_se
         if node is None:
             types = ", ".join(t["type"] for t in adapter_types(org, hive_name))
             raise click.UsageError(f"Unknown adapter type '{type_name}'. Valid types: {types}")
+        if ctx.obj.quiet:
+            return
         fmt = ctx.obj.output_format or detect_output_format()
         if fmt == "table" and isinstance(root, dict):
             rows = _flatten_schema(node, root)
             if rows:
                 click.echo(format_output(rows, fmt))
                 return
-        # Raw JSON-Schema node for machine formats (resolve a top-level $ref).
+        # Raw JSON-Schema node for machine formats: resolve a top-level $ref and
+        # carry the root $defs so nested $refs in the node stay resolvable.
         resolved = _resolve_ref(root, node["$ref"]) if isinstance(node, dict) and "$ref" in node and isinstance(root, dict) else node
+        if isinstance(resolved, dict) and isinstance(root, dict) and isinstance(root.get("$defs"), dict):
+            resolved = {**resolved, "$defs": root["$defs"]}
         click.echo(format_output(resolved, fmt))
 
     register_explain(command_path, _EXPLAIN_SCHEMA)

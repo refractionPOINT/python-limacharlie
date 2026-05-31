@@ -157,18 +157,30 @@ def create(ctx, name, permissions, store_secret, store_secret_tags) -> None:
         # the same step so callers never have to capture and re-pipe it.
         value = data.get("api_key") or data.get("secret") or data.get("key")
         if not value:
+            # The key was already created; surface it so it isn't lost, then fail.
             click.echo(
                 "Error: API key created but no key value was returned to store as a secret.",
                 err=True,
             )
+            _output(ctx, data)
             ctx.exit(4)
             return
         from ..sdk.hive import Hive, HiveRecord
+        secret_hive = Hive(org, "secret")
+        # If a secret of this name already exists, carry its etag so the write is
+        # a conditional update (no lost update on a concurrent change) and we can
+        # report create-vs-overwrite instead of silently clobbering it.
+        existing_etag = None
+        try:
+            existing_etag = secret_hive.get_metadata(store_secret).etag
+        except Exception:
+            existing_etag = None  # not found -> creating a new secret
         record = HiveRecord(store_secret, data={"secret": value},
-                            tags=list(store_secret_tags), enabled=True)
-        Hive(org, "secret").set(record)
+                            tags=list(store_secret_tags), enabled=True, etag=existing_etag)
+        secret_hive.set(record)
         if not ctx.obj.quiet:
-            click.echo(f"Stored key value in secret '{store_secret}' (reference it as hive://secret/{store_secret}).")
+            verb = "Updated existing" if existing_etag else "Stored key value in new"
+            click.echo(f"{verb} secret '{store_secret}' (reference it as hive://secret/{store_secret}).")
 
     _output(ctx, data)
 
