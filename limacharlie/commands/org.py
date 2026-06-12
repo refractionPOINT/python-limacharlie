@@ -391,6 +391,32 @@ def quota(ctx: click.Context, quota: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# quota-usage
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_QUOTA_USAGE = """\
+Display the enforced sensor quota usage for the organization.  This is the
+weighted virtual-sensor count the platform actually uses to decide whether a
+sensor may come online, so it is the value to size the sensor quota against.
+
+The reported usage can read higher than the online sensor count, which
+weights EPP/response-mode sensors at 0.  The response includes the configured
+quota and a per-category breakdown (raw count and weighted contribution),
+making it useful for capacity planning and understanding headroom before
+licensing additional sensors.
+"""
+register_explain("org.quota-usage", _EXPLAIN_QUOTA_USAGE)
+
+
+@group.command("quota-usage")
+@pass_context
+def quota_usage(ctx: click.Context) -> None:
+    org = _get_org(ctx)
+    data = org.get_quota_usage()
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
 # schema
 # ---------------------------------------------------------------------------
 

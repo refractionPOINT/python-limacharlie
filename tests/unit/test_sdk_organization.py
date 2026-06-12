@@ -47,6 +47,17 @@ class TestOrganizationInfo:
         org.get_stats()
         mock_client.request.assert_called_once_with("GET", "usage/test-oid-123")
 
+    def test_get_quota_usage(self, org, mock_client):
+        mock_client.request.return_value = {
+            "usage": 42,
+            "quota": 100,
+            "breakdown": {"edr": {"n": 40, "quota": 40.0}},
+        }
+        result = org.get_quota_usage()
+        mock_client.request.assert_called_once_with("GET", "quota_usage/test-oid-123")
+        assert result["usage"] == 42
+        assert result["quota"] == 100
+
     def test_get_errors(self, org, mock_client):
         mock_client.request.return_value = {"errors": []}
         org.get_errors()

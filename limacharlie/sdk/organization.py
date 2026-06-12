@@ -186,6 +186,20 @@ class Organization:
         """
         return self._client.request("POST", f"orgs/{self.oid}/quota", params={"quota": quota})
 
+    def get_quota_usage(self) -> dict[str, Any]:
+        """Get the enforced sensor quota usage for the organization.
+
+        This is the weighted virtual-sensor count the platform actually uses
+        to decide whether a sensor may come online, so it is the value to size
+        the sensor quota against.  It can read higher than the online sensor
+        count, which weights EPP/response-mode sensors at 0.
+
+        Returns:
+            dict: ``{"usage": int, "quota": int, "breakdown": {category:
+                {"n": int, "quota": float}}}``.
+        """
+        return self._client.request("GET", f"quota_usage/{self.oid}")
+
     def rename(self, new_name: str) -> dict[str, Any]:
         """Rename the organization.
 
