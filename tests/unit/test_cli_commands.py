@@ -315,6 +315,25 @@ class TestOrgCommands:
 
     @patch("limacharlie.commands.org.Client")
     @patch("limacharlie.commands.org.Organization")
+    def test_org_quota_usage(self, mock_org_cls, mock_client_cls):
+        mock_org = MagicMock()
+        mock_org.get_quota_usage.return_value = {
+            "usage": 42,
+            "quota": 100,
+            "breakdown": {"edr": {"n": 40, "quota": 40.0}},
+        }
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "org", "quota-usage"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert parsed["usage"] == 42
+        assert parsed["quota"] == 100
+        mock_org.get_quota_usage.assert_called_once()
+
+    @patch("limacharlie.commands.org.Client")
+    @patch("limacharlie.commands.org.Organization")
     def test_org_urls(self, mock_org_cls, mock_client_cls):
         mock_org = MagicMock()
         mock_org.get_urls.return_value = {"main": "https://app.limacharlie.io"}

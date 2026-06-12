@@ -9,6 +9,7 @@ Commands for organization management, users, groups, API keys, ingestion keys, b
 ```bash
 limacharlie org info                     # Name, sensor count, version, quotas
 limacharlie org stats                    # Usage statistics
+limacharlie org quota-usage              # Enforced sensor quota usage + breakdown
 limacharlie org urls                     # Service URLs (for firewall rules)
 limacharlie org errors                   # Platform errors
 limacharlie org dismiss-error --component <name>
