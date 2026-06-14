@@ -64,6 +64,18 @@ limacharlie external-adapter list
 limacharlie cloud-adapter list
 ```
 
+### app
+
+User-authored, AI-generated mini web apps (a self-contained HTML document
+rendered in a sandboxed iframe by the web UI).
+
+```bash
+limacharlie app list
+limacharlie app get --key my-app
+limacharlie app set --key my-app --input-file app.yaml
+limacharlie app delete --key my-app --confirm
+```
+
 ## extension
 
 ```bash
