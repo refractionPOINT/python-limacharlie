@@ -320,6 +320,33 @@ class TestAddNote:
         body = _extract_body(mock_org)
         assert "is_public" not in body
 
+    def test_ai_session_id_explicit(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.add_note(42, "AI findings", ai_session_id="sess-1")
+        body = _extract_body(mock_org)
+        assert body["ai_session_id"] == "sess-1"
+
+    def test_ai_session_id_from_env(self, cases, mock_org, monkeypatch):
+        monkeypatch.setenv("LC_AI_SESSION_ID", "sess-env")
+        mock_org.client.request.return_value = {}
+        cases.add_note(42, "AI findings")
+        body = _extract_body(mock_org)
+        assert body["ai_session_id"] == "sess-env"
+
+    def test_explicit_ai_session_id_overrides_env(self, cases, mock_org, monkeypatch):
+        monkeypatch.setenv("LC_AI_SESSION_ID", "sess-env")
+        mock_org.client.request.return_value = {}
+        cases.add_note(42, "AI findings", ai_session_id="sess-explicit")
+        body = _extract_body(mock_org)
+        assert body["ai_session_id"] == "sess-explicit"
+
+    def test_no_ai_session_id_when_unset(self, cases, mock_org, monkeypatch):
+        monkeypatch.delenv("LC_AI_SESSION_ID", raising=False)
+        mock_org.client.request.return_value = {}
+        cases.add_note(42, "Note text")
+        body = _extract_body(mock_org)
+        assert "ai_session_id" not in body
+
 
 class TestUpdateNoteVisibility:
     def test_set_public(self, cases, mock_org):
