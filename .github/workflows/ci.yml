@@ -4,11 +4,9 @@ on:
   push:
     branches:
       - master
-      - cli-v2
   pull_request:
     branches:
       - master
-      - cli-v2
 
 permissions:
   contents: read

@@ -9,6 +9,11 @@ if TYPE_CHECKING:
     from .organization import Organization
 
 _HIVE_SECRET_PREFIX = "hive://secret/"
+
+# Fallback only.  The real ai-sessions host is resolved per-org from the
+# ``ai`` entry of ``orgs/{oid}/url`` (see :meth:`AI._get_ai_url`) because
+# it differs by deployment -- e.g. staging orgs return
+# ``ai-staging.limacharlie.io``.
 _AI_SESSIONS_URL = "https://ai.limacharlie.io"
 
 
@@ -17,11 +22,31 @@ class AI:
 
     def __init__(self, org: Organization) -> None:
         self._org = org
+        self._ai_url: str | None = None
 
     @property
     def client(self) -> Any:
         """The underlying API client."""
         return self._org.client
+
+    def _get_ai_url(self) -> str:
+        """Resolve the ai-sessions base URL for this org.
+
+        The per-org service URLs (``orgs/{oid}/url``) carry an ``ai``
+        entry whose value depends on the deployment the org lives in
+        (production orgs resolve to ``ai.limacharlie.io``, staging orgs
+        to ``ai-staging.limacharlie.io``, etc.), so the host must not be
+        hardcoded.  Mirrors the lazy, cached resolution used by
+        :class:`~limacharlie.sdk.search.Search`.  Falls back to
+        :data:`_AI_SESSIONS_URL` only when the org URL set has no ``ai``
+        entry.
+        """
+        if self._ai_url is None:
+            ai_url = self._org.get_urls().get("ai", "")
+            if ai_url and not ai_url.startswith(("http://", "https://")):
+                ai_url = "https://" + ai_url
+            self._ai_url = ai_url or _AI_SESSIONS_URL
+        return self._ai_url
 
     def _resolve_secret(self, value: str) -> str:
         """Resolve a value that may be a hive://secret/ reference."""
@@ -39,6 +64,21 @@ class AI:
         if not m:
             return m
         return {k: self._resolve_secret(v) for k, v in m.items()}
+
+    def _org_auth_headers(self) -> dict[str, str]:
+        """Identity headers for the org-scoped ai-sessions endpoints.
+
+        Always carries ``X-LC-OID``.  A User API Key is scoped to a
+        user rather than an org, so jwt.limacharlie.io can only resolve
+        it when the UID accompanies the secret -- forward it via
+        ``X-LC-UID``.  ai-sessions' OrgDualAuthMiddleware reads
+        ``X-LC-UID`` only for the raw-API-key path and ignores it for
+        JWT auth, so sending it whenever a uid is known is always safe.
+        """
+        headers = {"X-LC-OID": self.client._oid}
+        if self.client._uid:
+            headers["X-LC-UID"] = self.client._uid
+        return headers
 
     # Fields copied verbatim from an ai_agent hive record into the
     # request's ``profile`` section.  Every entry in this tuple maps
@@ -82,7 +122,11 @@ class AI:
         resolved automatically before the request is sent.
 
         Args:
-            definition_name: Name of the ai_agent hive record to use as template.
+            definition_name: Name of the ai_agent hive record to use as
+                template.  Accepts either a bare record key (``my-agent``)
+                or the ``hive://ai_agent/<name>`` URI form used by the
+                D&R ``start ai agent`` action; the prefix is stripped and
+                both resolve to the same record.
             prompt: Replace the prompt from the definition.
             name: Replace the session name.
             idempotent_key: Deduplication key.
@@ -115,6 +159,13 @@ class AI:
             dict: Session creation response with session_id and status.
         """
         from .hive import Hive
+
+        # Accept both a bare record key and the hive://ai_agent/<name> URI
+        # form (the form the D&R 'start ai agent' action references), so the
+        # same identifier works from a rule and from the CLI/SDK.
+        _HIVE_PREFIX = "hive://ai_agent/"
+        if definition_name.startswith(_HIVE_PREFIX):
+            definition_name = definition_name[len(_HIVE_PREFIX):]
 
         # Fetch the ai_agent definition; treat its fields as the template
         # that overrides stack on top of.
@@ -210,7 +261,7 @@ class AI:
         if profile:
             request_body["profile"] = profile
 
-        extra = {"X-LC-OID": self.client._oid}
+        extra = self._org_auth_headers()
 
         # Use the raw API key when available (works with current and future
         # ai-sessions deployments).  Fall back to JWT auth for OAuth users
@@ -222,7 +273,7 @@ class AI:
                 raw_body=json.dumps(request_body).encode(),
                 content_type="application/json",
                 is_no_auth=True,
-                alt_root=_AI_SESSIONS_URL,
+                alt_root=self._get_ai_url(),
                 extra_headers=extra,
             )
 
@@ -230,7 +281,7 @@ class AI:
             "POST", "v1/api/sessions",
             raw_body=json.dumps(request_body).encode(),
             content_type="application/json",
-            alt_root=_AI_SESSIONS_URL,
+            alt_root=self._get_ai_url(),
             extra_headers=extra,
         )
 
@@ -331,20 +382,20 @@ class AI:
         OrgDualAuthMiddleware. We send the raw API key when available
         (same pattern as start_session) for maximum compatibility.
         """
-        extra: dict[str, str] = {"X-LC-OID": self.client._oid}
+        extra: dict[str, str] = self._org_auth_headers()
         if self.client._api_key is not None:
             extra["Authorization"] = f"Bearer {self.client._api_key}"
             return self.client.request(
                 verb, path,
                 query_params=query_params,
                 is_no_auth=True,
-                alt_root=_AI_SESSIONS_URL,
+                alt_root=self._get_ai_url(),
                 extra_headers=extra,
             )
         return self.client.request(
             verb, path,
             query_params=query_params,
-            alt_root=_AI_SESSIONS_URL,
+            alt_root=self._get_ai_url(),
             extra_headers=extra,
         )
 
@@ -497,7 +548,7 @@ class AI:
         ``claims.UID()`` alone; sending X-LC-OID is unnecessary here
         and the routes don't accept raw API keys.
         """
-        kwargs: dict[str, Any] = {"alt_root": _AI_SESSIONS_URL}
+        kwargs: dict[str, Any] = {"alt_root": self._get_ai_url()}
         if raw_body is not None:
             kwargs["raw_body"] = raw_body
             kwargs["content_type"] = "application/json"

@@ -70,11 +70,16 @@ file-mode 0600.
 
 Two authentication methods are supported:
 
-  API Key:   limacharlie auth login --oid <OID> --api-key <KEY>
-  OAuth:     limacharlie auth login --oauth [--oid <OID>]
+  API Key (org-scoped):   limacharlie auth login --oid <OID> --api-key <KEY>
+  API Key (user-scoped):  limacharlie auth login --uid <UID> --api-key <KEY>
+  OAuth:                  limacharlie auth login --oauth [--oid <OID>]
 
-For API key login, supply --oid and --api-key.  If you are using a
-user-scoped API key, also pass --uid.
+For API key login, supply --api-key together with either --oid (for an
+Organization API Key generated under an org's settings) or --uid (for a
+User API Key generated under your account profile).  User-scoped keys
+do not require --oid and are the right choice for brand-new accounts
+that have not created an org yet -- run 'auth list-orgs' afterwards to
+discover your OIDs.
 
 For OAuth login, pass --oauth to authenticate via your browser using
 Google or Microsoft.  Use --provider to choose (default: google).
@@ -129,18 +134,53 @@ def login(ctx: click.Context, oid: str | None, api_key: str | None, environment:
 
     if oauth:
         _login_oauth(ctx, oid, env_name, provider, no_browser)
+        return
+
+    # API key login. Two valid shapes:
+    #   1. --oid + --api-key                — org-scoped key (and optional --uid for service accounts).
+    #   2. --uid + --api-key (oid optional) — user-scoped key on a brand-new account with no orgs yet.
+    if not api_key:
+        click.echo(
+            "Error: --api-key is required for API key login.\n"
+            "Suggestion: Use --oauth for browser-based OAuth login, or provide --api-key with "
+            "either --oid (org-scoped key) or --uid (user-scoped key).",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    if not oid and not uid:
+        click.echo(
+            "Error: provide either --oid (org-scoped key) or --uid (user-scoped key) along with --api-key.\n"
+            "Suggestion: --uid is correct for User API Keys generated under your account profile; "
+            "--oid is correct for Organization API Keys generated under an org's settings.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
+    write_credentials(env_name, oid=oid, api_key=api_key, uid=uid or "")
+
+    # User-scoped login (--uid + --api-key, no --oid): clear any stale oid
+    # left over from a previous org-scoped login in this env, otherwise the
+    # new user creds would silently inherit the old org context.
+    if not oid and uid:
+        _clear_stale_oid(env_name)
+
+    if not ctx.obj.quiet:
+        click.echo(f"Credentials saved for environment '{env_name}'.")
+
+
+def _clear_stale_oid(env_name: str) -> None:
+    """Remove any stale ``oid`` field from the given environment block."""
+    config = load_config() or {}
+    if env_name == "default" or env_name is None:
+        if config.pop("oid", None) is not None:
+            save_config(config)
     else:
-        if not oid or not api_key:
-            click.echo(
-                "Error: --oid and --api-key are required for API key login.\n"
-                "Suggestion: Use --oauth for browser-based OAuth login, or provide both --oid and --api-key.",
-                err=True,
-            )
-            ctx.exit(4)
-            return
-        write_credentials(env_name, oid=oid, api_key=api_key, uid=uid or "")
-        if not ctx.obj.quiet:
-            click.echo(f"Credentials saved for environment '{env_name}'.")
+        env_data = config.get("env", {}).get(env_name, {})
+        if env_data.pop("oid", None) is not None:
+            save_config(config)
 
 
 def _login_oauth(ctx: click.Context, oid: str | None, env_name: str, provider: str, no_browser: bool) -> None:

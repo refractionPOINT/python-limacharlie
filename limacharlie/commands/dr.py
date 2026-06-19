@@ -254,10 +254,21 @@ wrapper and 'usr_mtd' for metadata like enabled/expiry/tags:
     tags: []
     comment: "rule description"
 
+New D&R rules are created DISABLED by default for safety.  Pass
+--enabled to create-and-enable in one shot, or set usr_mtd.enabled
+in the input.
+
+Instead of a full record, you can assemble a rule from separate
+component files: --detect <file> and --respond <file> are loaded
+and combined into {data: {detect, respond}, usr_mtd: {...}}.  They
+must be given together and are mutually exclusive with --input-file
+(stdin is ignored in this mode).  --tag (repeatable) adds usr_mtd tags.
+
 Examples:
-  limacharlie dr set --key my-rule --input-file rule.yaml
-  cat rule.json | limacharlie dr set --key my-rule
+  limacharlie dr set --key my-rule --input-file rule.yaml --enabled
+  cat rule.json | limacharlie dr set --key my-rule --enabled
   limacharlie dr set --key my-rule --namespace managed --input-file rule.yaml
+  limacharlie dr set --key my-rule --detect detect.yaml --respond respond.yaml --tag prod --enabled
 
 IMPORTANT: Do not write D&R rules from scratch. Use
 'limacharlie ai generate-rule --prompt "<description>"' to generate
@@ -275,37 +286,75 @@ register_explain("dr.set", _EXPLAIN_SET)
     help="JSON or YAML file with rule data.",
 )
 @click.option(
+    "--detect", "detect_path", type=click.Path(exists=True), default=None,
+    help="Path to the detection component (JSON/YAML). Use with --respond to assemble a rule. Mutually exclusive with --input-file/stdin.",
+)
+@click.option(
+    "--respond", "respond_path", type=click.Path(exists=True), default=None,
+    help="Path to the response component (JSON/YAML). Use with --detect to assemble a rule. Mutually exclusive with --input-file/stdin.",
+)
+@click.option("--tag", "tags", multiple=True, help="Tag to set in usr_mtd (repeatable).")
+@click.option(
     "--namespace", default=None, type=_NS_CHOICES,
     help="Namespace (default: general).",
 )
+@click.option(
+    "--enabled/--disabled", "enabled", default=None,
+    help="Set usr_mtd.enabled on the rule. Overrides any value in the input file. New rules default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+)
 @pass_context
-def set_cmd(ctx, key, input_file, namespace) -> None:
-    if input_file:
-        with open(input_file, "r") as f:
-            content = f.read()
-    elif not sys.stdin.isatty():
-        content = sys.stdin.read()
-    else:
-        raise click.UsageError("Provide data via --input-file or pipe to stdin.")
+def set_cmd(ctx, key, input_file, detect_path, respond_path, tags, namespace, enabled) -> None:
+    using_components = detect_path is not None or respond_path is not None
 
-    try:
-        data = yaml.safe_load(content)
-    except Exception:
-        data = json.loads(content)
-
-    # Support the full hive record format (with "data" wrapper) or
-    # a bare rule dict with detect/respond at the top level.
-    if isinstance(data, dict) and "data" in data:
-        raw = {
-            "data": data["data"],
-            "usr_mtd": data.get("usr_mtd", {}),
-            "sys_mtd": {},
-        }
-        if data.get("etag"):
-            raw["sys_mtd"]["etag"] = data["etag"]
-        record = HiveRecord.from_raw(key, raw)
+    if using_components:
+        # --detect/--respond assemble a rule in-command and express explicit
+        # intent, so they cannot be combined with a full record from
+        # --input-file (which would be ambiguous).  Stdin is ignored in this
+        # mode rather than consulted.
+        if input_file:
+            raise click.UsageError(
+                "--detect/--respond are mutually exclusive with --input-file/stdin."
+            )
+        if detect_path is None or respond_path is None:
+            raise click.UsageError("--detect and --respond must be provided together.")
+        detection = _load_file(detect_path)
+        response = _load_file(respond_path)
+        record = HiveRecord(key, data={"detect": detection, "respond": response})
     else:
-        record = HiveRecord(key, data=data)
+        if input_file:
+            with open(input_file, "r") as f:
+                content = f.read()
+        elif not sys.stdin.isatty():
+            content = sys.stdin.read()
+        else:
+            raise click.UsageError(
+                "Provide data via --input-file, stdin, or --detect/--respond."
+            )
+
+        try:
+            data = yaml.safe_load(content)
+        except Exception:
+            data = json.loads(content)
+
+        # Support the full hive record format (with "data" wrapper) or
+        # a bare rule dict with detect/respond at the top level.
+        if isinstance(data, dict) and "data" in data:
+            raw = {
+                "data": data["data"],
+                "usr_mtd": data.get("usr_mtd", {}),
+                "sys_mtd": {},
+            }
+            if data.get("etag"):
+                raw["sys_mtd"]["etag"] = data["etag"]
+            record = HiveRecord.from_raw(key, raw)
+        else:
+            record = HiveRecord(key, data=data)
+
+    if tags:
+        record.tags = list(tags)
+
+    if enabled is not None:
+        record.enabled = enabled
 
     org = _get_org(ctx)
     hive = Hive(org, _hive_name(namespace))
@@ -348,6 +397,79 @@ def delete(ctx, key, namespace, confirm) -> None:
     hive = Hive(org, _hive_name(namespace))
     result = hive.delete(key)
     _output(ctx, result)
+
+
+# ---------------------------------------------------------------------------
+# enable / disable
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_ENABLE = """\
+Enable a D&R rule by setting its usr_mtd.enabled flag to true.  Only the
+enabled flag is changed; all other metadata (tags, expiry, comment) and
+the rule data (detect/respond) are preserved.
+
+If the rule is in the 'managed' or 'service' namespace, pass --namespace
+accordingly.
+
+Examples:
+  limacharlie dr enable --key my-rule
+  limacharlie dr enable --key some-managed-rule --namespace managed
+"""
+register_explain("dr.enable", _EXPLAIN_ENABLE)
+
+_EXPLAIN_DISABLE = """\
+Disable a D&R rule by setting its usr_mtd.enabled flag to false.  Only
+the enabled flag is changed; all other metadata (tags, expiry, comment)
+and the rule data (detect/respond) are preserved.
+
+If the rule is in the 'managed' or 'service' namespace, pass --namespace
+accordingly.
+
+Examples:
+  limacharlie dr disable --key my-rule
+  limacharlie dr disable --key some-managed-rule --namespace managed
+"""
+register_explain("dr.disable", _EXPLAIN_DISABLE)
+
+
+def _set_enabled(ctx: click.Context, namespace: str | None, key: str, enabled: bool) -> None:
+    """Toggle the enabled flag on a D&R rule.
+
+    Reads the current metadata first so that tags, expiry, and comment
+    are preserved (the API replaces usr_mtd wholesale).
+    """
+    hive_name = _hive_name(namespace)
+    org = _get_org(ctx)
+    hive = Hive(org, hive_name)
+    record = hive.get_metadata(key)
+    record.enabled = enabled
+    result = hive.set(record)
+    state = "enabled" if enabled else "disabled"
+    if not ctx.obj.quiet:
+        click.echo(f"Rule '{key}' {state} in namespace '{namespace or 'general'}'.")
+    _output(ctx, result)
+
+
+@group.command()
+@click.option("--key", required=True, help="Rule key name.")
+@click.option(
+    "--namespace", default=None, type=_NS_CHOICES,
+    help="Namespace (default: general).",
+)
+@pass_context
+def enable(ctx, key, namespace) -> None:
+    _set_enabled(ctx, namespace, key, True)
+
+
+@group.command()
+@click.option("--key", required=True, help="Rule key name.")
+@click.option(
+    "--namespace", default=None, type=_NS_CHOICES,
+    help="Namespace (default: general).",
+)
+@pass_context
+def disable(ctx, key, namespace) -> None:
+    _set_enabled(ctx, namespace, key, False)
 
 
 # ---------------------------------------------------------------------------

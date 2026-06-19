@@ -238,6 +238,61 @@ class TestSessionAttachmentUrl:
         )
         assert att.url() == "wss://example.test/v1/ws/org/sessions/sid-42"
 
+    def test_url_resolves_from_org_ai_url_when_no_override(self):
+        """With no explicit base_url, the attach URL is derived from the
+        org's resolved ai-sessions host (e.g. the staging deployment)
+        rather than a hardcoded production host.
+        """
+        ai_stub = SimpleNamespace(
+            _get_ai_url=lambda: "https://ai-staging.limacharlie.io",
+        )
+        att = SessionAttachment(ai_stub, "sid-42")
+        assert att.url() == "wss://ai-staging.limacharlie.io/v1/ws/sessions/sid-42"
+
+
+# ---------------------------------------------------------------------------
+# Per-org ai-sessions URL resolution
+# ---------------------------------------------------------------------------
+
+class TestAiUrlResolution:
+    """``AI._get_ai_url`` must read the per-org ``ai`` service URL from
+    ``orgs/{oid}/url`` so staging/region deployments are honoured, and
+    must only fall back to the hardcoded production host when that entry
+    is absent.
+    """
+
+    def _make_ai(self, urls: dict):
+        from limacharlie.sdk.ai import AI
+
+        calls = {"n": 0}
+
+        def get_urls():
+            calls["n"] += 1
+            return urls
+
+        org_stub = SimpleNamespace(get_urls=get_urls)
+        return AI(org_stub), calls
+
+    def test_uses_ai_entry_and_adds_https(self):
+        ai, _ = self._make_ai({"ai": "ai-staging.limacharlie.io"})
+        assert ai._get_ai_url() == "https://ai-staging.limacharlie.io"
+
+    def test_preserves_existing_scheme(self):
+        ai, _ = self._make_ai({"ai": "http://localhost:8080"})
+        assert ai._get_ai_url() == "http://localhost:8080"
+
+    def test_falls_back_when_ai_entry_missing(self):
+        from limacharlie.sdk.ai import _AI_SESSIONS_URL
+
+        ai, _ = self._make_ai({"search": "x.replay-search.limacharlie.io"})
+        assert ai._get_ai_url() == _AI_SESSIONS_URL
+
+    def test_result_is_cached(self):
+        ai, calls = self._make_ai({"ai": "ai.limacharlie.io"})
+        ai._get_ai_url()
+        ai._get_ai_url()
+        assert calls["n"] == 1
+
 
 # ---------------------------------------------------------------------------
 # Pretty-printer

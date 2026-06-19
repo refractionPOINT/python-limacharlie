@@ -28,7 +28,7 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
-def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None) -> click.Group:
+def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None) -> click.Group:
     """Create a Click group for a specific hive type.
 
     Args:
@@ -36,6 +36,13 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         hive_name: Hive backend name (e.g., "secret").
         noun_singular: Human-readable singular (e.g., "secret").
         noun_plural: Human-readable plural (defaults to noun_singular + "s").
+        value_key: Name of the single scalar field in the record's ``data``
+            payload for hives whose value is one scalar (e.g. ``"secret"`` for
+            the secret hive, whose data is ``{secret: <value>}``). When set, the
+            'set' command gains a ``--value`` convenience flag that wraps the
+            value as ``{data: {<value_key>: <value>}}``. Leave None for hives
+            whose data is structured (lookup, fp, playbook, …) — they have no
+            single value field and do not get ``--value``.
 
     Returns:
         click.Group: The configured group with list, get, set, delete commands.
@@ -47,7 +54,21 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
 
     explain_list = f"List all {noun_plural} stored in the '{hive_name}' hive."
     explain_get = f"Get a specific {noun_singular} by its key name from the '{hive_name}' hive."
-    explain_set = f"Create or update {article} {noun_singular} in the '{hive_name}' hive. Provide data via --input-file (JSON/YAML) or stdin."
+    value_hint = (
+        f"Or use --value to set the {noun_singular} value directly "
+        f"(wrapped as {{data: {{{value_key}: <value>}}}}); --value exposes the value "
+        f"on the command line and in shell history, so stdin or --input-file is the "
+        f"recommended path for humans. "
+        if value_key else ""
+    )
+    explain_set = (
+        f"Create or update {article} {noun_singular} in the '{hive_name}' hive. "
+        f"Provide data via --input-file (JSON/YAML) or stdin. "
+        f"{value_hint}"
+        f"--tag (repeatable) and --comment populate usr_mtd. "
+        f"New hive records default to disabled — pass --enabled to create-and-enable in one shot, "
+        f"or include usr_mtd.enabled: true in the input file."
+    )
     explain_delete = f"Delete {article} {noun_singular} from the '{hive_name}' hive. Requires --confirm for safety."
 
     @click.group(group_name)
@@ -74,40 +95,75 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         record = hive.get(key)
         _output(ctx, record.to_dict())
 
+    def _value_option(fn):
+        # Only hives with a single scalar value field (value_key set, e.g.
+        # the secret hive) expose --value; structured-data hives do not, so
+        # there is no misleading flag and no hardcoded data-key assumption.
+        if value_key is None:
+            return fn
+        return click.option(
+            "--value", default=None,
+            help=f"Set the {noun_singular} value directly (wraps into {{data: {{{value_key}: <value>}}}}). "
+                 "WARNING: this exposes the value on the command line and in shell history; "
+                 "stdin or --input-file remains the recommended path for humans.",
+        )(fn)
+
     @grp.command("set", help=f"Create or update {article} {noun_singular}.")
     @click.option("--key", required=True, help="Record key name.")
     @click.option("--input-file", type=click.Path(exists=True), default=None, help="JSON or YAML file with record data.")
+    @_value_option
+    @click.option("--tag", "tags", multiple=True, help="Tag to set in usr_mtd (repeatable).")
+    @click.option("--comment", default=None, help="Set usr_mtd.comment on the record.")
+    @click.option(
+        "--enabled/--disabled", "enabled", default=None,
+        help=f"Set usr_mtd.enabled on the {noun_singular}. Overrides any value in the input file. Records default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+    )
     @pass_context
-    def set_cmd(ctx, key, input_file) -> None:
-        if input_file:
-            with open(input_file, "r") as f:
-                content = f.read()
-        elif not sys.stdin.isatty():
-            content = sys.stdin.read()
+    def set_cmd(ctx, key, input_file, tags, comment, enabled, value=None) -> None:
+        if value is not None:
+            if input_file:
+                raise click.UsageError("--value is mutually exclusive with --input-file/stdin.")
+            # Convenience wrapper so a single-value record (value_key set) can
+            # be set without a file or stdin.  --value is explicit intent, so
+            # stdin is ignored in this mode rather than consulted.
+            record = HiveRecord(key, data={value_key: value})
         else:
-            raise click.UsageError("Provide data via --input-file or pipe to stdin.")
+            if input_file:
+                with open(input_file, "r") as f:
+                    content = f.read()
+            elif not sys.stdin.isatty():
+                content = sys.stdin.read()
+            else:
+                hint = "--value, --input-file, or pipe to stdin" if value_key else "--input-file or pipe to stdin"
+                raise click.UsageError(f"Provide data via {hint}.")
 
-        # Parse input as YAML first (YAML is a superset of JSON)
-        try:
-            data = yaml.safe_load(content)
-        except Exception:
-            data = json.loads(content)
+            # Parse input as YAML first (YAML is a superset of JSON)
+            try:
+                data = yaml.safe_load(content)
+            except Exception:
+                data = json.loads(content)
 
-        # Support the same format as 'hive set': if the input has a
-        # "data" key, use it as the record data and extract usr_mtd.
-        if isinstance(data, dict) and "data" in data:
-            # Build a raw dict matching the API format so HiveRecord
-            # picks up usr_mtd and etag correctly.
-            raw = {
-                "data": data["data"],
-                "usr_mtd": data.get("usr_mtd", {}),
-                "sys_mtd": {},
-            }
-            if data.get("etag"):
-                raw["sys_mtd"]["etag"] = data["etag"]
-            record = HiveRecord.from_raw(key, raw)
-        else:
-            record = HiveRecord(key, data=data)
+            # Support the same format as 'hive set': if the input has a
+            # "data" key, use it as the record data and extract usr_mtd.
+            if isinstance(data, dict) and "data" in data:
+                # Build a raw dict matching the API format so HiveRecord
+                # picks up usr_mtd and etag correctly.
+                raw = {
+                    "data": data["data"],
+                    "usr_mtd": data.get("usr_mtd", {}),
+                    "sys_mtd": {},
+                }
+                if data.get("etag"):
+                    raw["sys_mtd"]["etag"] = data["etag"]
+                record = HiveRecord.from_raw(key, raw)
+            else:
+                record = HiveRecord(key, data=data)
+        if tags:
+            record.tags = list(tags)
+        if comment is not None:
+            record.comment = comment
+        if enabled is not None:
+            record.enabled = enabled
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         result = hive.set(record)
@@ -147,6 +203,57 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         result = hive.set(record)
         _output(ctx, result)
 
+    @grp.group("tag", help=f"Manage tags on {noun_plural}.")
+    def tag_group() -> None:
+        pass
+
+    def _merge_tags(existing: list[str] | None, changes: tuple[str, ...], remove: bool) -> list[str]:
+        if remove:
+            to_remove = {t.lower() for t in changes}
+            return [t for t in (existing or []) if t.lower() not in to_remove]
+        seen: dict[str, str] = {}
+        for tag in (existing or []) + list(changes):
+            k = tag.lower()
+            if k not in seen:
+                seen[k] = tag
+        return list(seen.values())
+
+    @tag_group.command("set", help=f"Replace all tags on {article} {noun_singular}.")
+    @click.option("--key", required=True, help="Record key name.")
+    @click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value (repeatable).")
+    @pass_context
+    def tag_set_cmd(ctx, key, tags) -> None:
+        org = _get_org(ctx)
+        hive = Hive(org, hive_name)
+        record = hive.get_metadata(key)
+        record.tags = list(tags)
+        result = hive.set(record)
+        _output(ctx, result)
+
+    @tag_group.command("add", help=f"Add tags to {article} {noun_singular} (merged with existing).")
+    @click.option("--key", required=True, help="Record key name.")
+    @click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value to add (repeatable).")
+    @pass_context
+    def tag_add_cmd(ctx, key, tags) -> None:
+        org = _get_org(ctx)
+        hive = Hive(org, hive_name)
+        record = hive.get_metadata(key)
+        record.tags = _merge_tags(record.tags, tags, remove=False)
+        result = hive.set(record)
+        _output(ctx, result)
+
+    @tag_group.command("rm", help=f"Remove tags from {article} {noun_singular}.")
+    @click.option("--key", required=True, help="Record key name.")
+    @click.option("--tag", "-t", "tags", multiple=True, required=True, help="Tag value to remove (repeatable).")
+    @pass_context
+    def tag_rm_cmd(ctx, key, tags) -> None:
+        org = _get_org(ctx)
+        hive = Hive(org, hive_name)
+        record = hive.get_metadata(key)
+        record.tags = _merge_tags(record.tags, tags, remove=True)
+        result = hive.set(record)
+        _output(ctx, result)
+
     # Register explain texts.
     register_explain(f"{group_name}.list", explain_list)
     register_explain(f"{group_name}.get", explain_get)
@@ -154,5 +261,8 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     register_explain(f"{group_name}.delete", explain_delete)
     register_explain(f"{group_name}.enable", f"Enable {article} {noun_singular} by key (sets usr_mtd.enabled to true).")
     register_explain(f"{group_name}.disable", f"Disable {article} {noun_singular} by key (sets usr_mtd.enabled to false).")
+    register_explain(f"{group_name}.tag.set", f"Replace all tags on {article} {noun_singular} (fetch metadata, set tags).")
+    register_explain(f"{group_name}.tag.add", f"Add tags to {article} {noun_singular}, merged additively with existing tags.")
+    register_explain(f"{group_name}.tag.rm", f"Remove tags from {article} {noun_singular}, keeping the rest.")
 
     return grp

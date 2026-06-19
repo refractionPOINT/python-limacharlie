@@ -146,6 +146,18 @@ class Organization:
         """
         return self._client.request("GET", f"orgs/{self.oid}/schema/{urlescape(name, safe='')}")
 
+    def reset_schemas(self) -> dict[str, Any]:
+        """Reset (rebuild) all event schemas for the organization.
+
+        Clears the cached schema/ontology so it is rebuilt from newly
+        observed events.  This is useful after telemetry shape changes
+        when the recorded schema has gone stale.
+
+        Returns:
+            dict: API response (typically ``{"success": true}``).
+        """
+        return self._client.request("DELETE", f"orgs/{self.oid}/schema")
+
     def get_runtime_metadata(self, entity_type: str | None = None, entity_name: str | None = None) -> dict[str, Any]:
         """Get runtime metadata.
 
@@ -173,6 +185,20 @@ class Organization:
             dict: API response.
         """
         return self._client.request("POST", f"orgs/{self.oid}/quota", params={"quota": quota})
+
+    def get_quota_usage(self) -> dict[str, Any]:
+        """Get the enforced sensor quota usage for the organization.
+
+        This is the weighted virtual-sensor count the platform actually uses
+        to decide whether a sensor may come online, so it is the value to size
+        the sensor quota against.  It can read higher than the online sensor
+        count, which weights EPP/response-mode sensors at 0.
+
+        Returns:
+            dict: ``{"usage": int, "quota": int, "breakdown": {category:
+                {"n": int, "quota": float}}}``.
+        """
+        return self._client.request("GET", f"quota_usage/{self.oid}")
 
     def rename(self, new_name: str) -> dict[str, Any]:
         """Rename the organization.

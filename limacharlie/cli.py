@@ -53,6 +53,9 @@ class LimaCharlieContext:
     wide: bool = False
     no_warnings: bool = False
     filter_expr: str | None = None
+    fields: list[str] | None = None
+    sort_by: str | None = None
+    reverse: bool = False
     profile: str | None = None
     environment: str | None = None
 
@@ -99,6 +102,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "ai-skill": ("ai_skill", "group"),
     "api": ("api_cmd", "cmd"),
     "api-key": ("api_key", "group"),
+    "app": ("app", "group"),
     "arl": ("arl", "group"),
     "artifact": ("artifact", "group"),
     "audit": ("audit", "group"),
@@ -346,11 +350,14 @@ class _LazyCommandGroup(click.Group):
 @click.option("--wide", "-W", is_flag=True, default=False, help="Disable table value truncation (show full values).")
 @click.option("--no-warnings", is_flag=True, default=False, help="Suppress advisory warnings (cost notices, memory hints, checkpoint suggestions).")
 @click.option("--filter", "filter_expr", default=None, help="JMESPath expression to filter/transform output (e.g. 'user_perms', 'keys(@)').")
+@click.option("--fields", "fields", default=None, help="Comma-separated field names to keep in output (e.g. 'sid,hostname'). Applied to list/record output.")
+@click.option("--sort-by", "sort_by", default=None, help="Field name to sort list output by.")
+@click.option("--reverse", "reverse", is_flag=True, default=False, help="Reverse the order of sorted list output (use with --sort-by).")
 @click.option("--profile", default=None, help="Named credential profile to use.")
 @click.option("--env", "environment", default=None, help="Named environment from config file.")
 @click.version_option(version=__version__, prog_name="limacharlie")
 @click.pass_context
-def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, debug_full: bool, debug_curl: bool, quiet: bool, wide: bool, no_warnings: bool, filter_expr: str | None, profile: str | None, environment: str | None) -> None:
+def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: bool, debug_full: bool, debug_curl: bool, quiet: bool, wide: bool, no_warnings: bool, filter_expr: str | None, fields: str | None, sort_by: str | None, reverse: bool, profile: str | None, environment: str | None) -> None:
     """LimaCharlie CLI - Endpoint Detection & Response platform.
 
     Manage sensors, detection rules, hive data, and more from the command line.
@@ -368,14 +375,22 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     lc_ctx.wide = wide
     lc_ctx.no_warnings = no_warnings or _config_no_warnings()
     lc_ctx.filter_expr = filter_expr
+    # Parse --fields into a clean list of names (drop blanks/whitespace).
+    field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
+    lc_ctx.fields = field_list
+    lc_ctx.sort_by = sort_by
+    lc_ctx.reverse = reverse
     lc_ctx.profile = profile
     lc_ctx.environment = environment
     # Lazy import: output pulls in jmespath, tabulate, yaml, csv (~14ms).
     # Deferring to here avoids that cost for fast paths like --help, --version,
     # and --ai-help that never render command output.
-    from .output import set_filter_expr, set_wide_mode
+    from .output import set_filter_expr, set_wide_mode, set_fields, set_sort_by, set_reverse
     set_wide_mode(wide)
     set_filter_expr(filter_expr)
+    set_fields(field_list)
+    set_sort_by(sort_by)
+    set_reverse(reverse)
 
 
 # Inject --ai-help on the root cli group itself (subcommands get it lazily

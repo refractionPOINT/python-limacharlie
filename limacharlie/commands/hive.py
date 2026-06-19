@@ -20,6 +20,7 @@ from ..sdk.organization import Organization
 from ..sdk.hive import Hive, HiveRecord
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._time_validation import validate_epoch_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -210,12 +211,15 @@ Create or update a record in a hive.  The record data is read from
 --input-file or from stdin if no file is specified.  The input should
 be a JSON or YAML document.
 
+New hive records are created DISABLED by default.  Pass --enabled to
+create-and-enable in one shot, or set usr_mtd.enabled in the input.
+
 Full record format (YAML):
 
     data:
       key: value          # payload varies by hive type
     usr_mtd:
-      enabled: true       # optional, default true
+      enabled: true       # optional, default false on new records
       expiry: 0           # optional, unix epoch (0 = never)
       tags:               # optional
         - my-tag
@@ -225,6 +229,22 @@ Full record format (YAML):
 If the input has no "data" key, the entire input is treated as the
 record data payload.
 
+The --enabled/--disabled flag, when given, overrides any value in
+the input file's usr_mtd.enabled.
+
+Metadata flags (--tag-add, --tag-rm, --comment, --expiry) can be used
+to manage usr_mtd without re-supplying the record data:
+
+  * When NO data is supplied (no --input-file and no piped stdin), a
+    metadata-only update is performed: the current metadata is fetched,
+    --tag-add/--tag-rm are applied additively (existing tags are kept),
+    and --comment/--expiry/--enabled overwrite their fields.
+  * When data IS supplied, the same flags are applied as overrides on
+    top of the input's usr_mtd.
+
+--tag-add and --tag-rm are repeatable and additive (they never clobber
+the existing tag set); applying both, a removal of an added tag wins.
+
 Data payload examples per hive type:
   secret:  {secret: "my-api-key"}
   yara:    {rule: "rule MyRule { ... }"}
@@ -233,33 +253,90 @@ Data payload examples per hive type:
 
 Examples:
   echo '{"data": {"key": "value"}}' | limacharlie hive set \\
-      --hive-name lookup --key my-lookup
+      --hive-name lookup --key my-lookup --enabled
 
   limacharlie hive set --hive-name lookup --key my-lookup \\
-      --input-file record.yaml
+      --input-file record.yaml --enabled
+
+  # Metadata-only: add/remove tags and set a comment without touching data.
+  limacharlie hive set --hive-name lookup --key my-lookup \\
+      --tag-add prod --tag-add reviewed --tag-rm draft --comment "ready"
 """
 register_explain("hive.set", _EXPLAIN_SET)
+
+
+def _merge_tags(existing: list[str] | None, add: tuple[str, ...], rm: tuple[str, ...]) -> list[str]:
+    """Additively merge tag changes onto an existing tag list.
+
+    Existing tags are preserved; --tag-add entries are appended (case-
+    insensitive dedup), then --tag-rm entries are removed.  A tag both
+    added and removed in the same call is removed (removal wins).
+    """
+    seen: dict[str, str] = {}
+    for tag in (existing or []) + list(add):
+        key = tag.lower()
+        if key not in seen:
+            seen[key] = tag
+    to_remove = {t.lower() for t in rm}
+    return [t for k, t in seen.items() if k not in to_remove]
 
 
 @group.command("set")
 @click.option("--hive-name", required=True, help="Hive name.")
 @click.option("--key", required=True, help="Record key.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
+@click.option(
+    "--enabled/--disabled", "enabled", default=None,
+    help="Set usr_mtd.enabled on the record. Overrides any value in the input file. New records default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+)
+@click.option("--tag-add", "tag_add", multiple=True, help="Tag to add (repeatable, additive; keeps existing tags).")
+@click.option("--tag-rm", "tag_rm", multiple=True, help="Tag to remove (repeatable, additive; keeps other existing tags).")
+@click.option("--comment", default=None, help="Set usr_mtd.comment on the record.")
+@click.option("--expiry", default=None, type=int, help="Set usr_mtd.expiry (Unix epoch seconds, 0 = never).")
 @pass_context
-def set_record(ctx, hive_name, key, input_file) -> None:
+def set_record(ctx, hive_name, key, input_file, enabled, tag_add, tag_rm, comment, expiry) -> None:
+    if expiry is not None:
+        validate_epoch_seconds(expiry, "expiry")
+
     data = _load_input(input_file)
-    if data is None:
-        click.echo(
-            "Error: No input data provided.\n"
-            "Suggestion: Use --input-file or pipe data to stdin.",
-            err=True,
-        )
-        ctx.exit(4)
-        return
+    has_metadata_flags = bool(tag_add or tag_rm or comment is not None or expiry is not None or enabled is not None)
 
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
-    record = _record_from_input(key, data)
+
+    if data is None:
+        if not has_metadata_flags:
+            click.echo(
+                "Error: No input data provided.\n"
+                "Suggestion: Use --input-file or pipe data to stdin, "
+                "or pass metadata flags (--tag-add/--tag-rm/--comment/--expiry/--enabled).",
+                err=True,
+            )
+            ctx.exit(4)
+            return
+        # Metadata-only update: fetch current metadata so tags/comment/expiry
+        # that are not being changed are preserved (the API replaces usr_mtd
+        # wholesale), modeled on the enable/disable commands.
+        record = hive.get_metadata(key)
+        if tag_add or tag_rm:
+            record.tags = _merge_tags(record.tags, tag_add, tag_rm)
+        if comment is not None:
+            record.comment = comment
+        if expiry is not None:
+            record.expiry = expiry
+        if enabled is not None:
+            record.enabled = enabled
+    else:
+        record = _record_from_input(key, data)
+        if tag_add or tag_rm:
+            record.tags = _merge_tags(record.tags, tag_add, tag_rm)
+        if comment is not None:
+            record.comment = comment
+        if expiry is not None:
+            record.expiry = expiry
+        if enabled is not None:
+            record.enabled = enabled
+
     result = hive.set(record)
     if not ctx.obj.quiet:
         click.echo(f"Record '{key}' set in hive '{hive_name}'.")
@@ -364,6 +441,11 @@ _EXPLAIN_VALIDATE = """\
 Validate a record against a hive's schema without saving it.  Useful
 for checking whether record data is well-formed before pushing changes.
 The data format is the same as for the 'set' command.
+
+On success the command exits 0 and prints "Record is valid." to stderr.
+When the API returns an empty/no-content response, the structured
+formats (json/yaml) emit {"valid": true} so success is machine-readable.
+On failure the command exits non-zero with the validation error.
 """
 register_explain("hive.validate", _EXPLAIN_VALIDATE)
 
@@ -387,7 +469,16 @@ def validate(ctx, hive_name, key, input_file) -> None:
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
     record = _record_from_input(key, data)
+    # A failed validation raises (and exits non-zero) before reaching here,
+    # so getting this far is an explicit positive verdict.
     result = hive.validate(record)
+    # Keep stdout machine-stable: the human-readable confirmation goes to
+    # stderr, and when the API reports nothing we synthesize {"valid": true}
+    # so json/yaml consumers still get a definite success signal.
+    if not ctx.obj.quiet:
+        click.echo(f"Record '{key}' is valid.", err=True)
+    if not result:
+        result = {"valid": True}
     _output(ctx, result)
 
 
@@ -405,11 +496,126 @@ Not all hives expose a typed schema.  Hives without a typed record
 format (e.g., dr-general, dr-managed, dr-service, fp,
 extension_config) return an error indicating no schema is available.
 
+By default the schema is rendered as a flat field table (name, type,
+required, notes) with $ref/$defs resolved, so the accepted fields are
+immediately readable.  Use --output json to get the raw JSON Schema
+(nothing is lost).
+
 Example:
   limacharlie hive schema --hive-name secret
-  limacharlie hive schema --hive-name lookup
+  limacharlie hive schema --hive-name ai_agent
+  limacharlie hive schema --hive-name ai_agent --output json
 """
 register_explain("hive.schema", _EXPLAIN_SCHEMA)
+
+
+def _resolve_ref(ref: str, root: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a local JSON-Schema $ref (e.g. '#/$defs/Foo') against root."""
+    if not ref.startswith("#/"):
+        return {}
+    node: Any = root
+    for part in ref[2:].split("/"):
+        if isinstance(node, dict) and part in node:
+            node = node[part]
+        else:
+            return {}
+    return node if isinstance(node, dict) else {}
+
+
+def _schema_type(node: dict[str, Any], root: dict[str, Any]) -> str:
+    """Best-effort human type string for a JSON-Schema node."""
+    if "$ref" in node:
+        ref = node["$ref"]
+        name = ref.rsplit("/", 1)[-1]
+        return name or "object"
+    t = node.get("type")
+    if isinstance(t, list):
+        return "|".join(str(x) for x in t)
+    if t == "array":
+        items = node.get("items")
+        if isinstance(items, dict):
+            return f"array<{_schema_type(items, root)}>"
+        return "array"
+    if t:
+        return str(t)
+    if "enum" in node:
+        return "enum"
+    if "anyOf" in node or "oneOf" in node:
+        opts = node.get("anyOf") or node.get("oneOf") or []
+        parts = [_schema_type(o, root) for o in opts if isinstance(o, dict)]
+        return "|".join(p for p in parts if p) or "any"
+    if "properties" in node:
+        return "object"
+    return "any"
+
+
+def _flatten_schema(node: dict[str, Any], root: dict[str, Any], required: set[str] | None = None,
+                    prefix: str = "", seen: set[int] | None = None) -> list[dict[str, str]]:
+    """Flatten a JSON-Schema object into name/type/required/notes rows."""
+    if seen is None:
+        seen = set()
+    if required is None:
+        required = set()
+
+    # Resolve a top-level $ref before descending.
+    if "$ref" in node:
+        node = _resolve_ref(node["$ref"], root)
+
+    if id(node) in seen:
+        return []
+    seen = seen | {id(node)}
+
+    rows: list[dict[str, str]] = []
+    props = node.get("properties")
+    if not isinstance(props, dict):
+        return rows
+    req = set(node.get("required", []))
+
+    for name, sub in props.items():
+        if not isinstance(sub, dict):
+            continue
+        field = f"{prefix}{name}"
+        resolved = _resolve_ref(sub["$ref"], root) if "$ref" in sub else sub
+        type_str = _schema_type(sub, root)
+
+        notes_parts: list[str] = []
+        if "enum" in resolved:
+            vals = resolved["enum"]
+            shown = ", ".join(str(v) for v in vals[:8])
+            if len(vals) > 8:
+                shown += ", ..."
+            notes_parts.append(f"enum: {shown}")
+        desc = resolved.get("description") or sub.get("description")
+        if desc:
+            notes_parts.append(str(desc).strip().splitlines()[0])
+
+        rows.append({
+            "field": field,
+            "type": type_str,
+            "required": "yes" if name in req else "",
+            "notes": "; ".join(notes_parts),
+        })
+
+        # Recurse into nested objects (resolved object with properties).
+        if isinstance(resolved.get("properties"), dict):
+            rows.extend(_flatten_schema(resolved, root, prefix=f"{field}.", seen=seen))
+
+    return rows
+
+
+def _flatten_hive_schema(data: Any) -> list[dict[str, str]] | None:
+    """Turn a hive get_schema() response into flat field rows.
+
+    Returns None when the response has no resolvable object schema (so the
+    caller can fall back to printing the raw structure).
+    """
+    if not isinstance(data, dict):
+        return None
+    root = data.get("schema", data)
+    if not isinstance(root, dict):
+        return None
+    rows = _flatten_schema(root, root)
+    return rows or None
 
 
 @group.command()
@@ -419,6 +625,15 @@ def schema(ctx, hive_name) -> None:
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
     data = hive.get_schema()
+
+    fmt = ctx.obj.output_format or detect_output_format()
+    # json/jsonl/yaml/toon/csv consumers get the raw JSON Schema untouched.
+    # The default human view (table) is a flattened field listing.
+    if fmt == "table":
+        rows = _flatten_hive_schema(data)
+        if rows is not None:
+            _output(ctx, rows)
+            return
     _output(ctx, data)
 
 

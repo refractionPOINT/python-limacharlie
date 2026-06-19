@@ -47,6 +47,17 @@ class TestOrganizationInfo:
         org.get_stats()
         mock_client.request.assert_called_once_with("GET", "usage/test-oid-123")
 
+    def test_get_quota_usage(self, org, mock_client):
+        mock_client.request.return_value = {
+            "usage": 42,
+            "quota": 100,
+            "breakdown": {"edr": {"n": 40, "quota": 40.0}},
+        }
+        result = org.get_quota_usage()
+        mock_client.request.assert_called_once_with("GET", "quota_usage/test-oid-123")
+        assert result["usage"] == 42
+        assert result["quota"] == 100
+
     def test_get_errors(self, org, mock_client):
         mock_client.request.return_value = {"errors": []}
         org.get_errors()
@@ -90,6 +101,10 @@ class TestOrganizationSchemas:
     def test_get_schema(self, org, mock_client):
         org.get_schema("NEW_PROCESS")
         mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/schema/NEW_PROCESS")
+
+    def test_reset_schemas(self, org, mock_client):
+        org.reset_schemas()
+        mock_client.request.assert_called_once_with("DELETE", "orgs/test-oid-123/schema")
 
 
 class TestOrganizationOutputs:

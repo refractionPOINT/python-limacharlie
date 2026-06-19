@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from ._hive_shortcut import make_hive_group
+from ._adapter_types import add_list_types, add_schema, add_sensors
 from ..discovery import register_explain
 
 group = make_hive_group("external-adapter", "external_adapter", "external adapter")
+add_list_types(group, "external-adapter.list-types", "external_adapter")
+add_schema(group, "external-adapter.schema", "external_adapter")
+add_sensors(group, "external-adapter.sensors", "external_adapter")
 
 # Override the generic hive explains with adapter-specific documentation.
 
@@ -16,8 +20,9 @@ the cloud via the external_adapter hive.
 
 Each record contains the adapter type and its connection settings.
 Common adapter types: syslog, file, s3, gcs, pubsub, webhook, stdin,
-office365, 1password, crowdstrike, carbon_black, duo, sophos, and many
-others.
+office365, 1password, crowdstrike, carbon_black, duo, sophos,
+threatlocker, and more.  Run 'limacharlie external-adapter list-types'
+for the full, up-to-date list.
 
 Use --output json for the full config including connection details.
 """)
