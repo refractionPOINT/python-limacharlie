@@ -194,6 +194,7 @@ class Cases:
         content: str,
         note_type: str | None = None,
         is_public: bool | None = None,
+        ai_session_id: str | None = None,
     ) -> dict[str, Any]:
         """Add a note to a case.
 
@@ -204,12 +205,19 @@ class Cases:
                 escalation, handoff, to_stakeholder, from_stakeholder).
             is_public: Whether the note is visible to stakeholders
                 (default false).
+            ai_session_id: Originating AI session id, for cost attribution.
+                When omitted, it is read from the ``LC_AI_SESSION_ID``
+                environment variable (set by the ai-sessions runner), so notes
+                written by an AI agent are attributed automatically.
         """
         body: dict[str, Any] = {"content": content}
         if note_type:
             body["note_type"] = note_type
         if is_public is not None:
             body["is_public"] = is_public
+        session_id = ai_session_id or os.environ.get("LC_AI_SESSION_ID")
+        if session_id:
+            body["ai_session_id"] = session_id
         return self._request(
             "POST",
             f"cases/{case_number}/notes",
