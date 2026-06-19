@@ -9,6 +9,7 @@ adapter list-types, and hive schema flat rendering.
 import json
 from unittest.mock import patch, MagicMock
 
+import pytest
 from click.testing import CliRunner
 
 from limacharlie.cli import cli
@@ -374,13 +375,41 @@ class TestDrSetComponents:
 # ---------------------------------------------------------------------------
 
 class TestAdapterListTypes:
-    def test_fallback_includes_threatlocker(self):
-        from limacharlie.commands._adapter_types import adapter_types
-        # Passing an org whose schema fetch raises forces the fallback path.
-        rows = adapter_types(None)
-        types = {r["type"] for r in rows}
-        assert "threatlocker" in types
-        assert "webhook" in types
+    def test_derived_carries_description(self):
+        # adapter_types pulls the type list (and per-type description) straight
+        # from the live hive schema — there is no hard-coded fallback.
+        from limacharlie.commands import _adapter_types as at
+
+        class _FakeHive:
+            def __init__(self, org, hive_name):
+                pass
+            def get_schema(self):
+                return {"schema": {"$ref": "#/$defs/R", "$defs": {"R": {"properties": {
+                    "threatlocker": {"description": "ThreatLocker unified audit"},
+                    "webhook": {},
+                    "sensor_type": {},
+                }}}}}
+
+        with patch.object(at, "Hive", _FakeHive):
+            rows = at.adapter_types(None)
+        by_type = {r["type"]: r["description"] for r in rows}
+        assert by_type["threatlocker"] == "ThreatLocker unified audit"
+        assert by_type["webhook"] == ""
+        assert "sensor_type" not in by_type
+
+    def test_raises_when_schema_unavailable(self):
+        # No fallback: a failing schema fetch must surface, not return a stale list.
+        from limacharlie.commands import _adapter_types as at
+
+        class _FailHive:
+            def __init__(self, org, hive_name):
+                pass
+            def get_schema(self):
+                raise Exception("no schema")
+
+        with patch.object(at, "Hive", _FailHive):
+            with pytest.raises(Exception):
+                at.adapter_types(None)
 
     def test_derived_from_ref_rooted_schema(self):
         # Mirrors the real reflected shape: a {"schema": {...}} wrapper whose
@@ -432,9 +461,11 @@ class TestAdapterListTypes:
     @patch("limacharlie.commands._adapter_types.Hive")
     @patch("limacharlie.commands._adapter_types.Client", create=True)
     def test_cli_list_types(self, _client, mock_hive_cls):
-        # When the schema fetch fails, the command still returns the curated list.
+        # The command lists the types advertised by the live hive schema.
         mock_hive = MagicMock()
-        mock_hive.get_schema.side_effect = Exception("no schema")
+        mock_hive.get_schema.return_value = {"schema": {"$ref": "#/$defs/R", "$defs": {"R": {
+            "properties": {"threatlocker": {}, "s3": {}, "sensor_type": {}},
+        }}}}
         mock_hive_cls.return_value = mock_hive
 
         runner = CliRunner()
@@ -443,6 +474,20 @@ class TestAdapterListTypes:
         assert result.exit_code == 0, result.output
         parsed = json.loads(result.output)
         assert any(r["type"] == "threatlocker" for r in parsed)
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    @patch("limacharlie.commands._adapter_types.Client", create=True)
+    def test_cli_list_types_fails_without_schema(self, _client, mock_hive_cls):
+        # No fallback: if the schema can't be fetched the command errors out
+        # rather than printing a stale hard-coded list.
+        mock_hive = MagicMock()
+        mock_hive.get_schema.side_effect = Exception("no schema")
+        mock_hive_cls.return_value = mock_hive
+
+        runner = CliRunner()
+        with patch("limacharlie.client.Client"):
+            result = runner.invoke(cli, ["--output", "json", "cloud-adapter", "list-types"])
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------
