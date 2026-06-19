@@ -375,9 +375,9 @@ class TestDrSetComponents:
 # ---------------------------------------------------------------------------
 
 class TestAdapterListTypes:
-    def test_derived_carries_description(self):
-        # adapter_types pulls the type list (and per-type description) straight
-        # from the live hive schema — there is no hard-coded fallback.
+    def test_derived_from_live_schema(self):
+        # adapter_types pulls the type list straight from the live hive schema —
+        # there is no hard-coded fallback.
         from limacharlie.commands import _adapter_types as at
 
         class _FakeHive:
@@ -385,17 +385,13 @@ class TestAdapterListTypes:
                 pass
             def get_schema(self):
                 return {"schema": {"$ref": "#/$defs/R", "$defs": {"R": {"properties": {
-                    "threatlocker": {"description": "ThreatLocker unified audit"},
-                    "webhook": {},
-                    "sensor_type": {},
+                    "threatlocker": {}, "webhook": {}, "sensor_type": {},
                 }}}}}
 
         with patch.object(at, "Hive", _FakeHive):
             rows = at.adapter_types(None)
-        by_type = {r["type"]: r["description"] for r in rows}
-        assert by_type["threatlocker"] == "ThreatLocker unified audit"
-        assert by_type["webhook"] == ""
-        assert "sensor_type" not in by_type
+        types = {r["type"] for r in rows}
+        assert types == {"threatlocker", "webhook"}
 
     def test_raises_when_schema_unavailable(self):
         # No fallback: a failing schema fetch must surface, not return a stale list.
