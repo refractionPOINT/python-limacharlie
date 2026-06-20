@@ -225,6 +225,42 @@ class Cases:
             body=body,
         )
 
+    def log_time(
+        self,
+        case_number: int,
+        billable_seconds: int,
+        cost_profile: str | None = None,
+        assignee: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Log billable human time spent on a case.
+
+        This is the measured human-effort input to the AI cost/savings model:
+        logged human time nets down the savings credited to AI.
+
+        Args:
+            case_number: Case number.
+            billable_seconds: Human time spent, in seconds (must be positive).
+            cost_profile: Optional ``ai_cost_model`` profile key, so this time
+                is valued at that profile's rate (otherwise the report values it
+                at the selected profile's rate).
+            assignee: Optional analyst the time is attributed to.
+            note: Optional free-text description of the work.
+        """
+        body: dict[str, Any] = {"billable_seconds": billable_seconds}
+        if cost_profile:
+            body["cost_profile"] = cost_profile
+        if assignee:
+            body["assignee"] = assignee
+        if note:
+            body["note"] = note
+        return self._request(
+            "POST",
+            f"cases/{case_number}/time-logs",
+            query_params={"oid": self.oid},
+            body=body,
+        )
+
     def update_note_visibility(
         self,
         case_number: int,

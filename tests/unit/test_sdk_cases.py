@@ -823,3 +823,33 @@ class TestRequestMethod:
         assert isinstance(kwargs["raw_body"], bytes)
         parsed = json.loads(kwargs["raw_body"])
         assert isinstance(parsed, dict)
+
+
+class TestLogTime:
+    def test_minimal(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.log_time(42, 1800)
+        args, kwargs = _extract_call(mock_org)
+        assert args == ("POST", "api/v1/cases/42/time-logs")
+        assert kwargs["query_params"] == {"oid": "test-oid"}
+        assert json.loads(kwargs["raw_body"]) == {"billable_seconds": 1800}
+
+    def test_with_all_optionals(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.log_time(
+            42, 3600, cost_profile="ir-analyst", assignee="a@corp", note="eradication"
+        )
+        assert _extract_body(mock_org) == {
+            "billable_seconds": 3600,
+            "cost_profile": "ir-analyst",
+            "assignee": "a@corp",
+            "note": "eradication",
+        }
+
+    def test_none_optionals_excluded(self, cases, mock_org):
+        mock_org.client.request.return_value = {}
+        cases.log_time(42, 600, cost_profile=None, assignee=None, note=None)
+        body = _extract_body(mock_org)
+        assert body == {"billable_seconds": 600}
+        for k in ("cost_profile", "assignee", "note"):
+            assert k not in body

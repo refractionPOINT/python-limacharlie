@@ -35,7 +35,7 @@ def _invoke(args, mock_cases_cls, return_value=None):
         for name in [
             "create_case",
             "list_cases", "get_case", "export_case",
-            "update_case", "add_note", "update_note_visibility",
+            "update_case", "add_note", "log_time", "update_note_visibility",
             "bulk_update", "merge",
             "list_detections", "add_detection", "remove_detection",
             "list_entities", "add_entity", "update_entity", "remove_entity",
@@ -63,7 +63,7 @@ class TestCaseHelp:
         assert result.exit_code == 0
         assert "Manage SOC cases" in result.output
         for cmd in ["create", "list", "get", "export", "update", "add-note",
-                     "update-note", "merge",
+                     "log-time", "update-note", "merge",
                      "entity", "telemetry", "artifact", "detection", "tag",
                      "report", "dashboard", "config-get", "config-set",
                      "assignees", "orgs", "bulk-update"]:
@@ -703,6 +703,51 @@ class TestCaseAddNote:
             "case", "add-note", "--case-number", "1", "--content", "x", "--type", "invalid",
         ])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# case log-time
+# ---------------------------------------------------------------------------
+
+
+class TestCaseLogTime:
+    def test_log_time_minimal(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "log-time", "--case-number", "42", "--seconds", "1800"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code == 0
+            mock_t.log_time.assert_called_once_with(
+                42, 1800, cost_profile=None, assignee=None, note=None
+            )
+
+    def test_log_time_with_options(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "log-time", "--case-number", "42", "--seconds", "3600",
+                 "--cost-profile", "ir-analyst", "--assignee", "a@corp", "--note", "work"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code == 0
+            mock_t.log_time.assert_called_once_with(
+                42, 3600, cost_profile="ir-analyst", assignee="a@corp", note="work"
+            )
+
+    def test_log_time_rejects_non_positive_seconds(self):
+        p1, p2, p3 = _patch_cases()
+        with p1, p2, p3 as mock_t_cls:
+            result, mock_t = _invoke(
+                ["case", "log-time", "--case-number", "42", "--seconds", "0"],
+                mock_t_cls,
+                return_value={},
+            )
+            assert result.exit_code != 0
+            mock_t.log_time.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
