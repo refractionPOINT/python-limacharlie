@@ -892,6 +892,44 @@ def add_note(ctx, case_number, content, input_file, note_type, is_public) -> Non
 
 
 # ---------------------------------------------------------------------------
+# log-time
+# ---------------------------------------------------------------------------
+
+@group.command("log-time")
+@click.option("--case-number", "case_number", required=True, type=int, help="Case number.")
+@click.option("--seconds", "billable_seconds", required=True, type=int,
+              help="Billable human time spent, in seconds (must be positive).")
+@click.option("--cost-profile", default=None,
+              help="ai_cost_model profile key to value this time at (optional).")
+@click.option("--assignee", default=None, help="Analyst the time is attributed to (optional).")
+@click.option("--note", default=None, help="Free-text description of the work (optional).")
+@pass_context
+def log_time(ctx, case_number, billable_seconds, cost_profile, assignee, note) -> None:
+    """Log billable human time spent on a case.
+
+    Feeds the AI cost/savings model: logged human time nets down the savings
+    credited to AI. Tag it with a cost profile to value it at that profile's
+    rate.
+
+    Examples:
+        limacharlie case log-time --case-number 42 --seconds 1800
+        limacharlie case log-time --case-number 42 --seconds 3600 \\
+            --cost-profile ir-analyst --note "Containment + eradication"
+    """
+    if billable_seconds <= 0:
+        raise click.UsageError("--seconds must be a positive integer.")
+    t = _get_cases(ctx)
+    data = t.log_time(
+        case_number,
+        billable_seconds,
+        cost_profile=cost_profile,
+        assignee=assignee,
+        note=note,
+    )
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
 # update-note
 # ---------------------------------------------------------------------------
 
