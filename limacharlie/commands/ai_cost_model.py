@@ -34,7 +34,7 @@ The data payload describes one costing profile:
     rate_source_note: "FY26 loaded SOC cost / 1,600 hrs"  # optional provenance
 
 loaded_hourly_rate and minutes_per_investigation are required and must
-be non-negative; the backend rejects values outside the allowed range.
+be non-negative; the backend rejects either value above 100000.
 
 Profiles can be tagged and organized with usr_mtd:
 
