@@ -98,6 +98,7 @@ def _config_no_warnings() -> bool:
 # The regression test TestModuleMapping verifies this stays in sync.
 _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "ai": ("ai", "group"),
+    "ai-cost-model": ("ai_cost_model", "group"),
     "ai-memory": ("ai_memory", "group"),
     "ai-skill": ("ai_skill", "group"),
     "api": ("api_cmd", "cmd"),
