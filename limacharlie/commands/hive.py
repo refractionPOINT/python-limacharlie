@@ -100,6 +100,8 @@ _KNOWN_HIVE_TYPES = [
     "external_adapter",
     "sop",
     "org_notes",
+    "app",
+    "ai_cost_model",
 ]
 
 
@@ -141,6 +143,8 @@ hold configuration data.  Common hive names include:
   ai_agent         - AI agent configurations
   ai_skill         - Claude Code skill definitions
   ai_memory        - AI agent memories (partial-merge updates)
+  ai_cost_model    - Per-org AI cost/savings economic model
+  app              - AI-generated iframe web apps
 
 Each record returned contains:
   data     - The record payload (structure varies by hive type)

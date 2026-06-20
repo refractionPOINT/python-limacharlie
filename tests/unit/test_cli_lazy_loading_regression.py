@@ -45,7 +45,7 @@ del _ctx, _name
 
 # Every top-level command/group that must be registered on cli.
 EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
-    "ai", "ai-memory", "ai-skill", "api", "api-key", "app", "arl", "artifact",
+    "ai", "ai-cost-model", "ai-memory", "ai-skill", "api", "api-key", "app", "arl", "artifact",
     "audit", "auth", "billing", "case", "cloud-adapter", "completion", "config",
     "detection", "download", "dr", "endpoint-policy", "event", "exfil",
     "extension", "external-adapter", "feedback", "fp", "group", "help", "hive",
@@ -60,6 +60,7 @@ EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
 EXPECTED_MODULE_MAP = {
     "adapter": ("group", "external-adapter"),
     "ai": ("group", "ai"),
+    "ai_cost_model": ("group", "ai-cost-model"),
     "ai_memory": ("group", "ai-memory"),
     "ai_skill": ("group", "ai-skill"),
     "api_cmd": ("cmd", "api"),
@@ -123,6 +124,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "generate-response", "generate-rule", "generate-selector",
         "session", "start-session", "summarize-detection", "usage",
     }),
+    "ai-cost-model": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "ai-memory": frozenset({
         "delete", "delete-record", "get", "list", "list-records", "set",
     }),
@@ -915,7 +917,7 @@ class TestLazyLoadingBehavior:
         """Hive shortcut commands (secret, fp, lookup, etc.) must load
         correctly via lazy loading since they use a factory pattern."""
         ctx = click.Context(cli)
-        for name in ("secret", "fp", "lookup", "playbook", "sop", "note", "app"):
+        for name in ("secret", "fp", "lookup", "playbook", "sop", "note", "app", "ai-cost-model"):
             cmd = cli.get_command(ctx, name)
             assert cmd is not None, f"Hive shortcut {name!r} not loaded"
             assert isinstance(cmd, click.Group), (

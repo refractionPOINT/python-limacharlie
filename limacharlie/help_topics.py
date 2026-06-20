@@ -85,8 +85,10 @@ Shortcut commands:
     limacharlie cloud-sensor list/get/set/delete
     limacharlie sop list/get/set/delete
     limacharlie note list/get/set/delete
+    limacharlie app list/get/set/delete
+    limacharlie ai-cost-model list/get/set/delete
 
-Related commands: hive, secret, lookup, playbook, adapter, cloud-sensor, sop, note
+Related commands: hive, secret, lookup, playbook, adapter, cloud-sensor, sop, note, app, ai-cost-model
 """
 
 HELP_TOPICS["lcql"] = """\
