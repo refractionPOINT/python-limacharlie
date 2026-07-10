@@ -552,7 +552,7 @@ class Client:
         except Exception as e:
             raise AuthenticationError(f"Failed to get JWT: {e}")
 
-    def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, str] | None = None,
+    def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                    raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None,
                    extra_headers: dict[str, str] | None = None) -> tuple[int, Any]:
         """Make a single HTTP request to the API.
@@ -575,7 +575,9 @@ class Client:
             full_url = f"{alt_root}/{url}" if url else alt_root
 
         if query_params:
-            full_url = f"{full_url}?{urlencode(query_params)}"
+            # doseq so sequence values expand to repeated keys
+            # (?severity=HIGH&severity=LOW) instead of a Python list repr.
+            full_url = f"{full_url}?{urlencode(query_params, doseq=True)}"
 
         # Build request body
         if raw_body is not None:
@@ -645,7 +647,7 @@ class Client:
             self._debug(f"SSL error: {e}")
             return (HTTP_GATEWAY_TIMEOUT, {"error": f"SSL error: {e}"})
 
-    def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, str] | None = None,
+    def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
                 max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
         """Make an API request with retry logic and JWT management.
@@ -752,7 +754,7 @@ class Client:
         return data
 
     def raw_request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None,
-                    query_params: dict[str, str] | None = None, raw_body: bytes | None = None,
+                    query_params: dict[str, Any] | list[tuple[str, str]] | None = None, raw_body: bytes | None = None,
                     content_type: str | None = None, is_no_auth: bool = False,
                     extra_headers: dict[str, str] | None = None) -> tuple[int, Any]:
         """Make a raw API request, returning (status_code, response_data).

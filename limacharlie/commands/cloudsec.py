@@ -22,9 +22,11 @@ the one provider command here is the pre-save credential preflight
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 import click
+import yaml
 
 from ..cli import pass_context
 from ..client import Client
@@ -131,8 +133,11 @@ Examples:
 """
 
 _EXPLAIN_FINDING_BULK_RESOLVE = """\
-Apply one resolution to many findings in a single call. Same --kind
-semantics as 'finding resolve'.
+Apply one resolution to many findings in a single call.
+
+--kind is mitigated, accepted, or false_positive. Reopening is a
+single-finding operation only (the bulk API does not accept 'open');
+use 'finding resolve <id> --kind open' per finding.
 
 Example:
   limacharlie cloudsec finding bulk-resolve --finding-id fnd_a... --finding-id fnd_b... \\
@@ -304,8 +309,9 @@ Example:
 
 _EXPLAIN_RESOLVE_SENSORS = """\
 Resolve LimaCharlie sensor ids to the cloud asset (URN, with
-posture flags) each runs on. Pass multiple SIDs for a bulk request
-(max 500); unresolved sensors are returned in 'unresolved'.
+posture flags) each runs on. Pass any number of SIDs — requests are
+chunked automatically to stay within URL limits; unresolved sensors
+are returned in 'unresolved'.
 
 Example:
   limacharlie cloudsec resolve sensors <SID1> <SID2>
@@ -313,8 +319,9 @@ Example:
 
 _EXPLAIN_RESOLVE_ASSETS = """\
 Resolve cloud asset URNs to the LimaCharlie sensor ids running on
-each. Pass multiple URNs for a bulk request (max 500); unresolved
-URNs are returned in 'unresolved'.
+each. Pass any number of URNs — requests are chunked automatically
+to stay within URL limits; unresolved URNs are returned in
+'unresolved'.
 
 Example:
   limacharlie cloudsec resolve assets "lcrn:...instance/web-1"
@@ -357,16 +364,20 @@ Set (upsert) the expected-coverage policy: the declarative
 expectations the coverage engine evaluates over the merged asset
 inventory. Validated server-side; an invalid policy is rejected.
 
+The policy can come from inline JSON, a JSON/YAML file, or stdin.
+
 Examples:
   limacharlie cloudsec caasm policy set \\
       --policy-json '{"expect":[{"label":"edr-on-devices","capability":"edr","kinds":["device"]}]}'
-  limacharlie cloudsec caasm policy set --input-file policy.json
+  limacharlie cloudsec caasm policy set --input-file policy.yaml
+  cat policy.yaml | limacharlie cloudsec caasm policy set
 """
 
 _EXPLAIN_CAASM_INGEST = """\
 Ingest a batch of raw third-party asset records into the merged
-asset inventory. --source must be a known CAASM source
-(sentinelone|crowdstrike|defender|okta|entraid|ms_graph|wiz);
+asset inventory. --source names the CAASM source the records come
+from (today: sentinelone, crowdstrike, defender, okta, entraid,
+ms_graph, wiz — the registry grows and is validated server-side);
 records are the raw vendor-shaped JSON objects that source ships.
 Re-ingesting identical records is a no-op (idempotent). Chunk large
 imports — the request body is capped at 1 MiB.
@@ -389,8 +400,10 @@ provider configs are managed via the hive:
 
   limacharlie hive set cloudsec_provider --key my-gcp --data provider.json
 
+The record can come from inline JSON, a JSON/YAML file, or stdin.
+
 Examples:
-  limacharlie cloudsec provider test --input-file provider.json
+  limacharlie cloudsec provider test --input-file provider.yaml
   limacharlie cloudsec provider test --provider-json '{"provider_type":"gcp",...}'
 """
 
@@ -464,22 +477,44 @@ def _parse_json_opt(value: str | None, param_hint: str) -> Any:
         raise click.BadParameter(f"invalid JSON: {exc}", param_hint=param_hint)
 
 
-def _load_json_file(path: str | None, param_hint: str) -> Any:
-    """Read + parse a JSON file CLI option, raising a clean usage error."""
-    if path is None:
-        return None
+def _load_file(path: str, param_hint: str) -> Any:
+    """Read + parse a JSON or YAML file, raising a clean usage error.
+
+    Same YAML-first-then-JSON idiom as the other command modules' file
+    inputs (hive, ioc, output, ...), so .yaml configs work everywhere.
+    """
     try:
         with open(path, "r") as f:
-            return json.load(f)
+            content = f.read()
     except OSError as exc:
         raise click.BadParameter(f"cannot read file: {exc}", param_hint=param_hint)
+    try:
+        return yaml.safe_load(content)
+    except Exception:
+        pass
+    try:
+        return json.loads(content)
     except json.JSONDecodeError as exc:
-        raise click.BadParameter(f"invalid JSON in file: {exc}", param_hint=param_hint)
+        raise click.BadParameter(
+            f"file is neither valid YAML nor JSON: {exc}", param_hint=param_hint,
+        )
+
+
+def _load_stdin() -> Any:
+    """Parse piped stdin as YAML-or-JSON; None when stdin is a TTY."""
+    if sys.stdin.isatty():
+        return None
+    content = sys.stdin.read()
+    try:
+        return yaml.safe_load(content)
+    except Exception:
+        pass
+    return json.loads(content)
 
 
 def _one_of(param_hint: str, **provided: Any) -> None:
-    """Require exactly one of the given options to be set."""
-    given = [k for k, v in provided.items() if v is not None]
+    """Require exactly one of the given options to be set (non-empty)."""
+    given = [k for k, v in provided.items() if v]
     if len(given) != 1:
         names = ", ".join(f"--{k.replace('_', '-')}" for k in provided)
         raise click.UsageError(
@@ -487,15 +522,55 @@ def _one_of(param_hint: str, **provided: Any) -> None:
         )
 
 
+def _load_json_object_arg(
+    *,
+    inline: str | None,
+    inline_hint: str,
+    input_file: str | None,
+    file_hint: str,
+    what: str,
+    shape_msg: str,
+) -> dict[str, Any]:
+    """Load a required JSON-object argument from inline JSON, a file, or stdin.
+
+    Exactly one of the inline/file options may be set; with neither, piped
+    stdin is read (YAML or JSON). The result must be an object — a `null`
+    or non-object input is rejected here rather than reaching the server.
+    """
+    if inline and input_file:
+        raise click.UsageError(
+            f"provide only one of {inline_hint} or {file_hint} for {what}",
+        )
+    if inline:
+        value = _parse_json_opt(inline, inline_hint)
+        hint = inline_hint
+    elif input_file:
+        value = _load_file(input_file, file_hint)
+        hint = file_hint
+    else:
+        value = _load_stdin()
+        hint = "stdin"
+        if value is None:
+            raise click.UsageError(
+                f"provide {inline_hint}, {file_hint}, or pipe {what} via stdin",
+            )
+    if not isinstance(value, dict):
+        raise click.BadParameter(shape_msg, param_hint=hint)
+    return value
+
+
+# Resolution kinds are a fixed server contract; 'open' (reopen) is only
+# accepted by the single-finding endpoint, not the bulk one.
 _KIND_CHOICES = click.Choice(
     ["mitigated", "accepted", "false_positive", "open"], case_sensitive=False,
 )
-_ORDER_CHOICES = click.Choice(["asc", "desc"], case_sensitive=False)
-_PROVIDER_CHOICES = click.Choice(["gcp", "aws", "azure"], case_sensitive=False)
-_CAASM_SOURCE_CHOICES = click.Choice(
-    ["sentinelone", "crowdstrike", "defender", "okta", "entraid", "ms_graph", "wiz"],
-    case_sensitive=False,
+_BULK_KIND_CHOICES = click.Choice(
+    ["mitigated", "accepted", "false_positive"], case_sensitive=False,
 )
+_ORDER_CHOICES = click.Choice(["asc", "desc"], case_sensitive=False)
+# Provider and CAASM-source values are deliberately NOT click.Choice lists:
+# both are growing server-side registries (new providers/sources ship without
+# a CLI release) and the server rejects unknown values with a clean error.
 
 
 def _paging_options(f):
@@ -641,7 +716,9 @@ def risk_trend(ctx, trend_days) -> None:
 
 
 @group.command("scan-status")
-@click.option("--provider", default=None, type=_PROVIDER_CHOICES, help="Cloud provider (default gcp).")
+@click.option("--provider", default=None,
+              help="Cloud provider (e.g. gcp, aws, azure, okta, 1password, "
+                   "google_workspace, cloudflare); validated server-side; default gcp.")
 @pass_context
 def scan_status(ctx, provider) -> None:
     """Cloud-collection run status for a provider.
@@ -755,8 +832,8 @@ def finding_resolve(ctx, finding_id, kind, reason, expires_at) -> None:
 @finding_group.command("bulk-resolve")
 @click.option("--finding-id", "finding_ids", multiple=True, required=True,
               help="Finding id; repeat for each finding.")
-@click.option("--kind", required=True, type=_KIND_CHOICES,
-              help="Resolution kind; 'open' reopens the findings.")
+@click.option("--kind", required=True, type=_BULK_KIND_CHOICES,
+              help="Resolution kind (reopen is single-finding only: use 'finding resolve --kind open').")
 @click.option("--reason", default=None, help="Optional operator note.")
 @click.option("--expires-at", default=None, type=int,
               help="Unix seconds; only meaningful with --kind accepted.")
@@ -1027,9 +1104,12 @@ def query_run(ctx, named, text, query_json, project) -> None:
       limacharlie cloudsec query run --text "public bucket with sensitive data"
     """
     _one_of("the query", named=named, text=text, query_json=query_json)
-    query = _parse_json_opt(query_json, "--query-json")
-    if query is not None and not isinstance(query, dict):
-        raise click.BadParameter("must decode to a JSON object", param_hint="--query-json")
+    query = None
+    if query_json:
+        query = _parse_json_opt(query_json, "--query-json")
+        # Unconditional: a JSON `null` must not slip through as "no query".
+        if not isinstance(query, dict):
+            raise click.BadParameter("must decode to a JSON object", param_hint="--query-json")
     project_list = [p.strip() for p in project.split(",") if p.strip()] if project else None
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.run_query(
@@ -1245,33 +1325,34 @@ def caasm_policy_get(ctx) -> None:
 @caasm_policy_group.command("set")
 @click.option("--policy-json", default=None, help="The policy as inline JSON ({expect:[...]}).")
 @click.option("--input-file", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="Read the policy from a JSON file.")
+              help="Read the policy from a JSON or YAML file.")
 @pass_context
 def caasm_policy_set(ctx, policy_json, input_file) -> None:
     """Set (upsert) the expected-coverage policy.
 
+    The policy can also be piped via stdin (JSON or YAML).
+
     \b
     Example:
-      limacharlie cloudsec caasm policy set --input-file policy.json
+      limacharlie cloudsec caasm policy set --input-file policy.yaml
     """
-    _one_of("the policy", policy_json=policy_json, input_file=input_file)
-    policy = _parse_json_opt(policy_json, "--policy-json")
-    if policy is None:
-        policy = _load_json_file(input_file, "--input-file")
-    if not isinstance(policy, dict):
-        raise click.BadParameter(
-            "must decode to a JSON object ({expect:[...]})",
-            param_hint="--policy-json" if policy_json else "--input-file",
-        )
+    policy = _load_json_object_arg(
+        inline=policy_json, inline_hint="--policy-json",
+        input_file=input_file, file_hint="--input-file",
+        what="the policy",
+        shape_msg="must decode to a JSON object ({expect:[...]})",
+    )
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.set_caasm_policy(policy))
 
 
 @caasm_group.command("ingest")
-@click.option("--source", required=True, type=_CAASM_SOURCE_CHOICES,
-              help="The CAASM source the records come from.")
+@click.option("--source", required=True,
+              help="The CAASM source the records come from (e.g. sentinelone, "
+                   "crowdstrike, defender, okta, entraid, ms_graph, wiz); "
+                   "validated server-side.")
 @click.option("--records-file", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="JSON file holding an array of raw vendor-shaped records.")
+              help="JSON or YAML file holding an array of raw vendor-shaped records.")
 @click.option("--record-json", default=None, help="A single raw record as inline JSON.")
 @click.option("--policy-json", default=None, help="Optional inline coverage policy override (JSON).")
 @pass_context
@@ -1284,15 +1365,25 @@ def caasm_ingest(ctx, source, records_file, record_json, policy_json) -> None:
       limacharlie cloudsec caasm ingest --source crowdstrike --record-json '{...}'
     """
     _one_of("the records", records_file=records_file, record_json=record_json)
-    records = _load_json_file(records_file, "--records-file")
-    if records is not None and not isinstance(records, list):
-        raise click.BadParameter(
-            "must decode to a JSON array of records", param_hint="--records-file",
-        )
-    record = _parse_json_opt(record_json, "--record-json")
-    if record is not None and not isinstance(record, dict):
-        raise click.BadParameter("must decode to a JSON object", param_hint="--record-json")
-    policy = _parse_json_opt(policy_json, "--policy-json")
+    records = None
+    record = None
+    if records_file:
+        records = _load_file(records_file, "--records-file")
+        # Unconditional: a file whose content is `null` (or any non-array)
+        # must not slip through as a silent records-less ingest.
+        if not isinstance(records, list):
+            raise click.BadParameter(
+                "must decode to a JSON array of records", param_hint="--records-file",
+            )
+    else:
+        record = _parse_json_opt(record_json, "--record-json")
+        if not isinstance(record, dict):
+            raise click.BadParameter("must decode to a JSON object", param_hint="--record-json")
+    policy = None
+    if policy_json:
+        policy = _parse_json_opt(policy_json, "--policy-json")
+        if not isinstance(policy, dict):
+            raise click.BadParameter("must decode to a JSON object", param_hint="--policy-json")
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.caasm_ingest(
         source, records=records, record=record, policy=policy,
@@ -1312,23 +1403,22 @@ def provider_group() -> None:
 @click.option("--provider-json", default=None,
               help="The provider record (cloudsec_provider hive shape) as inline JSON.")
 @click.option("--input-file", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="Read the provider record from a JSON file.")
+              help="Read the provider record from a JSON or YAML file.")
 @pass_context
 def provider_test(ctx, provider_json, input_file) -> None:
     """Preflight a provider configuration (credentials are never stored).
 
+    The record can also be piped via stdin (JSON or YAML).
+
     \b
     Example:
-      limacharlie cloudsec provider test --input-file provider.json
+      limacharlie cloudsec provider test --input-file provider.yaml
     """
-    _one_of("the provider record", provider_json=provider_json, input_file=input_file)
-    provider = _parse_json_opt(provider_json, "--provider-json")
-    if provider is None:
-        provider = _load_json_file(input_file, "--input-file")
-    if not isinstance(provider, dict):
-        raise click.BadParameter(
-            "must decode to a JSON object (cloudsec_provider record shape)",
-            param_hint="--provider-json" if provider_json else "--input-file",
-        )
+    provider = _load_json_object_arg(
+        inline=provider_json, inline_hint="--provider-json",
+        input_file=input_file, file_hint="--input-file",
+        what="the provider record",
+        shape_msg="must decode to a JSON object (cloudsec_provider record shape)",
+    )
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.test_provider(provider))

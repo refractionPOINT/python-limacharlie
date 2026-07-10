@@ -81,6 +81,85 @@ class TestCloudSecHelp:
         for cmd in ["assets", "coverage", "policy", "ingest"]:
             assert cmd in result.output
 
+    def test_caasm_policy_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "caasm", "policy", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["get", "set"]:
+            assert cmd in result.output
+
+    def test_attack_path_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "attack-path", "--help"])
+        assert result.exit_code == 0
+        assert "list" in result.output
+
+    def test_ciem_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "ciem", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["public-access", "facets"]:
+            assert cmd in result.output
+
+    def test_inventory_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "inventory", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["list", "facets"]:
+            assert cmd in result.output
+
+    def test_data_security_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "data-security", "--help"])
+        assert result.exit_code == 0
+        assert "facets" in result.output
+
+    def test_resource_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "resource", "--help"])
+        assert result.exit_code == 0
+        assert "get" in result.output
+
+    def test_graph_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "graph", "--help"])
+        assert result.exit_code == 0
+        assert "neighbors" in result.output
+
+    def test_query_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "query", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["list", "run"]:
+            assert cmd in result.output
+
+    def test_compliance_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "compliance", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["report", "frameworks", "assignments"]:
+            assert cmd in result.output
+
+    def test_chokepoint_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "chokepoint", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["list", "dismiss", "restore"]:
+            assert cmd in result.output
+
+    def test_resolve_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "resolve", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["sensors", "assets"]:
+            assert cmd in result.output
+
+    def test_provider_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "provider", "--help"])
+        assert result.exit_code == 0
+        assert "test" in result.output
+
 
 # ---------------------------------------------------------------------------
 # Top-level reads
@@ -108,12 +187,16 @@ class TestTopLevel:
             assert result.exit_code == 0, result.output
             inst.list_changes.assert_called_once_with(limit=5)
 
-    def test_scan_status_rejects_unknown_provider(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli, ["cloudsec", "scan-status", "--provider", "digitalocean"],
-        )
-        assert result.exit_code != 0
+    def test_scan_status_forwards_unlisted_provider(self):
+        # The provider registry grows server-side; the CLI must not pin it.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "scan-status", "--provider", "cloudflare"], cls,
+                return_value={"status": {}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_scan_status.assert_called_once_with(provider="cloudflare")
 
     def test_scan_status_provider(self):
         p1, p2, p3 = _patches()
@@ -208,6 +291,17 @@ class TestFindingCommands:
             cli, ["cloudsec", "finding", "resolve", "fnd_abc", "--kind", "wontfix"],
         )
         assert result.exit_code != 0
+
+    def test_bulk_resolve_rejects_open(self):
+        # The bulk API does not accept 'open' (reopen is single-finding only);
+        # the CLI must reject it at parse time instead of a server error.
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "finding", "bulk-resolve",
+                  "--finding-id", "fnd_a", "--kind", "open"],
+        )
+        assert result.exit_code != 0
+        assert "open" in result.output
 
     def test_bulk_resolve(self):
         p1, p2, p3 = _patches()
@@ -330,6 +424,24 @@ class TestGraphAndQuery:
         )
         assert result.exit_code != 0
 
+    def test_query_run_rejects_null_json(self):
+        # `--query-json null` parses to None and must not slip past the
+        # object check into an empty POST body.
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "query", "run", "--query-json", "null"],
+        )
+        assert result.exit_code != 0
+
+    def test_query_run_rejects_empty_text(self):
+        # An explicit empty string is not a query; fail client-side
+        # instead of round-tripping to the server.
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "query", "run", "--text", ""],
+        )
+        assert result.exit_code != 0
+
 
 # ---------------------------------------------------------------------------
 # resolve
@@ -395,9 +507,41 @@ class TestCaasm:
             assert result.exit_code == 0, result.output
             inst.set_caasm_policy.assert_called_once_with(policy)
 
+    def test_policy_set_from_yaml_file(self, tmp_path):
+        p1, p2, p3 = _patches()
+        f = tmp_path / "policy.yaml"
+        f.write_text("expect:\n  - label: edr-on-devices\n    capability: edr\n    kinds: [device]\n")
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "caasm", "policy", "set", "--input-file", str(f)],
+                cls,
+            )
+            assert result.exit_code == 0, result.output
+            inst.set_caasm_policy.assert_called_once_with({
+                "expect": [{"label": "edr-on-devices", "capability": "edr",
+                            "kinds": ["device"]}],
+            })
+
+    def test_policy_set_from_stdin(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "caasm", "policy", "set"], cls,
+                stdin='{"expect": []}',
+            )
+            assert result.exit_code == 0, result.output
+            inst.set_caasm_policy.assert_called_once_with({"expect": []})
+
     def test_policy_set_requires_input(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "caasm", "policy", "set"])
+        assert result.exit_code != 0
+
+    def test_policy_set_rejects_null_json(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "caasm", "policy", "set", "--policy-json", "null"],
+        )
         assert result.exit_code != 0
 
     def test_ingest_records_file(self, tmp_path):
@@ -431,13 +575,20 @@ class TestCaasm:
                 "crowdstrike", records=None, record={"device_id": "d1"}, policy=None,
             )
 
-    def test_ingest_rejects_unknown_source(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli, ["cloudsec", "caasm", "ingest", "--source", "unknown-edr",
-                  "--record-json", "{}"],
-        )
-        assert result.exit_code != 0
+    def test_ingest_forwards_unlisted_source(self):
+        # The CAASM source registry grows server-side; the CLI must not pin it.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "caasm", "ingest", "--source", "new-edr",
+                 "--record-json", '{"id": "d1"}'],
+                cls,
+                return_value={"result": {}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.caasm_ingest.assert_called_once_with(
+                "new-edr", records=None, record={"id": "d1"}, policy=None,
+            )
 
     def test_ingest_rejects_non_array_records_file(self, tmp_path):
         f = tmp_path / "records.json"
@@ -448,6 +599,42 @@ class TestCaasm:
                   "--records-file", str(f)],
         )
         assert result.exit_code != 0
+
+    def test_ingest_rejects_null_records_file(self, tmp_path):
+        # A file whose JSON content is `null` must error, not silently
+        # produce a records-less ingest.
+        f = tmp_path / "records.json"
+        f.write_text("null")
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "caasm", "ingest", "--source", "okta",
+                  "--records-file", str(f)],
+        )
+        assert result.exit_code != 0
+
+    def test_ingest_rejects_null_record_json(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "caasm", "ingest", "--source", "okta",
+                  "--record-json", "null"],
+        )
+        assert result.exit_code != 0
+
+    def test_ingest_records_file_accepts_yaml(self, tmp_path):
+        p1, p2, p3 = _patches()
+        f = tmp_path / "records.yaml"
+        f.write_text("- id: u1\n- id: u2\n")
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "caasm", "ingest", "--source", "okta",
+                 "--records-file", str(f)],
+                cls,
+                return_value={"result": {}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.caasm_ingest.assert_called_once_with(
+                "okta", records=[{"id": "u1"}, {"id": "u2"}], record=None, policy=None,
+            )
 
 
 # ---------------------------------------------------------------------------

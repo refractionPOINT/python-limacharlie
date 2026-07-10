@@ -311,6 +311,33 @@ class TestResolution:
         assert url == f"cloudsec/{OID}/resolve/assets"
         assert qp == [("urn", "lcrn:a"), ("urn", "lcrn:b")]
 
+    def test_resolve_sensors_chunks_large_batches(self, cs, mock_org):
+        # Ids ride as repeated query params, so large batches must be
+        # split to stay within the ~8KB URL limit, and the per-chunk
+        # responses merged.
+        sids = [f"sid-{i}" for i in range(250)]
+        mock_org.client.request.side_effect = [
+            {"resolved": [{"sid": "a"}], "unresolved": ["x"]},
+            {"resolved": [{"sid": "b"}], "unresolved": []},
+            {"resolved": [], "unresolved": ["y"]},
+        ]
+        out = cs.resolve_sensors(sids)
+        calls = mock_org.client.request.call_args_list
+        assert len(calls) == 3
+        sent = [kwargs["query_params"] for _, kwargs in calls]
+        assert [len(qp) for qp in sent] == [100, 100, 50]
+        # Every id is sent exactly once, in order.
+        assert [v for qp in sent for _, v in qp] == sids
+        assert out == {
+            "resolved": [{"sid": "a"}, {"sid": "b"}],
+            "unresolved": ["x", "y"],
+        }
+
+    def test_resolve_assets_empty_batch_makes_no_request(self, cs, mock_org):
+        out = cs.resolve_assets([])
+        mock_org.client.request.assert_not_called()
+        assert out == {"resolved": [], "unresolved": []}
+
 
 class TestCaasm:
     def test_list_assets(self, cs, mock_org):

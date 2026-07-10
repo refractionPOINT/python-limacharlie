@@ -57,6 +57,23 @@ def _add_scalar(
         pairs.append((key, str(value)))
 
 
+def _query_pairs(**params: Any) -> list[tuple[str, str]]:
+    """Build the query-pair list from keyword selectors, skipping unset keys.
+
+    List/tuple values become repeated keys (OR within a key, AND across
+    keys, matching the gateway contract); scalars go through
+    :func:`_add_scalar`. Kwarg order is preserved so the emitted query
+    string is deterministic.
+    """
+    pairs: list[tuple[str, str]] = []
+    for key, value in params.items():
+        if isinstance(value, (list, tuple)):
+            _add_pairs(pairs, key, value)
+        else:
+            _add_scalar(pairs, key, value)
+    return pairs
+
+
 def _finding_query_pairs(
     *,
     severity: list[str] | None = None,
@@ -71,25 +88,19 @@ def _finding_query_pairs(
     cursor: str | None = None,
     limit: int | None = None,
 ) -> list[tuple[str, str]]:
-    """Assemble the findings worklist selectors shared by list/facets.
+    """Assemble the findings worklist selectors shared by list/facets."""
+    return _query_pairs(
+        severity=severity, finding_class=finding_class, status=status,
+        account=account, reachable=reachable, kev=kev, q=q,
+        sort=sort, order=order, cursor=cursor, limit=limit,
+    )
 
-    Repeatable keys (severity/finding_class/status/account) are OR
-    within a key and AND across keys, matching the gateway contract.
-    Only keys the caller set are included so backend defaults apply.
-    """
-    pairs: list[tuple[str, str]] = []
-    _add_pairs(pairs, "severity", severity)
-    _add_pairs(pairs, "finding_class", finding_class)
-    _add_pairs(pairs, "status", status)
-    _add_pairs(pairs, "account", account)
-    _add_scalar(pairs, "reachable", reachable)
-    _add_scalar(pairs, "kev", kev)
-    _add_scalar(pairs, "q", q)
-    _add_scalar(pairs, "sort", sort)
-    _add_scalar(pairs, "order", order)
-    _add_scalar(pairs, "cursor", cursor)
-    _add_scalar(pairs, "limit", limit)
-    return pairs
+
+# Chunk size for the bulk sensor<->asset resolution GETs: ids ride as repeated
+# query params and the platform load balancer caps URLs at ~8KB, so one request
+# can only carry ~190 UUIDs. 100 per request (~4KB) leaves comfortable headroom;
+# the gateway's own per-request cap is 500.
+_RESOLVE_CHUNK_SIZE = 100
 
 
 class CloudSec:
@@ -245,7 +256,10 @@ class CloudSec:
     ) -> dict[str, Any]:
         """Apply one resolution to many findings at once.
 
-        Same ``kind`` semantics as :meth:`set_finding_status`.
+        ``kind`` must be ``mitigated``, ``accepted``, or
+        ``false_positive`` — unlike :meth:`set_finding_status`, the bulk
+        endpoint does NOT accept ``open`` (reopen findings one at a
+        time).
 
         Returns:
             ``{"updated": int}``.
@@ -293,12 +307,9 @@ class CloudSec:
         Returns:
             ``{"paths": [...]}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_pairs(pairs, "severity", severity)
-        _add_pairs(pairs, "account", account)
-        _add_pairs(pairs, "status", status)
-        _add_scalar(pairs, "q", q)
-        return self._get("attack-paths", pairs)
+        return self._get("attack-paths", _query_pairs(
+            severity=severity, account=account, status=status, q=q,
+        ))
 
     def get_public_access(self) -> dict[str, Any]:
         """CIEM: public/external access to sensitive resources.
@@ -341,14 +352,10 @@ class CloudSec:
         Returns:
             ``{"resources": [...], "next_cursor": str}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "type", resource_type)
-        _add_scalar(pairs, "account", account)
-        _add_scalar(pairs, "region", region)
-        _add_scalar(pairs, "q", q)
-        _add_scalar(pairs, "cursor", cursor)
-        _add_scalar(pairs, "limit", limit)
-        return self._get("inventory", pairs)
+        return self._get("inventory", _query_pairs(
+            type=resource_type, account=account, region=region,
+            q=q, cursor=cursor, limit=limit,
+        ))
 
     def get_inventory_facets(self) -> dict[str, Any]:
         """Inventory facet counts (by type/account/region)."""
@@ -368,7 +375,7 @@ class CloudSec:
         Returns:
             ``{"resource": {...}}`` or ``{"resource": null}`` when unknown.
         """
-        return self._get("resource", [("urn", urn)])
+        return self._get("resource", _query_pairs(urn=urn))
 
     # ------------------------------------------------------------------
     # Security graph
@@ -386,9 +393,7 @@ class CloudSec:
         Returns:
             ``{"graph": {"nodes": [...], "edges": [...]}}`` with ``truncated``.
         """
-        pairs: list[tuple[str, str]] = [("urn", urn)]
-        _add_scalar(pairs, "limit", limit)
-        return self._get("graph/neighbors", pairs)
+        return self._get("graph/neighbors", _query_pairs(urn=urn, limit=limit))
 
     def list_queries(self) -> dict[str, Any]:
         """List the named graph queries in the query pack.
@@ -448,10 +453,9 @@ class CloudSec:
         Returns:
             ``{"report": {...}}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "framework", framework)
-        _add_scalar(pairs, "assignment", assignment)
-        return self._get("compliance", pairs)
+        return self._get("compliance", _query_pairs(
+            framework=framework, assignment=assignment,
+        ))
 
     def list_compliance_frameworks(self) -> dict[str, Any]:
         """List selectable compliance frameworks.
@@ -472,9 +476,7 @@ class CloudSec:
     def get_overview(self, *, trend_days: int | None = None) -> dict[str, Any]:
         """Composed risk overview (score, severity distribution, top paths,
         coverage, trend, recent changes) in one round-trip."""
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "trend_days", trend_days)
-        return self._get("overview", pairs)
+        return self._get("overview", _query_pairs(trend_days=trend_days))
 
     def list_chokepoints(self) -> dict[str, Any]:
         """Estate-wide chokepoints ranked by attack paths broken.
@@ -503,15 +505,11 @@ class CloudSec:
 
     def list_changes(self, *, limit: int | None = None) -> dict[str, Any]:
         """Recent finding lifecycle changes (created/closed), newest first."""
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "limit", limit)
-        return self._get("changes", pairs)
+        return self._get("changes", _query_pairs(limit=limit))
 
     def get_risk_trend(self, *, trend_days: int | None = None) -> dict[str, Any]:
         """The org risk-score history, oldest first."""
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "trend_days", trend_days)
-        return self._get("risk-trend", pairs)
+        return self._get("risk-trend", _query_pairs(trend_days=trend_days))
 
     def get_scan_status(self, *, provider: str | None = None) -> dict[str, Any]:
         """Cloud-collection run status for a provider (gcp|aws|azure).
@@ -519,33 +517,52 @@ class CloudSec:
         Returns:
             ``{"status": {...}}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "provider", provider)
-        return self._get("scan-status", pairs)
+        return self._get("scan-status", _query_pairs(provider=provider))
 
     # ------------------------------------------------------------------
     # Sensor <-> cloud asset resolution
     # ------------------------------------------------------------------
 
+    def _resolve_chunked(
+        self, path: str, key: str, values: list[str],
+    ) -> dict[str, Any]:
+        """Run a bulk resolve as URL-safe chunks and merge the responses.
+
+        The ids ride as repeated query params, so an unbounded batch would
+        blow the ~8KB load-balancer URL limit long before the gateway's
+        500-per-request cap — chunking makes any batch size work.
+        """
+        resolved: list[Any] = []
+        unresolved: list[Any] = []
+        values = list(values)
+        for i in range(0, len(values), _RESOLVE_CHUNK_SIZE):
+            chunk = values[i:i + _RESOLVE_CHUNK_SIZE]
+            resp = self._get(path, _query_pairs(**{key: chunk}))
+            resolved.extend(resp.get("resolved") or [])
+            unresolved.extend(resp.get("unresolved") or [])
+        return {"resolved": resolved, "unresolved": unresolved}
+
     def resolve_sensors(self, sids: list[str]) -> dict[str, Any]:
-        """Resolve sensor ids to the cloud asset each runs on (bulk, max 500).
+        """Resolve sensor ids to the cloud asset each runs on.
+
+        Any batch size works — requests are chunked (100 ids each) to
+        stay within URL limits, and the per-chunk responses are merged.
 
         Returns:
             ``{"resolved": [...], "unresolved": [...]}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_pairs(pairs, "sid", sids)
-        return self._get("resolve/sensors", pairs)
+        return self._resolve_chunked("resolve/sensors", "sid", sids)
 
     def resolve_assets(self, urns: list[str]) -> dict[str, Any]:
-        """Resolve cloud asset URNs to the sensors running on each (bulk, max 500).
+        """Resolve cloud asset URNs to the sensors running on each.
+
+        Any batch size works — requests are chunked (100 URNs each) to
+        stay within URL limits, and the per-chunk responses are merged.
 
         Returns:
             ``{"resolved": [...], "unresolved": [...]}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_pairs(pairs, "urn", urns)
-        return self._get("resolve/assets", pairs)
+        return self._resolve_chunked("resolve/assets", "urn", urns)
 
     # ------------------------------------------------------------------
     # CAASM (third-party asset attack surface)
@@ -563,11 +580,9 @@ class CloudSec:
         Returns:
             ``{"resources": [...], "next_cursor": str}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "q", q)
-        _add_scalar(pairs, "cursor", cursor)
-        _add_scalar(pairs, "limit", limit)
-        return self._get("caasm/assets", pairs)
+        return self._get("caasm/assets", _query_pairs(
+            q=q, cursor=cursor, limit=limit,
+        ))
 
     def list_caasm_coverage(
         self,
@@ -588,15 +603,10 @@ class CloudSec:
         Returns:
             ``{"findings": [...], "next_cursor": str}``.
         """
-        pairs: list[tuple[str, str]] = []
-        _add_pairs(pairs, "status", status)
-        _add_pairs(pairs, "severity", severity)
-        _add_scalar(pairs, "q", q)
-        _add_scalar(pairs, "sort", sort)
-        _add_scalar(pairs, "order", order)
-        _add_scalar(pairs, "cursor", cursor)
-        _add_scalar(pairs, "limit", limit)
-        return self._get("caasm/coverage", pairs)
+        return self._get("caasm/coverage", _query_pairs(
+            status=status, severity=severity, q=q, sort=sort,
+            order=order, cursor=cursor, limit=limit,
+        ))
 
     def get_caasm_policy(self) -> dict[str, Any]:
         """The stored expected-coverage policy.
