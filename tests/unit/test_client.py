@@ -196,6 +196,30 @@ class TestRequest:
         assert result == {"sensors": []}
 
     @patch("limacharlie.client.urlopen")
+    def test_query_params_sequences_expand_to_repeated_keys(self, mock_urlopen):
+        # doseq: a dict-of-lists (or list-of-tuples) must encode as
+        # repeated keys, not the Python list repr.
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        client.request(
+            "GET", "things",
+            query_params={"severity": ["HIGH", "LOW"], "q": "prod"},
+        )
+
+        sent = mock_urlopen.call_args_list[-1][0][0]
+        assert sent.full_url.endswith("?severity=HIGH&severity=LOW&q=prod")
+
+    @patch("limacharlie.client.urlopen")
     def test_auto_refreshes_jwt_on_401(self, mock_urlopen):
         from urllib.error import HTTPError
         import io
