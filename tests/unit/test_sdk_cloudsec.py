@@ -281,6 +281,14 @@ class TestOverviewTrendsChokepoints:
         assert url == f"cloudsec/{OID}/scan-status"
         assert qp == [("provider", "aws")]
 
+    def test_scan_status_provider_is_case_normalized(self, cs, mock_org):
+        # The backend scan-state read is a case-sensitive lookup keyed on
+        # lowercase provider ids; "AWS" would silently read as never-scanned.
+        mock_org.client.request.return_value = {"status": {}}
+        cs.get_scan_status(provider=" AWS ")
+        _, qp = _get_call(mock_org)
+        assert qp == [("provider", "aws")]
+
     def test_dismiss_chokepoint_with_reason(self, cs, mock_org):
         mock_org.client.request.return_value = {"ok": True}
         cs.dismiss_chokepoint("lcrn:x", reason="decom")

@@ -22,11 +22,9 @@ the one provider command here is the pre-save credential preflight
 from __future__ import annotations
 
 import json
-import sys
 from typing import Any
 
 import click
-import yaml
 
 from ..cli import pass_context
 from ..client import Client
@@ -398,7 +396,8 @@ The input is a cloudsec_provider hive record shape; 'credentials'
 may be inline plaintext or a hive://secret/<name> reference. Saved
 provider configs are managed via the hive:
 
-  limacharlie hive set cloudsec_provider --key my-gcp --data provider.json
+  limacharlie hive set --hive-name cloudsec_provider --key my-gcp \\
+      --input-file provider.json --enabled
 
 The record can come from inline JSON, a JSON/YAML file, or stdin.
 
@@ -477,48 +476,25 @@ def _parse_json_opt(value: str | None, param_hint: str) -> Any:
         raise click.BadParameter(f"invalid JSON: {exc}", param_hint=param_hint)
 
 
-def _load_file(path: str, param_hint: str) -> Any:
-    """Read + parse a JSON or YAML file, raising a clean usage error.
-
-    Same YAML-first-then-JSON idiom as the other command modules' file
-    inputs (hive, ioc, output, ...), so .yaml configs work everywhere.
-    """
-    try:
-        with open(path, "r") as f:
-            content = f.read()
-    except OSError as exc:
-        raise click.BadParameter(f"cannot read file: {exc}", param_hint=param_hint)
-    try:
-        return yaml.safe_load(content)
-    except Exception:
-        pass
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise click.BadParameter(
-            f"file is neither valid YAML nor JSON: {exc}", param_hint=param_hint,
-        )
-
-
-def _load_stdin() -> Any:
-    """Parse piped stdin as YAML-or-JSON; None when stdin is a TTY."""
-    if sys.stdin.isatty():
-        return None
-    content = sys.stdin.read()
-    try:
-        return yaml.safe_load(content)
-    except Exception:
-        pass
-    return json.loads(content)
+from ._input_helpers import load_file as _load_file, load_stdin as _load_stdin
 
 
 def _one_of(param_hint: str, **provided: Any) -> None:
-    """Require exactly one of the given options to be set (non-empty)."""
-    given = [k for k, v in provided.items() if v]
+    """Require exactly one of the given options to be set, and non-empty.
+
+    ``None`` means absent; an explicit empty string is an error (either as
+    the single provided option, or alongside a real one — both are
+    ambiguous invocations worth rejecting, not guessing about).
+    """
+    given = [k for k, v in provided.items() if v is not None]
     if len(given) != 1:
         names = ", ".join(f"--{k.replace('_', '-')}" for k in provided)
         raise click.UsageError(
             f"provide exactly one of {names} for {param_hint}",
+        )
+    if not provided[given[0]]:
+        raise click.BadParameter(
+            "must not be empty", param_hint=f"--{given[0].replace('_', '-')}",
         )
 
 
@@ -533,18 +509,20 @@ def _load_json_object_arg(
 ) -> dict[str, Any]:
     """Load a required JSON-object argument from inline JSON, a file, or stdin.
 
-    Exactly one of the inline/file options may be set; with neither, piped
+    At most one of the inline/file options may be set; with neither, piped
     stdin is read (YAML or JSON). The result must be an object — a `null`
     or non-object input is rejected here rather than reaching the server.
     """
-    if inline and input_file:
+    if inline is not None and input_file is not None:
         raise click.UsageError(
             f"provide only one of {inline_hint} or {file_hint} for {what}",
         )
-    if inline:
+    if inline is not None:
+        if not inline.strip():
+            raise click.BadParameter("must not be empty", param_hint=inline_hint)
         value = _parse_json_opt(inline, inline_hint)
         hint = inline_hint
-    elif input_file:
+    elif input_file is not None:
         value = _load_file(input_file, file_hint)
         hint = file_hint
     else:
@@ -1234,7 +1212,9 @@ def resolve_group() -> None:
 @click.argument("sids", nargs=-1, required=True)
 @pass_context
 def resolve_sensors(ctx, sids) -> None:
-    """Resolve SIDS to the cloud asset each sensor runs on (bulk, max 500).
+    """Resolve SIDS to the cloud asset each sensor runs on.
+
+    Any number of SIDs — requests are chunked automatically.
 
     \b
     Example:
@@ -1248,7 +1228,9 @@ def resolve_sensors(ctx, sids) -> None:
 @click.argument("urns", nargs=-1, required=True)
 @pass_context
 def resolve_assets(ctx, urns) -> None:
-    """Resolve asset URNS to the sensors running on each (bulk, max 500).
+    """Resolve asset URNS to the sensors running on each.
+
+    Any number of URNs — requests are chunked automatically.
 
     \b
     Example:

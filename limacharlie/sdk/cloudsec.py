@@ -512,11 +512,20 @@ class CloudSec:
         return self._get("risk-trend", _query_pairs(trend_days=trend_days))
 
     def get_scan_status(self, *, provider: str | None = None) -> dict[str, Any]:
-        """Cloud-collection run status for a provider (gcp|aws|azure).
+        """Cloud-collection run status for a provider.
+
+        Args:
+            provider: Provider id (e.g. ``gcp`` — the server default —
+                ``aws``, ``azure``, ``okta``, ...; validated server-side).
+                Lowered before sending: the backend scan-state lookup is a
+                case-sensitive read keyed on lowercase provider ids, so a
+                raw ``"AWS"`` would silently read as never-scanned.
 
         Returns:
             ``{"status": {...}}``.
         """
+        if provider is not None:
+            provider = provider.strip().lower()
         return self._get("scan-status", _query_pairs(provider=provider))
 
     # ------------------------------------------------------------------

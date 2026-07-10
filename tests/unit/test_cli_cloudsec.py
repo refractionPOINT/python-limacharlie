@@ -442,6 +442,15 @@ class TestGraphAndQuery:
         )
         assert result.exit_code != 0
 
+    def test_query_run_rejects_empty_alongside_real_option(self):
+        # `--text foo --query-json ""` is an ambiguous invocation: the
+        # empty option must not be silently ignored in favor of the other.
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "query", "run", "--text", "foo", "--query-json", ""],
+        )
+        assert result.exit_code != 0
+
 
 # ---------------------------------------------------------------------------
 # resolve
@@ -543,6 +552,21 @@ class TestCaasm:
             cli, ["cloudsec", "caasm", "policy", "set", "--policy-json", "null"],
         )
         assert result.exit_code != 0
+
+    def test_policy_set_malformed_stdin_is_clean_error(self):
+        # Piped input that is invalid YAML AND invalid JSON must produce
+        # a usage error, not a raw json.JSONDecodeError traceback. (Note
+        # '{[unclosed' fails both parsers; something like '{"a": }' is
+        # VALID YAML — {'a': None} — and would proceed.)
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, _ = _invoke(
+                ["cloudsec", "caasm", "policy", "set"], cls,
+                stdin="{[unclosed",
+            )
+            assert result.exit_code != 0
+            assert result.exception is None or isinstance(result.exception, SystemExit)
+            assert "neither valid YAML nor JSON" in result.output
 
     def test_ingest_records_file(self, tmp_path):
         p1, p2, p3 = _patches()
