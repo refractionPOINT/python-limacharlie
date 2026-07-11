@@ -8,9 +8,9 @@ surface), sensor<->cloud-asset resolution, and finding triage.
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``. Every command requires the org to be subscribed to
-the ``ext-cloud-inventory`` extension:
+the ``ext-cloud-security`` extension:
 
-  limacharlie extension subscribe --name ext-cloud-inventory
+  limacharlie extension subscribe --name ext-cloud-security
 
 Provider credentials and the cloudsec policies are hive records —
 manage them with the hive commands (``limacharlie hive list
@@ -620,7 +620,7 @@ def _sort_options(f):
 def group() -> None:
     """Cloud Security (CNAPP): findings, inventory, graph, compliance.
 
-    Requires the org to be subscribed to the ext-cloud-inventory
+    Requires the org to be subscribed to the ext-cloud-security
     extension. Reads need the 'cloudsec.get' permission; triage and
     other writes need 'cloudsec.set'. Provider configs and policies
     are hive records (cloudsec_provider / cloudsec_policy hives).
