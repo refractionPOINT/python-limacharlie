@@ -9,7 +9,7 @@ writes.
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``; every route additionally requires the org to be
-subscribed to the ``ext-cloud-inventory`` extension (403 otherwise).
+subscribed to the ``ext-cloud-security`` extension (403 otherwise).
 
 Provider credentials/config and the cloudsec policies are hive
 records (``cloudsec_provider``, ``cloudsec_policy``, ``cloudsec_query``
