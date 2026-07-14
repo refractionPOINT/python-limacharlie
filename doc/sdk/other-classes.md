@@ -145,6 +145,37 @@ cases.list_assignees()
 
 SOC case lifecycle management, investigation tracking (entities, telemetry, artifacts), reporting with MTTA/MTTR metrics, and configuration.
 
+## CloudSec
+
+```python
+from limacharlie.sdk.cloudsec import CloudSec
+
+cs = CloudSec(org)
+
+# Findings worklist + triage
+cs.list_findings(severity=["CRITICAL"], status=["open"])
+cs.get_finding("fnd_abc")
+cs.set_finding_status("fnd_abc", "mitigated", reason="SG tightened")
+
+# Inventory, graph, compliance, overview
+cs.list_inventory(provider="gcp", resource_type="Bucket")
+cs.run_query(named="public-buckets")
+cs.get_compliance(framework="cis-gcp")
+cs.get_overview(trend_days=90)
+
+# Multi-org fleet posture (MSSP)
+cs.get_fleet_overview(group="my-group-id")
+
+# CSV exports (full filtered set, 100k-row cap)
+csv_text = cs.export_findings_csv(severity=["CRITICAL"])
+
+# Providers
+cs.test_provider({"provider_type": "gcp", "credentials": "hive://secret/gcp-sa"})
+cs.get_provider_manifests(provider_type="gcp")
+```
+
+The Cloud Security (CNAPP) surface: findings (CSPM + attack paths + CIEM), resource inventory, security graph queries, compliance, DSPM facets, CAASM ingest/coverage, sensor↔asset resolution, fleet overview, and CSV exports. See [CLI: cloudsec](../cli/cloud-security.md) for the command-line equivalents.
+
 ## See Also
 
 - [CLI: case](../cli/other-commands.md#case) — Case CLI commands

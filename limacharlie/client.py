@@ -402,7 +402,10 @@ class Client:
         Args:
             expiry: Optional expiry time for the JWT.
             oid_override: Optional OID override. Pass '-' for minimal JWT
-                         (UID only, no org permissions).
+                         (UID only, no org permissions). Pass '' (empty
+                         string) with user-scoped credentials for a
+                         multi-org JWT carrying the permissions of every
+                         org the user can access.
         """
         effective_oid = oid_override if oid_override is not None else self._oid
 
@@ -432,7 +435,9 @@ class Client:
         auth_data = {"secret": self._api_key}
         if self._uid is not None:
             auth_data["uid"] = self._uid
-        if effective_oid is not None:
+        # '' (multi-org JWT) means "no oid" to the JWT endpoint — omit the
+        # field rather than sending an empty value.
+        if effective_oid:
             auth_data["oid"] = effective_oid
         if expiry is not None:
             auth_data["expiry"] = int(expiry)
@@ -492,7 +497,9 @@ class Client:
                 pass  # Best-effort persistence
 
         auth_data = {"fb_auth": self._oauth_creds["id_token"]}
-        if effective_oid is not None:
+        # '' (multi-org JWT) means "no oid" to the JWT endpoint — omit the
+        # field rather than sending an empty value.
+        if effective_oid:
             auth_data["oid"] = effective_oid
         if expiry is not None:
             auth_data["expiry"] = int(expiry)
@@ -554,8 +561,13 @@ class Client:
 
     def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                    raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None,
-                   extra_headers: dict[str, str] | None = None) -> tuple[int, Any]:
+                   extra_headers: dict[str, str] | None = None, raw_response: bool = False) -> tuple[int, Any]:
         """Make a single HTTP request to the API.
+
+        Args:
+            raw_response: Return the response body as decoded text instead of
+                parsed JSON (for non-JSON endpoints like CSV exports). Error
+                (non-2xx) bodies are still parsed as JSON when possible.
 
         Returns:
             tuple: (status_code, response_data)
@@ -610,7 +622,10 @@ class Client:
             try:
                 data = u.read()
                 data_str = data.decode() if data else ""
-                resp = json.loads(data_str) if data_str else {}
+                if raw_response:
+                    resp = data_str
+                else:
+                    resp = json.loads(data_str) if data_str else {}
             except ValueError:
                 resp = {}
             finally:
@@ -649,7 +664,8 @@ class Client:
 
     def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
-                max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+                max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None,
+                raw_response: bool = False) -> Any:
         """Make an API request with retry logic and JWT management.
 
         Args:
@@ -664,9 +680,11 @@ class Client:
             max_retries: Maximum number of retry attempts.
             timeout: Request timeout in seconds.
             extra_headers: Additional HTTP headers to include.
+            raw_response: Return the response body as decoded text instead
+                of parsed JSON (for non-JSON endpoints like CSV exports).
 
         Returns:
-            dict: Parsed JSON response.
+            dict: Parsed JSON response (or str when raw_response is set).
 
         Raises:
             AuthenticationError: on 401 after JWT refresh.
@@ -691,6 +709,7 @@ class Client:
                 query_params=query_params, raw_body=raw_body,
                 content_type=content_type, is_no_auth=is_no_auth,
                 timeout=timeout, extra_headers=extra_headers,
+                raw_response=raw_response,
             )
 
             if code == HTTP_OK:

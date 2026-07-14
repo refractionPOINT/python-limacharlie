@@ -17,6 +17,7 @@
 | [Platform Administration](cli/platform-admin.md) | org, user, group, api-key, ingestion-key, billing, audit |
 | [Hive & Data Stores](cli/hive-data.md) | hive, secret, lookup, playbook, note, sop, adapter, cloud-sensor, extension |
 | [Infrastructure](cli/infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
+| [Cloud Security](cli/cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, fleet, exports) |
 | [Other Commands](cli/other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover |
 
 ## SDK Reference
@@ -32,7 +33,7 @@
 | [Search & Insight](sdk/search-insight.md) | Search (LCQL), Insight (IOC) |
 | [Streaming](sdk/streaming.md) | Spout, Firehose |
 | [Configuration Sync](sdk/configs.md) | Configs (IaC) |
-| [Other Classes](sdk/other-classes.md) | Extensions, Artifacts, Payloads, Outputs, AI, Billing, etc. |
+| [Other Classes](sdk/other-classes.md) | Extensions, Artifacts, Payloads, Outputs, AI, Billing, CloudSec, etc. |
 
 ## External Resources
 

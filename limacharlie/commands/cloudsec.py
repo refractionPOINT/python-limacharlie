@@ -187,9 +187,14 @@ Example:
 _EXPLAIN_INVENTORY_LIST = """\
 List the cloud resource inventory (system-of-record rows).
 
+--provider scopes to the producing sweep (e.g. gcp, aws, azure,
+okta, google_workspace) — useful when several providers feed the
+same org.
+
 Examples:
   limacharlie cloudsec inventory list
   limacharlie cloudsec inventory list --type gcp_bucket --region us-central1
+  limacharlie cloudsec inventory list --provider okta
   limacharlie cloudsec inventory list -q prod --limit 50
 """
 
@@ -385,6 +390,88 @@ Examples:
   limacharlie cloudsec caasm ingest --source crowdstrike --record-json '{...}'
 """
 
+_EXPLAIN_FLEET_OVERVIEW = """\
+Multi-org fleet posture board in one call: one posture row per
+authorized org (score, severity distribution, trend direction,
+coverage/freshness, usage counters) plus, on the first page, the
+cross-tenant rollups (widely-recurring rules, fleet risk
+distribution, orgs with failing providers).
+
+The org set is every org your credentials can see — narrowed with
+--oid (repeatable) and/or an org --group — intersected with the orgs
+where you hold cloudsec.get and that are subscribed to the
+cloud-security extension. Orgs failing either filter are silently
+excluded and counted in 'skipped'. With user-scoped credentials the
+CLI mints a temporary multi-org token for the call, so the fleet is
+NOT limited to the configured --oid.
+
+Keyset-paginated by org (default 25, cap 100); the resolved org set
+is capped at 500 — narrow with --oid or --group past that.
+
+Examples:
+  limacharlie cloudsec fleet overview
+  limacharlie cloudsec fleet overview --group <GROUP_ID> --trend-days 90
+  limacharlie cloudsec fleet overview --oid <OID1> --oid <OID2>
+"""
+
+_EXPLAIN_PROVIDER_MANIFEST = """\
+Per-provider coverage manifests: for each provider, the collectors
+(resource kinds + edge kinds) with their status, the posture checks
+that can fire, the activity/CIEM support level, the validation
+grade, the known gaps, and the org's own scan coverage/freshness —
+the honest picture of what the platform CAN collect merged with what
+THIS org's connection actually got.
+
+Pass --type to fetch a single provider's manifest (returned under
+'manifest' instead of 'manifests'), including a provider the org has
+never swept.
+
+Examples:
+  limacharlie cloudsec provider manifest
+  limacharlie cloudsec provider manifest --type gcp
+"""
+
+_EXPLAIN_EXPORT_FINDINGS = """\
+Export the (filtered) findings worklist as CSV. The server walks the
+FULL filtered set (no pagination), capped at 100k rows — a trailing
+'#' comment row marks a truncated export. Takes the same filters as
+'finding list'.
+
+Examples:
+  limacharlie cloudsec export findings -o findings.csv
+  limacharlie cloudsec export findings --severity CRITICAL --status open
+"""
+
+_EXPLAIN_EXPORT_INVENTORY = """\
+Export the (filtered) cloud resource inventory as CSV. The server
+walks the full filtered set (no pagination), capped at 100k rows.
+Takes the same filters as 'inventory list'.
+
+Examples:
+  limacharlie cloudsec export inventory -o inventory.csv
+  limacharlie cloudsec export inventory --provider okta
+"""
+
+_EXPLAIN_EXPORT_COMPLIANCE = """\
+Export a compliance assessment as CSV. Takes the same selectors as
+'compliance report' (--framework, or --assignment for a scoped
+assignment).
+
+Examples:
+  limacharlie cloudsec export compliance -o cis-gcp.csv
+  limacharlie cloudsec export compliance --framework cis-aws -o cis-aws.csv
+"""
+
+_EXPLAIN_EXPORT_QUERY = """\
+Run a graph query and export the rows as CSV. Takes the same query
+selectors as 'query run' (exactly one of --named / --text /
+--query-json).
+
+Examples:
+  limacharlie cloudsec export query --named public-buckets -o rows.csv
+  limacharlie cloudsec export query --text "public bucket with sensitive data"
+"""
+
 _EXPLAIN_PROVIDER_TEST = """\
 Preflight a cloud provider configuration before saving it: connect
 to the provider with the given credentials (ephemeral — never
@@ -441,6 +528,12 @@ register_explain("cloudsec.caasm.policy.get", _EXPLAIN_CAASM_POLICY_GET)
 register_explain("cloudsec.caasm.policy.set", _EXPLAIN_CAASM_POLICY_SET)
 register_explain("cloudsec.caasm.ingest", _EXPLAIN_CAASM_INGEST)
 register_explain("cloudsec.provider.test", _EXPLAIN_PROVIDER_TEST)
+register_explain("cloudsec.provider.manifest", _EXPLAIN_PROVIDER_MANIFEST)
+register_explain("cloudsec.fleet.overview", _EXPLAIN_FLEET_OVERVIEW)
+register_explain("cloudsec.export.findings", _EXPLAIN_EXPORT_FINDINGS)
+register_explain("cloudsec.export.inventory", _EXPLAIN_EXPORT_INVENTORY)
+register_explain("cloudsec.export.compliance", _EXPLAIN_EXPORT_COMPLIANCE)
+register_explain("cloudsec.export.query", _EXPLAIN_EXPORT_QUERY)
 
 
 # ---------------------------------------------------------------------------
@@ -603,11 +696,11 @@ def _finding_filter_options(f):
 def _sort_options(f):
     f = click.option(
         "--order", default=None, type=_ORDER_CHOICES,
-        help="Sort order: asc or desc.",
+        help="Sort order: desc (default) or asc.",
     )(f)
     f = click.option(
         "--sort", default=None,
-        help="Field to sort by (server-side).",
+        help="Sort key: lc_risk (default), severity, or first_seen.",
     )(f)
     return f
 
@@ -631,6 +724,7 @@ def group() -> None:
       changes             Recent finding created/closed feed
       risk-trend          Risk-score history
       scan-status         Cloud-collection run status per provider
+      fleet overview      Multi-org fleet posture board (MSSP)
       finding ...         Findings worklist + triage (resolve, owner, ticket)
       attack-path list    Headline toxic-combination attack paths
       ciem ...            Identity access views (public-access, facets)
@@ -643,7 +737,8 @@ def group() -> None:
       chokepoint ...      Estate-wide chokepoints (list, dismiss, restore)
       resolve ...         Sensor <-> cloud asset resolution
       caasm ...           Third-party asset inventory, coverage, ingest
-      provider test       Preflight provider credentials before saving
+      provider ...        Credential preflight + coverage manifests
+      export ...          CSV exports (findings, inventory, compliance, query)
     """
 
 
@@ -695,8 +790,10 @@ def risk_trend(ctx, trend_days) -> None:
 
 @group.command("scan-status")
 @click.option("--provider", default=None,
-              help="Cloud provider (e.g. gcp, aws, azure, okta, 1password, "
-                   "google_workspace, cloudflare); validated server-side; default gcp.")
+              help="Cloud provider (e.g. gcp, aws, azure, okta, entra, "
+                   "google_workspace, 1password, cloudflare, auth0, github, "
+                   "openai, anthropic, limacharlie); validated server-side; "
+                   "default gcp.")
 @pass_context
 def scan_status(ctx, provider) -> None:
     """Cloud-collection run status for a provider.
@@ -707,6 +804,47 @@ def scan_status(ctx, provider) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.get_scan_status(provider=provider))
+
+
+# ---------------------------------------------------------------------------
+# fleet subgroup (multi-org)
+# ---------------------------------------------------------------------------
+
+@group.group("fleet")
+def fleet_group() -> None:
+    """Multi-org fleet views (MSSP)."""
+
+
+@fleet_group.command("overview")
+@click.option("--oid", "oids", multiple=True,
+              help="Explicit org id to include; repeatable. Omit (with no --group) "
+                   "to span every org your credentials can see.")
+@click.option("--group", "group_id", default=None,
+              help="An org-group id: include the group's member orgs "
+                   "(you must be a member or owner of the group).")
+@click.option("--trend-days", default=None, type=int,
+              help="Days of score-trend window per org (default 30).")
+@click.option("--limit", default=None, type=int,
+              help="Orgs per page (default 25, cap 100).")
+@click.option("--cursor", default=None,
+              help="Keyset-pagination token (next_cursor from the previous page).")
+@pass_context
+def fleet_overview(ctx, oids, group_id, trend_days, limit, cursor) -> None:
+    """Multi-org fleet posture board: one row per authorized org.
+
+    \b
+    Examples:
+      limacharlie cloudsec fleet overview
+      limacharlie cloudsec fleet overview --group <GROUP_ID> --trend-days 90
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_fleet_overview(
+        oids=list(oids) or None,
+        group=group_id,
+        cursor=cursor,
+        limit=limit,
+        trend_days=trend_days,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -942,23 +1080,26 @@ def inventory_group() -> None:
 
 @inventory_group.command("list")
 @click.option("--type", "resource_type", default=None, help="Filter by resource type.")
+@click.option("--provider", default=None,
+              help="Filter by the producing provider sweep (e.g. gcp, okta, google_workspace).")
 @click.option("--account", default=None, help="Filter by cloud account.")
 @click.option("--region", default=None, help="Filter by region.")
 @click.option("-q", "--search", "q", default=None, help="Substring search.")
 @_paging_options
 @pass_context
-def inventory_list(ctx, resource_type, account, region, q, cursor, limit) -> None:
+def inventory_list(ctx, resource_type, provider, account, region, q, cursor, limit) -> None:
     """List the cloud resource inventory.
 
     \b
     Examples:
       limacharlie cloudsec inventory list --type gcp_bucket
+      limacharlie cloudsec inventory list --provider okta
       limacharlie cloudsec inventory list -q prod --limit 50
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_inventory(
-        resource_type=resource_type, account=account, region=region,
-        q=q, cursor=cursor, limit=limit,
+        resource_type=resource_type, provider=provider, account=account,
+        region=region, q=q, cursor=cursor, limit=limit,
     ))
 
 
@@ -1378,7 +1519,24 @@ def caasm_ingest(ctx, source, records_file, record_json, policy_json) -> None:
 
 @group.group("provider")
 def provider_group() -> None:
-    """Provider credential preflight (configs live in the cloudsec_provider hive)."""
+    """Provider preflight + coverage manifests (configs live in the cloudsec_provider hive)."""
+
+
+@provider_group.command("manifest")
+@click.option("--type", "provider_type", default=None,
+              help="Fetch a single provider's manifest (e.g. gcp, aws, azure, okta); "
+                   "omit to list every provider the org has a manifest or a sweep for.")
+@pass_context
+def provider_manifest(ctx, provider_type) -> None:
+    """Per-provider coverage manifests (what CAN be collected vs what was).
+
+    \b
+    Examples:
+      limacharlie cloudsec provider manifest
+      limacharlie cloudsec provider manifest --type gcp
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_provider_manifests(provider_type=provider_type))
 
 
 @provider_group.command("test")
@@ -1404,3 +1562,140 @@ def provider_test(ctx, provider_json, input_file) -> None:
     )
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.test_provider(provider))
+
+
+# ---------------------------------------------------------------------------
+# export subgroup (CSV)
+# ---------------------------------------------------------------------------
+
+def _emit_csv(ctx: click.Context, csv_text: str, output_path: str | None) -> None:
+    """Write a CSV export to a file (-o) or stdout.
+
+    The CSV is raw data, not a structured object — it bypasses the
+    --output format machinery on purpose.
+    """
+    if output_path:
+        with open(output_path, "w", encoding="utf-8", newline="") as f:
+            f.write(csv_text)
+        if not ctx.obj.quiet:
+            click.echo(f"wrote {output_path}", err=True)
+    else:
+        click.echo(csv_text, nl=False)
+
+
+def _export_output_option(f):
+    return click.option(
+        "-o", "--output-file", "output_path", default=None,
+        type=click.Path(dir_okay=False, writable=True),
+        help="Write the CSV to this file instead of stdout.",
+    )(f)
+
+
+@group.group("export")
+def export_group() -> None:
+    """CSV exports of the read surface.
+
+    The server walks the FULL filtered set (no pagination), capped at
+    100k rows; a trailing '#' comment row marks a truncated export.
+    """
+
+
+@export_group.command("findings")
+@_finding_filter_options
+@_sort_options
+@_export_output_option
+@pass_context
+def export_findings(ctx, severities, finding_classes, statuses, accounts,
+                    reachable, kev, q, sort, order, output_path) -> None:
+    """Export the (filtered) findings worklist as CSV.
+
+    \b
+    Examples:
+      limacharlie cloudsec export findings -o findings.csv
+      limacharlie cloudsec export findings --severity CRITICAL --status open
+    """
+    cs = _get_cloudsec(ctx)
+    _emit_csv(ctx, cs.export_findings_csv(
+        severity=list(severities) or None,
+        finding_class=list(finding_classes) or None,
+        status=list(statuses) or None,
+        account=list(accounts) or None,
+        reachable=reachable,
+        kev=kev,
+        q=q,
+        sort=sort,
+        order=order,
+    ), output_path)
+
+
+@export_group.command("inventory")
+@click.option("--type", "resource_type", default=None, help="Filter by resource type.")
+@click.option("--provider", default=None,
+              help="Filter by the producing provider sweep (e.g. gcp, okta, google_workspace).")
+@click.option("--account", default=None, help="Filter by cloud account.")
+@click.option("--region", default=None, help="Filter by region.")
+@click.option("-q", "--search", "q", default=None, help="Substring search.")
+@_export_output_option
+@pass_context
+def export_inventory(ctx, resource_type, provider, account, region, q, output_path) -> None:
+    """Export the (filtered) cloud resource inventory as CSV.
+
+    \b
+    Examples:
+      limacharlie cloudsec export inventory -o inventory.csv
+      limacharlie cloudsec export inventory --provider okta
+    """
+    cs = _get_cloudsec(ctx)
+    _emit_csv(ctx, cs.export_inventory_csv(
+        resource_type=resource_type, provider=provider, account=account,
+        region=region, q=q,
+    ), output_path)
+
+
+@export_group.command("compliance")
+@click.option("--framework", default=None,
+              help="Framework id (default cis-gcp); ignored when --assignment is set.")
+@click.option("--assignment", default=None,
+              help="Named scoped assignment to evaluate instead of the whole estate.")
+@_export_output_option
+@pass_context
+def export_compliance(ctx, framework, assignment, output_path) -> None:
+    """Export a compliance assessment as CSV.
+
+    \b
+    Examples:
+      limacharlie cloudsec export compliance -o cis-gcp.csv
+      limacharlie cloudsec export compliance --framework cis-aws -o cis-aws.csv
+    """
+    cs = _get_cloudsec(ctx)
+    _emit_csv(ctx, cs.export_compliance_csv(
+        framework=framework, assignment=assignment,
+    ), output_path)
+
+
+@export_group.command("query")
+@click.option("--named", default=None, help="A query-pack name (see 'query list').")
+@click.option("--text", default=None, help="A text query.")
+@click.option("--query-json", default=None, help="A raw query DSL object as JSON.")
+@click.option("--project", default=None,
+              help="Comma-separated aliases to project into the rows.")
+@_export_output_option
+@pass_context
+def export_query(ctx, named, text, query_json, project, output_path) -> None:
+    """Run a graph query and export the rows as CSV.
+
+    \b
+    Examples:
+      limacharlie cloudsec export query --named public-buckets -o rows.csv
+    """
+    _one_of("the query", named=named, text=text, query_json=query_json)
+    query = None
+    if query_json:
+        query = _parse_json_opt(query_json, "--query-json")
+        if not isinstance(query, dict):
+            raise click.BadParameter("must decode to a JSON object", param_hint="--query-json")
+    project_list = [p.strip() for p in project.split(",") if p.strip()] if project else None
+    cs = _get_cloudsec(ctx)
+    _emit_csv(ctx, cs.export_query_csv(
+        named=named, text=text, query=query, project=project_list,
+    ), output_path)

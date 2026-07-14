@@ -196,6 +196,26 @@ class TestRequest:
         assert result == {"sensors": []}
 
     @patch("limacharlie.client.urlopen")
+    def test_raw_response_returns_text(self, mock_urlopen):
+        # raw_response must return the body as decoded text (CSV exports),
+        # not attempt JSON parsing.
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        api_response = MagicMock()
+        api_response.read.return_value = b"col_a,col_b\n1,2\n"
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        result = client.request("GET", "export", raw_response=True)
+
+        assert result == "col_a,col_b\n1,2\n"
+
+    @patch("limacharlie.client.urlopen")
     def test_query_params_sequences_expand_to_repeated_keys(self, mock_urlopen):
         # doseq: a dict-of-lists (or list-of-tuples) must encode as
         # repeated keys, not the Python list repr.
