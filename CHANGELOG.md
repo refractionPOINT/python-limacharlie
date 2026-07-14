@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Cloud Security (CNAPP)
+
+- **Multi-org fleet overview**: `limacharlie cloudsec fleet overview` /
+  `CloudSec.get_fleet_overview()` — one posture row per authorized org plus
+  cross-tenant rollups, narrowable with `--oid` (repeatable) and org
+  `--group`. With user-scoped credentials the CLI mints a temporary
+  multi-org token so the fleet spans every accessible org.
+- **Provider coverage manifests**: `limacharlie cloudsec provider manifest
+  [--type gcp]` / `CloudSec.get_provider_manifests()` — per-provider
+  collectors, posture checks, support levels, known gaps, and the org's own
+  scan coverage/freshness.
+- **CSV exports**: `limacharlie cloudsec export
+  {findings,inventory,compliance,query} [-o file.csv]` /
+  `CloudSec.export_*_csv()` — server-side walk of the full filtered set
+  (100k-row cap, formula-injection-sanitized cells).
+- **Inventory provider filter**: `cloudsec inventory list --provider` /
+  `list_inventory(provider=...)` scopes rows to one provider's sweep.
+- Help-text refresh: valid findings sort keys (`lc_risk`, `severity`,
+  `first_seen`), current provider examples, and new-command coverage in
+  `--ai-help` explain texts.
+- `Client.request(raw_response=True)` returns the response body as text
+  (used by the CSV exports). New `Client.mint_jwt()` returns a
+  request-scoped JWT (multi-org for user credentials when `oid` is omitted)
+  without touching the client's own token, cache, or refresh callback.
+
 ## 5.2.0 - March 20, 2026
 
 ### CLI

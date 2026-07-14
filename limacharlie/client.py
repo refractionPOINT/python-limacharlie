@@ -469,29 +469,7 @@ class Client:
 
     def _refresh_jwt_oauth(self, effective_oid: str | None, expiry: int | None, oid_override: str | None = None) -> None:
         """Refresh JWT using OAuth credentials."""
-        from .oauth_simple import SimpleOAuthManager
-
-        oauth_manager = SimpleOAuthManager()
-        updated_creds = oauth_manager.ensure_valid_token(dict(self._oauth_creds))
-        if updated_creds is None:
-            raise AuthenticationError("Failed to refresh OAuth token.")
-
-        if updated_creds != self._oauth_creds:
-            self._oauth_creds = updated_creds
-            # Persist updated OAuth tokens to config file.
-            try:
-                from .config import write_credentials, is_ephemeral
-                if not is_ephemeral():
-                    write_credentials(
-                        self._environment or "default",
-                        oid=None,
-                        api_key=None,
-                        oauth_creds=updated_creds,
-                    )
-            except Exception:
-                pass  # Best-effort persistence
-
-        auth_data = {"fb_auth": self._oauth_creds["id_token"]}
+        auth_data = {"fb_auth": self._refreshed_oauth_id_token()}
         if effective_oid is not None:
             auth_data["oid"] = effective_oid
         if expiry is not None:
@@ -521,6 +499,66 @@ class Client:
 
         if self._on_refresh_auth is not None:
             self._on_refresh_auth(self)
+
+    def _refreshed_oauth_id_token(self) -> str:
+        """Return a valid OAuth id_token, refreshing (and persisting) the
+        stored OAuth credentials when needed."""
+        from .oauth_simple import SimpleOAuthManager
+
+        oauth_manager = SimpleOAuthManager()
+        updated_creds = oauth_manager.ensure_valid_token(dict(self._oauth_creds))
+        if updated_creds is None:
+            raise AuthenticationError("Failed to refresh OAuth token.")
+
+        if updated_creds != self._oauth_creds:
+            self._oauth_creds = updated_creds
+            # Persist updated OAuth tokens to config file.
+            try:
+                from .config import write_credentials, is_ephemeral
+                if not is_ephemeral():
+                    write_credentials(
+                        self._environment or "default",
+                        oid=None,
+                        api_key=None,
+                        oauth_creds=updated_creds,
+                    )
+            except Exception:
+                pass  # Best-effort persistence
+
+        return self._oauth_creds["id_token"]
+
+    def mint_jwt(self, *, oid: str | None = None, expiry: int | None = None) -> str:
+        """Mint and return a JWT without touching the client's own token.
+
+        Unlike :meth:`refresh_jwt`, this is a pure mint: it does not set
+        ``self._jwt``, does not fire the on-refresh callback, and does not
+        write the JWT cache — for request-scoped tokens whose scope differs
+        from the client's own (e.g. a multi-org token for a fleet call).
+
+        Args:
+            oid: The org to scope the JWT to; ``'-'`` for a minimal
+                (UID-only) token; ``None`` to omit the field — with
+                user-scoped credentials (uid API key / OAuth) that mints a
+                multi-org JWT carrying the permissions of every org the
+                user can access.
+            expiry: Optional expiry time for the JWT.
+
+        Returns:
+            The signed JWT string.
+        """
+        if self._oauth_creds is not None:
+            auth_data: dict[str, Any] = {"fb_auth": self._refreshed_oauth_id_token()}
+        elif self._api_key is not None:
+            auth_data = {"secret": self._api_key}
+            if self._uid is not None:
+                auth_data["uid"] = self._uid
+        else:
+            raise AuthenticationError("No API key or OAuth credentials set.")
+        if oid is not None:
+            auth_data["oid"] = oid
+        if expiry is not None:
+            auth_data["expiry"] = int(expiry)
+        return self._call_jwt_endpoint(auth_data)
 
     def _call_jwt_endpoint(self, auth_data: dict[str, Any]) -> str:
         """Call the JWT endpoint and return the JWT string."""
@@ -554,8 +592,13 @@ class Client:
 
     def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                    raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None,
-                   extra_headers: dict[str, str] | None = None) -> tuple[int, Any]:
+                   extra_headers: dict[str, str] | None = None, raw_response: bool = False) -> tuple[int, Any]:
         """Make a single HTTP request to the API.
+
+        Args:
+            raw_response: Return the response body as decoded text instead of
+                parsed JSON (for non-JSON endpoints like CSV exports). Error
+                (non-2xx) bodies are still parsed as JSON when possible.
 
         Returns:
             tuple: (status_code, response_data)
@@ -610,7 +653,10 @@ class Client:
             try:
                 data = u.read()
                 data_str = data.decode() if data else ""
-                resp = json.loads(data_str) if data_str else {}
+                if raw_response:
+                    resp = data_str
+                else:
+                    resp = json.loads(data_str) if data_str else {}
             except ValueError:
                 resp = {}
             finally:
@@ -649,7 +695,8 @@ class Client:
 
     def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
-                max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+                max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None,
+                raw_response: bool = False) -> Any:
         """Make an API request with retry logic and JWT management.
 
         Args:
@@ -664,9 +711,11 @@ class Client:
             max_retries: Maximum number of retry attempts.
             timeout: Request timeout in seconds.
             extra_headers: Additional HTTP headers to include.
+            raw_response: Return the response body as decoded text instead
+                of parsed JSON (for non-JSON endpoints like CSV exports).
 
         Returns:
-            dict: Parsed JSON response.
+            dict: Parsed JSON response (or str when raw_response is set).
 
         Raises:
             AuthenticationError: on 401 after JWT refresh.
@@ -691,6 +740,7 @@ class Client:
                 query_params=query_params, raw_body=raw_body,
                 content_type=content_type, is_no_auth=is_no_auth,
                 timeout=timeout, extra_headers=extra_headers,
+                raw_response=raw_response,
             )
 
             if code == HTTP_OK:

@@ -182,6 +182,13 @@ class TestInventoryAndResources:
             ("type", "gcp_bucket"), ("region", "us-central1"), ("limit", "10"),
         ]
 
+    def test_list_inventory_provider_selector(self, cs, mock_org):
+        mock_org.client.request.return_value = {"resources": []}
+        cs.list_inventory(provider="okta")
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/inventory"
+        assert qp == [("provider", "okta")]
+
     def test_inventory_facets(self, cs, mock_org):
         mock_org.client.request.return_value = {}
         cs.get_inventory_facets()
@@ -398,3 +405,150 @@ class TestProvider:
         url, body = _post_call(mock_org)
         assert url == f"cloudsec/{OID}/providers/test"
         assert body == {"provider": provider}
+
+    def test_provider_manifests_all(self, cs, mock_org):
+        mock_org.client.request.return_value = {"manifests": []}
+        cs.get_provider_manifests()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/providers/manifest"
+        assert qp is None
+
+    def test_provider_manifests_single(self, cs, mock_org):
+        mock_org.client.request.return_value = {"manifest": {}}
+        cs.get_provider_manifests(provider_type="gcp")
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/providers/manifest"
+        assert qp == [("type", "gcp")]
+
+
+class TestFleetOverview:
+    def test_fleet_overview_user_creds_request_scoped_token(self, cs, mock_org):
+        client = mock_org.client
+        client._uid = "user-1"
+        client._oauth_creds = None
+        client._jwt = "org-scoped-jwt"
+        client.mint_jwt.return_value = "multi-org-jwt"
+        client.request.return_value = {"orgs": [], "next_cursor": ""}
+        cs.get_fleet_overview(oids=["o1", "o2"], group="g1", limit=50, trend_days=90)
+        # A multi-org JWT is minted (pure mint, no client-state mutation)...
+        client.mint_jwt.assert_called_once_with()
+        client.refresh_jwt.assert_not_called()
+        args, kwargs = client.request.call_args
+        # ...and sent as a request-scoped Authorization header against the
+        # NON-oid-scoped fleet path, bypassing the client's own JWT.
+        assert args == ("GET", "cloudsec/fleet/overview")
+        assert kwargs["is_no_auth"] is True
+        assert kwargs["extra_headers"] == {"Authorization": "Bearer multi-org-jwt"}
+        assert kwargs["query_params"] == [
+            ("oids", "o1"), ("oids", "o2"), ("group", "g1"),
+            ("limit", "50"), ("trend_days", "90"),
+        ]
+        # The client's own JWT was never touched.
+        assert client._jwt == "org-scoped-jwt"
+
+    def test_fleet_overview_token_cached_across_pages(self, cs, mock_org):
+        client = mock_org.client
+        client._uid = "user-1"
+        client._oauth_creds = None
+        client.mint_jwt.return_value = "multi-org-jwt"
+        client.request.return_value = {"orgs": [], "next_cursor": "c2"}
+        cs.get_fleet_overview()
+        cs.get_fleet_overview(cursor="c2")
+        # One mint serves the whole paged sweep.
+        client.mint_jwt.assert_called_once_with()
+        assert client.request.call_count == 2
+
+    def test_fleet_overview_401_reminted_once(self, cs, mock_org):
+        from limacharlie.errors import AuthenticationError
+        client = mock_org.client
+        client._uid = "user-1"
+        client._oauth_creds = None
+        client.mint_jwt.side_effect = ["stale-jwt", "fresh-jwt"]
+        client.request.side_effect = [
+            AuthenticationError("401"), {"orgs": []},
+        ]
+        out = cs.get_fleet_overview()
+        assert out == {"orgs": []}
+        # The 401 re-minted the MULTI-ORG token (not the client's org-scoped
+        # refresh) and retried with it.
+        assert client.mint_jwt.call_count == 2
+        assert client.request.call_args[1]["extra_headers"] == {
+            "Authorization": "Bearer fresh-jwt",
+        }
+        client.refresh_jwt.assert_not_called()
+
+    def test_fleet_overview_persistent_401_raises(self, cs, mock_org):
+        from limacharlie.errors import AuthenticationError
+        client = mock_org.client
+        client._uid = "user-1"
+        client._oauth_creds = None
+        client.mint_jwt.return_value = "multi-org-jwt"
+        client.request.side_effect = AuthenticationError("401")
+        with pytest.raises(AuthenticationError):
+            cs.get_fleet_overview()
+        # The cached token was dropped so the next call starts fresh.
+        assert cs._fleet_jwt is None
+
+    def test_fleet_overview_org_key_uses_current_jwt(self, cs, mock_org):
+        client = mock_org.client
+        client._uid = None
+        client._oauth_creds = None
+        client.request.return_value = {"orgs": []}
+        cs.get_fleet_overview()
+        client.mint_jwt.assert_not_called()
+        client.refresh_jwt.assert_not_called()
+        args, kwargs = client.request.call_args
+        assert args == ("GET", "cloudsec/fleet/overview")
+        assert kwargs["query_params"] is None
+
+    def test_fleet_overview_all_orgs_opt_out(self, cs, mock_org):
+        client = mock_org.client
+        client._uid = "user-1"
+        client._oauth_creds = None
+        client.request.return_value = {"orgs": []}
+        cs.get_fleet_overview(all_orgs=False)
+        client.mint_jwt.assert_not_called()
+        client.refresh_jwt.assert_not_called()
+
+
+class TestCsvExports:
+    def test_export_findings_csv(self, cs, mock_org):
+        mock_org.client.request.return_value = "col_a,col_b\n1,2\n"
+        out = cs.export_findings_csv(severity=["CRITICAL"], status=["open"], q="prod")
+        args, kwargs = mock_org.client.request.call_args
+        assert args == ("GET", f"cloudsec/{OID}/findings")
+        assert kwargs["query_params"] == [
+            ("severity", "CRITICAL"), ("status", "open"), ("q", "prod"),
+            ("format", "csv"),
+        ]
+        assert kwargs["raw_response"] is True
+        assert out == "col_a,col_b\n1,2\n"
+
+    def test_export_inventory_csv(self, cs, mock_org):
+        mock_org.client.request.return_value = "urn\n"
+        cs.export_inventory_csv(resource_type="Bucket", provider="gcp")
+        args, kwargs = mock_org.client.request.call_args
+        assert args == ("GET", f"cloudsec/{OID}/inventory")
+        assert kwargs["query_params"] == [
+            ("type", "Bucket"), ("provider", "gcp"), ("format", "csv"),
+        ]
+        assert kwargs["raw_response"] is True
+
+    def test_export_compliance_csv(self, cs, mock_org):
+        mock_org.client.request.return_value = "control\n"
+        cs.export_compliance_csv(framework="cis-aws")
+        args, kwargs = mock_org.client.request.call_args
+        assert args == ("GET", f"cloudsec/{OID}/compliance")
+        assert kwargs["query_params"] == [
+            ("framework", "cis-aws"), ("format", "csv"),
+        ]
+        assert kwargs["raw_response"] is True
+
+    def test_export_query_csv(self, cs, mock_org):
+        mock_org.client.request.return_value = "a\n"
+        cs.export_query_csv(named="public-buckets")
+        args, kwargs = mock_org.client.request.call_args
+        assert args == ("POST", f"cloudsec/{OID}/query")
+        assert kwargs["query_params"] == [("format", "csv")]
+        assert json.loads(kwargs["raw_body"]) == {"named": "public-buckets"}
+        assert kwargs["raw_response"] is True

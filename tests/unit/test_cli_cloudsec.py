@@ -40,9 +40,15 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "resolve_sensors", "resolve_assets",
             "list_caasm_assets", "list_caasm_coverage",
             "get_caasm_policy", "set_caasm_policy", "caasm_ingest",
-            "test_provider",
+            "test_provider", "get_provider_manifests", "get_fleet_overview",
         ]
     })
+    # CSV exports return raw text, not a JSON-renderable object.
+    for name in [
+        "export_findings_csv", "export_inventory_csv",
+        "export_compliance_csv", "export_query_csv",
+    ]:
+        getattr(inst, name).return_value = "col_a,col_b\n1,2\n"
     runner = CliRunner()
     result = runner.invoke(cli, ["--output", "json"] + args, input=stdin)
     return result, inst
@@ -59,10 +65,10 @@ class TestCloudSecHelp:
         result = runner.invoke(cli, ["cloudsec", "--help"])
         assert result.exit_code == 0
         for cmd in [
-            "overview", "changes", "risk-trend", "scan-status",
+            "overview", "changes", "risk-trend", "scan-status", "fleet",
             "finding", "attack-path", "ciem", "inventory", "data-security",
             "resource", "graph", "query", "compliance", "chokepoint",
-            "resolve", "caasm", "provider",
+            "resolve", "caasm", "provider", "export",
         ]:
             assert cmd in result.output
 
@@ -689,5 +695,163 @@ class TestProvider:
         runner = CliRunner()
         result = runner.invoke(
             cli, ["cloudsec", "provider", "test", "--provider-json", "[1,2]"],
+        )
+        assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# fleet
+# ---------------------------------------------------------------------------
+
+
+class TestFleet:
+    def test_overview_defaults(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "fleet", "overview"], cls,
+                return_value={"orgs": [], "next_cursor": ""},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_fleet_overview.assert_called_once_with(
+                oids=None, group=None, cursor=None, limit=None, trend_days=None,
+            )
+
+    def test_overview_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "fleet", "overview",
+                 "--oid", "o1", "--oid", "o2", "--group", "g1",
+                 "--trend-days", "90", "--limit", "50", "--cursor", "c1"], cls,
+                return_value={"orgs": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_fleet_overview.assert_called_once_with(
+                oids=["o1", "o2"], group="g1", cursor="c1", limit=50,
+                trend_days=90,
+            )
+
+
+# ---------------------------------------------------------------------------
+# provider manifest
+# ---------------------------------------------------------------------------
+
+
+class TestProviderManifest:
+    def test_manifest_all(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "provider", "manifest"], cls,
+                return_value={"manifests": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_provider_manifests.assert_called_once_with(provider_type=None)
+
+    def test_manifest_single(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "provider", "manifest", "--type", "gcp"], cls,
+                return_value={"manifest": {}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_provider_manifests.assert_called_once_with(provider_type="gcp")
+
+
+# ---------------------------------------------------------------------------
+# inventory --provider
+# ---------------------------------------------------------------------------
+
+
+class TestInventoryProvider:
+    def test_list_forwards_provider(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "inventory", "list", "--provider", "okta"], cls,
+                return_value={"resources": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_inventory.assert_called_once_with(
+                resource_type=None, provider="okta", account=None,
+                region=None, q=None, cursor=None, limit=None,
+            )
+
+
+# ---------------------------------------------------------------------------
+# export (CSV)
+# ---------------------------------------------------------------------------
+
+
+class TestExport:
+    def test_export_findings_stdout(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "findings",
+                 "--severity", "CRITICAL", "--status", "open"], cls,
+            )
+            assert result.exit_code == 0, result.output
+            # Raw CSV on stdout, NOT the JSON renderer.
+            assert result.output == "col_a,col_b\n1,2\n"
+            inst.export_findings_csv.assert_called_once_with(
+                severity=["CRITICAL"], finding_class=None, status=["open"],
+                account=None, reachable=None, kev=None, q=None,
+                sort=None, order=None,
+            )
+
+    def test_export_findings_to_file(self, tmp_path):
+        p1, p2, p3 = _patches()
+        out = tmp_path / "findings.csv"
+        with p1, p2, p3 as cls:
+            result, _inst = _invoke(
+                ["cloudsec", "export", "findings", "-o", str(out)], cls,
+            )
+            assert result.exit_code == 0, result.output
+            assert out.read_text() == "col_a,col_b\n1,2\n"
+
+    def test_export_inventory(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "inventory", "--provider", "gcp",
+                 "--type", "Bucket"], cls,
+            )
+            assert result.exit_code == 0, result.output
+            inst.export_inventory_csv.assert_called_once_with(
+                resource_type="Bucket", provider="gcp", account=None,
+                region=None, q=None,
+            )
+
+    def test_export_compliance(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "compliance", "--framework", "cis-aws"], cls,
+            )
+            assert result.exit_code == 0, result.output
+            inst.export_compliance_csv.assert_called_once_with(
+                framework="cis-aws", assignment=None,
+            )
+
+    def test_export_query_named(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "query", "--named", "public-buckets"], cls,
+            )
+            assert result.exit_code == 0, result.output
+            inst.export_query_csv.assert_called_once_with(
+                named="public-buckets", text=None, query=None, project=None,
+            )
+
+    def test_export_query_requires_exactly_one(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "export", "query"])
+        assert result.exit_code != 0
+        result = runner.invoke(
+            cli, ["cloudsec", "export", "query", "--named", "a", "--text", "b"],
         )
         assert result.exit_code != 0

@@ -4,8 +4,9 @@ Wraps the ``/cloudsec/{oid}/...`` REST routes served by the API
 gateway: the merged, risk-ranked findings worklist (CSPM + attack
 paths + CIEM), the resource inventory and security graph, compliance
 assessment, the risk overview, CAASM (third-party asset attack
-surface), sensor<->cloud-asset resolution, and the finding triage
-writes.
+surface), sensor<->cloud-asset resolution, the finding triage writes,
+CSV exports of the read surface, per-provider coverage manifests, and
+the multi-org fleet overview (``/cloudsec/fleet/overview``).
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``; every route additionally requires the org to be
@@ -13,15 +14,18 @@ subscribed to the ``ext-cloud-security`` extension (403 otherwise).
 
 Provider credentials/config and the cloudsec policies are hive
 records (``cloudsec_provider``, ``cloudsec_policy``, ``cloudsec_query``
-hives) managed through the standard Hive API; the one provider
-operation here is the pre-save credential preflight
-(:meth:`CloudSec.test_provider`).
+hives) managed through the standard Hive API; the provider operations
+here are the pre-save credential preflight
+(:meth:`CloudSec.test_provider`) and the coverage manifests
+(:meth:`CloudSec.get_provider_manifests`).
 """
 
 from __future__ import annotations
 
 import json
 from typing import Any, TYPE_CHECKING
+
+from ..errors import AuthenticationError
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -96,6 +100,25 @@ def _finding_query_pairs(
     )
 
 
+def _query_run_body(
+    named: str | None,
+    text: str | None,
+    query: dict[str, Any] | None,
+    project: list[str] | None,
+) -> dict[str, Any]:
+    """Assemble the graph-query POST body (shared by run/export)."""
+    body: dict[str, Any] = {}
+    if named is not None:
+        body["named"] = named
+    if text is not None:
+        body["text"] = text
+    if query is not None:
+        body["query"] = query
+    if project is not None:
+        body["project"] = project
+    return body
+
+
 # Chunk size for the bulk sensor<->asset resolution GETs: ids ride as repeated
 # query params and the platform load balancer caps URLs at ~8KB, so one request
 # can only carry ~190 UUIDs. 100 per request (~4KB) leaves comfortable headroom;
@@ -108,6 +131,10 @@ class CloudSec:
 
     def __init__(self, org: Organization) -> None:
         self._org = org
+        # Request-scoped multi-org JWT for the fleet route, cached across
+        # calls (pagination) and re-minted on a 401. Never installed on the
+        # client — the client's own token is not touched by fleet calls.
+        self._fleet_jwt: str | None = None
 
     @property
     def oid(self) -> str:
@@ -121,19 +148,31 @@ class CloudSec:
         self,
         path: str,
         query_params: list[tuple[str, str]] | None = None,
-    ) -> dict[str, Any]:
+        *,
+        raw_response: bool = False,
+    ) -> Any:
         return self._org.client.request(
             "GET",
             f"cloudsec/{self.oid}/{path}",
             query_params=query_params or None,
+            raw_response=raw_response,
         )
 
-    def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    def _post(
+        self,
+        path: str,
+        body: dict[str, Any],
+        query_params: list[tuple[str, str]] | None = None,
+        *,
+        raw_response: bool = False,
+    ) -> Any:
         return self._org.client.request(
             "POST",
             f"cloudsec/{self.oid}/{path}",
+            query_params=query_params or None,
             raw_body=json.dumps(body).encode(),
             content_type="application/json",
+            raw_response=raw_response,
         )
 
     # ------------------------------------------------------------------
@@ -167,7 +206,9 @@ class CloudSec:
             reachable: Only findings on (non-)reachable resources.
             kev: Only findings with (without) a KEV vulnerability.
             q: Substring search.
-            sort, order: Server-side ordering selectors.
+            sort: Server-side sort key: ``lc_risk`` (the default),
+                ``severity``, or ``first_seen``.
+            order: ``desc`` (the default) or ``asc``.
             cursor: Keyset-pagination token from a previous page.
             limit: Page size (server clamps to 1000).
 
@@ -335,6 +376,7 @@ class CloudSec:
         self,
         *,
         resource_type: str | None = None,
+        provider: str | None = None,
         account: str | None = None,
         region: str | None = None,
         q: str | None = None,
@@ -345,6 +387,8 @@ class CloudSec:
 
         Args:
             resource_type: Filter by resource type (the ``type`` selector).
+            provider: Filter by the producing provider sweep (e.g. ``gcp``,
+                ``aws``, ``okta``, ``google_workspace``).
             account, region: Scalar filters.
             q: Substring search.
             cursor, limit: Keyset pagination.
@@ -353,8 +397,8 @@ class CloudSec:
             ``{"resources": [...], "next_cursor": str}``.
         """
         return self._get("inventory", _query_pairs(
-            type=resource_type, account=account, region=region,
-            q=q, cursor=cursor, limit=limit,
+            type=resource_type, provider=provider, account=account,
+            region=region, q=q, cursor=cursor, limit=limit,
         ))
 
     def get_inventory_facets(self) -> dict[str, Any]:
@@ -422,16 +466,9 @@ class CloudSec:
         Returns:
             ``{"rows": [{alias: urn, ...}, ...]}``.
         """
-        body: dict[str, Any] = {}
-        if named is not None:
-            body["named"] = named
-        if text is not None:
-            body["text"] = text
-        if query is not None:
-            body["query"] = query
-        if project is not None:
-            body["project"] = project
-        return self._post("query", body)
+        return self._post(
+            "query", _query_run_body(named, text, query, project),
+        )
 
     # ------------------------------------------------------------------
     # Compliance
@@ -672,8 +709,34 @@ class CloudSec:
         return self._post("caasm/ingest", body)
 
     # ------------------------------------------------------------------
-    # Provider preflight
+    # Providers (preflight + coverage manifests)
     # ------------------------------------------------------------------
+
+    def get_provider_manifests(
+        self, *, provider_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Per-provider coverage manifests for the org.
+
+        For each provider: the collectors (resource kinds + edge kinds)
+        with their status, the posture checks that can fire, the
+        activity/CIEM support level, the validation grade, the known
+        gaps, and the org's own scan coverage/freshness — the honest,
+        machine-readable picture of what the platform CAN collect merged
+        with what THIS org's connection actually got.
+
+        Args:
+            provider_type: Fetch a single provider's manifest (e.g.
+                ``gcp``, ``aws``, ``azure``, ``okta``), including one the
+                org has never swept. Omit to list every provider the org
+                has a manifest or a sweep for.
+
+        Returns:
+            ``{"manifests": [...]}``, or ``{"manifest": {...}}`` when
+            ``provider_type`` is given.
+        """
+        return self._get("providers/manifest", _query_pairs(
+            type=provider_type,
+        ))
 
     def test_provider(self, provider: dict[str, Any]) -> dict[str, Any]:
         """Preflight a cloud provider configuration before saving it.
@@ -691,3 +754,199 @@ class CloudSec:
             "checks": [{"id","name","required","ok","detail"}, ...]}}``.
         """
         return self._post("providers/test", {"provider": provider})
+
+    # ------------------------------------------------------------------
+    # Fleet (multi-org)
+    # ------------------------------------------------------------------
+
+    def get_fleet_overview(
+        self,
+        *,
+        oids: list[str] | None = None,
+        group: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        trend_days: int | None = None,
+        all_orgs: bool = True,
+    ) -> dict[str, Any]:
+        """Multi-org fleet posture board in one call.
+
+        One posture row per authorized org (score, severity distribution,
+        trend direction, coverage/freshness, usage counters) plus, on the
+        first page, the cross-tenant rollups (widely-recurring rules,
+        fleet risk distribution, orgs with failing providers).
+
+        The org set is the orgs the caller's token carries — optionally
+        narrowed by ``oids`` and/or an org ``group`` — intersected with
+        the orgs where the caller holds ``cloudsec.get`` and that are
+        subscribed to the cloud-security extension. An org failing either
+        filter is silently excluded (counted in ``skipped``), never an
+        error. Keyset-paginated by org (default 25 per page, cap 100);
+        the resolved org set is capped at 500 — past that, narrow with
+        ``oids`` or a ``group``.
+
+        Args:
+            oids: Explicit org ids to include.
+            group: An org-group id — include the group's member orgs
+                (the caller must be a member or owner of the group).
+            cursor, limit: Keyset pagination (by org).
+            trend_days: Days of score-trend window per org (default 30).
+            all_orgs: When the client uses user-scoped credentials, mint
+                a multi-org JWT spanning every org the user can access
+                and send it on this request only (the fleet call is
+                otherwise limited to the single org the client's own JWT
+                is scoped to). The client's own token is never touched;
+                the multi-org token is cached across calls (pagination)
+                and re-minted once on a 401. Ignored for org-scoped
+                (non-user) API keys.
+
+        Returns:
+            ``{"orgs": [...], "next_cursor": str, "total_orgs": int,
+            "skipped": {"not_enabled", "lookup_failed"}, "rollups": {...}
+            (first page only)}``.
+        """
+        client = self._org.client
+        qp = _query_pairs(
+            oids=oids, group=group, cursor=cursor, limit=limit,
+            trend_days=trend_days,
+        )
+
+        is_user_scoped = (
+            getattr(client, "_uid", None) is not None
+            or getattr(client, "_oauth_creds", None) is not None
+        )
+        if not (all_orgs and is_user_scoped):
+            # The fleet path is NOT oid-scoped: no cloudsec/{oid}/ prefix.
+            return client.request(
+                "GET", "cloudsec/fleet/overview", query_params=qp or None,
+            )
+
+        # Request-scoped multi-org token: sent as an explicit Authorization
+        # header with is_no_auth so the client's own (org-scoped) JWT and its
+        # 401-refresh machinery stay completely out of the call — a plain
+        # request() retry would re-mint an ORG-scoped token and silently
+        # collapse the fleet to one org. A 401 re-mints the multi-org token
+        # once and retries; a second 401 is a real auth failure.
+        if self._fleet_jwt is None:
+            self._fleet_jwt = client.mint_jwt()
+        for attempt in range(2):
+            try:
+                return client.request(
+                    "GET", "cloudsec/fleet/overview",
+                    query_params=qp or None,
+                    is_no_auth=True,
+                    extra_headers={
+                        "Authorization": f"Bearer {self._fleet_jwt}",
+                    },
+                )
+            except AuthenticationError:
+                self._fleet_jwt = None
+                if attempt == 1:
+                    raise
+                self._fleet_jwt = client.mint_jwt()
+        raise AssertionError("unreachable")
+
+    # ------------------------------------------------------------------
+    # CSV exports
+    # ------------------------------------------------------------------
+    #
+    # ``?format=csv`` on the four exportable reads streams a text/csv
+    # attachment instead of JSON: the gateway walks the FULL filtered set
+    # server-side (any cursor/limit is ignored), capped at 100k rows with
+    # a trailing ``#`` comment row on truncation, and cells are sanitized
+    # against spreadsheet formula injection.
+
+    def export_findings_csv(
+        self,
+        *,
+        severity: list[str] | None = None,
+        finding_class: list[str] | None = None,
+        status: list[str] | None = None,
+        account: list[str] | None = None,
+        reachable: bool | None = None,
+        kev: bool | None = None,
+        q: str | None = None,
+        sort: str | None = None,
+        order: str | None = None,
+    ) -> str:
+        """Export the (filtered) findings worklist as CSV text.
+
+        Takes the same filter selectors as :meth:`list_findings`; the
+        server walks the full filtered set (no pagination), capped at
+        100k rows.
+
+        Returns:
+            The CSV document as a string.
+        """
+        pairs = _finding_query_pairs(
+            severity=severity, finding_class=finding_class, status=status,
+            account=account, reachable=reachable, kev=kev, q=q,
+            sort=sort, order=order,
+        )
+        pairs.append(("format", "csv"))
+        return self._get("findings", pairs, raw_response=True)
+
+    def export_inventory_csv(
+        self,
+        *,
+        resource_type: str | None = None,
+        provider: str | None = None,
+        account: str | None = None,
+        region: str | None = None,
+        q: str | None = None,
+    ) -> str:
+        """Export the (filtered) cloud resource inventory as CSV text.
+
+        Takes the same filter selectors as :meth:`list_inventory`; the
+        server walks the full filtered set (no pagination), capped at
+        100k rows.
+
+        Returns:
+            The CSV document as a string.
+        """
+        pairs = _query_pairs(
+            type=resource_type, provider=provider, account=account,
+            region=region, q=q,
+        )
+        pairs.append(("format", "csv"))
+        return self._get("inventory", pairs, raw_response=True)
+
+    def export_compliance_csv(
+        self,
+        *,
+        framework: str | None = None,
+        assignment: str | None = None,
+    ) -> str:
+        """Export a compliance assessment as CSV text.
+
+        Takes the same selectors as :meth:`get_compliance`.
+
+        Returns:
+            The CSV document as a string.
+        """
+        pairs = _query_pairs(framework=framework, assignment=assignment)
+        pairs.append(("format", "csv"))
+        return self._get("compliance", pairs, raw_response=True)
+
+    def export_query_csv(
+        self,
+        *,
+        named: str | None = None,
+        text: str | None = None,
+        query: dict[str, Any] | None = None,
+        project: list[str] | None = None,
+    ) -> str:
+        """Run a graph query and export the rows as CSV text.
+
+        Takes the same query selectors as :meth:`run_query` (provide
+        exactly one of ``named`` / ``text`` / ``query``).
+
+        Returns:
+            The CSV document as a string.
+        """
+        return self._post(
+            "query",
+            _query_run_body(named, text, query, project),
+            query_params=[("format", "csv")],
+            raw_response=True,
+        )
