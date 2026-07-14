@@ -196,6 +196,38 @@ class TestRequest:
         assert result == {"sensors": []}
 
     @patch("limacharlie.client.urlopen")
+    def test_mint_jwt_is_a_pure_mint(self, mock_urlopen):
+        # mint_jwt returns a token WITHOUT setting the client's own JWT
+        # (request-scoped tokens, e.g. the multi-org fleet token).
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "minted-jwt"}).encode()
+        jwt_response.close = MagicMock()
+        mock_urlopen.return_value = jwt_response
+
+        client = Client(oid="test-oid", api_key="test-key", uid="test-uid")
+        token = client.mint_jwt()
+
+        assert token == "minted-jwt"
+        assert client._jwt is None
+        # No oid field when omitted (multi-org form for user creds).
+        sent_body = mock_urlopen.call_args[0][0].data.decode()
+        assert "oid=" not in sent_body
+        assert "uid=test-uid" in sent_body
+
+    @patch("limacharlie.client.urlopen")
+    def test_mint_jwt_scoped_oid(self, mock_urlopen):
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "minted-jwt"}).encode()
+        jwt_response.close = MagicMock()
+        mock_urlopen.return_value = jwt_response
+
+        client = Client(oid="test-oid", api_key="test-key", uid="test-uid")
+        client.mint_jwt(oid="-")
+
+        sent_body = mock_urlopen.call_args[0][0].data.decode()
+        assert "oid=-" in sent_body
+
+    @patch("limacharlie.client.urlopen")
     def test_raw_response_returns_text(self, mock_urlopen):
         # raw_response must return the body as decoded text (CSV exports),
         # not attempt JSON parsing.

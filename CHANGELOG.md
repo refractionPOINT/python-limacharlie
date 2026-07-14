@@ -23,8 +23,9 @@
   `first_seen`), current provider examples, and new-command coverage in
   `--ai-help` explain texts.
 - `Client.request(raw_response=True)` returns the response body as text
-  (used by the CSV exports). `Client.refresh_jwt(oid_override="")` mints a
-  multi-org JWT for user-scoped credentials.
+  (used by the CSV exports). New `Client.mint_jwt()` returns a
+  request-scoped JWT (multi-org for user credentials when `oid` is omitted)
+  without touching the client's own token, cache, or refresh callback.
 
 ## 5.2.0 - March 20, 2026
 

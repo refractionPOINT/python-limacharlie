@@ -402,10 +402,7 @@ class Client:
         Args:
             expiry: Optional expiry time for the JWT.
             oid_override: Optional OID override. Pass '-' for minimal JWT
-                         (UID only, no org permissions). Pass '' (empty
-                         string) with user-scoped credentials for a
-                         multi-org JWT carrying the permissions of every
-                         org the user can access.
+                         (UID only, no org permissions).
         """
         effective_oid = oid_override if oid_override is not None else self._oid
 
@@ -435,9 +432,7 @@ class Client:
         auth_data = {"secret": self._api_key}
         if self._uid is not None:
             auth_data["uid"] = self._uid
-        # '' (multi-org JWT) means "no oid" to the JWT endpoint — omit the
-        # field rather than sending an empty value.
-        if effective_oid:
+        if effective_oid is not None:
             auth_data["oid"] = effective_oid
         if expiry is not None:
             auth_data["expiry"] = int(expiry)
@@ -474,32 +469,8 @@ class Client:
 
     def _refresh_jwt_oauth(self, effective_oid: str | None, expiry: int | None, oid_override: str | None = None) -> None:
         """Refresh JWT using OAuth credentials."""
-        from .oauth_simple import SimpleOAuthManager
-
-        oauth_manager = SimpleOAuthManager()
-        updated_creds = oauth_manager.ensure_valid_token(dict(self._oauth_creds))
-        if updated_creds is None:
-            raise AuthenticationError("Failed to refresh OAuth token.")
-
-        if updated_creds != self._oauth_creds:
-            self._oauth_creds = updated_creds
-            # Persist updated OAuth tokens to config file.
-            try:
-                from .config import write_credentials, is_ephemeral
-                if not is_ephemeral():
-                    write_credentials(
-                        self._environment or "default",
-                        oid=None,
-                        api_key=None,
-                        oauth_creds=updated_creds,
-                    )
-            except Exception:
-                pass  # Best-effort persistence
-
-        auth_data = {"fb_auth": self._oauth_creds["id_token"]}
-        # '' (multi-org JWT) means "no oid" to the JWT endpoint — omit the
-        # field rather than sending an empty value.
-        if effective_oid:
+        auth_data = {"fb_auth": self._refreshed_oauth_id_token()}
+        if effective_oid is not None:
             auth_data["oid"] = effective_oid
         if expiry is not None:
             auth_data["expiry"] = int(expiry)
@@ -528,6 +499,66 @@ class Client:
 
         if self._on_refresh_auth is not None:
             self._on_refresh_auth(self)
+
+    def _refreshed_oauth_id_token(self) -> str:
+        """Return a valid OAuth id_token, refreshing (and persisting) the
+        stored OAuth credentials when needed."""
+        from .oauth_simple import SimpleOAuthManager
+
+        oauth_manager = SimpleOAuthManager()
+        updated_creds = oauth_manager.ensure_valid_token(dict(self._oauth_creds))
+        if updated_creds is None:
+            raise AuthenticationError("Failed to refresh OAuth token.")
+
+        if updated_creds != self._oauth_creds:
+            self._oauth_creds = updated_creds
+            # Persist updated OAuth tokens to config file.
+            try:
+                from .config import write_credentials, is_ephemeral
+                if not is_ephemeral():
+                    write_credentials(
+                        self._environment or "default",
+                        oid=None,
+                        api_key=None,
+                        oauth_creds=updated_creds,
+                    )
+            except Exception:
+                pass  # Best-effort persistence
+
+        return self._oauth_creds["id_token"]
+
+    def mint_jwt(self, *, oid: str | None = None, expiry: int | None = None) -> str:
+        """Mint and return a JWT without touching the client's own token.
+
+        Unlike :meth:`refresh_jwt`, this is a pure mint: it does not set
+        ``self._jwt``, does not fire the on-refresh callback, and does not
+        write the JWT cache — for request-scoped tokens whose scope differs
+        from the client's own (e.g. a multi-org token for a fleet call).
+
+        Args:
+            oid: The org to scope the JWT to; ``'-'`` for a minimal
+                (UID-only) token; ``None`` to omit the field — with
+                user-scoped credentials (uid API key / OAuth) that mints a
+                multi-org JWT carrying the permissions of every org the
+                user can access.
+            expiry: Optional expiry time for the JWT.
+
+        Returns:
+            The signed JWT string.
+        """
+        if self._oauth_creds is not None:
+            auth_data: dict[str, Any] = {"fb_auth": self._refreshed_oauth_id_token()}
+        elif self._api_key is not None:
+            auth_data = {"secret": self._api_key}
+            if self._uid is not None:
+                auth_data["uid"] = self._uid
+        else:
+            raise AuthenticationError("No API key or OAuth credentials set.")
+        if oid is not None:
+            auth_data["oid"] = oid
+        if expiry is not None:
+            auth_data["expiry"] = int(expiry)
+        return self._call_jwt_endpoint(auth_data)
 
     def _call_jwt_endpoint(self, auth_data: dict[str, Any]) -> str:
         """Call the JWT endpoint and return the JWT string."""

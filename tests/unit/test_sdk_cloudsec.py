@@ -422,34 +422,72 @@ class TestProvider:
 
 
 class TestFleetOverview:
-    def test_fleet_overview_user_creds_swaps_jwt(self, cs, mock_org):
+    def test_fleet_overview_user_creds_request_scoped_token(self, cs, mock_org):
         client = mock_org.client
         client._uid = "user-1"
         client._oauth_creds = None
         client._jwt = "org-scoped-jwt"
+        client.mint_jwt.return_value = "multi-org-jwt"
         client.request.return_value = {"orgs": [], "next_cursor": ""}
         cs.get_fleet_overview(oids=["o1", "o2"], group="g1", limit=50, trend_days=90)
-        # A multi-org JWT is minted for the call...
-        client.refresh_jwt.assert_called_once_with(oid_override="")
+        # A multi-org JWT is minted (pure mint, no client-state mutation)...
+        client.mint_jwt.assert_called_once_with()
+        client.refresh_jwt.assert_not_called()
         args, kwargs = client.request.call_args
-        # ...against the NON-oid-scoped fleet path...
+        # ...and sent as a request-scoped Authorization header against the
+        # NON-oid-scoped fleet path, bypassing the client's own JWT.
         assert args == ("GET", "cloudsec/fleet/overview")
+        assert kwargs["is_no_auth"] is True
+        assert kwargs["extra_headers"] == {"Authorization": "Bearer multi-org-jwt"}
         assert kwargs["query_params"] == [
             ("oids", "o1"), ("oids", "o2"), ("group", "g1"),
             ("limit", "50"), ("trend_days", "90"),
         ]
-        # ...and the client's own JWT is restored afterwards.
+        # The client's own JWT was never touched.
         assert client._jwt == "org-scoped-jwt"
 
-    def test_fleet_overview_jwt_restored_on_error(self, cs, mock_org):
+    def test_fleet_overview_token_cached_across_pages(self, cs, mock_org):
         client = mock_org.client
         client._uid = "user-1"
         client._oauth_creds = None
-        client._jwt = "org-scoped-jwt"
-        client.request.side_effect = RuntimeError("boom")
-        with pytest.raises(RuntimeError):
+        client.mint_jwt.return_value = "multi-org-jwt"
+        client.request.return_value = {"orgs": [], "next_cursor": "c2"}
+        cs.get_fleet_overview()
+        cs.get_fleet_overview(cursor="c2")
+        # One mint serves the whole paged sweep.
+        client.mint_jwt.assert_called_once_with()
+        assert client.request.call_count == 2
+
+    def test_fleet_overview_401_reminted_once(self, cs, mock_org):
+        from limacharlie.errors import AuthenticationError
+        client = mock_org.client
+        client._uid = "user-1"
+        client._oauth_creds = None
+        client.mint_jwt.side_effect = ["stale-jwt", "fresh-jwt"]
+        client.request.side_effect = [
+            AuthenticationError("401"), {"orgs": []},
+        ]
+        out = cs.get_fleet_overview()
+        assert out == {"orgs": []}
+        # The 401 re-minted the MULTI-ORG token (not the client's org-scoped
+        # refresh) and retried with it.
+        assert client.mint_jwt.call_count == 2
+        assert client.request.call_args[1]["extra_headers"] == {
+            "Authorization": "Bearer fresh-jwt",
+        }
+        client.refresh_jwt.assert_not_called()
+
+    def test_fleet_overview_persistent_401_raises(self, cs, mock_org):
+        from limacharlie.errors import AuthenticationError
+        client = mock_org.client
+        client._uid = "user-1"
+        client._oauth_creds = None
+        client.mint_jwt.return_value = "multi-org-jwt"
+        client.request.side_effect = AuthenticationError("401")
+        with pytest.raises(AuthenticationError):
             cs.get_fleet_overview()
-        assert client._jwt == "org-scoped-jwt"
+        # The cached token was dropped so the next call starts fresh.
+        assert cs._fleet_jwt is None
 
     def test_fleet_overview_org_key_uses_current_jwt(self, cs, mock_org):
         client = mock_org.client
@@ -457,6 +495,7 @@ class TestFleetOverview:
         client._oauth_creds = None
         client.request.return_value = {"orgs": []}
         cs.get_fleet_overview()
+        client.mint_jwt.assert_not_called()
         client.refresh_jwt.assert_not_called()
         args, kwargs = client.request.call_args
         assert args == ("GET", "cloudsec/fleet/overview")
@@ -468,6 +507,7 @@ class TestFleetOverview:
         client._oauth_creds = None
         client.request.return_value = {"orgs": []}
         cs.get_fleet_overview(all_orgs=False)
+        client.mint_jwt.assert_not_called()
         client.refresh_jwt.assert_not_called()
 
 

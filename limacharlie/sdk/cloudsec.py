@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 from typing import Any, TYPE_CHECKING
 
+from ..errors import AuthenticationError
+
 if TYPE_CHECKING:
     from .organization import Organization
 
@@ -129,6 +131,10 @@ class CloudSec:
 
     def __init__(self, org: Organization) -> None:
         self._org = org
+        # Request-scoped multi-org JWT for the fleet route, cached across
+        # calls (pagination) and re-minted on a 401. Never installed on the
+        # client — the client's own token is not touched by fleet calls.
+        self._fleet_jwt: str | None = None
 
     @property
     def oid(self) -> str:
@@ -786,11 +792,13 @@ class CloudSec:
             cursor, limit: Keyset pagination (by org).
             trend_days: Days of score-trend window per org (default 30).
             all_orgs: When the client uses user-scoped credentials, mint
-                a temporary multi-org JWT spanning every org the user can
-                access (the fleet call is otherwise limited to the single
-                org the client's JWT was scoped to). The client's
-                original JWT is restored afterwards. Ignored for
-                org-scoped (non-user) API keys.
+                a multi-org JWT spanning every org the user can access
+                and send it on this request only (the fleet call is
+                otherwise limited to the single org the client's own JWT
+                is scoped to). The client's own token is never touched;
+                the multi-org token is cached across calls (pagination)
+                and re-minted once on a 401. Ignored for org-scoped
+                (non-user) API keys.
 
         Returns:
             ``{"orgs": [...], "next_cursor": str, "total_orgs": int,
@@ -813,16 +821,30 @@ class CloudSec:
                 "GET", "cloudsec/fleet/overview", query_params=qp or None,
             )
 
-        # Swap in a multi-org JWT for the call, then restore the client's
-        # own token so subsequent org-scoped calls keep their claims.
-        original_jwt = client._jwt
-        try:
-            client.refresh_jwt(oid_override="")
-            return client.request(
-                "GET", "cloudsec/fleet/overview", query_params=qp or None,
-            )
-        finally:
-            client._jwt = original_jwt
+        # Request-scoped multi-org token: sent as an explicit Authorization
+        # header with is_no_auth so the client's own (org-scoped) JWT and its
+        # 401-refresh machinery stay completely out of the call — a plain
+        # request() retry would re-mint an ORG-scoped token and silently
+        # collapse the fleet to one org. A 401 re-mints the multi-org token
+        # once and retries; a second 401 is a real auth failure.
+        if self._fleet_jwt is None:
+            self._fleet_jwt = client.mint_jwt()
+        for attempt in range(2):
+            try:
+                return client.request(
+                    "GET", "cloudsec/fleet/overview",
+                    query_params=qp or None,
+                    is_no_auth=True,
+                    extra_headers={
+                        "Authorization": f"Bearer {self._fleet_jwt}",
+                    },
+                )
+            except AuthenticationError:
+                self._fleet_jwt = None
+                if attempt == 1:
+                    raise
+                self._fleet_jwt = client.mint_jwt()
+        raise AssertionError("unreachable")
 
     # ------------------------------------------------------------------
     # CSV exports

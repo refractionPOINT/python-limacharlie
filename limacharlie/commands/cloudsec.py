@@ -693,6 +693,27 @@ def _finding_filter_options(f):
     return f
 
 
+def _inventory_filter_options(f):
+    """The inventory filter selectors (shared by list/export)."""
+    f = click.option(
+        "-q", "--search", "q", default=None, help="Substring search.",
+    )(f)
+    f = click.option(
+        "--region", default=None, help="Filter by region.",
+    )(f)
+    f = click.option(
+        "--account", default=None, help="Filter by cloud account.",
+    )(f)
+    f = click.option(
+        "--provider", default=None,
+        help="Filter by the producing provider sweep (e.g. gcp, okta, google_workspace).",
+    )(f)
+    f = click.option(
+        "--type", "resource_type", default=None, help="Filter by resource type.",
+    )(f)
+    return f
+
+
 def _sort_options(f):
     f = click.option(
         "--order", default=None, type=_ORDER_CHOICES,
@@ -1079,12 +1100,7 @@ def inventory_group() -> None:
 
 
 @inventory_group.command("list")
-@click.option("--type", "resource_type", default=None, help="Filter by resource type.")
-@click.option("--provider", default=None,
-              help="Filter by the producing provider sweep (e.g. gcp, okta, google_workspace).")
-@click.option("--account", default=None, help="Filter by cloud account.")
-@click.option("--region", default=None, help="Filter by region.")
-@click.option("-q", "--search", "q", default=None, help="Substring search.")
+@_inventory_filter_options
 @_paging_options
 @pass_context
 def inventory_list(ctx, resource_type, provider, account, region, q, cursor, limit) -> None:
@@ -1629,12 +1645,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts,
 
 
 @export_group.command("inventory")
-@click.option("--type", "resource_type", default=None, help="Filter by resource type.")
-@click.option("--provider", default=None,
-              help="Filter by the producing provider sweep (e.g. gcp, okta, google_workspace).")
-@click.option("--account", default=None, help="Filter by cloud account.")
-@click.option("--region", default=None, help="Filter by region.")
-@click.option("-q", "--search", "q", default=None, help="Substring search.")
+@_inventory_filter_options
 @_export_output_option
 @pass_context
 def export_inventory(ctx, resource_type, provider, account, region, q, output_path) -> None:
