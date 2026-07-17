@@ -631,6 +631,13 @@ class TestCliIOC:
         ])
         assert result.exit_code == 0
 
+    def test_search_locations(self, oid, key):
+        result, _ = _invoke(oid, key, [
+            "ioc", "search", "--type", "domain", "--value", "example.com",
+            "--info", "locations", "--limit", "10",
+        ])
+        assert result.exit_code == 0
+
     def test_hosts(self, oid, key):
         result, _ = _invoke(oid, key, [
             "ioc", "hosts", "--hostname", "nonexistent-test-host-12345",

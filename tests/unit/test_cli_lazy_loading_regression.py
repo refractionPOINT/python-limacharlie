@@ -46,7 +46,7 @@ del _ctx, _name
 # Every top-level command/group that must be registered on cli.
 EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
     "ai", "ai-cost-model", "ai-memory", "ai-skill", "api", "api-key", "app", "arl", "artifact",
-    "audit", "auth", "billing", "case", "cloud-adapter", "completion", "config",
+    "audit", "auth", "billing", "case", "cloud-adapter", "cloudsec", "completion", "config",
     "detection", "download", "dr", "endpoint-policy", "event", "exfil",
     "extension", "external-adapter", "feedback", "fp", "group", "help", "hive",
     "ingestion-key", "installation-key", "integrity", "ioc", "job", "logging",
@@ -73,6 +73,7 @@ EXPECTED_MODULE_MAP = {
     "billing": ("group", "billing"),
     "case_cmd": ("group", "case"),
     "cloud_sensor": ("group", "cloud-adapter"),
+    "cloudsec": ("group", "cloudsec"),
     "completion": ("cmd", "completion"),
     "config_cmd": ("group", "config"),
     "detection": ("group", "detection"),
@@ -147,6 +148,12 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "tag", "telemetry", "update", "update-note",
     }),
     "cloud-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "schema", "sensors", "set", "tag"}),
+    "cloudsec": frozenset({
+        "overview", "changes", "risk-trend", "scan-status", "fleet",
+        "finding", "attack-path", "ciem", "inventory", "data-security",
+        "resource", "graph", "query", "compliance", "chokepoint",
+        "resolve", "caasm", "provider", "export",
+    }),
     "detection": frozenset({"get", "list"}),
     "download": frozenset({"adapter", "list", "sensor"}),
     "dr": frozenset({

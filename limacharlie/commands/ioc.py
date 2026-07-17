@@ -94,13 +94,20 @@ Supported --type values:
   service_name - Service/daemon name
   package_name - Installed package name
 
-The result includes prevalence data showing which sensors observed
-the IOC, how many times, and when (first/last seen).
+--info controls the response shape:
+  summary    prevalence counts per time bucket (default).
+  locations  the list of sensor IDs that observed the IOC, with
+             first/last seen times and hostnames. Use --limit to cap
+             the number of entries returned.
+
+--wildcards treats the value as a pattern where '%' matches anything
+(e.g. '10.10.%'). --case-insensitive disables case-sensitive matching.
 
 Examples:
   limacharlie ioc search --type domain --value evil.com
-  limacharlie ioc search --type ip --value 1.2.3.4
+  limacharlie ioc search --type ip --value 1.2.3.4 --info locations
   limacharlie ioc search --type file_hash --value abc123...
+  limacharlie ioc search --type ip --value '10.10.%' --info locations --wildcards
 """
 register_explain("ioc.search", _EXPLAIN_SEARCH)
 
@@ -108,11 +115,15 @@ register_explain("ioc.search", _EXPLAIN_SEARCH)
 @group.command()
 @click.option("--type", "ioc_type", required=True, help="IOC type (domain, ip, file_hash, file_path, etc.).")
 @click.option("--value", required=True, help="IOC value to search for.")
+@click.option("--info", "info", type=click.Choice(["summary", "locations"]), default="summary", show_default=True, help="Response shape: 'summary' counts only, or 'locations' to return the sensor IDs that observed the IOC.")
+@click.option("--limit", type=int, default=None, help="Max number of results returned.")
+@click.option("--case-sensitive/--case-insensitive", default=True, show_default=True, help="Case-sensitive matching of the IOC value.")
+@click.option("--wildcards", is_flag=True, default=False, help="Treat the value as a pattern where '%' matches anything.")
 @pass_context
-def search(ctx: click.Context, ioc_type: str, value: str) -> None:
+def search(ctx: click.Context, ioc_type: str, value: str, info: str, limit: int | None, case_sensitive: bool, wildcards: bool) -> None:
     org = _get_org(ctx)
     insight = Insight(org)
-    data = insight.search_ioc(ioc_type, value)
+    data = insight.search_ioc(ioc_type, value, info=info, case_sensitive=case_sensitive, wildcards=wildcards, limit=limit)
     _output(ctx, data)
 
 

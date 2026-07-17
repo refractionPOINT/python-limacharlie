@@ -196,6 +196,82 @@ class TestRequest:
         assert result == {"sensors": []}
 
     @patch("limacharlie.client.urlopen")
+    def test_mint_jwt_is_a_pure_mint(self, mock_urlopen):
+        # mint_jwt returns a token WITHOUT setting the client's own JWT
+        # (request-scoped tokens, e.g. the multi-org fleet token).
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "minted-jwt"}).encode()
+        jwt_response.close = MagicMock()
+        mock_urlopen.return_value = jwt_response
+
+        client = Client(oid="test-oid", api_key="test-key", uid="test-uid")
+        token = client.mint_jwt()
+
+        assert token == "minted-jwt"
+        assert client._jwt is None
+        # No oid field when omitted (multi-org form for user creds).
+        sent_body = mock_urlopen.call_args[0][0].data.decode()
+        assert "oid=" not in sent_body
+        assert "uid=test-uid" in sent_body
+
+    @patch("limacharlie.client.urlopen")
+    def test_mint_jwt_scoped_oid(self, mock_urlopen):
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "minted-jwt"}).encode()
+        jwt_response.close = MagicMock()
+        mock_urlopen.return_value = jwt_response
+
+        client = Client(oid="test-oid", api_key="test-key", uid="test-uid")
+        client.mint_jwt(oid="-")
+
+        sent_body = mock_urlopen.call_args[0][0].data.decode()
+        assert "oid=-" in sent_body
+
+    @patch("limacharlie.client.urlopen")
+    def test_raw_response_returns_text(self, mock_urlopen):
+        # raw_response must return the body as decoded text (CSV exports),
+        # not attempt JSON parsing.
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        api_response = MagicMock()
+        api_response.read.return_value = b"col_a,col_b\n1,2\n"
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        result = client.request("GET", "export", raw_response=True)
+
+        assert result == "col_a,col_b\n1,2\n"
+
+    @patch("limacharlie.client.urlopen")
+    def test_query_params_sequences_expand_to_repeated_keys(self, mock_urlopen):
+        # doseq: a dict-of-lists (or list-of-tuples) must encode as
+        # repeated keys, not the Python list repr.
+        jwt_response = MagicMock()
+        jwt_response.read.return_value = json.dumps({"jwt": "test-jwt"}).encode()
+        jwt_response.close = MagicMock()
+
+        api_response = MagicMock()
+        api_response.read.return_value = json.dumps({}).encode()
+        api_response.close = MagicMock()
+        api_response.getheaders.return_value = []
+
+        mock_urlopen.side_effect = [jwt_response, api_response]
+
+        client = Client(oid="test-oid", api_key="test-key")
+        client.request(
+            "GET", "things",
+            query_params={"severity": ["HIGH", "LOW"], "q": "prod"},
+        )
+
+        sent = mock_urlopen.call_args_list[-1][0][0]
+        assert sent.full_url.endswith("?severity=HIGH&severity=LOW&q=prod")
+
+    @patch("limacharlie.client.urlopen")
     def test_auto_refreshes_jwt_on_401(self, mock_urlopen):
         from urllib.error import HTTPError
         import io
