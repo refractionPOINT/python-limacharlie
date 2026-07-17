@@ -44,7 +44,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.0.3",
+    # pytest 9.x (CVE-2025-71176 fix) requires Python >= 3.10; 3.9 keeps the
+    # last compatible release until 3.9 support is dropped
+    "pytest==9.0.3; python_version >= '3.10'",
+    "pytest==8.3.4; python_version < '3.10'",
     "pytest-rerunfailures==15.0",
     "pytest-benchmark>=5.0.0",
     "tomli>=1.0; python_version < '3.11'",
