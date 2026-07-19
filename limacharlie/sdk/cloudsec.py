@@ -2,11 +2,14 @@
 
 Wraps the ``/cloudsec/{oid}/...`` REST routes served by the API
 gateway: the merged, risk-ranked findings worklist (CSPM + attack
-paths + CIEM), the resource inventory and security graph, compliance
-assessment, the risk overview, CAASM (third-party asset attack
-surface), sensor<->cloud-asset resolution, the finding triage writes,
-CSV exports of the read surface, per-provider coverage manifests, and
-the multi-org fleet overview (``/cloudsec/fleet/overview``).
+paths + CIEM), the single-identity access rollup, the resource
+inventory, the pre-aggregated estate topology and security graph,
+compliance assessment, the risk overview, CAASM (third-party asset
+attack surface), sensor<->cloud-asset resolution, the finding triage
+writes, the cloudsec_policy authoring aids (vocabulary, live
+autocomplete, and the two "Simulate" preflights), CSV exports of the
+read surface, per-provider coverage manifests, and the multi-org
+fleet overview (``/cloudsec/fleet/overview``).
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``; every route additionally requires the org to be
@@ -253,6 +256,18 @@ class CloudSec:
         """
         return self._get(f"findings/{finding_id}")
 
+    def get_finding_classes(self) -> dict[str, Any]:
+        """The canonical ``finding_class`` vocabulary.
+
+        Served from the backend enum so callers never guess at the valid
+        values for the ``finding_class`` filter or a suppression-policy
+        matcher.
+
+        Returns:
+            ``{"classes": ["toxic_combination", "public_exposure", ...]}``.
+        """
+        return self._get("findings/classes")
+
     # ------------------------------------------------------------------
     # Finding triage writes (cloudsec.set)
     # ------------------------------------------------------------------
@@ -368,6 +383,20 @@ class CloudSec:
         """
         return self._get("ciem/facets")
 
+    def get_identity(self, urn: str) -> dict[str, Any]:
+        """The single-identity effective-access rollup for one identity urn.
+
+        The same row shape the public-access principals list carries
+        (grant / privileged / sensitive-reach counts, posture facets, risk
+        score), but for ANY identity — not only the risk-ranked top-N.
+        Powers the Identity 360 view.
+
+        Returns:
+            ``{"identity": {...}}``, or ``{"identity": null}`` when the urn
+            is not a known identity.
+        """
+        return self._get("ciem/identity", _query_pairs(urn=urn))
+
     # ------------------------------------------------------------------
     # Inventory / resources / data security
     # ------------------------------------------------------------------
@@ -380,6 +409,7 @@ class CloudSec:
         account: str | None = None,
         region: str | None = None,
         q: str | None = None,
+        account_unscoped: bool | None = None,
         cursor: str | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
@@ -391,6 +421,10 @@ class CloudSec:
                 ``aws``, ``okta``, ``google_workspace``).
             account, region: Scalar filters.
             q: Substring search.
+            account_unscoped: Escape hatch — when ``True`` the walk drops
+                the per-account scoping and spans the whole estate. Only
+                forwarded when set (the account-scoped default holds
+                otherwise); the gateway ignores a ``False`` value.
             cursor, limit: Keyset pagination.
 
         Returns:
@@ -398,12 +432,29 @@ class CloudSec:
         """
         return self._get("inventory", _query_pairs(
             type=resource_type, provider=provider, account=account,
-            region=region, q=q, cursor=cursor, limit=limit,
+            region=region, q=q,
+            account_unscoped=account_unscoped or None,
+            cursor=cursor, limit=limit,
         ))
 
     def get_inventory_facets(self) -> dict[str, Any]:
         """Inventory facet counts (by type/account/region)."""
         return self._get("inventory/facets")
+
+    def get_topology(self) -> dict[str, Any]:
+        """Pre-aggregated estate topology (exact at any estate size).
+
+        Per-scope node counts and inter-scope relationship rollups, an
+        ``O(#scopes)`` response independent of resource count — the server
+        aggregation powering the Topology view.
+
+        Returns:
+            ``{"available": bool, "scopes": [...], "edges": [...],
+            "generated_at": int}``. ``available`` is ``False`` when the
+            projector has not yet materialized this org (callers should
+            fall back to the inventory walk).
+        """
+        return self._get("topology")
 
     def get_data_security_facets(self) -> dict[str, Any]:
         """DSPM data-store facet counts (total/sensitive/public, store kinds).
@@ -420,6 +471,141 @@ class CloudSec:
             ``{"resource": {...}}`` or ``{"resource": null}`` when unknown.
         """
         return self._get("resource", _query_pairs(urn=urn))
+
+    # ------------------------------------------------------------------
+    # Policy authoring: vocabulary, autocomplete, and preview (Simulate)
+    # ------------------------------------------------------------------
+    #
+    # Helpers for authoring the cloudsec_policy hive records (Data
+    # Classification / Coverage / Exclusions / suppression). The policies
+    # themselves are set through the Hive API; these are the read-only aids
+    # the rule form uses: the vocabulary and live autocomplete that drive
+    # the pickers, and the two "Simulate" preflights that evaluate an
+    # in-edit matcher against the estate before it is saved.
+
+    def get_policy_vocabulary(self) -> dict[str, Any]:
+        """The server-driven cloudsec_policy authoring vocabulary.
+
+        The per-surface capability table (which matcher dimensions each
+        policy surface honors), the closed vocabularies (resource types
+        grouped per section, providers, criticality tiers, content classes,
+        suggested classes), and the org's in-use histograms (accounts,
+        regions, label keys, network tags, resource types) so the rule form
+        can offer autocomplete without the operator guessing at valid
+        tokens.
+
+        Returns:
+            ``{"surfaces": {...}, "resource_types": {...},
+            "content_classes": [...], "providers": [...], "tiers": [...],
+            "suggested_classes": [...], "in_use": {...}}``.
+        """
+        return self._get("policy/vocabulary")
+
+    def suggest_policy_values(
+        self,
+        dimension: str,
+        q: str,
+        *,
+        target: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Live matcher-value autocomplete from the org's own inventory.
+
+        The live companion to :meth:`get_policy_vocabulary`'s bundled
+        histograms, for the high-cardinality dimensions.
+
+        Args:
+            dimension: ``name`` (walks the estate's policy-matchable
+                resources for names containing ``q``) or ``account``
+                (filters the account facet).
+            q: The typed fragment to match (case-insensitive substring;
+                the backend caps it at 256 bytes).
+            target: Optional walk narrowing —
+                ``data_store`` | ``compute`` | ``identity`` | ``any`` — to
+                the rule set being edited.
+            limit: Max suggestions (default 20, server cap 50).
+
+        Returns:
+            ``{"values": [{"value": str, "count": int}, ...],
+            "truncated": bool, "evaluated": int}``.
+        """
+        body: dict[str, Any] = {"dimension": dimension, "q": q}
+        if target is not None:
+            body["target"] = target
+        if limit is not None:
+            body["limit"] = limit
+        return self._post("policy/suggest", body)
+
+    def simulate_resource_match(
+        self,
+        rules: list[dict[str, Any]],
+        *,
+        target: str | None = None,
+        resource_types: list[str] | None = None,
+        sample_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Preview a resource-matcher rule set against the stored inventory.
+
+        Evaluates a set of cloudsec_policy resource matcher rules (the
+        Data Classification / Coverage / Exclusions vocabulary:
+        ``account_contains`` / ``account_glob`` / ``name_contains`` /
+        ``name_glob`` / ``label`` / ``label_key_present`` / ``tag``; rules
+        compose as OR) read-only — nothing is saved.
+
+        Args:
+            rules: The matcher rules to evaluate (at least one).
+            target: Which rule set is being simulated —
+                ``data_store`` | ``compute`` | ``identity`` | ``any``
+                (default ``any``) — scoping the walked resource family.
+            resource_types: Optional explicit resource_type narrowing
+                (exclusions rules).
+            sample_limit: Sample size to return (default 25, server cap
+                100).
+
+        Returns:
+            ``{"evaluated": int, "matched": int, "indeterminate": int,
+            "truncated": bool, "sample": [...],
+            "indeterminate_sample": [...]}``. ``indeterminate`` counts rows
+            whose stored shape cannot evaluate a label constraint;
+            ``truncated`` is ``True`` when the walk hit its size/time bound.
+        """
+        body: dict[str, Any] = {"rules": rules}
+        if target is not None:
+            body["target"] = target
+        if resource_types is not None:
+            body["resource_types"] = resource_types
+        if sample_limit is not None:
+            body["sample_limit"] = sample_limit
+        return self._post("simulate/resources", body)
+
+    def simulate_finding_match(
+        self,
+        match: dict[str, Any],
+        *,
+        sample_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Preview a suppression matcher against the org's OPEN findings.
+
+        Evaluates a suppression-policy matcher (``finding_class`` /
+        ``rule`` / account globs / ``urn_prefix`` / ``max_severity``) with
+        the exact semantics the suppression engine applies, read-only —
+        nothing is dispositioned. An empty ``match`` is allowed: it matches
+        everything up to the default severity ceiling, and showing that
+        blast radius is the point of the preview.
+
+        Args:
+            match: The suppression matcher object.
+            sample_limit: Sample size to return (default 25, server cap
+                100).
+
+        Returns:
+            ``{"evaluated": int, "matched": int, "truncated": bool,
+            "sample": [...]}``.
+        """
+        body: dict[str, Any] = {"match": match}
+        if sample_limit is not None:
+            body["sample_limit"] = sample_limit
+        return self._post("simulate/findings", body)
 
     # ------------------------------------------------------------------
     # Security graph
@@ -894,6 +1080,7 @@ class CloudSec:
         account: str | None = None,
         region: str | None = None,
         q: str | None = None,
+        account_unscoped: bool | None = None,
     ) -> str:
         """Export the (filtered) cloud resource inventory as CSV text.
 
@@ -907,6 +1094,7 @@ class CloudSec:
         pairs = _query_pairs(
             type=resource_type, provider=provider, account=account,
             region=region, q=q,
+            account_unscoped=account_unscoped or None,
         )
         pairs.append(("format", "csv"))
         return self._get("inventory", pairs, raw_response=True)

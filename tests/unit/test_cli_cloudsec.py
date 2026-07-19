@@ -28,10 +28,13 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
         f"{name}.return_value": return_value
         for name in [
             "get_overview", "list_changes", "get_risk_trend", "get_scan_status",
-            "list_findings", "get_finding_facets", "get_finding",
+            "get_topology",
+            "list_findings", "get_finding_facets", "get_finding_classes",
+            "get_finding",
             "set_finding_status", "bulk_set_finding_status",
             "set_finding_owner", "set_finding_ticket",
             "list_attack_paths", "get_public_access", "get_identity_facets",
+            "get_identity",
             "list_inventory", "get_inventory_facets", "get_data_security_facets",
             "get_resource", "get_graph_neighbors", "list_queries", "run_query",
             "get_compliance", "list_compliance_frameworks",
@@ -41,6 +44,8 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "list_caasm_assets", "list_caasm_coverage",
             "get_caasm_policy", "set_caasm_policy", "caasm_ingest",
             "test_provider", "get_provider_manifests", "get_fleet_overview",
+            "get_policy_vocabulary", "suggest_policy_values",
+            "simulate_resource_match", "simulate_finding_match",
         ]
     })
     # CSV exports return raw text, not a JSON-renderable object.
@@ -65,10 +70,11 @@ class TestCloudSecHelp:
         result = runner.invoke(cli, ["cloudsec", "--help"])
         assert result.exit_code == 0
         for cmd in [
-            "overview", "changes", "risk-trend", "scan-status", "fleet",
-            "finding", "attack-path", "ciem", "inventory", "data-security",
-            "resource", "graph", "query", "compliance", "chokepoint",
-            "resolve", "caasm", "provider", "export",
+            "overview", "changes", "risk-trend", "scan-status", "topology",
+            "fleet", "finding", "attack-path", "ciem", "inventory",
+            "data-security", "resource", "graph", "query", "compliance",
+            "chokepoint", "resolve", "caasm", "provider", "policy",
+            "simulate", "export",
         ]:
             assert cmd in result.output
 
@@ -76,8 +82,8 @@ class TestCloudSecHelp:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "finding", "--help"])
         assert result.exit_code == 0
-        for cmd in ["list", "facets", "get", "resolve", "bulk-resolve",
-                    "set-owner", "set-ticket"]:
+        for cmd in ["list", "facets", "classes", "get", "resolve",
+                    "bulk-resolve", "set-owner", "set-ticket"]:
             assert cmd in result.output
 
     def test_caasm_subgroup_help(self):
@@ -104,7 +110,21 @@ class TestCloudSecHelp:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "ciem", "--help"])
         assert result.exit_code == 0
-        for cmd in ["public-access", "facets"]:
+        for cmd in ["public-access", "facets", "identity"]:
+            assert cmd in result.output
+
+    def test_policy_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "policy", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["vocabulary", "suggest"]:
+            assert cmd in result.output
+
+    def test_simulate_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "simulate", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["resources", "findings"]:
             assert cmd in result.output
 
     def test_inventory_subgroup_help(self):
@@ -776,7 +796,8 @@ class TestInventoryProvider:
             assert result.exit_code == 0, result.output
             inst.list_inventory.assert_called_once_with(
                 resource_type=None, provider="okta", account=None,
-                region=None, q=None, cursor=None, limit=None,
+                region=None, q=None, account_unscoped=None,
+                cursor=None, limit=None,
             )
 
 
@@ -822,7 +843,7 @@ class TestExport:
             assert result.exit_code == 0, result.output
             inst.export_inventory_csv.assert_called_once_with(
                 resource_type="Bucket", provider="gcp", account=None,
-                region=None, q=None,
+                region=None, q=None, account_unscoped=None,
             )
 
     def test_export_compliance(self):
@@ -855,3 +876,189 @@ class TestExport:
             cli, ["cloudsec", "export", "query", "--named", "a", "--text", "b"],
         )
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# 2026-07 additions: topology, finding classes, ciem identity, policy,
+# simulate, inventory --all-accounts
+# ---------------------------------------------------------------------------
+
+
+class TestTopologyAndClasses:
+    def test_topology(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "topology"], cls,
+                return_value={"available": True, "scopes": [], "edges": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_topology.assert_called_once_with()
+
+    def test_finding_classes(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "classes"], cls,
+                return_value={"classes": ["misconfig"]},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_finding_classes.assert_called_once_with()
+
+
+class TestCiemIdentity:
+    def test_ciem_identity(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "ciem", "identity", "lcrn:x"], cls,
+                return_value={"identity": {"urn": "lcrn:x"}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_identity.assert_called_once_with("lcrn:x")
+
+
+class TestInventoryAllAccounts:
+    def test_list_all_accounts_flag(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "inventory", "list", "--all-accounts"], cls,
+                return_value={"resources": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_inventory.assert_called_once_with(
+                resource_type=None, provider=None, account=None,
+                region=None, q=None, account_unscoped=True,
+                cursor=None, limit=None,
+            )
+
+    def test_list_default_omits_account_unscoped(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "inventory", "list"], cls,
+                return_value={"resources": []},
+            )
+            assert result.exit_code == 0, result.output
+            _, kwargs = inst.list_inventory.call_args
+            # The default must not forward a falsey account_unscoped.
+            assert kwargs["account_unscoped"] is None
+
+    def test_export_all_accounts_flag(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "inventory", "--all-accounts"], cls,
+            )
+            assert result.exit_code == 0, result.output
+            inst.export_inventory_csv.assert_called_once_with(
+                resource_type=None, provider=None, account=None,
+                region=None, q=None, account_unscoped=True,
+            )
+
+
+class TestPolicy:
+    def test_vocabulary(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "policy", "vocabulary"], cls,
+                return_value={"surfaces": {}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_policy_vocabulary.assert_called_once_with()
+
+    def test_suggest(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "policy", "suggest", "--dimension", "name",
+                 "-q", "prod", "--target", "data_store", "--limit", "10"], cls,
+                return_value={"values": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.suggest_policy_values.assert_called_once_with(
+                "name", "prod", target="data_store", limit=10,
+            )
+
+    def test_suggest_requires_dimension_and_q(self):
+        runner = CliRunner()
+        # missing --q
+        result = runner.invoke(
+            cli, ["cloudsec", "policy", "suggest", "--dimension", "name"],
+        )
+        assert result.exit_code != 0
+        # invalid dimension is rejected by the Choice up front
+        result = runner.invoke(
+            cli, ["cloudsec", "policy", "suggest",
+                  "--dimension", "bogus", "-q", "x"],
+        )
+        assert result.exit_code != 0
+
+
+class TestSimulate:
+    def test_resources_inline(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "simulate", "resources",
+                 "--rules-json", '[{"name_glob": "prod-*"}]',
+                 "--target", "data_store",
+                 "--resource-type", "DataStore",
+                 "--sample-limit", "10"], cls,
+                return_value={"evaluated": 1, "matched": 1},
+            )
+            assert result.exit_code == 0, result.output
+            inst.simulate_resource_match.assert_called_once_with(
+                [{"name_glob": "prod-*"}], target="data_store",
+                resource_types=["DataStore"], sample_limit=10,
+            )
+
+    def test_resources_from_stdin(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "simulate", "resources"], cls,
+                return_value={"evaluated": 0, "matched": 0},
+                stdin='[{"account_glob": "*prod*"}]',
+            )
+            assert result.exit_code == 0, result.output
+            inst.simulate_resource_match.assert_called_once_with(
+                [{"account_glob": "*prod*"}], target=None,
+                resource_types=None, sample_limit=None,
+            )
+
+    def test_resources_rejects_non_array(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "simulate", "resources",
+                  "--rules-json", '{"name_glob": "x"}'],
+        )
+        assert result.exit_code != 0
+
+    def test_findings_inline(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "simulate", "findings",
+                 "--match-json", '{"finding_class": "misconfig"}',
+                 "--sample-limit", "5"], cls,
+                return_value={"evaluated": 3, "matched": 2},
+            )
+            assert result.exit_code == 0, result.output
+            inst.simulate_finding_match.assert_called_once_with(
+                {"finding_class": "misconfig"}, sample_limit=5,
+            )
+
+    def test_findings_empty_match_allowed(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "simulate", "findings", "--match-json", "{}"], cls,
+                return_value={"evaluated": 9, "matched": 9},
+            )
+            assert result.exit_code == 0, result.output
+            inst.simulate_finding_match.assert_called_once_with(
+                {}, sample_limit=None,
+            )

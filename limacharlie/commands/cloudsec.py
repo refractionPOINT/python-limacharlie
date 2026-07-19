@@ -2,9 +2,11 @@
 
 Commands for the ``/cloudsec`` API surface: the merged, risk-ranked
 findings worklist (CSPM misconfigurations + attack paths + CIEM),
-the cloud resource inventory and security graph, compliance
-assessment, the risk overview, CAASM (third-party asset attack
-surface), sensor<->cloud-asset resolution, and finding triage.
+the cloud resource inventory, the pre-aggregated estate topology and
+security graph, compliance assessment, the risk overview, CAASM
+(third-party asset attack surface), sensor<->cloud-asset resolution,
+finding triage, and the cloudsec_policy authoring aids (vocabulary,
+autocomplete, and the "Simulate" matcher previews).
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``. Every command requires the org to be subscribed to
@@ -86,7 +88,8 @@ Repeatable filters are OR within a key and AND across keys:
 
 Finding classes: toxic_combination, public_exposure, ciem_risk,
 privilege_escalation, vulnerability, misconfig, malware, secret,
-scan_finding, coverage_gap.
+scan_finding, coverage_gap, device_posture. The canonical, always
+current list is served by 'cloudsec finding classes'.
 
 Pagination is keyset-based: pass the previous page's next_cursor
 via --cursor.
@@ -111,6 +114,16 @@ Get a single finding by its id (e.g. fnd_<fingerprint>).
 
 Example:
   limacharlie cloudsec finding get fnd_0123abcd...
+"""
+
+_EXPLAIN_FINDING_CLASSES = """\
+The canonical finding_class vocabulary served from the backend enum
+(the valid values for the 'finding list --class' filter and for a
+suppression-policy finding_class matcher), so you never guess at the
+valid set.
+
+Example:
+  limacharlie cloudsec finding classes
 """
 
 _EXPLAIN_FINDING_RESOLVE = """\
@@ -184,6 +197,17 @@ Example:
   limacharlie cloudsec ciem facets
 """
 
+_EXPLAIN_CIEM_IDENTITY = """\
+The single-identity effective-access rollup for one identity URN: the
+same row shape 'ciem public-access' carries (grant / privileged /
+sensitive-reach counts, posture facets, risk score) but for ANY
+identity, not just the risk-ranked top-N. Powers the Identity 360
+view. Returns a null identity when the URN is not a known identity.
+
+Example:
+  limacharlie cloudsec ciem identity "lcrn:gcp:...:serviceAccount/deploy"
+"""
+
 _EXPLAIN_INVENTORY_LIST = """\
 List the cloud resource inventory (system-of-record rows).
 
@@ -203,6 +227,19 @@ Inventory facet counts by type/account/region.
 
 Example:
   limacharlie cloudsec inventory facets
+"""
+
+_EXPLAIN_TOPOLOGY = """\
+The pre-aggregated estate topology powering the Topology view:
+per-scope node counts and inter-scope relationship rollups, an
+O(#scopes) response that is exact at any estate size (independent of
+resource count).
+
+'available' is false when the projector has not yet materialized this
+org — fall back to 'inventory list' in that case.
+
+Example:
+  limacharlie cloudsec topology
 """
 
 _EXPLAIN_DATA_SECURITY_FACETS = """\
@@ -493,12 +530,95 @@ Examples:
   limacharlie cloudsec provider test --provider-json '{"provider_type":"gcp",...}'
 """
 
+_EXPLAIN_POLICY_VOCABULARY = """\
+The server-driven vocabulary that the cloudsec_policy rule form
+(Data Classification / Coverage / Exclusions) renders against: the
+per-surface capability table (which matcher dimensions each policy
+surface honors), the closed vocabularies (resource types grouped per
+section, providers, criticality tiers, content classes, suggested
+classes), and the org's in-use histograms (accounts, regions, label
+keys, network tags, resource types) — so you author against real
+tokens instead of guessing.
+
+The policies themselves are hive records (limacharlie hive list
+cloudsec_policy).
+
+Example:
+  limacharlie cloudsec policy vocabulary
+"""
+
+_EXPLAIN_POLICY_SUGGEST = """\
+Live matcher-value autocomplete from the org's own inventory (the
+companion to 'policy vocabulary' for the high-cardinality
+dimensions).
+
+--dimension is one of:
+  name     walk the estate's policy-matchable resources for names
+           containing the typed --q
+  account  filter the account facet by --q
+
+--target optionally narrows the walked resource family to the rule
+set being edited (data_store | compute | identity | any).
+
+Examples:
+  limacharlie cloudsec policy suggest --dimension name -q prod
+  limacharlie cloudsec policy suggest --dimension account -q 1234 --limit 10
+  limacharlie cloudsec policy suggest --dimension name -q data --target data_store
+"""
+
+_EXPLAIN_SIMULATE_RESOURCES = """\
+"Simulate" preflight: evaluate a set of cloudsec_policy resource
+matcher rules (account_contains / account_glob / name_contains /
+name_glob / label / label_key_present / tag — rules compose as OR)
+against the org's stored inventory BEFORE you save them, so a
+glob/label typo is visible as an actionable result instead of a
+silent "matches nothing" after the next sweep. Read-only: nothing is
+saved.
+
+Returns evaluated / matched / indeterminate counts, a bounded sample
+of matching resources, and truncated=true when the walk hit its
+size/time bound. 'indeterminate' counts resources whose stored row
+cannot evaluate a label constraint (their type does not persist
+labels).
+
+--target (data_store | compute | identity | any, default any) scopes
+the walked resource family to the rule set being edited. The rules
+come from inline JSON, a JSON/YAML file, or stdin (a JSON array of
+rule objects).
+
+Examples:
+  limacharlie cloudsec simulate resources \\
+      --rules-json '[{"name_glob":"prod-*"}]' --target data_store
+  limacharlie cloudsec simulate resources --input-file rules.yaml
+  cat rules.json | limacharlie cloudsec simulate resources
+"""
+
+_EXPLAIN_SIMULATE_FINDINGS = """\
+"Simulate" preflight: evaluate a suppression-policy matcher
+(finding_class / rule / account globs / urn_prefix / max_severity)
+against the org's OPEN findings using the exact matching semantics
+the suppression engine applies, so you see what a rule would
+disposition before saving it. Read-only: nothing is dispositioned.
+
+An EMPTY match is allowed — it matches everything up to the default
+severity ceiling, and showing that blast radius is the point.
+
+The match object comes from inline JSON, a JSON/YAML file, or stdin.
+
+Examples:
+  limacharlie cloudsec simulate findings \\
+      --match-json '{"finding_class":"misconfig","max_severity":"LOW"}'
+  limacharlie cloudsec simulate findings --input-file match.yaml
+"""
+
 register_explain("cloudsec.overview", _EXPLAIN_OVERVIEW)
 register_explain("cloudsec.changes", _EXPLAIN_CHANGES)
 register_explain("cloudsec.risk-trend", _EXPLAIN_RISK_TREND)
 register_explain("cloudsec.scan-status", _EXPLAIN_SCAN_STATUS)
+register_explain("cloudsec.topology", _EXPLAIN_TOPOLOGY)
 register_explain("cloudsec.finding.list", _EXPLAIN_FINDING_LIST)
 register_explain("cloudsec.finding.facets", _EXPLAIN_FINDING_FACETS)
+register_explain("cloudsec.finding.classes", _EXPLAIN_FINDING_CLASSES)
 register_explain("cloudsec.finding.get", _EXPLAIN_FINDING_GET)
 register_explain("cloudsec.finding.resolve", _EXPLAIN_FINDING_RESOLVE)
 register_explain("cloudsec.finding.bulk-resolve", _EXPLAIN_FINDING_BULK_RESOLVE)
@@ -507,6 +627,7 @@ register_explain("cloudsec.finding.set-ticket", _EXPLAIN_FINDING_SET_TICKET)
 register_explain("cloudsec.attack-path.list", _EXPLAIN_ATTACK_PATH_LIST)
 register_explain("cloudsec.ciem.public-access", _EXPLAIN_CIEM_PUBLIC_ACCESS)
 register_explain("cloudsec.ciem.facets", _EXPLAIN_CIEM_FACETS)
+register_explain("cloudsec.ciem.identity", _EXPLAIN_CIEM_IDENTITY)
 register_explain("cloudsec.inventory.list", _EXPLAIN_INVENTORY_LIST)
 register_explain("cloudsec.inventory.facets", _EXPLAIN_INVENTORY_FACETS)
 register_explain("cloudsec.data-security.facets", _EXPLAIN_DATA_SECURITY_FACETS)
@@ -529,6 +650,10 @@ register_explain("cloudsec.caasm.policy.set", _EXPLAIN_CAASM_POLICY_SET)
 register_explain("cloudsec.caasm.ingest", _EXPLAIN_CAASM_INGEST)
 register_explain("cloudsec.provider.test", _EXPLAIN_PROVIDER_TEST)
 register_explain("cloudsec.provider.manifest", _EXPLAIN_PROVIDER_MANIFEST)
+register_explain("cloudsec.policy.vocabulary", _EXPLAIN_POLICY_VOCABULARY)
+register_explain("cloudsec.policy.suggest", _EXPLAIN_POLICY_SUGGEST)
+register_explain("cloudsec.simulate.resources", _EXPLAIN_SIMULATE_RESOURCES)
+register_explain("cloudsec.simulate.findings", _EXPLAIN_SIMULATE_FINDINGS)
 register_explain("cloudsec.fleet.overview", _EXPLAIN_FLEET_OVERVIEW)
 register_explain("cloudsec.export.findings", _EXPLAIN_EXPORT_FINDINGS)
 register_explain("cloudsec.export.inventory", _EXPLAIN_EXPORT_INVENTORY)
@@ -630,6 +755,47 @@ def _load_json_object_arg(
     return value
 
 
+def _load_json_array_arg(
+    *,
+    inline: str | None,
+    inline_hint: str,
+    input_file: str | None,
+    file_hint: str,
+    what: str,
+    shape_msg: str,
+) -> list[Any]:
+    """Load a required JSON-array argument from inline JSON, a file, or stdin.
+
+    The list-shaped sibling of :func:`_load_json_object_arg` (used for the
+    simulate rule set). At most one of the inline/file options may be set;
+    with neither, piped stdin is read (YAML or JSON). The result must be a
+    list — a `null` or non-list input is rejected here rather than reaching
+    the server.
+    """
+    if inline is not None and input_file is not None:
+        raise click.UsageError(
+            f"provide only one of {inline_hint} or {file_hint} for {what}",
+        )
+    if inline is not None:
+        if not inline.strip():
+            raise click.BadParameter("must not be empty", param_hint=inline_hint)
+        value = _parse_json_opt(inline, inline_hint)
+        hint = inline_hint
+    elif input_file is not None:
+        value = _load_file(input_file, file_hint)
+        hint = file_hint
+    else:
+        value = _load_stdin()
+        hint = "stdin"
+        if value is None:
+            raise click.UsageError(
+                f"provide {inline_hint}, {file_hint}, or pipe {what} via stdin",
+            )
+    if not isinstance(value, list):
+        raise click.BadParameter(shape_msg, param_hint=hint)
+    return value
+
+
 # Resolution kinds are a fixed server contract; 'open' (reopen) is only
 # accepted by the single-finding endpoint, not the bulk one.
 _KIND_CHOICES = click.Choice(
@@ -639,6 +805,16 @@ _BULK_KIND_CHOICES = click.Choice(
     ["mitigated", "accepted", "false_positive"], case_sensitive=False,
 )
 _ORDER_CHOICES = click.Choice(["asc", "desc"], case_sensitive=False)
+# The policy-authoring walk-type filter and suggest dimension ARE fixed,
+# small, closed server contracts (unlike the growing provider/source
+# registries) — a click.Choice gives clean up-front validation and tab
+# completion without pinning a moving target.
+_SIMULATE_TARGET_CHOICES = click.Choice(
+    ["data_store", "compute", "identity", "any"], case_sensitive=False,
+)
+_SUGGEST_DIMENSION_CHOICES = click.Choice(
+    ["name", "account"], case_sensitive=False,
+)
 # Provider and CAASM-source values are deliberately NOT click.Choice lists:
 # both are growing server-side registries (new providers/sources ship without
 # a CLI release) and the server rejects unknown values with a clean error.
@@ -696,6 +872,11 @@ def _finding_filter_options(f):
 def _inventory_filter_options(f):
     """The inventory filter selectors (shared by list/export)."""
     f = click.option(
+        "--all-accounts", "all_accounts", is_flag=True, default=False,
+        help="Escape hatch: drop the per-account scoping and span the "
+             "whole estate (the account-scoped default holds otherwise).",
+    )(f)
+    f = click.option(
         "-q", "--search", "q", default=None, help="Substring search.",
     )(f)
     f = click.option(
@@ -745,10 +926,11 @@ def group() -> None:
       changes             Recent finding created/closed feed
       risk-trend          Risk-score history
       scan-status         Cloud-collection run status per provider
+      topology            Pre-aggregated estate topology (exact at scale)
       fleet overview      Multi-org fleet posture board (MSSP)
-      finding ...         Findings worklist + triage (resolve, owner, ticket)
+      finding ...         Findings worklist + triage (resolve, owner, ticket, classes)
       attack-path list    Headline toxic-combination attack paths
-      ciem ...            Identity access views (public-access, facets)
+      ciem ...            Identity access views (public-access, facets, identity)
       inventory ...       Cloud resource inventory
       data-security ...   DSPM data-store facets
       resource get        Canonical record for any urn
@@ -759,6 +941,8 @@ def group() -> None:
       resolve ...         Sensor <-> cloud asset resolution
       caasm ...           Third-party asset inventory, coverage, ingest
       provider ...        Credential preflight + coverage manifests
+      policy ...          cloudsec_policy vocabulary + autocomplete
+      simulate ...        Preview a policy matcher (resources, findings)
       export ...          CSV exports (findings, inventory, compliance, query)
     """
 
@@ -825,6 +1009,19 @@ def scan_status(ctx, provider) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.get_scan_status(provider=provider))
+
+
+@group.command("topology")
+@pass_context
+def topology(ctx) -> None:
+    """Pre-aggregated estate topology (exact at any scale).
+
+    \b
+    Example:
+      limacharlie cloudsec topology
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_topology())
 
 
 # ---------------------------------------------------------------------------
@@ -928,6 +1125,19 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts,
         kev=kev,
         q=q,
     ))
+
+
+@finding_group.command("classes")
+@pass_context
+def finding_classes(ctx) -> None:
+    """List the canonical finding_class vocabulary (backend enum).
+
+    \b
+    Example:
+      limacharlie cloudsec finding classes
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_finding_classes())
 
 
 @finding_group.command("get")
@@ -1090,6 +1300,20 @@ def ciem_facets(ctx) -> None:
     _output(ctx, cs.get_identity_facets())
 
 
+@ciem_group.command("identity")
+@click.argument("urn")
+@pass_context
+def ciem_identity(ctx, urn) -> None:
+    """Single-identity effective-access rollup for URN (null when unknown).
+
+    \b
+    Example:
+      limacharlie cloudsec ciem identity "lcrn:gcp:...:serviceAccount/deploy"
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_identity(urn))
+
+
 # ---------------------------------------------------------------------------
 # inventory subgroup
 # ---------------------------------------------------------------------------
@@ -1103,7 +1327,8 @@ def inventory_group() -> None:
 @_inventory_filter_options
 @_paging_options
 @pass_context
-def inventory_list(ctx, resource_type, provider, account, region, q, cursor, limit) -> None:
+def inventory_list(ctx, resource_type, provider, account, region, q,
+                   all_accounts, cursor, limit) -> None:
     """List the cloud resource inventory.
 
     \b
@@ -1111,11 +1336,13 @@ def inventory_list(ctx, resource_type, provider, account, region, q, cursor, lim
       limacharlie cloudsec inventory list --type gcp_bucket
       limacharlie cloudsec inventory list --provider okta
       limacharlie cloudsec inventory list -q prod --limit 50
+      limacharlie cloudsec inventory list --all-accounts
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_inventory(
         resource_type=resource_type, provider=provider, account=account,
-        region=region, q=q, cursor=cursor, limit=limit,
+        region=region, q=q, account_unscoped=all_accounts or None,
+        cursor=cursor, limit=limit,
     ))
 
 
@@ -1581,6 +1808,140 @@ def provider_test(ctx, provider_json, input_file) -> None:
 
 
 # ---------------------------------------------------------------------------
+# policy subgroup (cloudsec_policy authoring aids)
+# ---------------------------------------------------------------------------
+
+@group.group("policy")
+def policy_group() -> None:
+    """cloudsec_policy authoring aids: vocabulary + live autocomplete.
+
+    The policies themselves are hive records (limacharlie hive list
+    cloudsec_policy); these are the read-only helpers the rule form
+    uses. See also the 'simulate' subgroup to preview a matcher.
+    """
+
+
+@policy_group.command("vocabulary")
+@pass_context
+def policy_vocabulary(ctx) -> None:
+    """The server-driven cloudsec_policy authoring vocabulary.
+
+    \b
+    Example:
+      limacharlie cloudsec policy vocabulary
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_policy_vocabulary())
+
+
+@policy_group.command("suggest")
+@click.option("--dimension", required=True, type=_SUGGEST_DIMENSION_CHOICES,
+              help="Which matcher dimension to suggest values for (name/account).")
+@click.option("-q", "--search", "q", required=True,
+              help="The typed fragment to match (case-insensitive substring).")
+@click.option("--target", default=None, type=_SIMULATE_TARGET_CHOICES,
+              help="Narrow the walked resource family to the rule set being edited.")
+@click.option("--limit", default=None, type=int,
+              help="Max suggestions (default 20, cap 50).")
+@pass_context
+def policy_suggest(ctx, dimension, q, target, limit) -> None:
+    """Live matcher-value autocomplete from the org's own inventory.
+
+    \b
+    Examples:
+      limacharlie cloudsec policy suggest --dimension name -q prod
+      limacharlie cloudsec policy suggest --dimension account -q 1234 --limit 10
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.suggest_policy_values(
+        dimension, q, target=target, limit=limit,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# simulate subgroup ("Simulate" policy preflights)
+# ---------------------------------------------------------------------------
+
+@group.group("simulate")
+def simulate_group() -> None:
+    """Preview a cloudsec_policy matcher against the estate (read-only).
+
+    Both previews evaluate an IN-EDIT matcher against the org's current
+    data with the exact semantics the engine applies, so a typo is
+    visible before you save the policy. Nothing is persisted.
+    """
+
+
+@simulate_group.command("resources")
+@click.option("--rules-json", default=None,
+              help="The matcher rules as inline JSON (an array of rule objects).")
+@click.option("--input-file", default=None, type=click.Path(exists=True, dir_okay=False),
+              help="Read the rules (JSON array) from a JSON or YAML file.")
+@click.option("--target", default=None, type=_SIMULATE_TARGET_CHOICES,
+              help="Which rule set is simulated (default any); scopes the walked family.")
+@click.option("--resource-type", "resource_types", multiple=True,
+              help="Explicit resource_type narrowing (exclusions rules); repeatable.")
+@click.option("--sample-limit", default=None, type=int,
+              help="Sample size to return (default 25, cap 100).")
+@pass_context
+def simulate_resources(ctx, rules_json, input_file, target, resource_types,
+                       sample_limit) -> None:
+    """Preview a resource-matcher rule set against the stored inventory.
+
+    The rules can also be piped via stdin (JSON or YAML array).
+
+    \b
+    Examples:
+      limacharlie cloudsec simulate resources \\
+          --rules-json '[{"name_glob":"prod-*"}]' --target data_store
+      limacharlie cloudsec simulate resources --input-file rules.yaml
+    """
+    rules = _load_json_array_arg(
+        inline=rules_json, inline_hint="--rules-json",
+        input_file=input_file, file_hint="--input-file",
+        what="the rules",
+        shape_msg="must decode to a JSON array of rule objects",
+    )
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.simulate_resource_match(
+        rules, target=target,
+        resource_types=list(resource_types) or None,
+        sample_limit=sample_limit,
+    ))
+
+
+@simulate_group.command("findings")
+@click.option("--match-json", default=None,
+              help="The suppression matcher as inline JSON (an object; {} allowed).")
+@click.option("--input-file", default=None, type=click.Path(exists=True, dir_okay=False),
+              help="Read the match object from a JSON or YAML file.")
+@click.option("--sample-limit", default=None, type=int,
+              help="Sample size to return (default 25, cap 100).")
+@pass_context
+def simulate_findings(ctx, match_json, input_file, sample_limit) -> None:
+    """Preview a suppression matcher against the org's OPEN findings.
+
+    The match object can also be piped via stdin (JSON or YAML). An empty
+    match ({}) is valid: it matches everything up to the default severity
+    ceiling.
+
+    \b
+    Examples:
+      limacharlie cloudsec simulate findings \\
+          --match-json '{"finding_class":"misconfig","max_severity":"LOW"}'
+      limacharlie cloudsec simulate findings --input-file match.yaml
+    """
+    match = _load_json_object_arg(
+        inline=match_json, inline_hint="--match-json",
+        input_file=input_file, file_hint="--input-file",
+        what="the match",
+        shape_msg="must decode to a JSON object (a suppression matcher; {} allowed)",
+    )
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.simulate_finding_match(match, sample_limit=sample_limit))
+
+
+# ---------------------------------------------------------------------------
 # export subgroup (CSV)
 # ---------------------------------------------------------------------------
 
@@ -1648,7 +2009,8 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts,
 @_inventory_filter_options
 @_export_output_option
 @pass_context
-def export_inventory(ctx, resource_type, provider, account, region, q, output_path) -> None:
+def export_inventory(ctx, resource_type, provider, account, region, q,
+                     all_accounts, output_path) -> None:
     """Export the (filtered) cloud resource inventory as CSV.
 
     \b
@@ -1659,7 +2021,7 @@ def export_inventory(ctx, resource_type, provider, account, region, q, output_pa
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_inventory_csv(
         resource_type=resource_type, provider=provider, account=account,
-        region=region, q=q,
+        region=region, q=q, account_unscoped=all_accounts or None,
     ), output_path)
 
 
