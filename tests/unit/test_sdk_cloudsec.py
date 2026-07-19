@@ -552,3 +552,109 @@ class TestCsvExports:
         assert kwargs["query_params"] == [("format", "csv")]
         assert json.loads(kwargs["raw_body"]) == {"named": "public-buckets"}
         assert kwargs["raw_response"] is True
+
+    def test_export_inventory_csv_all_accounts(self, cs, mock_org):
+        mock_org.client.request.return_value = "urn\n"
+        cs.export_inventory_csv(provider="gcp", account_unscoped=True)
+        _, kwargs = mock_org.client.request.call_args
+        assert kwargs["query_params"] == [
+            ("provider", "gcp"), ("account_unscoped", "true"), ("format", "csv"),
+        ]
+
+
+class TestFindingClassesAndTopology:
+    def test_finding_classes(self, cs, mock_org):
+        mock_org.client.request.return_value = {"classes": ["misconfig"]}
+        cs.get_finding_classes()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/findings/classes"
+        assert qp is None
+
+    def test_topology(self, cs, mock_org):
+        mock_org.client.request.return_value = {"available": True}
+        cs.get_topology()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/topology"
+        assert qp is None
+
+
+class TestIdentityGet:
+    def test_get_identity(self, cs, mock_org):
+        mock_org.client.request.return_value = {"identity": {}}
+        cs.get_identity("lcrn:sa")
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/ciem/identity"
+        assert qp == [("urn", "lcrn:sa")]
+
+
+class TestInventoryAccountUnscoped:
+    def test_list_inventory_all_accounts(self, cs, mock_org):
+        mock_org.client.request.return_value = {"resources": []}
+        cs.list_inventory(account_unscoped=True)
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/inventory"
+        assert qp == [("account_unscoped", "true")]
+
+    def test_list_inventory_false_is_omitted(self, cs, mock_org):
+        # The account-scoped default must not forward a falsey value.
+        mock_org.client.request.return_value = {"resources": []}
+        cs.list_inventory(account_unscoped=False)
+        _, qp = _get_call(mock_org)
+        assert qp is None
+
+
+class TestPolicyAuthoring:
+    def test_policy_vocabulary(self, cs, mock_org):
+        mock_org.client.request.return_value = {"surfaces": {}}
+        cs.get_policy_vocabulary()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/policy/vocabulary"
+        assert qp is None
+
+    def test_suggest_minimal(self, cs, mock_org):
+        mock_org.client.request.return_value = {"values": []}
+        cs.suggest_policy_values("name", "prod")
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/policy/suggest"
+        assert body == {"dimension": "name", "q": "prod"}
+
+    def test_suggest_all_options(self, cs, mock_org):
+        mock_org.client.request.return_value = {"values": []}
+        cs.suggest_policy_values("account", "1234", target="compute", limit=10)
+        _, body = _post_call(mock_org)
+        assert body == {
+            "dimension": "account", "q": "1234",
+            "target": "compute", "limit": 10,
+        }
+
+    def test_simulate_resource_match_minimal(self, cs, mock_org):
+        mock_org.client.request.return_value = {"evaluated": 0, "matched": 0}
+        cs.simulate_resource_match([{"name_glob": "prod-*"}])
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/simulate/resources"
+        assert body == {"rules": [{"name_glob": "prod-*"}]}
+
+    def test_simulate_resource_match_all_options(self, cs, mock_org):
+        mock_org.client.request.return_value = {"evaluated": 0, "matched": 0}
+        cs.simulate_resource_match(
+            [{"tag": "pci"}], target="data_store",
+            resource_types=["DataStore"], sample_limit=10,
+        )
+        _, body = _post_call(mock_org)
+        assert body == {
+            "rules": [{"tag": "pci"}], "target": "data_store",
+            "resource_types": ["DataStore"], "sample_limit": 10,
+        }
+
+    def test_simulate_finding_match(self, cs, mock_org):
+        mock_org.client.request.return_value = {"evaluated": 1, "matched": 1}
+        cs.simulate_finding_match({"finding_class": "misconfig"}, sample_limit=5)
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/simulate/findings"
+        assert body == {"match": {"finding_class": "misconfig"}, "sample_limit": 5}
+
+    def test_simulate_finding_match_empty_match(self, cs, mock_org):
+        mock_org.client.request.return_value = {"evaluated": 9, "matched": 9}
+        cs.simulate_finding_match({})
+        _, body = _post_call(mock_org)
+        assert body == {"match": {}}
