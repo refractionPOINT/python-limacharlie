@@ -87,9 +87,9 @@ Repeatable filters are OR within a key and AND across keys:
   --severity CRITICAL --severity HIGH --class toxic_combination
 
 Finding classes: toxic_combination, public_exposure, ciem_risk,
-privilege_escalation, vulnerability, misconfig, malware, secret,
-scan_finding, coverage_gap, device_posture. The canonical, always
-current list is served by 'cloudsec finding classes'.
+privilege_escalation, vulnerability, misconfig, coverage_gap,
+device_posture. The canonical, always current list is served by
+'cloudsec finding classes'.
 
 Pagination is keyset-based: pass the previous page's next_cursor
 via --cursor.
@@ -152,7 +152,7 @@ use 'finding resolve <id> --kind open' per finding.
 
 Example:
   limacharlie cloudsec finding bulk-resolve --finding-id fnd_a... --finding-id fnd_b... \\
-      --kind false_positive --reason "scanner artifact"
+      --kind false_positive --reason "expected configuration"
 """
 
 _EXPLAIN_FINDING_SET_OWNER = """\
