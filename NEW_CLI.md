@@ -941,7 +941,7 @@ All integration tests use a real LimaCharlie org (credentials via `--oid` and `-
 - [ ] `typing-extensions` - Type annotation support
 
 ### 9.3 Python Version Support
-- [ ] Python 3.9+
+- [ ] Python 3.10+
 - [ ] Type annotations throughout (for IDE support and documentation)
 
 ---

@@ -33,68 +33,6 @@ steps:
 # Each step: build wheel from source, install in clean dir, verify package.
 # ---------------------------------------------------------------------------
 
-- id: "Dist (Python 3.9)"
-  name: 'python:3.9'
-  entrypoint: "bash"
-  args:
-    - '-c'
-    - |
-      set -e
-      echo "=========================================="
-      echo "  Dist Check: Python 3.9"
-      echo "=========================================="
-
-      echo "--- Building wheel ---"
-      cp -r /workspace /tmp/build-39 && cd /tmp/build-39
-      pip install --upgrade pip setuptools wheel build -q
-      # Create a local-only tag so setuptools-scm generates a real version
-      # instead of 0.0.0.dev0. This tag is never pushed.
-      git tag 99.0.0.dev39 2>/dev/null || true
-      python -m build -q
-      ls -lh dist/
-
-      echo "--- Installing wheel ---"
-      pip install dist/limacharlie-*-py3-none-any.whl -q
-
-      echo "--- Verifying installation ---"
-      pip show limacharlie
-      limacharlie --version
-
-      echo "--- Verifying version consistency ---"
-      python -c "
-      from importlib.metadata import version as pkg_version
-      import limacharlie
-
-      meta_ver = pkg_version('limacharlie')
-      attr_ver = limacharlie.__version__
-
-      print(f'importlib.metadata: {meta_ver}')
-      print(f'limacharlie.__version__: {attr_ver}')
-
-      assert meta_ver == attr_ver, (
-          f'Version mismatch: importlib.metadata={meta_ver!r} vs '
-          f'__version__={attr_ver!r}'
-      )
-      assert attr_ver != '0.0.0.dev0', (
-          f'__version__ is the fallback 0.0.0.dev0 - _version.py import failed'
-      )
-      print(f'Version consistency: OK ({meta_ver})')
-      "
-
-      echo "--- Verifying orjson (expect 3.10.x on Python 3.9) ---"
-      python -c "
-      import orjson
-      v = tuple(int(x) for x in orjson.__version__.split('.'))
-      assert v[0] == 3 and v[1] == 10, f'Expected orjson 3.10.x, got {orjson.__version__}'
-      print(f'orjson {orjson.__version__} (OK)')
-      from limacharlie.json_compat import backend_name, HAS_ORJSON
-      assert HAS_ORJSON, 'orjson should be available on Python 3.9'
-      print(f'JSON backend: {backend_name()} (OK)')
-      "
-
-      echo "--- Dist check passed ---"
-  waitFor: ["-"]
-
 - id: "Dist (Python 3.10)"
   name: 'python:3.10'
   entrypoint: "bash"
@@ -363,27 +301,6 @@ steps:
 # Unit tests for each supported Python version (all parallel).
 # Install from source (editable-like) to get test dependencies.
 # ---------------------------------------------------------------------------
-
-- id: "Unit Tests (Python 3.9)"
-  name: 'python:3.9'
-  entrypoint: "bash"
-  args:
-    - '-c'
-    - |
-      set -e
-      echo "=========================================="
-      echo "  Unit Tests: Python 3.9"
-      echo "=========================================="
-
-      cp -r /workspace /tmp/test-39 && cd /tmp/test-39
-      pip install --upgrade pip -q
-      pip install ".[dev]" "tomli>=1.0" -q
-
-      echo "--- Running unit tests ---"
-      pytest -s -v --durations=10 --reruns 3 --reruns-delay 5 --benchmark-disable tests/unit/ tests/microbenchmarks/
-
-      echo "--- Unit tests passed ---"
-  waitFor: ["-"]
 
 - id: "Unit Tests (Python 3.10)"
   name: 'python:3.10'
