@@ -203,7 +203,7 @@ class CloudSec:
             severity: Filter values (CRITICAL/HIGH/MEDIUM/LOW/INFO), OR'd.
             finding_class: Filter values (toxic_combination, public_exposure,
                 ciem_risk, privilege_escalation, vulnerability, misconfig,
-                malware, secret, scan_finding, coverage_gap), OR'd.
+                coverage_gap), OR'd.
             status: Filter values (open/resolved), OR'd.
             account: Cloud account filter values, OR'd.
             reachable: Only findings on (non-)reachable resources.

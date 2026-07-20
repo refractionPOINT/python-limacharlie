@@ -38,7 +38,7 @@ limacharlie cloudsec fleet overview --oid <OID1> --oid <OID2>
 
 ## Findings
 
-Repeatable filters are OR within a key and AND across keys. Finding classes: `toxic_combination`, `public_exposure`, `ciem_risk`, `privilege_escalation`, `vulnerability`, `misconfig`, `malware`, `secret`, `scan_finding`, `coverage_gap`. Sort keys: `lc_risk` (default), `severity`, `first_seen`.
+Repeatable filters are OR within a key and AND across keys. Finding classes: `toxic_combination`, `public_exposure`, `ciem_risk`, `privilege_escalation`, `vulnerability`, `misconfig`, `coverage_gap`. Sort keys: `lc_risk` (default), `severity`, `first_seen`.
 
 ```bash
 limacharlie cloudsec finding list --severity CRITICAL --severity HIGH
