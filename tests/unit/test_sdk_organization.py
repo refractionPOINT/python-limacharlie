@@ -638,6 +638,32 @@ class TestListSensors:
             },
         )
 
+    def test_list_sensors_online_only(self, org, mock_client):
+        mock_client.request.return_value = {"sensors": []}
+        list(org.list_sensors(is_online_only=True))
+        mock_client.request.assert_called_once_with(
+            "GET", "sensors/test-oid-123",
+            query_params={"is_online_only": "true"},
+        )
+
+    def test_list_sensors_online_only_false_omits_param(self, org, mock_client):
+        # Backward compatible: the default / explicit-False case must NOT send
+        # is_online_only, so the request is byte-identical to before the option
+        # existed (query_params collapses to None when nothing else is set).
+        mock_client.request.return_value = {"sensors": []}
+        list(org.list_sensors(is_online_only=False))
+        mock_client.request.assert_called_once_with(
+            "GET", "sensors/test-oid-123", query_params=None,
+        )
+
+    def test_list_sensors_online_only_with_selector(self, org, mock_client):
+        mock_client.request.return_value = {"sensors": []}
+        list(org.list_sensors(selector="plat == windows", is_online_only=True))
+        mock_client.request.assert_called_once_with(
+            "GET", "sensors/test-oid-123",
+            query_params={"selector": "plat == windows", "is_online_only": "true"},
+        )
+
 
 class TestExportSensors:
     def test_export_sensors(self, org, mock_client):
