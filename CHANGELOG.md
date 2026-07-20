@@ -27,6 +27,17 @@
   request-scoped JWT (multi-org for user credentials when `oid` is omitted)
   without touching the client's own token, cache, or refresh callback.
 
+### Dependencies & Python support
+
+- **`requests` 2.32.3 -> 2.33.0**: picks up the fix for GHSA-gc5v-m9x4-r6x2
+  (insecure temp-file reuse in `extract_zipped_paths()`; vulnerable `<2.33.0`).
+- **Minimum Python is now 3.10** (was 3.9). `requests` 2.33.0 requires Python
+  `>=3.10`, and Python 3.9 reached end-of-life in October 2025. The 3.9 entries
+  in the CI matrices, Cloud Build, and PyPI classifiers are removed, and the
+  orjson/pytest version shims that existed only to keep 3.9 working are
+  simplified (orjson uncapped `>=3.10.0`; pytest pinned to the CVE-fixed 9.0.3
+  for all supported versions).
+
 ## 5.2.0 - March 20, 2026
 
 ### CLI

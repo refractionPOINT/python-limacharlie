@@ -82,7 +82,8 @@ class TestPyprojectToml:
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         requires = data["project"].get("requires-python", "")
-        assert "3.9" in requires, "Minimum Python should be 3.9"
+        assert "3.10" in requires, "Minimum Python should be 3.10"
+        assert "3.9" not in requires, "Python 3.9 is EOL and no longer supported"
 
     def test_classifiers_production_stable(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
@@ -105,24 +106,26 @@ class TestPyprojectToml:
         for name, url in urls.items():
             assert url.startswith("https://"), f"URL for {name} is not HTTPS: {url}"
 
-    def test_orjson_has_environment_markers(self):
-        """orjson dependency should use environment markers for Python compat.
+    def test_orjson_is_uncapped(self):
+        """orjson should be a single uncapped dependency.
 
-        orjson 3.11+ requires Python 3.10+, so we split the dependency:
-        - Python <3.10: orjson >=3.10.0,<3.11 (last series with 3.9 support)
-        - Python >=3.10: orjson >=3.10.0 (latest)
+        orjson 3.11+ requires Python 3.10+. Now that our minimum is 3.10, the
+        old python_version<3.10 split (which capped orjson at <3.11 to keep 3.9
+        working) is gone, and every supported version can take the latest orjson.
         """
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         deps = data["project"].get("dependencies", [])
         orjson_deps = [d for d in deps if d.startswith("orjson")]
-        assert len(orjson_deps) == 2, (
-            f"Expected 2 orjson deps (split markers), got {len(orjson_deps)}: {orjson_deps}"
+        assert len(orjson_deps) == 1, (
+            f"Expected a single orjson dep, got {len(orjson_deps)}: {orjson_deps}"
         )
-        # One should cap <3.11 for older Python, one should be uncapped
-        markers = " ".join(orjson_deps)
-        assert "<3.11" in markers, "Missing <3.11 cap for Python <3.10"
-        assert "python_version" in markers, "Missing python_version marker"
+        spec = orjson_deps[0]
+        assert ">=3.10.0" in spec, f"orjson should floor at >=3.10.0, got {spec!r}"
+        assert "<3.11" not in spec, f"orjson should not be capped below 3.11, got {spec!r}"
+        assert "python_version" not in spec, (
+            f"orjson no longer needs a python_version marker, got {spec!r}"
+        )
 
     def test_orjson_available_on_current_python(self):
         """orjson should be importable on any supported Python version."""

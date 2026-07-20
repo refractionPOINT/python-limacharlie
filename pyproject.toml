@@ -9,7 +9,7 @@ description = "Python SDK and CLI for the LimaCharlie endpoint detection and res
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{name = "Maxime Lamothe-Brassard", email = "maxime@refractionpoint.com"}]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -17,7 +17,6 @@ classifiers = [
     "Topic :: Security",
     "Topic :: System :: Monitoring",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -26,7 +25,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "requests==2.32.3",
+    "requests==2.33.0",
     "passlib==1.7.4",
     "pyyaml==6.0.2",
     "tabulate==0.9.0",
@@ -36,20 +35,19 @@ dependencies = [
     "cryptography==48.0.1",
     "click==8.1.8",
     "jmespath==1.1.0",
-    "orjson>=3.10.0,<3.11; python_version < '3.10'",
-    "orjson>=3.10.0; python_version >= '3.10'",
+    "orjson>=3.10.0",
     "websockets>=13.0",
     "toon_format>=0.9.0b1,<1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    # pytest 9.x (CVE-2025-71176 fix) requires Python >= 3.10; 3.9 keeps the
-    # last compatible release until 3.9 support is dropped
-    "pytest==9.0.3; python_version >= '3.10'",
-    "pytest==8.3.4; python_version < '3.10'",
+    # pytest 9.x carries the CVE-2025-71176 fix and requires Python >= 3.10,
+    # which matches our minimum supported version.
+    "pytest==9.0.3",
     "pytest-rerunfailures==15.0",
     "pytest-benchmark>=5.0.0",
+    # tomllib is stdlib from 3.11; Python 3.10 still needs the tomli backport.
     "tomli>=1.0; python_version < '3.11'",
 ]
 
