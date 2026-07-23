@@ -195,7 +195,8 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "org": frozenset({
         "check-name", "config-get", "config-set", "create", "delete",
         "dismiss-error", "errors", "info", "list", "mitre", "quota",
-        "quota-usage", "rename", "runtime-metadata", "schema", "stats", "urls",
+        "quota-usage", "rename", "runtime-metadata", "schema", "set-description",
+        "stats", "urls",
     }),
     "output": frozenset({"create", "delete", "list"}),
     "payload": frozenset({"delete", "download", "list", "upload"}),
