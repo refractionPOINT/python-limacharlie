@@ -356,16 +356,41 @@ def delete(ctx: click.Context, confirm_token: str | None) -> None:
 _EXPLAIN_RENAME = """\
 Rename an organization.  The new name must be unique across LimaCharlie.
 Use 'limacharlie org check-name' to verify availability before renaming.
+Optionally pass --description to update the organization description (org
+info) at the same time.
 """
 register_explain("org.rename", _EXPLAIN_RENAME)
 
 
 @group.command()
 @click.option("--name", required=True, help="New organization name.")
+@click.option("--description", default=None, help="New description (org info) for the organization.")
 @pass_context
-def rename(ctx: click.Context, name: str) -> None:
+def rename(ctx: click.Context, name: str, description: str | None) -> None:
     org = _get_org(ctx)
-    data = org.rename(name)
+    data = org.rename(name, description=description)
+    _output(ctx, data)
+
+
+# ---------------------------------------------------------------------------
+# set-description
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_SET_DESCRIPTION = """\
+Set the organization's description (org info) without changing its name.
+The backend only exposes the description through the rename endpoint, so
+this command reads the organization's current name and re-submits it
+unchanged so only the description is updated.
+"""
+register_explain("org.set-description", _EXPLAIN_SET_DESCRIPTION)
+
+
+@group.command("set-description")
+@click.option("--description", required=True, help="New description (org info) for the organization.")
+@pass_context
+def set_description(ctx: click.Context, description: str) -> None:
+    org = _get_org(ctx)
+    data = org.set_description(description)
     _output(ctx, data)
 
 

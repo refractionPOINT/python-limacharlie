@@ -175,6 +175,48 @@ class TestOrganizationRename:
             query_params={"name": "new-org-name"},
         )
 
+    def test_rename_with_description(self, org, mock_client):
+        org.rename("new-org-name", description="my new description")
+        mock_client.request.assert_called_once_with(
+            "POST", "orgs/test-oid-123/name",
+            query_params={"name": "new-org-name", "description": "my new description"},
+        )
+
+    def test_rename_none_description_omitted(self, org, mock_client):
+        org.rename("new-org-name", description=None)
+        mock_client.request.assert_called_once_with(
+            "POST", "orgs/test-oid-123/name",
+            query_params={"name": "new-org-name"},
+        )
+
+    def test_set_description_reuses_current_name(self, org, mock_client):
+        mock_client.request.return_value = {"name": "existing-org-name", "oid": "test-oid-123"}
+        org.set_description("brand new description")
+        assert mock_client.request.call_args_list == [
+            call("GET", "orgs/test-oid-123"),
+            call(
+                "POST", "orgs/test-oid-123/name",
+                query_params={"name": "existing-org-name", "description": "brand new description"},
+            ),
+        ]
+
+    def test_set_description_empty_allowed(self, org, mock_client):
+        mock_client.request.return_value = {"name": "existing-org-name"}
+        org.set_description("")
+        assert mock_client.request.call_args_list == [
+            call("GET", "orgs/test-oid-123"),
+            call(
+                "POST", "orgs/test-oid-123/name",
+                query_params={"name": "existing-org-name", "description": ""},
+            ),
+        ]
+
+    def test_set_description_missing_name_raises(self, org, mock_client):
+        from limacharlie.errors import ApiError
+        mock_client.request.return_value = {"oid": "test-oid-123"}
+        with pytest.raises(ApiError):
+            org.set_description("anything")
+
 
 class TestOrganizationSubscriptions:
     def test_get_subscriptions_unwraps(self, org, mock_client):
