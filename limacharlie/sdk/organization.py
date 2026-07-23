@@ -200,16 +200,42 @@ class Organization:
         """
         return self._client.request("GET", f"quota_usage/{self.oid}")
 
-    def rename(self, new_name: str) -> dict[str, Any]:
+    def rename(self, new_name: str, description: str | None = None) -> dict[str, Any]:
         """Rename the organization.
 
         Args:
             new_name: New organization name.
+            description: Optional new description (org info) for the
+                organization. When provided, it is set as a side-effect of
+                the rename. Pass None to leave the description unchanged.
 
         Returns:
             dict: API response.
         """
-        return self._client.request("POST", f"orgs/{self.oid}/name", query_params={"name": new_name})
+        query_params: dict[str, Any] = {"name": new_name}
+        if description is not None:
+            query_params["description"] = description
+        return self._client.request("POST", f"orgs/{self.oid}/name", query_params=query_params)
+
+    def set_description(self, description: str) -> dict[str, Any]:
+        """Set the organization's description (org info).
+
+        The backend only exposes the description as a side-effect of the org
+        rename endpoint, which requires a (non-empty) name. This helper reads
+        the organization's current name and re-submits it unchanged so only
+        the description is updated.
+
+        Args:
+            description: New description for the organization.
+
+        Returns:
+            dict: API response.
+        """
+        current_name = self.get_info().get("name")
+        if not current_name:
+            from ..errors import ApiError
+            raise ApiError("could not resolve current organization name to set description")
+        return self.rename(current_name, description=description)
 
     def get_ontology(self) -> dict[str, Any]:
         """Get the LimaCharlie ontology (event type definitions).

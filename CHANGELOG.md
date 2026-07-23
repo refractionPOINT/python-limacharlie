@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Organization
+
+- **Set org description (org info)**: `Organization.set_description()` /
+  `limacharlie org set-description --description ...` update an organization's
+  description without renaming it (the helper re-submits the current name so
+  only the description changes). `Organization.rename()` and `limacharlie org
+  rename` also take an optional `description` to set both at once. The
+  backend only exposes the description through the rename endpoint, so these
+  are thin wrappers over `POST /v1/orgs/{oid}/name`.
+
 ### Cloud Security (CNAPP)
 
 - **Multi-org fleet overview**: `limacharlie cloudsec fleet overview` /
