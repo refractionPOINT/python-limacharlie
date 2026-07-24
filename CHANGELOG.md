@@ -52,6 +52,16 @@
 
 ### CLI
 
+- **`--brief` listings for document hives**: `sop list --brief`, `note list
+  --brief` and `ai-skill list --brief` reduce each record's `data` to the
+  fields that say what it is (`description`, and for skills also `name` /
+  `when_to_use`), dropping the body. The hive listing endpoint returns whole
+  records, so listing these otherwise pulls back every procedure, note, and
+  SKILL.md — including skills' bundled supporting files. That is costly when
+  the caller is an agent deciding what applies and paying for the output in
+  context: `--brief` gives it the index, and `get --key <name>` fetches the
+  ones that matter. Default output is unchanged.
+
 - **Lazy command loading**: CLI startup is significantly faster. Commands are
   now loaded on-demand via a static map instead of eagerly importing all 49
   modules. `limacharlie.output` import is deferred to the CLI callback.

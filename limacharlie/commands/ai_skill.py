@@ -16,7 +16,10 @@ from __future__ import annotations
 from ._hive_shortcut import make_hive_group
 from ..discovery import register_explain
 
-group = make_hive_group("ai-skill", "ai_skill", "AI skill", "AI skills")
+group = make_hive_group(
+    "ai-skill", "ai_skill", "AI skill", "AI skills",
+    index_keys=("name", "description", "when_to_use"),
+)
 
 # Override the generic hive explains with ai_skill-specific documentation.
 
@@ -24,6 +27,14 @@ register_explain("ai-skill.list", """\
 List all Claude Code skill definitions stored in the 'ai_skill' hive.
 Each record is a self-contained skill (SKILL.md body + frontmatter +
 optional supporting files), keyed by skill name.
+
+The listing returns whole records, so it pulls back every SKILL.md body
+and every bundled supporting file.  Use --brief to get just the index --
+name, description and when_to_use, which are the fields that say what a
+skill is for -- then fetch the ones that apply:
+
+  limacharlie ai-skill list --brief
+  limacharlie ai-skill get --key <name>
 """)
 
 register_explain("ai-skill.get", """\

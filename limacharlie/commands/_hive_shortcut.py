@@ -28,7 +28,7 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
-def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None) -> click.Group:
+def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None, index_keys: tuple[str, ...] | None = None) -> click.Group:
     """Create a Click group for a specific hive type.
 
     Args:
@@ -43,6 +43,22 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
             value as ``{data: {<value_key>: <value>}}``. Leave None for hives
             whose data is structured (lookup, fp, playbook, …) — they have no
             single value field and do not get ``--value``.
+        index_keys: ``data`` fields that summarize a record well enough to
+            decide whether it is worth fetching in full (e.g. ``("description",)``
+            for the sop hive). When set, 'list' gains a ``--brief`` flag that
+            keeps only these fields in each record's ``data``. The listing
+            endpoint returns whole records, so for hives whose payload is a
+            document this is the difference between an index and every body —
+            it matters most when the consumer is an LLM paying for the output
+            in context. Set it for hives that carry a body plus a field
+            describing it (sop, org_notes, ai_skill); leave None for hives
+            whose ``data`` is structured config with no such split, where
+            there is no honest subset to call a summary.
+
+            Note that a hive setting this should also mention ``--brief`` in
+            its own ``<group>.list`` explain text if it registers one:
+            ``register_explain`` is last-write-wins, so a module-level
+            override replaces whatever the factory registered.
 
     Returns:
         click.Group: The configured group with list, get, set, delete commands.
@@ -77,13 +93,39 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
 
     grp.help = f"Manage {noun_plural}."
 
+    def _brief_option(fn):
+        # Only hives that named their index fields expose --brief; for the rest
+        # there is no meaningful subset of `data` to keep, so no flag is offered.
+        if not index_keys:
+            return fn
+        return click.option(
+            "--brief", is_flag=True, default=False,
+            help=f"Keep only {', '.join(index_keys)} in each record's data, dropping the "
+                 f"rest of the payload. Metadata is unaffected.",
+        )(fn)
+
     @grp.command("list", help=f"List all {noun_plural}.")
+    @_brief_option
     @pass_context
-    def list_cmd(ctx) -> None:
+    def list_cmd(ctx, brief: bool = False) -> None:
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         records = hive.list()
         data = {name: rec.to_dict() for name, rec in records.items()}
+        if brief:
+            for record in data.values():
+                payload = record.get("data")
+                if payload is None:
+                    # No payload to summarize; "absent" is not the same as
+                    # "filtered", so leave it alone.
+                    continue
+                if not isinstance(payload, dict):
+                    # A record whose data is not an object has none of the
+                    # index fields. Emitting it whole would quietly hand back
+                    # the payload the caller asked us to drop, so fail closed.
+                    record["data"] = {}
+                    continue
+                record["data"] = {k: payload[k] for k in index_keys if k in payload}
         _output(ctx, data)
 
     @grp.command("get", help=f"Get {article} {noun_singular} by key.")
