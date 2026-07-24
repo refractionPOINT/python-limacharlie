@@ -44,13 +44,29 @@ limacharlie playbook list
 
 ```bash
 limacharlie note list
+limacharlie note list --brief          # descriptions only, without the note bodies
 ```
 
 ### sop
 
 ```bash
 limacharlie sop list
+limacharlie sop list --brief           # descriptions only, without the procedure bodies
+limacharlie sop get --key ransomware-response
 ```
+
+### ai-skill
+
+```bash
+limacharlie ai-skill list
+limacharlie ai-skill list --brief      # name/description/when_to_use, without SKILL.md bodies or bundled files
+limacharlie ai-skill get --key triage
+```
+
+`list` returns whole records, so for these three hives it includes every
+document body. `--brief` reduces each record's `data` to the fields that say
+what it is, leaving metadata intact — list to find what you want, then `get`
+the ones you need.
 
 ### adapter (external-adapter)
 
