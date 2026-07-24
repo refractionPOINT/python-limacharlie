@@ -48,10 +48,17 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
             for the sop hive). When set, 'list' gains a ``--brief`` flag that
             keeps only these fields in each record's ``data``. The listing
             endpoint returns whole records, so for hives whose payload is a
-            large document this is the difference between an index and every
-            body — it matters most when the consumer is an LLM paying for the
-            output in context. Leave None for hives whose records are small
-            enough that the full listing is already the useful answer.
+            document this is the difference between an index and every body —
+            it matters most when the consumer is an LLM paying for the output
+            in context. Set it for hives that carry a body plus a field
+            describing it (sop, org_notes, ai_skill); leave None for hives
+            whose ``data`` is structured config with no such split, where
+            there is no honest subset to call a summary.
+
+            Note that a hive setting this should also mention ``--brief`` in
+            its own ``<group>.list`` explain text if it registers one:
+            ``register_explain`` is last-write-wins, so a module-level
+            override replaces whatever the factory registered.
 
     Returns:
         click.Group: The configured group with list, get, set, delete commands.
@@ -62,14 +69,6 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     article = "an" if noun_singular[0].lower() in "aeiou" else "a"
 
     explain_list = f"List all {noun_plural} stored in the '{hive_name}' hive."
-    if index_keys:
-        _keys_hint = ", ".join(index_keys)
-        explain_list += (
-            f" Records are returned in full, including their payload. Pass --brief to keep "
-            f"only {_keys_hint} in each record's data, which is enough to tell what each "
-            f"{noun_singular} is without pulling every body; fetch the full record with "
-            f"'{group_name} get --key <name>'."
-        )
     explain_get = f"Get a specific {noun_singular} by its key name from the '{hive_name}' hive."
     value_hint = (
         f"Or use --value to set the {noun_singular} value directly "
@@ -116,8 +115,17 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         if brief:
             for record in data.values():
                 payload = record.get("data")
-                if isinstance(payload, dict):
-                    record["data"] = {k: payload[k] for k in index_keys if k in payload}
+                if payload is None:
+                    # No payload to summarize; "absent" is not the same as
+                    # "filtered", so leave it alone.
+                    continue
+                if not isinstance(payload, dict):
+                    # A record whose data is not an object has none of the
+                    # index fields. Emitting it whole would quietly hand back
+                    # the payload the caller asked us to drop, so fail closed.
+                    record["data"] = {}
+                    continue
+                record["data"] = {k: payload[k] for k in index_keys if k in payload}
         _output(ctx, data)
 
     @grp.command("get", help=f"Get {article} {noun_singular} by key.")

@@ -5,7 +5,7 @@ from __future__ import annotations
 from ._hive_shortcut import make_hive_group
 from ..discovery import register_explain
 
-group = make_hive_group("note", "org_notes", "note")
+group = make_hive_group("note", "org_notes", "note", index_keys=("description",))
 
 # Override the generic hive explains with note-specific documentation.
 
@@ -14,6 +14,14 @@ List all organization-level notes.  Notes store free-form text for
 documentation, runbooks, and operational context at the org level.
 These are distinct from investigation notes which are scoped to a
 specific incident.
+
+The listing returns whole records, so an org with many long notes
+returns every note body in full.  Use --brief to get just the index --
+each record's data reduced to its description, with metadata intact --
+then pull the ones you need:
+
+  limacharlie note list --brief
+  limacharlie note get --key <name>
 """)
 
 register_explain("note.get", """\
