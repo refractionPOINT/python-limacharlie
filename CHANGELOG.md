@@ -52,6 +52,14 @@
 
 ### CLI
 
+- **`sop list --brief`**: reduce each SOP in the listing to its
+  `description`, dropping the procedure body. The hive listing endpoint
+  returns whole records, so listing an org's SOPs otherwise pulls back every
+  procedure in full — costly when the caller is an agent deciding which
+  procedures apply and paying for the output in context. `--brief` gives it
+  the index; `sop get --key <name>` fetches the ones that matter. Default
+  output is unchanged.
+
 - **Lazy command loading**: CLI startup is significantly faster. Commands are
   now loaded on-demand via a static map instead of eagerly importing all 49
   modules. `limacharlie.output` import is deferred to the CLI callback.

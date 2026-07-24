@@ -5,7 +5,7 @@ from __future__ import annotations
 from ._hive_shortcut import make_hive_group
 from ..discovery import register_explain
 
-group = make_hive_group("sop", "sop", "SOP", "SOPs")
+group = make_hive_group("sop", "sop", "SOP", "SOPs", index_keys=("description",))
 
 # Override the generic hive explains with SOP-specific documentation.
 
@@ -13,6 +13,17 @@ register_explain("sop.list", """\
 List all Standard Operating Procedures stored in the organization.
 SOPs document processes and procedures for incident response,
 security operations, and compliance workflows.
+
+The listing returns whole records, so an org with many long SOPs
+returns every procedure body in full.  Use --brief to get just the
+index -- each record's data reduced to its description, with metadata
+intact -- then pull the ones that apply:
+
+  limacharlie sop list --brief
+  limacharlie sop get --key <name>
+
+This is the intended flow for an agent deciding which procedures are
+relevant to the task in front of it.
 """)
 
 register_explain("sop.get", """\

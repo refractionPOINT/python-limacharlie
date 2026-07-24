@@ -28,7 +28,7 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
-def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None) -> click.Group:
+def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None, index_keys: tuple[str, ...] | None = None) -> click.Group:
     """Create a Click group for a specific hive type.
 
     Args:
@@ -43,6 +43,15 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
             value as ``{data: {<value_key>: <value>}}``. Leave None for hives
             whose data is structured (lookup, fp, playbook, …) — they have no
             single value field and do not get ``--value``.
+        index_keys: ``data`` fields that summarize a record well enough to
+            decide whether it is worth fetching in full (e.g. ``("description",)``
+            for the sop hive). When set, 'list' gains a ``--brief`` flag that
+            keeps only these fields in each record's ``data``. The listing
+            endpoint returns whole records, so for hives whose payload is a
+            large document this is the difference between an index and every
+            body — it matters most when the consumer is an LLM paying for the
+            output in context. Leave None for hives whose records are small
+            enough that the full listing is already the useful answer.
 
     Returns:
         click.Group: The configured group with list, get, set, delete commands.
@@ -53,6 +62,14 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     article = "an" if noun_singular[0].lower() in "aeiou" else "a"
 
     explain_list = f"List all {noun_plural} stored in the '{hive_name}' hive."
+    if index_keys:
+        _keys_hint = ", ".join(index_keys)
+        explain_list += (
+            f" Records are returned in full, including their payload. Pass --brief to keep "
+            f"only {_keys_hint} in each record's data, which is enough to tell what each "
+            f"{noun_singular} is without pulling every body; fetch the full record with "
+            f"'{group_name} get --key <name>'."
+        )
     explain_get = f"Get a specific {noun_singular} by its key name from the '{hive_name}' hive."
     value_hint = (
         f"Or use --value to set the {noun_singular} value directly "
@@ -77,13 +94,30 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
 
     grp.help = f"Manage {noun_plural}."
 
+    def _brief_option(fn):
+        # Only hives that named their index fields expose --brief; for the rest
+        # there is no meaningful subset of `data` to keep, so no flag is offered.
+        if not index_keys:
+            return fn
+        return click.option(
+            "--brief", is_flag=True, default=False,
+            help=f"Keep only {', '.join(index_keys)} in each record's data, dropping the "
+                 f"rest of the payload. Metadata is unaffected.",
+        )(fn)
+
     @grp.command("list", help=f"List all {noun_plural}.")
+    @_brief_option
     @pass_context
-    def list_cmd(ctx) -> None:
+    def list_cmd(ctx, brief: bool = False) -> None:
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
         records = hive.list()
         data = {name: rec.to_dict() for name, rec in records.items()}
+        if brief:
+            for record in data.values():
+                payload = record.get("data")
+                if isinstance(payload, dict):
+                    record["data"] = {k: payload[k] for k in index_keys if k in payload}
         _output(ctx, data)
 
     @grp.command("get", help=f"Get {article} {noun_singular} by key.")
