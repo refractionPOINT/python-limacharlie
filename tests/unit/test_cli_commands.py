@@ -727,3 +727,64 @@ class TestSchemaCommands:
         mock_org.reset_schemas.assert_called_once_with()
 
 
+class TestPayloadCommands:
+    """Regression tests for the payload command output.
+
+    Reported by a customer: `payload upload` printed a stray `b''` and
+    `payload delete` printed an empty "Field / Value" table on top of the
+    human-readable confirmation line. Both stem from the command echoing an
+    empty SDK return value (the storage backend's empty PUT body for upload,
+    and the empty DELETE response for delete).
+    """
+
+    @patch("limacharlie.commands.payload.Client")
+    @patch("limacharlie.commands.payload.Organization")
+    @patch("limacharlie.commands.payload.Payloads")
+    def test_upload_does_not_echo_empty_body(self, mock_payloads_cls, mock_org_cls, mock_client_cls):
+        mock_payloads = MagicMock()
+        # The upload() SDK call returns the storage backend's PUT body, which
+        # is empty bytes on success.
+        mock_payloads.upload.return_value = b""
+        mock_payloads_cls.return_value = mock_payloads
+
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            with open("kape.exe", "wb") as f:
+                f.write(b"MZ")
+            result = runner.invoke(cli, ["payload", "upload", "--name", "KAPE", "--file", "kape.exe"])
+        assert result.exit_code == 0
+        assert "Payload 'KAPE' uploaded." in result.output
+        assert "b''" not in result.output
+        mock_payloads.upload.assert_called_once()
+
+    @patch("limacharlie.commands.payload.Client")
+    @patch("limacharlie.commands.payload.Organization")
+    @patch("limacharlie.commands.payload.Payloads")
+    def test_delete_does_not_echo_empty_table(self, mock_payloads_cls, mock_org_cls, mock_client_cls):
+        mock_payloads = MagicMock()
+        # The delete() SDK call returns an empty response body on success.
+        mock_payloads.delete.return_value = {}
+        mock_payloads_cls.return_value = mock_payloads
+
+        runner = CliRunner()
+        # Force table output to reproduce the customer's TTY scenario, where an
+        # empty dict would otherwise render as a bare "Field / Value" header.
+        result = runner.invoke(cli, ["--output", "table", "payload", "delete", "--name", "kape", "--confirm"])
+        assert result.exit_code == 0
+        assert "Payload 'kape' deleted." in result.output
+        assert "Field" not in result.output
+        assert "Value" not in result.output
+        mock_payloads.delete.assert_called_once_with("kape")
+
+    @patch("limacharlie.commands.payload.Client")
+    @patch("limacharlie.commands.payload.Organization")
+    @patch("limacharlie.commands.payload.Payloads")
+    def test_delete_without_confirm_is_blocked(self, mock_payloads_cls, mock_org_cls, mock_client_cls):
+        mock_payloads = MagicMock()
+        mock_payloads_cls.return_value = mock_payloads
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["payload", "delete", "--name", "kape"])
+        assert result.exit_code == 4
+        assert "--confirm" in result.output
+        mock_payloads.delete.assert_not_called()

@@ -110,7 +110,11 @@ def delete(ctx, name, confirm) -> None:
     data = payloads.delete(name)
     if not ctx.obj.quiet:
         click.echo(f"Payload '{name}' deleted.")
-    _output(ctx, data)
+    # The delete API returns an empty body on success; only render it if the
+    # backend actually returned something meaningful, otherwise we'd print an
+    # empty "Field / Value" table on top of the confirmation line above.
+    if data:
+        _output(ctx, data)
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +146,11 @@ def upload(ctx, name, file_path) -> None:
     data = payloads.upload(name, file_path=file_path)
     if not ctx.obj.quiet:
         click.echo(f"Payload '{name}' uploaded.")
-    _output(ctx, data)
+    # upload() returns the raw HTTP body from the storage backend's PUT, which
+    # is empty (b'') on success. Don't echo it on top of the confirmation line
+    # above; only render if the backend returned meaningful content.
+    if data:
+        _output(ctx, data)
 
 
 # ---------------------------------------------------------------------------
