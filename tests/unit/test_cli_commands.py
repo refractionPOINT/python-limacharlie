@@ -727,8 +727,6 @@ class TestSchemaCommands:
         mock_org.reset_schemas.assert_called_once_with()
 
 
-
-
 class TestPayloadCommands:
     """Regression tests for the payload command output.
 
