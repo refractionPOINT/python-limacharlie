@@ -14,6 +14,14 @@
 
 ### Cloud Security (CNAPP)
 
+- **Sensor↔cloud resolution keeps the resolver-readiness signal**:
+  `CloudSec.resolve_sensors()` / `resolve_assets()` chunk large batches and
+  merge the responses; the merge dropped `resolver_ready`, so a caller could
+  not tell "no sensor runs on a cloud asset" from "the resolver is not
+  provisioned in this datacenter". It is now carried through, pessimistically
+  (one not-ready chunk makes the whole batch not-ready), and stays absent when
+  the backend never sent it.
+
 - **Multi-org fleet overview**: `limacharlie cloudsec fleet overview` /
   `CloudSec.get_fleet_overview()` — one posture row per authorized org plus
   cross-tenant rollups, narrowable with `--oid` (repeatable) and org

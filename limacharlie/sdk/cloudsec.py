@@ -763,16 +763,29 @@ class CloudSec:
         The ids ride as repeated query params, so an unbounded batch would
         blow the ~8KB load-balancer URL limit long before the gateway's
         500-per-request cap — chunking makes any batch size work.
+
+        ``resolver_ready`` (is redis-cloudsec provisioned at all) is merged,
+        not dropped: it is pessimistic — one not-ready chunk makes the whole
+        merged answer not-ready. Without it a caller cannot tell "no sensor
+        runs on a cloud asset" from "the resolver is not running here". It
+        stays ABSENT when no chunk reported it (an older backend) rather than
+        being invented as False.
         """
         resolved: list[Any] = []
         unresolved: list[Any] = []
+        ready: list[Any] = []
         values = list(values)
         for i in range(0, len(values), _RESOLVE_CHUNK_SIZE):
             chunk = values[i:i + _RESOLVE_CHUNK_SIZE]
             resp = self._get(path, _query_pairs(**{key: chunk}))
             resolved.extend(resp.get("resolved") or [])
             unresolved.extend(resp.get("unresolved") or [])
-        return {"resolved": resolved, "unresolved": unresolved}
+            if "resolver_ready" in resp:
+                ready.append(resp["resolver_ready"])
+        out: dict[str, Any] = {"resolved": resolved, "unresolved": unresolved}
+        if ready:
+            out["resolver_ready"] = all(bool(v) for v in ready)
+        return out
 
     def resolve_sensors(self, sids: list[str]) -> dict[str, Any]:
         """Resolve sensor ids to the cloud asset each runs on.
