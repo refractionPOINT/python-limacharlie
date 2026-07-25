@@ -764,19 +764,16 @@ class CloudSec:
         blow the ~8KB load-balancer URL limit long before the gateway's
         500-per-request cap — chunking makes any batch size work.
 
-        The server's honesty signals are merged, not dropped: ``resolver_ready``
-        (redis-cloudsec provisioned) is pessimistic — one not-ready chunk makes
-        the whole answer not-ready — and ``verdicts_available`` (a posture
-        verdict was actually computed) is true if any chunk carried one. They
-        are the only way a caller can tell a real negative from an unevaluated
-        one: a resolved asset with no ``exposed`` field means UNKNOWN, not safe.
-        A signal no chunk reported (an older backend) stays absent rather than
-        being invented.
+        ``resolver_ready`` (is redis-cloudsec provisioned at all) is merged,
+        not dropped: it is pessimistic — one not-ready chunk makes the whole
+        merged answer not-ready. Without it a caller cannot tell "no sensor
+        runs on a cloud asset" from "the resolver is not running here". It
+        stays ABSENT when no chunk reported it (an older backend) rather than
+        being invented as False.
         """
         resolved: list[Any] = []
         unresolved: list[Any] = []
         ready: list[Any] = []
-        verdicts: list[Any] = []
         values = list(values)
         for i in range(0, len(values), _RESOLVE_CHUNK_SIZE):
             chunk = values[i:i + _RESOLVE_CHUNK_SIZE]
@@ -785,13 +782,9 @@ class CloudSec:
             unresolved.extend(resp.get("unresolved") or [])
             if "resolver_ready" in resp:
                 ready.append(resp["resolver_ready"])
-            if "verdicts_available" in resp:
-                verdicts.append(resp["verdicts_available"])
         out: dict[str, Any] = {"resolved": resolved, "unresolved": unresolved}
         if ready:
             out["resolver_ready"] = all(bool(v) for v in ready)
-        if verdicts:
-            out["verdicts_available"] = any(bool(v) for v in verdicts)
         return out
 
     def resolve_sensors(self, sids: list[str]) -> dict[str, Any]:

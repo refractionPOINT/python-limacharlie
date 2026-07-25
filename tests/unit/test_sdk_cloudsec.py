@@ -348,37 +348,29 @@ class TestResolution:
             "unresolved": ["x", "y"],
         }
 
-    def test_resolve_sensors_keeps_readiness_signals(self, cs, mock_org):
-        # resolver_ready ("redis-cloudsec is provisioned") and verdicts_available
-        # ("a posture verdict was actually computed") are the only way a caller can
-        # tell a real negative from an unevaluated one — an absent `exposed` means
-        # UNKNOWN, not safe. Dropping them in the merge hands the caller silence.
+    def test_resolve_sensors_keeps_readiness_signal(self, cs, mock_org):
+        # resolver_ready ("redis-cloudsec is provisioned") is how a caller tells
+        # "no sensor runs on a cloud asset" from "the resolver is not running
+        # here". Dropping it in the merge hands the caller silence instead.
         mock_org.client.request.side_effect = [
-            {"resolved": [{"sid": "a"}], "unresolved": [], "resolver_ready": True,
-             "verdicts_available": False},
-            {"resolved": [{"sid": "b"}], "unresolved": [], "resolver_ready": True,
-             "verdicts_available": True},
+            {"resolved": [{"sid": "a"}], "unresolved": [], "resolver_ready": True},
+            {"resolved": [{"sid": "b"}], "unresolved": [], "resolver_ready": True},
         ]
         out = cs.resolve_sensors([f"sid-{i}" for i in range(150)])
         assert out["resolver_ready"] is True
-        # any chunk carrying a verdict means verdicts came back for this batch.
-        assert out["verdicts_available"] is True
 
     def test_resolve_sensors_readiness_is_pessimistic_across_chunks(self, cs, mock_org):
         # One chunk served by a datacenter without the resolver makes the whole
         # merged answer unreliable: report not-ready rather than averaging it away.
         mock_org.client.request.side_effect = [
-            {"resolved": [{"sid": "a"}], "unresolved": [], "resolver_ready": True,
-             "verdicts_available": False},
-            {"resolved": [], "unresolved": ["x"], "resolver_ready": False,
-             "verdicts_available": False},
+            {"resolved": [{"sid": "a"}], "unresolved": [], "resolver_ready": True},
+            {"resolved": [], "unresolved": ["x"], "resolver_ready": False},
         ]
         out = cs.resolve_sensors([f"sid-{i}" for i in range(150)])
         assert out["resolver_ready"] is False
-        assert out["verdicts_available"] is False
 
-    def test_resolve_sensors_omits_signals_an_older_backend_never_sent(self, cs, mock_org):
-        # A gateway/DC that predates the flags must not gain a fabricated one.
+    def test_resolve_sensors_omits_a_signal_an_older_backend_never_sent(self, cs, mock_org):
+        # A gateway/DC that predates the flag must not gain a fabricated one.
         mock_org.client.request.return_value = {"resolved": [], "unresolved": ["x"]}
         out = cs.resolve_sensors(["sid-1"])
         assert out == {"resolved": [], "unresolved": ["x"]}
