@@ -1,6 +1,7 @@
 """Tests for pyproject.toml packaging and distribution."""
 
 import pathlib
+import re
 import sys
 
 import pytest
@@ -12,6 +13,12 @@ else:
 
 
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
+
+
+def _dep_name(requirement: str) -> str:
+    """Normalized distribution name from a PEP 508 requirement string."""
+    name = re.split(r"[<>=!~;\[\s]", requirement, maxsplit=1)[0]
+    return name.strip().lower().replace("_", "-")
 
 
 class TestPyprojectToml:
@@ -54,6 +61,42 @@ class TestPyprojectToml:
         dev_deps = data["project"].get("optional-dependencies", {}).get("dev", [])
         dep_names = [d.split("==")[0].split(">=")[0] for d in dev_deps]
         assert "pytest" in dep_names
+
+    def test_toon_format_is_not_a_hard_dependency(self):
+        """toon_format must stay out of [project.dependencies].
+
+        The only release satisfying our range is a pre-release (0.9.0b1), and
+        resolvers that reject transitive pre-releases (uv) refuse to install
+        any limacharlie version that requires it -- they silently backtrack to
+        an older release instead. TOON is one of six opt-in --output formats,
+        so it belongs in an extra rather than stranding every uv user.
+        """
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        deps = data["project"].get("dependencies", [])
+        toon_deps = [d for d in deps if _dep_name(d) == "toon-format"]
+        assert not toon_deps, (
+            f"toon_format must be an optional extra, not a hard dependency: {toon_deps}"
+        )
+
+    def test_toon_extra_defined(self):
+        """The 'toon' extra restores TOON output for anyone who wants it."""
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        extras = data["project"].get("optional-dependencies", {})
+        assert "toon" in extras, "Missing 'toon' optional-dependencies group"
+        assert [d for d in extras["toon"] if _dep_name(d) == "toon-format"], (
+            f"The 'toon' extra should require toon_format, got {extras['toon']}"
+        )
+
+    def test_dev_extra_includes_toon(self):
+        """CI installs [dev]; it must keep exercising the TOON output path."""
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        dev_deps = data["project"].get("optional-dependencies", {}).get("dev", [])
+        assert [d for d in dev_deps if _dep_name(d) == "toon-format"], (
+            f"The 'dev' extra should install toon_format, got {dev_deps}"
+        )
 
     def test_classifiers_present(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:

@@ -11,6 +11,10 @@ Python SDK and command-line interface for the [LimaCharlie](https://limacharlie.
 
 ```bash
 pip install limacharlie
+
+# Optional: adds the TOON output format (limacharlie --output toon)
+pip install 'limacharlie[toon]'
+uv tool install limacharlie --with 'toon-format>=0.9.0b1'   # uv equivalent
 ```
 
 ```bash

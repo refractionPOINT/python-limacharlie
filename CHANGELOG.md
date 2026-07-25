@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Dependencies & Python support
+
+- **`toon_format` moved to an optional `toon` extra** (was a hard dependency).
+  The only `toon_format` release in our supported range is a pre-release
+  (`0.9.0b1`), and resolvers that refuse transitive pre-releases - uv among
+  them - cannot install *any* limacharlie version that requires it. uv
+  backtracks silently to 5.3.0 instead, so `uv tool install limacharlie` and
+  `uvx limacharlie` have been stuck on the last release predating the
+  dependency, with `uv tool upgrade` reporting "Nothing to upgrade". Pinning
+  the exact pre-release would not help: uv honours pre-release specifiers only
+  on direct requirements, never on transitive ones. **Behavior change:** a
+  default install no longer supports `--output toon`.
+  `pip install 'limacharlie[toon]'` restores it; under uv, name the package
+  directly (`uv tool install limacharlie --with 'toon-format>=0.9.0b1'`),
+  because asking uv for the extra hits the same transitive pre-release rule.
+  The other five output formats are unaffected, and requesting TOON without
+  the encoder now points at both install forms.
+
 ## 5.6.0 - July 30, 2026
 
 ### Search
