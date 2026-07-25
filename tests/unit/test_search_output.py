@@ -9,6 +9,7 @@ should pass through unchanged.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 import time
@@ -503,6 +504,10 @@ class TestOutputSearchResults:
         captured = capsys.readouterr()
         assert "type: events" in captured.out
 
+    @pytest.mark.skipif(
+        importlib.util.find_spec("toon_format") is None,
+        reason="requires the optional 'toon' extra: pip install 'limacharlie[toon]'",
+    )
     def test_toon_format_passes_raw(self, capsys):
         """TOON output should pass raw results unchanged."""
         results = [_make_search_result("events", rows=[_make_event_row()])]

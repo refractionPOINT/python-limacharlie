@@ -1,10 +1,13 @@
 """Tests for limacharlie.output module."""
 
 import json
+import sys
 from unittest.mock import patch
 
+import pytest
 import yaml
 
+import limacharlie.output as output_mod
 from limacharlie.output import (
     format_output,
     format_json,
@@ -21,7 +24,15 @@ from limacharlie.output import (
     _table_value,
 )
 
-import toon_format
+try:
+    import toon_format
+except ImportError:  # toon_format ships in the optional 'toon' extra.
+    toon_format = None
+
+requires_toon = pytest.mark.skipif(
+    toon_format is None,
+    reason="requires the optional 'toon' extra: pip install 'limacharlie[toon]'",
+)
 
 
 class TestFormatJson:
@@ -56,6 +67,7 @@ class TestFormatYaml:
         assert parsed == [1, 2, 3]
 
 
+@requires_toon
 class TestFormatToon:
     def test_dict_roundtrip(self):
         data = {"name": "Alice", "age": 30}
@@ -99,18 +111,61 @@ class TestFormatToon:
     def test_empty_list(self):
         assert toon_format.decode(format_toon([])) == []
 
-    def test_raises_import_error_when_missing(self):
-        """format_toon should raise a descriptive ImportError if the
-        toon_format package is unavailable at call time."""
-        import limacharlie.output as output_mod
-        saved = output_mod._toon_format
-        output_mod._toon_format = None
-        try:
-            import pytest
-            with pytest.raises(ImportError, match="toon_format"):
-                format_toon({"a": 1})
-        finally:
-            output_mod._toon_format = saved
+
+class TestFormatToonMissingExtra:
+    """TOON output is opt-in: toon_format lives in the 'toon' extra, so a
+    default install has no encoder and every path into TOON has to say so."""
+
+    @pytest.fixture(autouse=True)
+    def _toon_unavailable(self, monkeypatch):
+        monkeypatch.setattr(output_mod, "_toon_format", None)
+
+    def test_format_toon_error_points_at_the_extra(self):
+        """The error has to name the extra, not the bare package: installing
+        toon_format by hand next to a pipx/uv-managed CLI does not put it on
+        the CLI's path."""
+        with pytest.raises(ImportError) as excinfo:
+            format_toon({"a": 1})
+        assert "limacharlie[toon]" in str(excinfo.value)
+
+    def test_format_output_toon_error_points_at_the_extra(self):
+        """--output toon routes through format_output, not format_toon."""
+        with pytest.raises(ImportError) as excinfo:
+            format_output({"a": 1}, fmt="toon")
+        assert "limacharlie[toon]" in str(excinfo.value)
+
+    def test_format_toon_error_offers_a_uv_form(self):
+        """`uv pip install 'limacharlie[toon]'` does not work: toon_format's
+        only in-range release is a pre-release, and uv honours pre-release
+        specifiers on direct requirements only. Told to install the extra, uv
+        silently backtracks to a limacharlie old enough not to want it. The
+        error has to give uv users a form that names toon-format directly."""
+        with pytest.raises(ImportError) as excinfo:
+            format_toon({"a": 1})
+        message = str(excinfo.value)
+        assert "uv" in message
+        assert "toon-format>=0.9.0b1" in message
+
+    def test_cli_reports_the_extra_without_a_traceback(self, monkeypatch, tmp_path, capsys):
+        """End users see a one-line hint and exit 1, not a stack trace."""
+        from limacharlie.cli import main
+
+        monkeypatch.setenv("LC_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            sys, "argv", ["limacharlie", "--output", "toon", "config", "show-paths"]
+        )
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+
+        assert excinfo.value.code == 1
+        err = capsys.readouterr().err
+        assert "limacharlie[toon]" in err
+        assert "Traceback" not in err
+
+    def test_other_formats_still_work(self):
+        """Only TOON degrades; the rest of --output is unaffected."""
+        assert json.loads(format_output({"a": 1}, fmt="json")) == {"a": 1}
+        assert yaml.safe_load(format_output({"a": 1}, fmt="yaml")) == {"a": 1}
 
 
 class TestFormatCsv:
@@ -220,21 +275,25 @@ class TestFormatOutput:
         result = format_output({"key": "val"}, fmt="yaml")
         assert yaml.safe_load(result) == {"key": "val"}
 
+    @requires_toon
     def test_toon_format(self):
         result = format_output({"key": "val"}, fmt="toon")
         assert toon_format.decode(result) == {"key": "val"}
 
+    @requires_toon
     def test_toon_respects_field_selection(self):
         data = [{"name": "a", "value": 1, "extra": "x"}]
         result = format_output(data, fmt="toon", fields=["name", "value"])
         decoded = toon_format.decode(result)
         assert decoded == [{"name": "a", "value": 1}]
 
+    @requires_toon
     def test_toon_respects_jmespath_filter(self):
         data = {"items": [1, 2, 3]}
         result = format_output(data, fmt="toon", filter_expr="items[0]")
         assert toon_format.decode(result) == 1
 
+    @requires_toon
     def test_toon_respects_sort(self):
         data = [{"n": "b"}, {"n": "a"}, {"n": "c"}]
         result = format_output(data, fmt="toon", sort_by="n")

@@ -181,9 +181,12 @@ def format_toon(data: Any) -> str:
     See https://toonformat.dev for the spec.
     """
     if _toon_format is None:
+        # uv resolves the extra's pre-release only when toon-format is named as
+        # a direct requirement, hence the separate form.
         raise ImportError(
             "toon_format is required for --output toon. "
-            "Install with: pip install toon_format"
+            "Install with: pip install 'limacharlie[toon]'\n"
+            "With uv: uv tool install limacharlie --with 'toon-format>=0.9.0b1'"
         )
     return _toon_format.encode(data)
 

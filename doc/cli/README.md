@@ -31,6 +31,18 @@ limacharlie sensor list --output table    # Rich table (default for TTY)
 limacharlie sensor list --output jsonl    # Newline-delimited JSON
 ```
 
+`--output toon` needs the optional `toon` extra; the other formats work with a default install.
+
+```bash
+pip install 'limacharlie[toon]'
+```
+
+Under uv, name the package directly instead — `toon_format` only publishes a pre-release, and uv resolves pre-releases for directly named requirements only, so asking it for the extra makes it fall back to an older `limacharlie`:
+
+```bash
+uv tool install limacharlie --with 'toon-format>=0.9.0b1'
+```
+
 ## Filtering with JMESPath
 
 Use `--filter` with a [JMESPath](https://jmespath.org/) expression to extract or transform output. This works with every command and any output format.
