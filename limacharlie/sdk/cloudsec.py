@@ -204,7 +204,15 @@ class CloudSec:
             finding_class: Filter values (toxic_combination, public_exposure,
                 ciem_risk, privilege_escalation, vulnerability, misconfig,
                 coverage_gap), OR'd.
-            status: Filter values (open/resolved), OR'd.
+            status: Filter values (open/resolved/accepted), OR'd.
+                ``resolved`` means the risk is gone (mitigated or a false
+                positive); ``accepted`` is a LIVE risk acceptance — the risk
+                is still there and an owner signed off on carrying it, so it
+                is deliberately NOT rolled into ``resolved``. An acceptance
+                that passes its expiry, or that dispositioned an earlier
+                occurrence of a finding that closed and recurred, reads
+                ``open`` again. The same three values are the keys of the
+                ``status`` map returned by :meth:`get_finding_facets`.
             account: Cloud account filter values, OR'd.
             reachable: Only findings on (non-)reachable resources.
             kev: Only findings with (without) a KEV vulnerability.
@@ -286,9 +294,14 @@ class CloudSec:
             finding_id: The finding to disposition.
             kind: ``mitigated``, ``accepted``, ``false_positive``, or
                 ``open`` to clear the disposition and reopen the finding
-                (owner/ticket are kept).
+                (owner/ticket are kept). ``accepted`` puts the finding in
+                the ``accepted`` status — a live risk acceptance, not a
+                resolution.
             reason: Optional operator note.
-            expires_at: Unix seconds; only meaningful for ``accepted``.
+            expires_at: Unix seconds; only meaningful for ``accepted``, and
+                OPTIONAL — omitting it accepts the risk permanently, which
+                is a supported disposition. When set, the finding reopens
+                at that instant.
 
         Returns:
             ``{"ok": bool}``.
