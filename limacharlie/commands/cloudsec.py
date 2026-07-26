@@ -856,7 +856,9 @@ def _finding_filter_options(f):
     )(f)
     f = click.option(
         "--status", "statuses", multiple=True,
-        help="Filter by status (open/resolved); repeatable (OR).",
+        help="Filter by status (open/resolved/accepted); repeatable (OR). "
+             "'accepted' is a live risk acceptance (the risk remains, on purpose); "
+             "'resolved' means mitigated or false-positive.",
     )(f)
     f = click.option(
         "--class", "finding_classes", multiple=True,
@@ -1160,7 +1162,8 @@ def finding_get(ctx, finding_id) -> None:
               help="Resolution kind; 'open' reopens the finding.")
 @click.option("--reason", default=None, help="Optional operator note.")
 @click.option("--expires-at", default=None, type=int,
-              help="Unix seconds; only meaningful with --kind accepted.")
+              help="Unix seconds; only meaningful with --kind accepted. Omit for a "
+                   "permanent acceptance — an expiry is optional, not required.")
 @pass_context
 def finding_resolve(ctx, finding_id, kind, reason, expires_at) -> None:
     """Disposition (or reopen, with --kind open) FINDING_ID.
@@ -1183,7 +1186,8 @@ def finding_resolve(ctx, finding_id, kind, reason, expires_at) -> None:
               help="Resolution kind (reopen is single-finding only: use 'finding resolve --kind open').")
 @click.option("--reason", default=None, help="Optional operator note.")
 @click.option("--expires-at", default=None, type=int,
-              help="Unix seconds; only meaningful with --kind accepted.")
+              help="Unix seconds; only meaningful with --kind accepted. Omit for a "
+                   "permanent acceptance — an expiry is optional, not required.")
 @pass_context
 def finding_bulk_resolve(ctx, finding_ids, kind, reason, expires_at) -> None:
     """Apply one resolution to many findings.
