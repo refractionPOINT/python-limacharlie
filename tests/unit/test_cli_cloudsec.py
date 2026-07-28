@@ -409,12 +409,12 @@ class TestGraphAndQuery:
         p1, p2, p3 = _patches()
         with p1, p2, p3 as cls:
             result, inst = _invoke(
-                ["cloudsec", "query", "run", "--named", "public-buckets"], cls,
+                ["cloudsec", "query", "run", "--named", "public_data_stores"], cls,
                 return_value={"rows": []},
             )
             assert result.exit_code == 0, result.output
             inst.run_query.assert_called_once_with(
-                named="public-buckets", text=None, query=None, project=None,
+                named="public_data_stores", text=None, query=None, project=None,
             )
 
     def test_query_run_dsl_with_project(self):
@@ -424,14 +424,14 @@ class TestGraphAndQuery:
                 [
                     "cloudsec", "query", "run",
                     "--query-json", '{"match": "x"}',
-                    "--project", "a, b",
+                    "--project", "graph",
                 ],
                 cls,
                 return_value={"rows": []},
             )
             assert result.exit_code == 0, result.output
             inst.run_query.assert_called_once_with(
-                named=None, text=None, query={"match": "x"}, project=["a", "b"],
+                named=None, text=None, query={"match": "x"}, project="graph",
             )
 
     def test_query_run_requires_exactly_one_source(self):
@@ -861,11 +861,11 @@ class TestExport:
         p1, p2, p3 = _patches()
         with p1, p2, p3 as cls:
             result, inst = _invoke(
-                ["cloudsec", "export", "query", "--named", "public-buckets"], cls,
+                ["cloudsec", "export", "query", "--named", "public_data_stores"], cls,
             )
             assert result.exit_code == 0, result.output
             inst.export_query_csv.assert_called_once_with(
-                named="public-buckets", text=None, query=None, project=None,
+                named="public_data_stores", text=None, query=None, project=None,
             )
 
     def test_export_query_requires_exactly_one(self):
