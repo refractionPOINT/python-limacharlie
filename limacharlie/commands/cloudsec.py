@@ -16,7 +16,8 @@ the ``ext-cloud-security`` extension:
 
 Provider credentials and the cloudsec policies are hive records —
 manage them with the hive commands (``limacharlie hive list
-cloudsec_provider``, ``... cloudsec_policy``, ``... cloudsec_query``);
+--hive-name cloudsec_provider``, same for ``cloudsec_policy`` and
+``cloudsec_query``);
 the one provider command here is the pre-save credential preflight
 (``cloudsec provider test``).
 """
@@ -139,7 +140,7 @@ Disposition a finding: record an operator resolution, or reopen it.
 
 Examples:
   limacharlie cloudsec finding resolve fnd_abc... --kind mitigated --reason "SG tightened"
-  limacharlie cloudsec finding resolve fnd_abc... --kind accepted --expires-at 1767225600
+  limacharlie cloudsec finding resolve fnd_abc... --kind accepted --expires-at "$(date -d '+90 days' +%s)"
   limacharlie cloudsec finding resolve fnd_abc... --kind open
 """
 
@@ -276,7 +277,7 @@ List the named graph queries available in the query pack (name,
 title, description, and the underlying DSL).
 
 Saved org-defined queries live in the cloudsec_query hive
-(limacharlie hive list cloudsec_query).
+(limacharlie hive list --hive-name cloudsec_query).
 
 Example:
   limacharlie cloudsec query list
@@ -288,9 +289,9 @@ one of --named (a query-pack name), --text (a text query), or
 --query-json (a raw DSL object). Returns alias->urn rows.
 
 Examples:
-  limacharlie cloudsec query run --named public-buckets
-  limacharlie cloudsec query run --text "public bucket with sensitive data"
-  limacharlie cloudsec query run --query-json '{"match": ...}' --project a,b
+  limacharlie cloudsec query run --named public_data_stores
+  limacharlie cloudsec query run --text 'MATCH (d:DataStore {is_sensitive: true})<-[:has_permission_on]-(i:Identity {is_external: true}) RETURN i, d'
+  limacharlie cloudsec query run --query-json '{"anchor": ...}' --project graph
 """
 
 _EXPLAIN_COMPLIANCE_REPORT = """\
@@ -505,8 +506,8 @@ selectors as 'query run' (exactly one of --named / --text /
 --query-json).
 
 Examples:
-  limacharlie cloudsec export query --named public-buckets -o rows.csv
-  limacharlie cloudsec export query --text "public bucket with sensitive data"
+  limacharlie cloudsec export query --named public_data_stores -o rows.csv
+  limacharlie cloudsec export query --text 'MATCH (d:DataStore {is_sensitive: true})<-[:has_permission_on]-(i:Identity {is_external: true}) RETURN i, d'
 """
 
 _EXPLAIN_PROVIDER_TEST = """\
@@ -541,7 +542,7 @@ keys, network tags, resource types) — so you author against real
 tokens instead of guessing.
 
 The policies themselves are hive records (limacharlie hive list
-cloudsec_policy).
+--hive-name cloudsec_policy).
 
 Example:
   limacharlie cloudsec policy vocabulary
@@ -1458,16 +1459,16 @@ def query_list(ctx) -> None:
 @click.option("--named", default=None, help="A query-pack name (see 'query list').")
 @click.option("--text", default=None, help="A text query.")
 @click.option("--query-json", default=None, help="A raw query DSL object as JSON.")
-@click.option("--project", default=None,
-              help="Comma-separated aliases to project into the rows.")
+@click.option("--project", type=click.Choice(["graph"]), default=None,
+              help="Also return a drawable projection: 'graph' adds an induced subgraph over the matched URNs.")
 @pass_context
 def query_run(ctx, named, text, query_json, project) -> None:
     """Run a graph query (one of --named / --text / --query-json).
 
     \b
     Examples:
-      limacharlie cloudsec query run --named public-buckets
-      limacharlie cloudsec query run --text "public bucket with sensitive data"
+      limacharlie cloudsec query run --named public_data_stores
+      limacharlie cloudsec query run --text 'MATCH (d:DataStore {is_sensitive: true})<-[:has_permission_on]-(i:Identity {is_external: true}) RETURN i, d'
     """
     _one_of("the query", named=named, text=text, query_json=query_json)
     query = None
@@ -1476,10 +1477,9 @@ def query_run(ctx, named, text, query_json, project) -> None:
         # Unconditional: a JSON `null` must not slip through as "no query".
         if not isinstance(query, dict):
             raise click.BadParameter("must decode to a JSON object", param_hint="--query-json")
-    project_list = [p.strip() for p in project.split(",") if p.strip()] if project else None
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.run_query(
-        named=named, text=text, query=query, project=project_list,
+        named=named, text=text, query=query, project=project,
     ))
 
 
@@ -2054,8 +2054,8 @@ def export_compliance(ctx, framework, assignment, output_path) -> None:
 @click.option("--named", default=None, help="A query-pack name (see 'query list').")
 @click.option("--text", default=None, help="A text query.")
 @click.option("--query-json", default=None, help="A raw query DSL object as JSON.")
-@click.option("--project", default=None,
-              help="Comma-separated aliases to project into the rows.")
+@click.option("--project", type=click.Choice(["graph"]), default=None,
+              help="Also return a drawable projection: 'graph' adds an induced subgraph over the matched URNs.")
 @_export_output_option
 @pass_context
 def export_query(ctx, named, text, query_json, project, output_path) -> None:
@@ -2063,7 +2063,7 @@ def export_query(ctx, named, text, query_json, project, output_path) -> None:
 
     \b
     Examples:
-      limacharlie cloudsec export query --named public-buckets -o rows.csv
+      limacharlie cloudsec export query --named public_data_stores -o rows.csv
     """
     _one_of("the query", named=named, text=text, query_json=query_json)
     query = None
@@ -2071,8 +2071,7 @@ def export_query(ctx, named, text, query_json, project, output_path) -> None:
         query = _parse_json_opt(query_json, "--query-json")
         if not isinstance(query, dict):
             raise click.BadParameter("must decode to a JSON object", param_hint="--query-json")
-    project_list = [p.strip() for p in project.split(",") if p.strip()] if project else None
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_query_csv(
-        named=named, text=text, query=query, project=project_list,
+        named=named, text=text, query=query, project=project,
     ), output_path)

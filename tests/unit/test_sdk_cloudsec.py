@@ -225,16 +225,16 @@ class TestGraphAndQueries:
 
     def test_run_query_named(self, cs, mock_org):
         mock_org.client.request.return_value = {"rows": []}
-        cs.run_query(named="public-buckets")
+        cs.run_query(named="public_data_stores")
         url, body = _post_call(mock_org)
         assert url == f"cloudsec/{OID}/query"
-        assert body == {"named": "public-buckets"}
+        assert body == {"named": "public_data_stores"}
 
     def test_run_query_dsl_with_projection(self, cs, mock_org):
         mock_org.client.request.return_value = {"rows": []}
-        cs.run_query(query={"match": "x"}, project=["a", "b"])
+        cs.run_query(query={"match": "x"}, project="graph")
         _, body = _post_call(mock_org)
-        assert body == {"query": {"match": "x"}, "project": ["a", "b"]}
+        assert body == {"query": {"match": "x"}, "project": "graph"}
 
 
 class TestCompliance:
@@ -573,11 +573,11 @@ class TestCsvExports:
 
     def test_export_query_csv(self, cs, mock_org):
         mock_org.client.request.return_value = "a\n"
-        cs.export_query_csv(named="public-buckets")
+        cs.export_query_csv(named="public_data_stores")
         args, kwargs = mock_org.client.request.call_args
         assert args == ("POST", f"cloudsec/{OID}/query")
         assert kwargs["query_params"] == [("format", "csv")]
-        assert json.loads(kwargs["raw_body"]) == {"named": "public-buckets"}
+        assert json.loads(kwargs["raw_body"]) == {"named": "public_data_stores"}
         assert kwargs["raw_response"] is True
 
     def test_export_inventory_csv_all_accounts(self, cs, mock_org):

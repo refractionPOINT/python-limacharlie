@@ -107,7 +107,7 @@ def _query_run_body(
     named: str | None,
     text: str | None,
     query: dict[str, Any] | None,
-    project: list[str] | None,
+    project: str | None,
 ) -> dict[str, Any]:
     """Assemble the graph-query POST body (shared by run/export)."""
     body: dict[str, Any] = {}
@@ -652,7 +652,7 @@ class CloudSec:
         named: str | None = None,
         text: str | None = None,
         query: dict[str, Any] | None = None,
-        project: list[str] | None = None,
+        project: str | None = None,
     ) -> dict[str, Any]:
         """Run a graph query. Provide exactly one of named / text / query.
 
@@ -660,7 +660,9 @@ class CloudSec:
             named: A query-pack name (see :meth:`list_queries`).
             text: A text query.
             query: A raw DSL object.
-            project: Optional aliases to project into the rows.
+            project: Optional drawable projection; the only value is
+                ``"graph"``, which adds an induced subgraph (``nodes`` +
+                ``edges``) over the matched URNs next to the rows.
 
         Returns:
             ``{"rows": [{alias: urn, ...}, ...]}``.
@@ -1148,7 +1150,7 @@ class CloudSec:
         named: str | None = None,
         text: str | None = None,
         query: dict[str, Any] | None = None,
-        project: list[str] | None = None,
+        project: str | None = None,
     ) -> str:
         """Run a graph query and export the rows as CSV text.
 
