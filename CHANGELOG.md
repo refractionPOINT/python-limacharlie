@@ -1,5 +1,42 @@
 # Changelog
 
+## 5.6.1 - July 30, 2026
+
+### Dependencies & Python support
+
+- **`toon_format` moved to an optional `toon` extra** (was a hard dependency).
+  The only `toon_format` release in our supported range is a pre-release
+  (`0.9.0b1`), and uv before 0.12 refuses pre-releases reached through another
+  package's metadata, so it cannot install any limacharlie version that
+  requires one. It backtracks silently to 5.3.0 instead, so
+  `uv tool install limacharlie` and `uvx limacharlie` land on the last release
+  predating the dependency, with `uv tool upgrade` reporting "Nothing to
+  upgrade". Pinning the exact pre-release does not help: those uv versions
+  honour pre-release specifiers on direct requirements only. uv 0.12.0 changed
+  its default to resolve transitive pre-releases the way pip does, so uv 0.12
+  and later install the newest release either way; the extra is what unblocks
+  everyone still on 0.11 or older. **Behavior change:** a default install no
+  longer supports `--output toon`. `pip install 'limacharlie[toon]'` restores
+  it. On uv older than 0.12, name the package directly
+  (`uv tool install limacharlie --with 'toon-format>=0.9.0b1'`), because asking
+  those versions for the extra hits the same transitive pre-release rule. The
+  other five output formats are unaffected. Found and fixed by
+  [@Nynir](https://github.com/Nynir) in #325, rebased and extended in #331
+  (#324).
+- **`--output toon` without the encoder now fails before the command runs.**
+  The check moved into the CLI's argument handling, so a search no longer runs
+  to completion, bills the organization, and buffers every page only to find
+  at render time that it cannot encode the result. `--help` and shell
+  completion still work without the extra. The error names both install forms
+  (#331).
+
+### Thanks
+
+- [@Nynir](https://github.com/Nynir) for tracking down why uv installs were
+  silently stuck on 5.3.0 and sending the fix (#324, #325). The failure mode
+  was easy to miss from our side: uv reported success, just for a release
+  three months of features behind.
+
 ## 5.6.0 - July 30, 2026
 
 ### Search
