@@ -431,3 +431,202 @@ class Search:
             self._org.client.request("DELETE", f"search/{query_id}", alt_root=search_url)
         except Exception:
             pass
+
+    # -----------------------------------------------------------------
+    # Open queries
+    # -----------------------------------------------------------------
+
+    def list_open_queries(
+        self,
+        state: str = "all",
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict[str, Any]:
+        """List the searches this organization currently has open.
+
+        A search is "open" from the moment it is submitted until it finishes,
+        is cancelled, or its state expires.  That is not the same population
+        as the searches consuming the organization's concurrency limit: a
+        paginated search sitting between pages is open and resumable but
+        holds no slot.  The response reports both numbers separately, so
+        ``slotsHeld`` (not ``count``) is what ``limit`` applies to.
+
+        This is the endpoint to reach for when a search is refused with
+        "maximum concurrent queries reached": it names what is holding the
+        slots, how long each has been running, and how much each has
+        scanned, so the query worth cancelling is identifiable.
+
+        Args:
+            state: Which searches to return.  ``"all"`` (default),
+                ``"executing"`` (a page is running or a slot is held and
+                the work has not reached a worker yet) or ``"idle"``
+                (open and resumable, consuming no slot).
+            limit: Page size.  Server default is 50, clamped to 200.
+            offset: Offset into the listing, newest first.
+
+        Returns:
+            dict with:
+              ``oid``, ``limit`` (the organization's concurrency limit),
+              ``slotsHeld``, ``count``, ``truncated``, and ``queries``.
+
+            Each entry in ``queries`` carries ``queryId``, ``state``,
+            ``holdsSlot``, the query text and time range as submitted,
+            ``submittedBy`` / ``userAgent``, ``submittedAt``, timing
+            (``startedAt``, ``runningForMs``, ``lastActivityAt``),
+            progress (``pagesCompleted``, ``batchesCompleted``,
+            ``batchesInScope``, ``progressPercent``, ``eventsScanned``,
+            ``billedEvents``), and the two expiries ``slotExpiresAt`` and
+            ``resumableUntil``.
+
+            ``progressPercent`` is absent when the scope estimate was
+            unavailable, which means progress cannot be computed rather
+            than that nothing has been done.  Progress advances at page
+            boundaries, so a search that returns everything in one page -
+            any aggregation, which does not paginate - reports 0 for its
+            whole life.
+
+            ``state`` is ``"unknown"`` with a null ``holdsSlot`` when the
+            deployment is not tracking slots per query; the field says so
+            rather than guessing.
+
+        Raises:
+            SearchError: if the listing cannot be retrieved.
+        """
+        if state not in ("all", "executing", "idle"):
+            raise ValidationError(
+                f"state must be one of all, executing, idle (got {state!r})"
+            )
+
+        query_params: dict[str, str] = {"state": state}
+        if limit is not None:
+            query_params["limit"] = str(int(limit))
+        if offset is not None:
+            query_params["offset"] = str(int(offset))
+
+        try:
+            return self._org.client.request(
+                "GET", f"search/{self._org.oid}/queries",
+                query_params=query_params,
+                alt_root=self._get_search_url(),
+            )
+        except (SearchError, ValidationError):
+            raise
+        except Exception as exc:
+            raise SearchError(
+                f"Failed to list open queries: {_exc_message(exc)}",
+                region=self._extract_region(),
+                oid=self._org.oid,
+            ) from exc
+
+    def iter_open_queries(
+        self,
+        state: str = "all",
+        page_size: int = 200,
+    ) -> Generator[dict[str, Any], None, None]:
+        """Yield every open search, walking the listing page by page.
+
+        Pages by offset against a listing ordered newest first.  An
+        organization can open and finish searches while this iterates, so
+        treat the result as a sample rather than a transaction; the
+        endpoint reports ``count`` if an exact total at one instant is what
+        is needed.
+
+        Args:
+            state: Same filter as :meth:`list_open_queries`.
+            page_size: Rows per request.  Clamped to 200 by the server.
+
+        Yields:
+            dict: One open search per entry, same shape as the ``queries``
+            entries of :meth:`list_open_queries`.
+        """
+        offset = 0
+        seen: set[str] = set()
+        while True:
+            page = self.list_open_queries(state=state, limit=page_size, offset=offset)
+            rows = page.get("queries") or []
+            for row in rows:
+                # The filter is applied after paging, so a page can come back
+                # empty while more entries exist; de-duplicate by id because
+                # entries leaving the index mid-walk shift later offsets back.
+                query_id = row.get("queryId")
+                if query_id and query_id in seen:
+                    continue
+                if query_id:
+                    seen.add(query_id)
+                yield row
+
+            # truncated describes the index page rather than the filtered
+            # rows, so it - not len(rows) - is what says whether to continue.
+            if not page.get("truncated"):
+                return
+            offset += page_size
+
+    def get_limits(self) -> dict[str, Any]:
+        """Report this organization's resolved search limits.
+
+        Every limit here is otherwise discoverable only by hitting it: a
+        refusal for concurrency arrives with no indication of what the cap
+        was, and a paginated search stops being resumable with no way to
+        have known the window.  Read this once and size the client's
+        behaviour to it - how many searches to run at a time, how long a
+        user may leave one paused, whether to offer the open-query view.
+
+        Two conventions in the response are load-bearing:
+
+        * A limit that is not enforced is ``None``, never ``0``.  Several
+          of these use zero internally as the sentinel for "disabled"; in
+          a document of limits, ``0`` would read as "zero allowed".
+        * Values are the ones actually applied, not raw configuration.
+          ``pageResultsForSeconds`` in particular reflects the resolved
+          retention, which can differ from what is configured.
+
+        Returns:
+            dict with:
+              ``oid``, and the groups ``concurrency``, ``pagination``,
+              ``retention``, ``execution``, ``request`` and
+              ``capabilities``.
+
+            ``concurrency.maxConcurrentQueries`` is how many searches may
+            be *executing* at once; a search parked between pages consumes
+            nothing, so this is not a cap on how many may be open.
+
+            ``pagination`` carries ``resultsPerPage``,
+            ``maxPageDurationSeconds`` (reaching it is normal for a broad
+            query and does not mean the search failed) and
+            ``maxCursorBytes``.
+
+            ``retention`` carries ``resumableForSeconds`` - measured from
+            submission and never extended by activity - and
+            ``pageResultsForSeconds``.  The latter can be shorter, in which
+            case re-reading an older page recomputes it rather than
+            failing, so it is a latency characteristic and not a deadline.
+
+            ``execution`` carries ``maxQueryDurationSeconds``,
+            ``maxAggregationDurationSeconds`` and ``maxResponseBytes``,
+            each ``None`` when not enforced.
+
+            ``capabilities.openQueryListing`` says whether
+            :meth:`list_open_queries` reports searches that are open but
+            idle.  When false it can still be called, but only sees
+            searches currently holding a slot.
+
+            Fields are additive: ignore ones you do not recognise, and
+            treat an absent field as "not applicable to this deployment"
+            rather than as zero.
+
+        Raises:
+            SearchError: if the limits cannot be retrieved.
+        """
+        try:
+            return self._org.client.request(
+                "GET", f"search/{self._org.oid}/limits",
+                alt_root=self._get_search_url(),
+            )
+        except (SearchError, ValidationError):
+            raise
+        except Exception as exc:
+            raise SearchError(
+                f"Failed to get search limits: {_exc_message(exc)}",
+                region=self._extract_region(),
+                oid=self._org.oid,
+            ) from exc

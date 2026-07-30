@@ -805,3 +805,211 @@ class TestSearchCancellation:
         delete_calls = [c for c in mock_org.client.request.call_args_list
                         if c[0][0] == "DELETE"]
         assert len(delete_calls) == 1
+
+
+class TestListOpenQueries:
+    """The listing exists to answer "why is my org at its limit", so what
+    matters is that the request is addressed to the right org, that a bad
+    filter never reaches the server, and that transport failures arrive as a
+    SearchError carrying enough context to act on."""
+
+    def test_requests_the_org_scoped_path(self, search, mock_org):
+        mock_org.client.request.return_value = {"queries": []}
+
+        search.list_open_queries()
+
+        args, kwargs = mock_org.client.request.call_args
+        assert args[0] == "GET"
+        # The oid is part of the path, not a query parameter: the listing is
+        # per-org and must never be addressable without naming one.
+        assert args[1] == "search/test-oid/queries"
+        assert kwargs["query_params"] == {"state": "all"}
+        assert kwargs["alt_root"].endswith("/v1")
+
+    def test_passes_the_filter_and_paging_through(self, search, mock_org):
+        mock_org.client.request.return_value = {"queries": []}
+
+        search.list_open_queries(state="executing", limit=25, offset=50)
+
+        _, kwargs = mock_org.client.request.call_args
+        assert kwargs["query_params"] == {"state": "executing", "limit": "25", "offset": "50"}
+
+    def test_omits_paging_when_not_asked_for(self, search, mock_org):
+        mock_org.client.request.return_value = {"queries": []}
+
+        search.list_open_queries()
+
+        # Sending limit=None as a string would make the server clamp to its
+        # own default via the malformed-value path rather than via the
+        # documented one.
+        _, kwargs = mock_org.client.request.call_args
+        assert "limit" not in kwargs["query_params"]
+        assert "offset" not in kwargs["query_params"]
+
+    @pytest.mark.parametrize("bad", ["running", "ALL", "", "idle ", None])
+    def test_rejects_an_unknown_state_without_calling_the_api(self, search, mock_org, bad):
+        with pytest.raises(ValidationError):
+            search.list_open_queries(state=bad)
+        mock_org.client.request.assert_not_called()
+
+    def test_returns_the_response_unchanged(self, search, mock_org):
+        payload = {
+            "oid": "test-oid",
+            "limit": 10,
+            "slotsHeld": 1,
+            "count": 3,
+            "truncated": False,
+            "queries": [{"queryId": "q1", "state": "idle", "holdsSlot": False}],
+        }
+        mock_org.client.request.return_value = payload
+
+        # Deliberately not reshaped: slotsHeld vs count is the distinction the
+        # endpoint exists to make, and flattening it here would lose it.
+        assert search.list_open_queries() == payload
+
+    def test_transport_failure_becomes_a_search_error_with_context(self, search, mock_org):
+        mock_org.client.request.side_effect = ConnectionError("connection reset")
+
+        with pytest.raises(SearchError) as exc_info:
+            search.list_open_queries()
+
+        err = exc_info.value
+        assert "Failed to list open queries" in str(err)
+        assert err.region == "9157798c50af372c"
+        assert err.oid == "test-oid"
+
+    def test_a_search_error_from_below_is_not_double_wrapped(self, search, mock_org):
+        mock_org.client.request.side_effect = SearchError("already contextual", oid="test-oid")
+
+        with pytest.raises(SearchError) as exc_info:
+            search.list_open_queries()
+
+        assert "Failed to list open queries" not in str(exc_info.value)
+
+    def test_error_context_survives_a_url_with_no_region(self, search_no_region, mock_org_no_region):
+        mock_org_no_region.client.request.side_effect = ConnectionError("boom")
+
+        with pytest.raises(SearchError) as exc_info:
+            search_no_region.list_open_queries()
+
+        assert exc_info.value.region is None
+        assert exc_info.value.oid == "test-oid"
+
+
+class TestIterOpenQueries:
+    def test_stops_after_a_page_that_is_not_truncated(self, search, mock_org):
+        mock_org.client.request.return_value = {
+            "queries": [{"queryId": "q1"}, {"queryId": "q2"}],
+            "truncated": False,
+        }
+
+        assert [r["queryId"] for r in search.iter_open_queries()] == ["q1", "q2"]
+        assert mock_org.client.request.call_count == 1
+
+    def test_walks_every_page_by_offset(self, search, mock_org):
+        mock_org.client.request.side_effect = [
+            {"queries": [{"queryId": "q1"}], "truncated": True},
+            {"queries": [{"queryId": "q2"}], "truncated": True},
+            {"queries": [{"queryId": "q3"}], "truncated": False},
+        ]
+
+        assert [r["queryId"] for r in search.iter_open_queries(page_size=1)] == ["q1", "q2", "q3"]
+        offsets = [c.kwargs["query_params"].get("offset") for c in mock_org.client.request.call_args_list]
+        assert offsets == ["0", "1", "2"]
+
+    def test_keeps_walking_past_a_page_the_filter_emptied(self, search, mock_org):
+        # The server applies ?state= after paging, so a page can come back
+        # empty while more entries exist. Stopping on an empty page would
+        # silently truncate the answer.
+        mock_org.client.request.side_effect = [
+            {"queries": [], "truncated": True},
+            {"queries": [{"queryId": "q9"}], "truncated": False},
+        ]
+
+        assert [r["queryId"] for r in search.iter_open_queries(state="idle", page_size=2)] == ["q9"]
+        assert mock_org.client.request.call_count == 2
+
+    def test_does_not_repeat_an_entry_when_the_listing_shifts(self, search, mock_org):
+        # Entries leave the index as their searches finish, which shifts later
+        # offsets back and can re-serve one that was already yielded.
+        mock_org.client.request.side_effect = [
+            {"queries": [{"queryId": "q1"}, {"queryId": "q2"}], "truncated": True},
+            {"queries": [{"queryId": "q2"}, {"queryId": "q3"}], "truncated": False},
+        ]
+
+        assert [r["queryId"] for r in search.iter_open_queries(page_size=2)] == ["q1", "q2", "q3"]
+
+    def test_an_org_with_nothing_open_yields_nothing(self, search, mock_org):
+        mock_org.client.request.return_value = {"queries": [], "count": 0, "truncated": False}
+
+        assert list(search.iter_open_queries()) == []
+
+
+class TestGetLimits:
+    """The limits endpoint tells a client how to size its own behaviour, so
+    what matters is that it is addressed to the right org, that the response
+    passes through unaltered, and that a failure arrives as a SearchError with
+    enough context to act on."""
+
+    def test_requests_the_org_scoped_path(self, search, mock_org):
+        mock_org.client.request.return_value = {"oid": "test-oid"}
+
+        search.get_limits()
+
+        args, kwargs = mock_org.client.request.call_args
+        assert args[0] == "GET"
+        # The oid is part of the path, not a query parameter: limits are
+        # per-org and must never be addressable without naming one.
+        assert args[1] == "search/test-oid/limits"
+        assert kwargs["alt_root"].endswith("/v1")
+        # No query parameters: the endpoint takes none, and sending some
+        # would be silently ignored rather than erroring.
+        assert "query_params" not in kwargs
+
+    def test_returns_the_payload_unaltered(self, search, mock_org):
+        payload = {
+            "oid": "test-oid",
+            "concurrency": {"maxConcurrentQueries": 10},
+            "retention": {"resumableForSeconds": 600, "pageResultsForSeconds": 600},
+            "execution": {
+                "maxQueryDurationSeconds": None,
+                "maxAggregationDurationSeconds": None,
+                "maxResponseBytes": None,
+            },
+            "capabilities": {"openQueryListing": True},
+        }
+        mock_org.client.request.return_value = payload
+
+        assert search.get_limits() == payload
+
+    def test_preserves_none_for_unenforced_limits(self, search, mock_org):
+        """None and 0 mean opposite things here - "unlimited" versus "nothing
+        allowed" - so the SDK must not coerce one into the other."""
+        mock_org.client.request.return_value = {
+            "execution": {"maxQueryDurationSeconds": None, "maxResponseBytes": None},
+        }
+
+        result = search.get_limits()
+
+        assert result["execution"]["maxQueryDurationSeconds"] is None
+        assert result["execution"]["maxResponseBytes"] is None
+
+    def test_wraps_transport_failures(self, search, mock_org):
+        mock_org.client.request.side_effect = RuntimeError("connection reset")
+
+        with pytest.raises(SearchError) as excinfo:
+            search.get_limits()
+
+        assert "Failed to get search limits" in str(excinfo.value)
+        assert "connection reset" in str(excinfo.value)
+
+    def test_does_not_rewrap_a_search_error(self, search, mock_org):
+        """A SearchError raised deeper already carries its own context;
+        wrapping it again would bury the original message."""
+        original = SearchError("original failure")
+        mock_org.client.request.side_effect = original
+
+        with pytest.raises(SearchError) as excinfo:
+            search.get_limits()
+
+        assert excinfo.value is original

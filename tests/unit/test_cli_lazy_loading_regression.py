@@ -204,7 +204,8 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "replay": frozenset({"run"}),
     "schema": frozenset({"get", "list", "reset"}),
     "search": frozenset({
-        "checkpoint-show", "checkpoints", "estimate", "run",
+        "checkpoint-show", "checkpoints", "estimate", "limits", "queries",
+        "run",
         "saved-create", "saved-delete", "saved-get", "saved-list",
         "saved-run", "validate",
     }),

@@ -13,6 +13,9 @@ limacharlie search estimate --query '* | NEW_PROCESS | event/COMMAND_LINE contai
 limacharlie search saved-list                        # Saved queries
 limacharlie search saved-create --name my-query --query '* | NEW_PROCESS | event/COMMAND_LINE contains "powershell"'
 limacharlie search saved-run --name my-query
+limacharlie search queries                           # What this org has open right now
+limacharlie search queries --state executing         # Only what is using a concurrency slot
+limacharlie search limits                            # This org's resolved search limits
 ```
 
 ## ioc

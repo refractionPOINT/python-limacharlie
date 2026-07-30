@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Search
+
+- **List open searches**: `limacharlie search queries [--state all|executing|idle]` /
+  `Search.list_open_queries()` and `Search.iter_open_queries()` report the searches
+  an organization currently has open and which of them consume its concurrency
+  limit. Those are different numbers - a paginated search between pages is open
+  and resumable but holds no slot - so the response reports `slotsHeld` separately
+  from `count`. Each entry carries the query text and time range as submitted, who
+  submitted it and from which client, how long the current page has been running,
+  progress, how much it has scanned and been billed for, and when its slot and its
+  resumability expire. This is what to reach for after a "maximum concurrent
+  queries reached" rejection: it names what is holding the slots so the query worth
+  cancelling is identifiable.
+
+- **Report search limits**: `limacharlie search limits` / `Search.get_limits()` report the
+  resolved per-organization search limits: how many searches may run at once, the shape of a
+  page, how long results stay resumable, how long page results are kept, and any enforced
+  execution deadlines. Every one of these was previously discoverable only by hitting it - a
+  refusal for concurrency does not say what the cap was, and a paginated search stops being
+  resumable with no way to have known the window. A limit that is not enforced is reported as
+  `None` rather than `0`, since in a set of limits a zero would read as "nothing allowed".
+  `capabilities.openQueryListing` says whether `search queries` can report searches that are
+  open but idle on this deployment.
+
 ### Organization
 
 - **Set org description (org info)**: `Organization.set_description()` /

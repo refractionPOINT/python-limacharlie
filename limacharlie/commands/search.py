@@ -1775,6 +1775,173 @@ def validate(ctx: click.Context, query: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# queries
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_QUERIES = """\
+List the searches this organization currently has open, and which of
+them are consuming its concurrency limit.
+
+These are two different numbers.  A paginated search sitting between
+pages is open and resumable but holds no slot, so an organization can
+have many searches open while none of them counts against the limit.
+The output reports 'slots' (what the limit applies to) separately from
+'open' (everything the organization has not finished).
+
+Reach for this when a search is refused with "maximum concurrent
+queries reached": it names what is holding the slots, who submitted
+each one, how long it has been running and how much it has scanned, so
+the query worth cancelling is identifiable.  Cancel one with
+'limacharlie search cancel --query-id <id>'.
+
+  --state executing   only searches consuming a slot
+  --state idle        only searches that are open but consuming nothing
+  --state all         both (default)
+
+Progress advances at page boundaries, so a search that returns
+everything in one page - any aggregation, which does not paginate -
+shows 0% for its whole life.  A blank progress column means the scope
+estimate was unavailable, not that nothing has been done.
+"""
+register_explain("search.queries", _EXPLAIN_QUERIES)
+
+
+def _format_open_query_row(entry: dict[str, Any]) -> dict[str, Any]:
+    """Flatten one open-search entry into the columns the table shows."""
+    progress = entry.get("progressPercent")
+    running_ms = entry.get("runningForMs")
+    query_text = entry.get("query") or ""
+    if len(query_text) > 60:
+        query_text = query_text[:57] + "..."
+    return {
+        "queryId": entry.get("queryId", ""),
+        "state": entry.get("state", ""),
+        "slot": "yes" if entry.get("holdsSlot") else ("" if entry.get("holdsSlot") is None else "no"),
+        "progress": f"{progress:.0f}%" if isinstance(progress, (int, float)) else "",
+        "pages": entry.get("pagesCompleted", 0),
+        "scanned": f"{entry.get('eventsScanned', 0):,}",
+        "running": f"{running_ms / 1000:.0f}s" if isinstance(running_ms, (int, float)) else "",
+        "submittedBy": entry.get("submittedBy", ""),
+        "query": query_text,
+    }
+
+
+@group.command("queries")
+@click.option("--state", default="all",
+              type=click.Choice(["all", "executing", "idle"]),
+              help="Which searches to list (default: all).")
+@click.option("--limit", default=None, type=int, help="Maximum number of searches to list.")
+@pass_context
+def queries(ctx: click.Context, state: str, limit: int | None) -> None:
+    """List searches this organization currently has open."""
+    org = _get_org(ctx)
+    search = Search(org)
+
+    first = search.list_open_queries(state=state, limit=limit)
+    entries = list(first.get("queries") or [])
+    if limit is None and first.get("truncated"):
+        # Walk the rest so the default is a complete answer rather than one
+        # server page; a caller who wants a single page passes --limit.
+        seen = {e.get("queryId") for e in entries}
+        for entry in search.iter_open_queries(state=state):
+            if entry.get("queryId") not in seen:
+                entries.append(entry)
+
+    payload = {
+        "oid": first.get("oid", org.oid),
+        "limit": first.get("limit"),
+        "slotsHeld": first.get("slotsHeld", 0),
+        "count": first.get("count", 0),
+        "queries": entries,
+    }
+
+    fmt = ctx.obj.output_format or detect_output_format()
+    if fmt == "table":
+        if not ctx.obj.quiet:
+            click.echo(
+                f"{payload['slotsHeld']} of {payload['limit']} concurrency slots in use; "
+                f"{payload['count']} search(es) open."
+            )
+            if entries:
+                click.echo(format_table([_format_open_query_row(e) for e in entries]))
+        return
+
+    _output(ctx, payload)
+
+
+# ---------------------------------------------------------------------------
+# limits
+# ---------------------------------------------------------------------------
+
+_EXPLAIN_LIMITS = """\
+Report this organization's resolved search limits: how many searches may
+run at once, the shape of a page, how long results stay resumable, and any
+enforced execution deadlines.
+
+Every one of these is otherwise discoverable only by hitting it - a refusal
+for concurrency does not say what the cap was, and a paginated search stops
+being resumable with no way to have known the window.
+
+A limit shown as "not enforced" is genuinely unlimited on this deployment,
+not zero.
+
+Example:
+  limacharlie search limits
+"""
+
+
+def _format_limit_seconds(value: int | None) -> str:
+    """Render a duration limit for the table, distinguishing unset from zero."""
+    if value is None:
+        return "not enforced"
+    return f"{value}s"
+
+
+def _format_limit_bytes(value: int | None) -> str:
+    """Render a byte limit for the table, distinguishing unset from zero."""
+    if value is None:
+        return "not enforced"
+    return f"{value}"
+
+
+@group.command("limits", help=_EXPLAIN_LIMITS)
+@pass_context
+def limits(ctx: click.Context) -> None:
+    """Report this organization's resolved search limits."""
+    org = _get_org(ctx)
+    search = Search(org)
+
+    payload = search.get_limits()
+
+    fmt = ctx.obj.output_format or detect_output_format()
+    if fmt == "table":
+        concurrency = payload.get("concurrency") or {}
+        pagination = payload.get("pagination") or {}
+        retention = payload.get("retention") or {}
+        execution = payload.get("execution") or {}
+        request = payload.get("request") or {}
+        capabilities = payload.get("capabilities") or {}
+
+        rows = [
+            {"Limit": "Concurrent searches", "Value": concurrency.get("maxConcurrentQueries")},
+            {"Limit": "Results per page", "Value": pagination.get("resultsPerPage")},
+            {"Limit": "Max page duration", "Value": _format_limit_seconds(pagination.get("maxPageDurationSeconds"))},
+            {"Limit": "Resumable for", "Value": _format_limit_seconds(retention.get("resumableForSeconds"))},
+            {"Limit": "Page results kept for", "Value": _format_limit_seconds(retention.get("pageResultsForSeconds"))},
+            {"Limit": "Max query duration", "Value": _format_limit_seconds(execution.get("maxQueryDurationSeconds"))},
+            {"Limit": "Max aggregation duration", "Value": _format_limit_seconds(execution.get("maxAggregationDurationSeconds"))},
+            {"Limit": "Max response size", "Value": _format_limit_bytes(execution.get("maxResponseBytes"))},
+            {"Limit": "Max request body", "Value": _format_limit_bytes(request.get("maxRequestBodyBytes"))},
+            {"Limit": "Open-query listing", "Value": "available" if capabilities.get("openQueryListing") else "unavailable"},
+        ]
+        if not ctx.obj.quiet:
+            click.echo(format_table(rows))
+        return
+
+    _output(ctx, payload)
+
+
+# ---------------------------------------------------------------------------
 # estimate
 # ---------------------------------------------------------------------------
 
