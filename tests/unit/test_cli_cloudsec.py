@@ -111,8 +111,13 @@ class TestCloudSecHelp:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "ciem", "--help"])
         assert result.exit_code == 0
-        for cmd in ["public-access", "facets", "identity", "identities"]:
-            assert cmd in result.output
+        # Asserted against the registered command NAMES, not the help text:
+        # "identity" is a substring of "identities", so a substring check
+        # could not tell the singular point-lookup from the plural list.
+        group = cli.commands["cloudsec"].commands["ciem"]
+        assert set(group.commands) == {
+            "public-access", "facets", "identity", "identities",
+        }
 
     def test_policy_subgroup_help(self):
         runner = CliRunner()
@@ -1176,7 +1181,7 @@ class TestCiemIdentities:
                 ["cloudsec", "ciem", "identities",
                  "--source", "okta", "--source", "gcp",
                  "--account", "proj-1", "--region", "us-central1",
-                 "--kind", "service_account", "--criticality", "tier1",
+                 "--kind", "service_account", "--criticality", "critical",
                  "--risk-band", "critical", "--mfa", "off",
                  "--admin", "--no-external", "--can-escalate",
                  "--with-sensitive", "-q", "deploy",
@@ -1189,7 +1194,7 @@ class TestCiemIdentities:
                 account=["proj-1"],
                 region=["us-central1"],
                 kind=["service_account"],
-                criticality=["tier1"],
+                criticality=["critical"],
                 risk_band=["critical"],
                 mfa="off",
                 admin=True,
@@ -1250,8 +1255,8 @@ class TestDataSecurityStores:
                 ["cloudsec", "data-security", "stores",
                  "--provider", "gcp", "--account", "proj-1",
                  "--region", "us-central1", "--store-kind", "bucket",
-                 "--tier", "tier1", "--data-class", "pii",
-                 "--sensitive", "--not-public", "-q", "prod",
+                 "--tier", "critical", "--data-class", "pii",
+                 "--sensitive", "--no-public", "-q", "prod",
                  "--limit", "50"], cls,
                 return_value={"stores": [], "next_cursor": ""},
             )
@@ -1261,7 +1266,7 @@ class TestDataSecurityStores:
                 account=["proj-1"],
                 region=["us-central1"],
                 store_kind=["bucket"],
-                tier=["tier1"],
+                tier=["critical"],
                 data_class=["pii"],
                 sensitivity=True,
                 exposure=False,
@@ -1308,3 +1313,68 @@ class TestFreeTier:
             assert result.exit_code == 0, result.output
             inst.get_free_tier.assert_called_once_with()
             assert "is_free_tier" in result.output
+
+
+class TestClosedVocabularyGuards:
+    """The closed server vocabularies fail CLOSED, so a typo must not parse.
+
+    An unrecognized risk band contributes a FALSE predicate and a
+    misspelled tier matches no row, so without validation a typo would
+    exit 0 with an empty result under a filter the user can see applied.
+    """
+
+    def test_rejects_unknown_risk_band(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "ciem", "identities", "--risk-band", "urgent"],
+        )
+        assert result.exit_code != 0
+
+    def test_rejects_unknown_criticality_tier(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "ciem", "identities", "--criticality", "tier1"],
+        )
+        assert result.exit_code != 0
+
+    def test_rejects_unknown_store_tier(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "data-security", "stores", "--tier", "tier1"],
+        )
+        assert result.exit_code != 0
+
+    def test_unclassified_identities_selects_the_empty_tier(self):
+        # "no tier assigned" is the EMPTY value on the wire, and it
+        # combines with a named tier like --unassigned does for owner.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "ciem", "identities",
+                 "--criticality", "critical", "--unclassified"], cls,
+                return_value={"principals": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_identity_access.call_args[1]["criticality"] == [
+                "critical", "",
+            ]
+
+    def test_unclassified_stores_selects_the_empty_tier(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "data-security", "stores", "--unclassified"], cls,
+                return_value={"stores": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_data_stores.call_args[1]["tier"] == [""]
+
+    def test_no_tier_flags_send_no_constraint(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "data-security", "stores"], cls,
+                return_value={"stores": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_data_stores.call_args[1]["tier"] is None

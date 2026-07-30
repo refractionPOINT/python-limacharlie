@@ -154,11 +154,17 @@ edit resolves every finding under it. Lets a worklist be worked by
 fix instead of by row: "change this one thing, close N findings".
 
 Takes the same filters as 'finding list', so a rollup can be scoped
-exactly like the list it summarizes. Pass --cause for the exact
-count of one cause; omit it for the top causes by count (--limit,
-default 20, cap 200). 'distinct' is the total number of matching
-causes, so you can tell how much tail the head hides — the counts
-themselves are always exact.
+exactly like the list it summarizes. Pass --cause for the count of
+one cause (an empty 'causes' means no finding under the filter
+carries it); omit it for the top causes by count (--limit, default
+20, cap 200). 'distinct' is the total number of matching causes, so
+you can tell how much tail the head hides.
+
+A count is a whole-population figure rather than a capped one, but it
+is computed on each finding's STORED status, which lags a disposition
+that expired on its own: an acceptance past its expiry still counts as
+accepted until the backstop rewrites it, while reading that finding
+returns it as open. Treat a count as a ranking and scale signal.
 
 'kind' is an open vocabulary that grows server-side; treat an
 unrecognized value as "some object" rather than assuming a class.
@@ -362,7 +368,7 @@ materialized graph store under the same selectors as
 estate size instead of client-filtering a capped walk.
 
 --sensitive / --public are tri-state: omitting one leaves the
-dimension unconstrained; --not-sensitive / --not-public pin it to
+dimension unconstrained; --no-sensitive / --no-public pin it to
 false. Rows are ordered by a stable stored key, so a full walk with
 --cursor is safe.
 
@@ -945,6 +951,16 @@ _SUGGEST_DIMENSION_CHOICES = click.Choice(
 # "off"), and the set is closed server-side — a Choice keeps a typo from
 # reading as "no MFA constraint".
 _MFA_CHOICES = click.Choice(["on", "off", "unknown"], case_sensitive=False)
+# Risk bands partition the whole score space and criticality tiers are a
+# fixed assign-side vocabulary, so both are closed sets like --kind is not.
+# They get a Choice because the backend fails CLOSED on an unknown value:
+# an unrecognized band contributes a FALSE predicate and a misspelled tier
+# matches no row, so a typo would exit 0 with an empty result under a
+# filter the user can see is applied — the worst of both answers.
+_RISK_BAND_CHOICES = click.Choice(
+    ["critical", "high", "medium", "low"], case_sensitive=False,
+)
+_TIER_CHOICES = _RISK_BAND_CHOICES
 # Provider and CAASM-source values are deliberately NOT click.Choice lists:
 # both are growing server-side registries (new providers/sources ship without
 # a CLI release) and the server rejects unknown values with a clean error.
@@ -962,18 +978,20 @@ def _paging_options(f):
     return f
 
 
-def _owner_selector(owners, unassigned: bool) -> list[str] | None:
-    """Fold --owner/--unassigned into the wire `owner` selector.
+def _selector_with_empty(values, include_empty: bool) -> list[str] | None:
+    """Fold a "…or none of them" flag into a repeatable wire selector.
 
-    The unassigned bucket IS an owner value on the wire: the empty
-    string. It rides the same repeatable selector, so "mine or
-    nobody's" is one filter with two values. No selection at all
-    returns None so the request carries no owner constraint.
+    Several dimensions express "not set" as the EMPTY value rather than
+    as a separate parameter: an unowned finding, an unclassified
+    criticality tier. That value rides the same repeatable selector, so
+    "mine or nobody's" is one filter with two values. No selection at
+    all returns None, so the request carries no constraint on the
+    dimension (an empty list would narrow it to the not-set bucket).
     """
-    values = list(owners)
-    if unassigned:
-        values.append("")
-    return values or None
+    out = list(values)
+    if include_empty:
+        out.append("")
+    return out or None
 
 
 def _finding_filter_options(f):
@@ -1092,12 +1110,19 @@ def _identity_filter_options(f):
              "— it is NOT 'off'.",
     )(f)
     f = click.option(
-        "--risk-band", "risk_bands", multiple=True,
-        help="Filter by risk band (critical/high/medium/low); repeatable (OR).",
+        "--risk-band", "risk_bands", multiple=True, type=_RISK_BAND_CHOICES,
+        help="Filter by risk band; repeatable (OR). The band token the rail "
+             "renders, not a numeric range.",
     )(f)
     f = click.option(
-        "--criticality", "criticalities", multiple=True,
-        help="Filter by crown-jewel tier; repeatable (OR).",
+        "--unclassified", "unclassified", is_flag=True, default=False,
+        help="Include identities with no crown-jewel tier assigned; "
+             "combines with --criticality.",
+    )(f)
+    f = click.option(
+        "--criticality", "criticalities", multiple=True, type=_TIER_CHOICES,
+        help="Filter by crown-jewel tier; repeatable (OR). Use "
+             "--unclassified for identities with no tier.",
     )(f)
     f = click.option(
         "--kind", "kinds", multiple=True,
@@ -1117,7 +1142,8 @@ def _identity_filter_options(f):
     f = click.option(
         "--source", "sources", multiple=True,
         help="Filter by producing sweep (okta, gcp, google_workspace, ...); "
-             "repeatable (OR). Alias of --provider.",
+             "repeatable (OR). Same dimension 'inventory list' calls "
+             "--provider.",
     )(f)
     return f
 
@@ -1133,12 +1159,12 @@ def _data_store_filter_options(f):
         help="Substring filter over the store's name/urn.",
     )(f)
     f = click.option(
-        "--public/--not-public", "exposure", default=None,
+        "--public/--no-public", "exposure", default=None,
         help="The 'exposure' dimension: only publicly-exposed (or only "
              "non-public) stores. Omit for no constraint.",
     )(f)
     f = click.option(
-        "--sensitive/--not-sensitive", "sensitivity", default=None,
+        "--sensitive/--no-sensitive", "sensitivity", default=None,
         help="The 'sensitivity' dimension: only sensitive (or only "
              "non-sensitive) stores. Omit for no constraint.",
     )(f)
@@ -1147,8 +1173,14 @@ def _data_store_filter_options(f):
         help="Filter by content class (pii, secrets, ...); repeatable (OR).",
     )(f)
     f = click.option(
-        "--tier", "tiers", multiple=True,
-        help="Filter by criticality tier; repeatable (OR).",
+        "--unclassified", "unclassified", is_flag=True, default=False,
+        help="Include stores with no criticality tier assigned; combines "
+             "with --tier.",
+    )(f)
+    f = click.option(
+        "--tier", "tiers", multiple=True, type=_TIER_CHOICES,
+        help="Filter by criticality tier; repeatable (OR). Use "
+             "--unclassified for stores with no tier.",
     )(f)
     f = click.option(
         "--store-kind", "store_kinds", multiple=True,
@@ -1204,9 +1236,9 @@ def group() -> None:
       topology            Pre-aggregated estate topology (exact at scale)
       free-tier           Free-tier standing and the limits that apply
       fleet overview      Multi-org fleet posture board (MSSP)
-      finding ...         Findings worklist + triage (resolve, owner, ticket, causes)
+      finding ...         Findings worklist + triage (resolve, owner, ticket, causes, classes)
       attack-path list    Headline toxic-combination attack paths
-      ciem ...            Identity access views (public-access, facets, identities)
+      ciem ...            Identity access (public-access, facets, identities, identity)
       inventory ...       Cloud resource inventory
       data-security ...   DSPM data-store facets + store list
       resource get        Canonical record for any urn
@@ -1386,7 +1418,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
-        owner=_owner_selector(owners, unassigned),
+        owner=_selector_with_empty(owners, unassigned),
         reachable=reachable,
         kev=kev,
         q=q,
@@ -1420,7 +1452,7 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
-        owner=_owner_selector(owners, unassigned),
+        owner=_selector_with_empty(owners, unassigned),
         owner_pin=list(owner_pins) or None,
         reachable=reachable,
         kev=kev,
@@ -1454,7 +1486,7 @@ def finding_causes(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
-        owner=_owner_selector(owners, unassigned),
+        owner=_selector_with_empty(owners, unassigned),
         reachable=reachable,
         kev=kev,
         q=q,
@@ -1628,9 +1660,9 @@ def ciem_public_access(ctx) -> None:
 @_identity_filter_options
 @pass_context
 def ciem_facets(ctx, sources, accounts, regions, kinds, criticalities,
-                risk_bands, mfa, admin, external, public, disabled,
-                crown_jewel, can_escalate, dormant_90d, with_sensitive,
-                q) -> None:
+                unclassified, risk_bands, mfa, admin, external, public,
+                disabled, crown_jewel, can_escalate, dormant_90d,
+                with_sensitive, q) -> None:
     """CIEM identity facet counts (cross-filtered by the same selectors).
 
     \b
@@ -1644,7 +1676,7 @@ def ciem_facets(ctx, sources, accounts, regions, kinds, criticalities,
         account=list(accounts) or None,
         region=list(regions) or None,
         kind=list(kinds) or None,
-        criticality=list(criticalities) or None,
+        criticality=_selector_with_empty(criticalities, unclassified),
         risk_band=list(risk_bands) or None,
         mfa=mfa,
         admin=admin,
@@ -1664,9 +1696,9 @@ def ciem_facets(ctx, sources, accounts, regions, kinds, criticalities,
 @_paging_options
 @pass_context
 def ciem_identities(ctx, sources, accounts, regions, kinds, criticalities,
-                    risk_bands, mfa, admin, external, public, disabled,
-                    crown_jewel, can_escalate, dormant_90d, with_sensitive,
-                    q, cursor, limit) -> None:
+                    unclassified, risk_bands, mfa, admin, external, public,
+                    disabled, crown_jewel, can_escalate, dormant_90d,
+                    with_sensitive, q, cursor, limit) -> None:
     """One risk-ranked page of the identity access population.
 
     \b
@@ -1680,7 +1712,7 @@ def ciem_identities(ctx, sources, accounts, regions, kinds, criticalities,
         account=list(accounts) or None,
         region=list(regions) or None,
         kind=list(kinds) or None,
-        criticality=list(criticalities) or None,
+        criticality=_selector_with_empty(criticalities, unclassified),
         risk_band=list(risk_bands) or None,
         mfa=mfa,
         admin=admin,
@@ -1769,8 +1801,8 @@ def data_security_group() -> None:
 @_data_store_filter_options
 @pass_context
 def data_security_facets(ctx, providers, accounts, regions, store_kinds,
-                         tiers, data_classes, sensitivity, exposure,
-                         q) -> None:
+                         tiers, unclassified, data_classes, sensitivity,
+                         exposure, q) -> None:
     """DSPM data-store facet counts (cross-filtered by the same selectors).
 
     \b
@@ -1784,7 +1816,7 @@ def data_security_facets(ctx, providers, accounts, regions, store_kinds,
         account=list(accounts) or None,
         region=list(regions) or None,
         store_kind=list(store_kinds) or None,
-        tier=list(tiers) or None,
+        tier=_selector_with_empty(tiers, unclassified),
         data_class=list(data_classes) or None,
         sensitivity=sensitivity,
         exposure=exposure,
@@ -1797,8 +1829,8 @@ def data_security_facets(ctx, providers, accounts, regions, store_kinds,
 @_paging_options
 @pass_context
 def data_security_stores(ctx, providers, accounts, regions, store_kinds,
-                         tiers, data_classes, sensitivity, exposure, q,
-                         cursor, limit) -> None:
+                         tiers, unclassified, data_classes, sensitivity,
+                         exposure, q, cursor, limit) -> None:
     """One keyset page of the org's data stores.
 
     \b
@@ -1812,7 +1844,7 @@ def data_security_stores(ctx, providers, accounts, regions, store_kinds,
         account=list(accounts) or None,
         region=list(regions) or None,
         store_kind=list(store_kinds) or None,
-        tier=list(tiers) or None,
+        tier=_selector_with_empty(tiers, unclassified),
         data_class=list(data_classes) or None,
         sensitivity=sensitivity,
         exposure=exposure,
@@ -2439,7 +2471,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
-        owner=_owner_selector(owners, unassigned),
+        owner=_selector_with_empty(owners, unassigned),
         reachable=reachable,
         kev=kev,
         q=q,

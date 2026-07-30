@@ -770,7 +770,7 @@ class TestIdentityAccessList:
         cs.list_identity_access(
             source=["okta", "gcp"], account=["proj-1"],
             region=["us-central1"], kind=["service_account"],
-            criticality=["tier1"], risk_band=["critical"], mfa="off",
+            criticality=["critical"], risk_band=["critical"], mfa="off",
             admin=True, external=False, with_sensitive=True,
             q="deploy", cursor="c1", limit=50,
         )
@@ -779,7 +779,7 @@ class TestIdentityAccessList:
         assert qp == [
             ("account", "proj-1"), ("region", "us-central1"),
             ("source", "okta"), ("source", "gcp"),
-            ("kind", "service_account"), ("criticality", "tier1"),
+            ("kind", "service_account"), ("criticality", "critical"),
             ("risk_band", "critical"), ("mfa", "off"),
             ("admin", "true"), ("external", "false"),
             ("with_sensitive", "true"), ("q", "deploy"),
@@ -821,7 +821,7 @@ class TestDataStoreList:
         }
         cs.list_data_stores(
             provider=["gcp"], account=["proj-1"], region=["us-central1"],
-            store_kind=["bucket"], tier=["tier1"], data_class=["pii"],
+            store_kind=["bucket"], tier=["critical"], data_class=["pii"],
             sensitivity=True, exposure=False, q="prod", limit=50,
         )
         url, qp = _get_call(mock_org)
@@ -829,7 +829,7 @@ class TestDataStoreList:
         assert qp == [
             ("provider", "gcp"), ("account", "proj-1"),
             ("region", "us-central1"), ("store_kind", "bucket"),
-            ("tier", "tier1"), ("data_class", "pii"),
+            ("tier", "critical"), ("data_class", "pii"),
             ("sensitivity", "true"), ("exposure", "false"),
             ("q", "prod"), ("limit", "50"),
         ]

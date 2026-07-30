@@ -375,9 +375,11 @@ class CloudSec:
         list it summarizes.
 
         Args:
-            cause: One cause key. Set it for the exact count of that cause
-                alone (returned as a single-entry ``causes``); omit it for
-                the top causes by count. Clamped to 512 chars server-side.
+            cause: One cause key. Set it for the count of that cause alone,
+                returned as a single-entry ``causes`` — or an EMPTY
+                ``causes`` when no finding under the filter carries it, so
+                read the list rather than indexing ``causes[0]``. Clamped
+                to 512 chars server-side.
             limit: Rollup size when ``cause`` is omitted (default 20,
                 server cap 200). Not a page size — the rollup is not
                 paginated, and ``distinct`` reports the tail it hides.
@@ -389,8 +391,17 @@ class CloudSec:
             grows server-side — treat an unrecognized value as "some
             object" rather than assuming a class. ``distinct`` is the total
             number of causes matching the filter and MAY exceed
-            ``len(causes)`` when ``limit`` truncates; the counts themselves
-            are always exact.
+            ``len(causes)`` when ``limit`` truncates.
+
+            A count is a whole-population figure, not a capped one: it does
+            not degrade to a lower bound the way folding a paginated
+            worklist client-side does. It is computed on each finding's
+            STORED status, though, which lags a disposition that expired on
+            its own — an acceptance past its expiry still counts as
+            accepted until the projector's periodic backstop rewrites it,
+            while reading that finding returns it as open. Treat a count as
+            a ranking and scale signal; the finding's own read is the
+            authority on its status.
         """
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
@@ -572,9 +583,15 @@ class CloudSec:
                 ``google_workspace``, ...), OR'd.
             kind: Identity kinds (``user``, ``service_account``, ``group``,
                 ``ai_agent``, ...), OR'd.
-            criticality: Crown-jewel tiers, OR'd.
-            risk_band: Risk bands (``critical``/``high``/``medium``/
-                ``low``) — the band token, not a numeric range, OR'd.
+            criticality: Crown-jewel tiers, OR'd. A CLOSED vocabulary —
+                ``critical`` / ``high`` / ``medium`` / ``low`` — plus the
+                empty string, which selects identities with no tier
+                assigned. An unrecognized tier matches nothing rather than
+                erroring, so a typo reads as "no such identities".
+            risk_band: Risk bands, OR'd — ``critical`` / ``high`` /
+                ``medium`` / ``low``, the band token rather than a numeric
+                range. Also closed, and also fails closed: an unrecognized
+                band selects nothing.
             mfa: ``on`` | ``off`` | ``unknown``. ``unknown`` is everyone
                 the MFA question does not apply to (no identity-provider
                 observation, or non-human) — it is NOT ``off``.
@@ -747,7 +764,10 @@ class CloudSec:
                 key. An empty-string value selects the unscoped bucket.
             store_kind: Store kinds (``bucket``, ``sql_instance``, ...),
                 OR'd.
-            tier: Criticality tiers, OR'd.
+            tier: Criticality tiers, OR'd. Same closed vocabulary as the
+                identity filter's ``criticality`` — ``critical`` /
+                ``high`` / ``medium`` / ``low``, plus the empty string for
+                stores with no tier assigned.
             data_class: Content classes (``pii``, ``secrets``, ...), OR'd.
             sensitivity: Tri-state — ``True`` only sensitive stores,
                 ``False`` only non-sensitive, ``None`` unconstrained.

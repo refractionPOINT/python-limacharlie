@@ -33,6 +33,14 @@
   `distinct`, the total matching causes, so the ranked head discloses its
   tail.
 
+- **Closed vocabularies are validated client-side**: `--risk-band`,
+  `--criticality` and `--tier` accept only `critical`/`high`/`medium`/`low`,
+  because the backend fails CLOSED on an unknown value — a typo would have
+  returned zero rows with a successful exit under a filter the user can see
+  is applied. `--unclassified` selects the no-tier-assigned bucket (the
+  empty value on the wire) and combines with a named tier, mirroring
+  `--unassigned` for owners.
+
 - **Identity access population**: `cloudsec ciem identities` /
   `CloudSec.list_identity_access()` — the ranked, server-filtered,
   keyset-paginated identity rollup (the pageable sibling of `ciem
