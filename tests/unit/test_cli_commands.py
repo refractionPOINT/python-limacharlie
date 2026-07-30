@@ -407,6 +407,21 @@ class TestSensorCommands:
         parsed = json.loads(result.output)
         assert len(parsed) == 2
         assert parsed[0]["sid"] == "sid-1"
+        # Default: online-only is off (all sensors).
+        assert mock_org.list_sensors.call_args.kwargs["is_online_only"] is False
+
+    @patch("limacharlie.commands.sensor.Client")
+    @patch("limacharlie.commands.sensor.Organization")
+    def test_sensor_list_online_only(self, mock_org_cls, mock_client_cls):
+        mock_org = MagicMock()
+        mock_org.list_sensors.return_value = iter([{"sid": "sid-1", "hostname": "host1"}])
+        mock_org_cls.return_value = mock_org
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--output", "json", "sensor", "list", "--online"])
+        assert result.exit_code == 0
+        # The --online flag maps to is_online_only=True on the SDK call.
+        assert mock_org.list_sensors.call_args.kwargs["is_online_only"] is True
 
     @patch("limacharlie.commands.sensor.Client")
     @patch("limacharlie.commands.sensor.Sensor")
