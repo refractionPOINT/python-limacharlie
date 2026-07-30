@@ -11,15 +11,19 @@ Python SDK and command-line interface for the [LimaCharlie](https://limacharlie.
 
 ```bash
 pip install limacharlie
-
-# Optional: adds the TOON output format (limacharlie --output toon)
-pip install 'limacharlie[toon]'
-uv tool install limacharlie --with 'toon-format>=0.9.0b1'   # uv equivalent
 ```
 
 ```bash
 docker run refractionpoint/limacharlie:latest --help
 ```
+
+The `toon` extra adds the TOON output format (`limacharlie --output toon`); every other format works with a default install.
+
+```bash
+pip install 'limacharlie[toon]'
+```
+
+On uv older than 0.12 the extra is not enough, because `toon_format` publishes only a pre-release and those versions resolve pre-releases for directly named requirements only. Name it directly there: `uv tool install limacharlie --with 'toon-format>=0.9.0b1'`. See [the CLI output formats guide](doc/cli/README.md#output-formats) for details.
 
 See [Getting Started](doc/getting-started.md) for Docker credential mounting and first steps.
 

@@ -91,6 +91,23 @@ def _config_no_warnings() -> bool:
         return False
 
 
+# Flags that make an invocation describe a command instead of running it.
+# --ai-help is ours (see ai_help.py); -h/--help come from the group's
+# help_option_names.
+_HELP_FLAGS = frozenset({"-h", "--help", "--ai-help"})
+
+
+def _wants_help() -> bool:
+    """Whether this invocation only asks a command to describe itself.
+
+    Click resolves the root group's parameters before a subcommand parses its
+    own ``--help``, so the root callback cannot tell the two apart from its
+    arguments alone and has to read the command line. ``main()`` reads
+    ``sys.argv`` the same way to decide about ``--debug``.
+    """
+    return any(arg in _HELP_FLAGS for arg in sys.argv[1:])
+
+
 # Static mapping: Click command name -> (module_name, attribute_name).
 # This allows resolving any command to its module without importing it,
 # enabling truly lazy per-command loading. Generated from the current
@@ -387,12 +404,19 @@ def cli(ctx: click.Context, oid: str | None, output_format: str | None, debug: b
     # Lazy import: output pulls in jmespath, tabulate, yaml, csv (~14ms).
     # Deferring to here avoids that cost for fast paths like --help, --version,
     # and --ai-help that never render command output.
-    from .output import set_filter_expr, set_wide_mode, set_fields, set_sort_by, set_reverse
+    from .output import ensure_format_available, set_filter_expr, set_wide_mode, set_fields, set_sort_by, set_reverse
     set_wide_mode(wide)
     set_filter_expr(filter_expr)
     set_fields(field_list)
     set_sort_by(sort_by)
     set_reverse(reverse)
+    # Reject a format whose encoder ships in an extra before the subcommand
+    # runs, rather than after it has already spent the user's time and quota.
+    # Help and completion must keep working without the extra: this callback
+    # runs before a subcommand's own --help is parsed, so describing a command
+    # would otherwise fail on an unrelated --output.
+    if not ctx.resilient_parsing and not _wants_help():
+        ensure_format_available(output_format)
 
 
 # Inject --ai-help on the root cli group itself (subcommands get it lazily

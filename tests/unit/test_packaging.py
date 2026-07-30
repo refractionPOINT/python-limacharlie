@@ -21,6 +21,14 @@ def _dep_name(requirement: str) -> str:
     return name.strip().lower().replace("_", "-")
 
 
+def _dep_extras(requirement: str) -> set[str]:
+    """Extras requested by a PEP 508 requirement string, e.g. {'toon'}."""
+    match = re.search(r"\[([^\]]*)\]", requirement)
+    if match is None:
+        return set()
+    return {e.strip().lower() for e in match.group(1).split(",") if e.strip()}
+
+
 class TestPyprojectToml:
     def test_pyproject_exists(self):
         assert (PROJECT_ROOT / "pyproject.toml").exists()
@@ -66,10 +74,10 @@ class TestPyprojectToml:
         """toon_format must stay out of [project.dependencies].
 
         The only release satisfying our range is a pre-release (0.9.0b1), and
-        resolvers that reject transitive pre-releases (uv) refuse to install
-        any limacharlie version that requires it -- they silently backtrack to
-        an older release instead. TOON is one of six opt-in --output formats,
-        so it belongs in an extra rather than stranding every uv user.
+        uv before 0.12 refuses to install any limacharlie version that requires
+        one -- it silently backtracks to an older release instead. TOON is one
+        of six opt-in --output formats, so it belongs in an extra rather than
+        stranding every user on those uv versions.
         """
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
@@ -90,12 +98,22 @@ class TestPyprojectToml:
         )
 
     def test_dev_extra_includes_toon(self):
-        """CI installs [dev]; it must keep exercising the TOON output path."""
+        """CI installs [dev]; it must keep exercising the TOON output path.
+
+        Either form does that: a direct toon_format requirement, or the
+        self-reference limacharlie[toon] that pulls the extra in.
+        """
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         dev_deps = data["project"].get("optional-dependencies", {}).get("dev", [])
-        assert [d for d in dev_deps if _dep_name(d) == "toon-format"], (
-            f"The 'dev' extra should install toon_format, got {dev_deps}"
+        pulls_toon = [
+            d for d in dev_deps
+            if _dep_name(d) == "toon-format"
+            or (_dep_name(d) == "limacharlie" and "toon" in _dep_extras(d))
+        ]
+        assert pulls_toon, (
+            "The 'dev' extra should install toon_format, either directly or via "
+            f"limacharlie[toon], got {dev_deps}"
         )
 
     def test_classifiers_present(self):

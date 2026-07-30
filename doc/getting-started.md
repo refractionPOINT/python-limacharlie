@@ -8,6 +8,8 @@
 pip install limacharlie
 ```
 
+The `--output toon` format needs the optional `toon` extra (`pip install 'limacharlie[toon]'`); everything else works with the install above. See [Output Formats](cli/README.md#output-formats) for the uv caveat.
+
 Docker:
 
 ```bash

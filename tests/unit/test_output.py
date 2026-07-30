@@ -111,6 +111,10 @@ class TestFormatToon:
     def test_empty_list(self):
         assert toon_format.decode(format_toon([])) == []
 
+    def test_ensure_format_available_passes_when_installed(self):
+        """With the extra present the CLI's pre-flight check lets TOON through."""
+        output_mod.ensure_format_available("toon")
+
 
 class TestFormatToonMissingExtra:
     """TOON output is opt-in: toon_format lives in the 'toon' extra, so a
@@ -135,21 +139,45 @@ class TestFormatToonMissingExtra:
         assert "limacharlie[toon]" in str(excinfo.value)
 
     def test_format_toon_error_offers_a_uv_form(self):
-        """`uv pip install 'limacharlie[toon]'` does not work: toon_format's
-        only in-range release is a pre-release, and uv honours pre-release
-        specifiers on direct requirements only. Told to install the extra, uv
-        silently backtracks to a limacharlie old enough not to want it. The
-        error has to give uv users a form that names toon-format directly."""
+        """`uv pip install 'limacharlie[toon]'` does not work on uv before 0.12:
+        toon_format's only in-range release is a pre-release, and those versions
+        honour pre-release specifiers on direct requirements only. Told to
+        install the extra, they silently backtrack to a limacharlie old enough
+        not to want it. The error has to give those users a form that names
+        toon-format directly."""
         with pytest.raises(ImportError) as excinfo:
             format_toon({"a": 1})
         message = str(excinfo.value)
         assert "uv" in message
         assert "toon-format>=0.9.0b1" in message
 
+    def test_ensure_format_available_rejects_toon(self):
+        """The pre-flight guard the CLI calls before dispatching a command."""
+        with pytest.raises(ImportError) as excinfo:
+            output_mod.ensure_format_available("toon")
+        assert "limacharlie[toon]" in str(excinfo.value)
+
+    @pytest.mark.parametrize("fmt", ["json", "yaml", "csv", "table", "jsonl", None])
+    def test_ensure_format_available_passes_other_formats(self, fmt):
+        """TOON is the only format whose encoder ships in an extra."""
+        output_mod.ensure_format_available(fmt)
+
+    def test_both_toon_guards_give_the_same_message(self):
+        """One install hint, so the pre-flight and render-time paths cannot
+        drift into telling users two different things."""
+        with pytest.raises(ImportError) as pre_flight:
+            output_mod.ensure_format_available("toon")
+        with pytest.raises(ImportError) as render_time:
+            format_toon({"a": 1})
+        assert str(pre_flight.value) == str(render_time.value)
+
     def test_cli_reports_the_extra_without_a_traceback(self, monkeypatch, tmp_path, capsys):
         """End users see a one-line hint and exit 1, not a stack trace."""
         from limacharlie.cli import main
 
+        # main() prints a traceback when LC_DEBUG is set, so a developer with
+        # it exported would otherwise see this fail for the wrong reason.
+        monkeypatch.delenv("LC_DEBUG", raising=False)
         monkeypatch.setenv("LC_CONFIG_DIR", str(tmp_path))
         monkeypatch.setattr(
             sys, "argv", ["limacharlie", "--output", "toon", "config", "show-paths"]
@@ -161,6 +189,59 @@ class TestFormatToonMissingExtra:
         err = capsys.readouterr().err
         assert "limacharlie[toon]" in err
         assert "Traceback" not in err
+
+    def test_cli_rejects_toon_before_running_the_command(self, monkeypatch, tmp_path, capsys):
+        """The refusal comes from the root group, not from rendering.
+
+        A search that reaches format time has already run, been billed, and
+        buffered every page; finding the encoder missing there wastes all of
+        it. Checked on the cheapest subcommand there is: its callback never
+        runs.
+        """
+        from limacharlie.cli import cli, main
+
+        show_paths = cli.get_command(None, "config").get_command(None, "show-paths")
+        ran = []
+        monkeypatch.setattr(show_paths, "callback", lambda *a, **kw: ran.append(True))
+
+        monkeypatch.delenv("LC_DEBUG", raising=False)
+        monkeypatch.setenv("LC_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            sys, "argv", ["limacharlie", "--output", "toon", "config", "show-paths"]
+        )
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+
+        assert excinfo.value.code == 1
+        assert ran == [], "subcommand ran despite the missing TOON encoder"
+        assert "limacharlie[toon]" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["limacharlie", "--output", "toon", "--help"],
+            ["limacharlie", "--output", "toon", "config", "--help"],
+            ["limacharlie", "--output", "toon", "config", "show-paths", "--help"],
+        ],
+    )
+    def test_help_works_without_the_encoder(self, monkeypatch, tmp_path, capsys, argv):
+        """Describing a command must not depend on an optional output encoder.
+
+        The root callback runs before a subcommand parses its own --help, so a
+        pre-flight check that did not exempt help would break every
+        `--output toon <command> --help` on a default install.
+        """
+        from limacharlie.cli import main
+
+        monkeypatch.delenv("LC_DEBUG", raising=False)
+        monkeypatch.setenv("LC_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setattr(sys, "argv", argv)
+        # click returns 0 instead of raising when standalone_mode is off, so a
+        # help run falls off the end of main() and the process exits 0. A
+        # rejected --output would raise SystemExit(1) out of this call.
+        main()
+
+        assert "Usage:" in capsys.readouterr().out
 
     def test_other_formats_still_work(self):
         """Only TOON degrades; the rest of --output is unaffected."""

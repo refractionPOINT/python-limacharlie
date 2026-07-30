@@ -33,6 +33,16 @@ try:
 except ImportError:
     _toon_format = None
 
+# Raised wherever TOON output is requested without the 'toon' extra. uv before
+# 0.12 resolves toon_format's pre-release only when toon-format is named as a
+# direct requirement, so asking those versions for the extra is not enough;
+# uv 0.12 and later need only the pip form.
+_MISSING_TOON_MESSAGE = (
+    "toon_format is required for --output toon. "
+    "Install with: pip install 'limacharlie[toon]'\n"
+    "On uv older than 0.12: uv tool install limacharlie --with 'toon-format>=0.9.0b1'"
+)
+
 # Module-level flags set by the CLI before any command runs.
 _wide_mode: bool = False
 _filter_expr: str | None = None
@@ -81,6 +91,22 @@ def detect_output_format() -> str:
     if sys.stdout.isatty():
         return "table"
     return "json"
+
+
+def ensure_format_available(fmt: str | None) -> None:
+    """Raise ImportError if fmt needs an optional dependency that is missing.
+
+    Formats whose encoder ships in an extra can only fail once there is
+    something to render, which is after the command has already done its work:
+    a search would run to completion, bill the organization, and buffer every
+    page before `--output toon` discovered it had no encoder. Calling this as
+    the format is selected turns that into an up-front refusal.
+
+    Only 'toon' is optional; every other format is satisfied by a default
+    install, so any other value (including None) is a no-op.
+    """
+    if fmt == "toon" and _toon_format is None:
+        raise ImportError(_MISSING_TOON_MESSAGE)
 
 
 def format_output(
@@ -181,13 +207,7 @@ def format_toon(data: Any) -> str:
     See https://toonformat.dev for the spec.
     """
     if _toon_format is None:
-        # uv resolves the extra's pre-release only when toon-format is named as
-        # a direct requirement, hence the separate form.
-        raise ImportError(
-            "toon_format is required for --output toon. "
-            "Install with: pip install 'limacharlie[toon]'\n"
-            "With uv: uv tool install limacharlie --with 'toon-format>=0.9.0b1'"
-        )
+        raise ImportError(_MISSING_TOON_MESSAGE)
     return _toon_format.encode(data)
 
 
