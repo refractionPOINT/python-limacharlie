@@ -341,6 +341,14 @@ class CloudSec:
                 The unassigned bucket is always included and outranks every
                 pin.
 
+                The guarantee is BOUNDED BY THAT CAP, not absolute: the
+                pins and the active ``owner`` filter share the 50 slots
+                (and the unassigned bucket takes one), so past ~50
+                combined values a pin can still be dropped — and
+                ``owner_truncated`` cannot distinguish that from ordinary
+                tail truncation. Render a pinned-but-absent owner as zero
+                rather than assuming the map is complete.
+
         Returns:
             ``{"facets": {..., "owner": {"": 12, "alice@corp.com": 3},
             "owner_truncated": false}}``.

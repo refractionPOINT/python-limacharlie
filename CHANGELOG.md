@@ -29,7 +29,7 @@
   `CloudSec.list_finding_causes()` group findings by the mutable object
   whose single edit resolves all of them ("change this one thing, close N
   findings"), under the same filters as `finding list`. `--cause` returns
-  the exact count for one cause; otherwise the top causes by count plus
+  the count for one cause; otherwise the top causes by count plus
   `distinct`, the total matching causes, so the ranked head discloses its
   tail.
 

@@ -1091,7 +1091,9 @@ def _identity_filter_options(f):
         ("--can-escalate/--no-can-escalate",
          "Can (or cannot) escalate its own privileges."),
         ("--crown-jewel/--no-crown-jewel",
-         "Declared sensitive by the org's cloudsec_policy (or not)."),
+         "Declared sensitive by the org's cloudsec_policy (or not) — the "
+         "flag any matching rule sets, independent of whether that rule "
+         "also assigned a tier (see --criticality)."),
         ("--disabled/--no-disabled", "Disabled (or enabled) identities."),
         ("--public/--no-public",
          "Public principals (allUsers / allAuthenticatedUsers and "
@@ -1116,12 +1118,15 @@ def _identity_filter_options(f):
     )(f)
     f = click.option(
         "--unclassified", "unclassified", is_flag=True, default=False,
-        help="Include identities with no crown-jewel tier assigned; "
-             "combines with --criticality.",
+        help="Include identities with no TIER assigned; combines with "
+             "--criticality. Wider than --no-crown-jewel: a declared crown "
+             "jewel whose policy rule sets no tier lands here too.",
     )(f)
     f = click.option(
         "--criticality", "criticalities", multiple=True, type=_TIER_CHOICES,
-        help="Filter by crown-jewel tier; repeatable (OR). Use "
+        help="Filter by assigned criticality tier; repeatable (OR). The tier "
+             "a cloudsec_policy rule assigned, which is a different column "
+             "from the crown-jewel flag --crown-jewel reads. Use "
              "--unclassified for identities with no tier.",
     )(f)
     f = click.option(
@@ -1463,8 +1468,9 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts,
 @finding_group.command("causes")
 @_finding_filter_options
 @click.option("--cause", default=None,
-              help="One cause key: return the exact count for that cause "
-                   "alone instead of the ranked rollup.")
+              help="One cause key: return the count for that cause alone "
+                   "instead of the ranked rollup (empty when no finding "
+                   "under the filter carries it).")
 @click.option("--limit", default=None, type=int,
               help="Rollup size (default 20, cap 200). Not a page size — the "
                    "rollup is not paginated; 'distinct' reports the tail.")

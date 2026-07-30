@@ -1321,28 +1321,43 @@ class TestClosedVocabularyGuards:
     An unrecognized risk band contributes a FALSE predicate and a
     misspelled tier matches no row, so without validation a typo would
     exit 0 with an empty result under a filter the user can see applied.
+
+    Each assertion pins the PARSE failure (exit 2 + click's "Invalid value
+    for '--flag'"), not merely a non-zero exit: these run unmocked, so an
+    accepted value also exits non-zero once it reaches the credential-less
+    client, and `exit_code != 0` alone would pass with the Choice removed.
     """
 
-    def test_rejects_unknown_risk_band(self):
+    def _rejects(self, args, flag):
         runner = CliRunner()
-        result = runner.invoke(
-            cli, ["cloudsec", "ciem", "identities", "--risk-band", "urgent"],
+        result = runner.invoke(cli, args)
+        assert result.exit_code == 2, result.output
+        assert f"Invalid value for {flag!r}" in result.output, result.output
+
+    def test_rejects_unknown_risk_band(self):
+        self._rejects(
+            ["cloudsec", "ciem", "identities", "--risk-band", "urgent"],
+            "--risk-band",
         )
-        assert result.exit_code != 0
 
     def test_rejects_unknown_criticality_tier(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli, ["cloudsec", "ciem", "identities", "--criticality", "tier1"],
+        self._rejects(
+            ["cloudsec", "ciem", "identities", "--criticality", "tier1"],
+            "--criticality",
         )
-        assert result.exit_code != 0
 
     def test_rejects_unknown_store_tier(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli, ["cloudsec", "data-security", "stores", "--tier", "tier1"],
+        self._rejects(
+            ["cloudsec", "data-security", "stores", "--tier", "tier1"],
+            "--tier",
         )
-        assert result.exit_code != 0
+
+    def test_rejects_unknown_mfa_state_by_parse_failure(self):
+        # The pre-existing --mfa test only asserted a non-zero exit; pin the
+        # parse failure here so the Choice cannot be removed unnoticed.
+        self._rejects(
+            ["cloudsec", "ciem", "identities", "--mfa", "maybe"], "--mfa",
+        )
 
     def test_unclassified_identities_selects_the_empty_tier(self):
         # "no tier assigned" is the EMPTY value on the wire, and it
