@@ -685,3 +685,185 @@ class TestPolicyAuthoring:
         cs.simulate_finding_match({})
         _, body = _post_call(mock_org)
         assert body == {"match": {}}
+
+
+class TestOwnerSelector:
+    def test_owner_values_are_repeated(self, cs, mock_org):
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings(owner=["alice@corp.com", "bob@corp.com"])
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/findings"
+        assert qp == [
+            ("owner", "alice@corp.com"), ("owner", "bob@corp.com"),
+        ]
+
+    def test_empty_owner_selects_the_unassigned_bucket(self, cs, mock_org):
+        # The empty string is a REAL selection here (findings nobody owns),
+        # so it must reach the wire as `owner=` rather than be dropped as
+        # an unset value — dropping it would widen the read to the estate.
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings(owner=[""])
+        _, qp = _get_call(mock_org)
+        assert qp == [("owner", "")]
+
+    def test_owner_mine_or_nobodys(self, cs, mock_org):
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings(owner=["alice@corp.com", ""])
+        _, qp = _get_call(mock_org)
+        assert qp == [("owner", "alice@corp.com"), ("owner", "")]
+
+    def test_no_owner_sends_no_selector(self, cs, mock_org):
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings()
+        _, qp = _get_call(mock_org)
+        assert qp is None
+
+    def test_facets_owner_pin_rides_alongside_the_filter(self, cs, mock_org):
+        mock_org.client.request.return_value = {"facets": {}}
+        cs.get_finding_facets(owner=[""], owner_pin=["me@corp.com"])
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/findings/facets"
+        assert qp == [("owner", ""), ("owner_pin", "me@corp.com")]
+
+    def test_export_carries_the_owner_filter(self, cs, mock_org):
+        mock_org.client.request.return_value = "urn\n"
+        cs.export_findings_csv(owner=["alice@corp.com"], status=["open"])
+        _, kwargs = mock_org.client.request.call_args
+        assert kwargs["query_params"] == [
+            ("status", "open"), ("owner", "alice@corp.com"), ("format", "csv"),
+        ]
+
+
+class TestFindingCauses:
+    def test_rollup_defaults(self, cs, mock_org):
+        mock_org.client.request.return_value = {"causes": [], "distinct": 0}
+        cs.list_finding_causes()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/findings/causes"
+        assert qp is None
+
+    def test_rollup_with_filters_and_limit(self, cs, mock_org):
+        mock_org.client.request.return_value = {"causes": [], "distinct": 0}
+        cs.list_finding_causes(
+            severity=["CRITICAL"], status=["open"], owner=[""], limit=5,
+        )
+        _, qp = _get_call(mock_org)
+        assert qp == [
+            ("severity", "CRITICAL"), ("status", "open"), ("owner", ""),
+            ("limit", "5"),
+        ]
+
+    def test_single_cause_count(self, cs, mock_org):
+        mock_org.client.request.return_value = {
+            "causes": [{"key": "lcrn:fw", "count": 22}], "distinct": 1,
+        }
+        cs.list_finding_causes(cause="lcrn:fw")
+        _, qp = _get_call(mock_org)
+        assert qp == [("cause", "lcrn:fw")]
+
+
+class TestIdentityAccessList:
+    def test_full_cross_filter(self, cs, mock_org):
+        mock_org.client.request.return_value = {
+            "principals": [], "next_cursor": None,
+        }
+        cs.list_identity_access(
+            source=["okta", "gcp"], account=["proj-1"],
+            region=["us-central1"], kind=["service_account"],
+            criticality=["tier1"], risk_band=["critical"], mfa="off",
+            admin=True, external=False, with_sensitive=True,
+            q="deploy", cursor="c1", limit=50,
+        )
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/ciem/identities"
+        assert qp == [
+            ("account", "proj-1"), ("region", "us-central1"),
+            ("source", "okta"), ("source", "gcp"),
+            ("kind", "service_account"), ("criticality", "tier1"),
+            ("risk_band", "critical"), ("mfa", "off"),
+            ("admin", "true"), ("external", "false"),
+            ("with_sensitive", "true"), ("q", "deploy"),
+            ("cursor", "c1"), ("limit", "50"),
+        ]
+
+    def test_unset_tristate_sends_nothing(self, cs, mock_org):
+        # Absent is NOT false: forwarding a false would pin the dimension.
+        mock_org.client.request.return_value = {"principals": []}
+        cs.list_identity_access()
+        _, qp = _get_call(mock_org)
+        assert qp is None
+
+    def test_false_tristate_is_forwarded(self, cs, mock_org):
+        mock_org.client.request.return_value = {"principals": []}
+        cs.list_identity_access(admin=False)
+        _, qp = _get_call(mock_org)
+        assert qp == [("admin", "false")]
+
+    def test_facets_take_the_same_filter(self, cs, mock_org):
+        mock_org.client.request.return_value = {"facets": {}}
+        cs.get_identity_facets(kind=["user"], mfa="unknown", public=True)
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/ciem/facets"
+        assert qp == [("kind", "user"), ("mfa", "unknown"), ("public", "true")]
+
+    def test_facets_unfiltered_is_unchanged(self, cs, mock_org):
+        mock_org.client.request.return_value = {"facets": {}}
+        cs.get_identity_facets()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/ciem/facets"
+        assert qp is None
+
+
+class TestDataStoreList:
+    def test_full_cross_filter(self, cs, mock_org):
+        mock_org.client.request.return_value = {
+            "stores": [], "next_cursor": "",
+        }
+        cs.list_data_stores(
+            provider=["gcp"], account=["proj-1"], region=["us-central1"],
+            store_kind=["bucket"], tier=["tier1"], data_class=["pii"],
+            sensitivity=True, exposure=False, q="prod", limit=50,
+        )
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/data-security/stores"
+        assert qp == [
+            ("provider", "gcp"), ("account", "proj-1"),
+            ("region", "us-central1"), ("store_kind", "bucket"),
+            ("tier", "tier1"), ("data_class", "pii"),
+            ("sensitivity", "true"), ("exposure", "false"),
+            ("q", "prod"), ("limit", "50"),
+        ]
+
+    def test_unscoped_bucket_selector_survives(self, cs, mock_org):
+        # An empty placement value selects the unscoped bucket.
+        mock_org.client.request.return_value = {"stores": []}
+        cs.list_data_stores(account=[""])
+        _, qp = _get_call(mock_org)
+        assert qp == [("account", "")]
+
+    def test_facets_take_the_same_filter(self, cs, mock_org):
+        mock_org.client.request.return_value = {"facets": {}}
+        cs.get_data_security_facets(store_kind=["bucket"], exposure=True)
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/data-security/facets"
+        assert qp == [("store_kind", "bucket"), ("exposure", "true")]
+
+    def test_facets_unfiltered_is_unchanged(self, cs, mock_org):
+        mock_org.client.request.return_value = {"facets": {}}
+        cs.get_data_security_facets()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/data-security/facets"
+        assert qp is None
+
+
+class TestFreeTier:
+    def test_free_tier(self, cs, mock_org):
+        mock_org.client.request.return_value = {
+            "is_free_tier": True, "sensor_quota": 2, "max_providers": 2,
+            "enabled_providers": 1,
+        }
+        out = cs.get_free_tier()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/free-tier"
+        assert qp is None
+        assert out["max_providers"] == 2

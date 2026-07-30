@@ -28,14 +28,15 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
         f"{name}.return_value": return_value
         for name in [
             "get_overview", "list_changes", "get_risk_trend", "get_scan_status",
-            "get_topology",
+            "get_topology", "get_free_tier",
             "list_findings", "get_finding_facets", "get_finding_classes",
-            "get_finding",
+            "get_finding", "list_finding_causes",
             "set_finding_status", "bulk_set_finding_status",
             "set_finding_owner", "set_finding_ticket",
             "list_attack_paths", "get_public_access", "get_identity_facets",
-            "get_identity",
+            "get_identity", "list_identity_access",
             "list_inventory", "get_inventory_facets", "get_data_security_facets",
+            "list_data_stores",
             "get_resource", "get_graph_neighbors", "list_queries", "run_query",
             "get_compliance", "list_compliance_frameworks",
             "list_compliance_assignments",
@@ -71,7 +72,7 @@ class TestCloudSecHelp:
         assert result.exit_code == 0
         for cmd in [
             "overview", "changes", "risk-trend", "scan-status", "topology",
-            "fleet", "finding", "attack-path", "ciem", "inventory",
+            "free-tier", "fleet", "finding", "attack-path", "ciem", "inventory",
             "data-security", "resource", "graph", "query", "compliance",
             "chokepoint", "resolve", "caasm", "provider", "policy",
             "simulate", "export",
@@ -82,7 +83,7 @@ class TestCloudSecHelp:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "finding", "--help"])
         assert result.exit_code == 0
-        for cmd in ["list", "facets", "classes", "get", "resolve",
+        for cmd in ["list", "facets", "causes", "classes", "get", "resolve",
                     "bulk-resolve", "set-owner", "set-ticket"]:
             assert cmd in result.output
 
@@ -110,7 +111,7 @@ class TestCloudSecHelp:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "ciem", "--help"])
         assert result.exit_code == 0
-        for cmd in ["public-access", "facets", "identity"]:
+        for cmd in ["public-access", "facets", "identity", "identities"]:
             assert cmd in result.output
 
     def test_policy_subgroup_help(self):
@@ -138,7 +139,8 @@ class TestCloudSecHelp:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "data-security", "--help"])
         assert result.exit_code == 0
-        assert "facets" in result.output
+        for cmd in ["facets", "stores"]:
+            assert cmd in result.output
 
     def test_resource_subgroup_help(self):
         runner = CliRunner()
@@ -261,6 +263,7 @@ class TestFindingCommands:
                 finding_class=["toxic_combination"],
                 status=None,
                 account=None,
+                owner=None,
                 reachable=True,
                 kev=True,
                 q="prod",
@@ -819,7 +822,7 @@ class TestExport:
             assert result.output == "col_a,col_b\n1,2\n"
             inst.export_findings_csv.assert_called_once_with(
                 severity=["CRITICAL"], finding_class=None, status=["open"],
-                account=None, reachable=None, kev=None, q=None,
+                account=None, owner=None, reachable=None, kev=None, q=None,
                 sort=None, order=None,
             )
 
@@ -1062,3 +1065,246 @@ class TestSimulate:
             inst.simulate_finding_match.assert_called_once_with(
                 {}, sample_limit=None,
             )
+
+
+class TestFindingOwnerSelector:
+    def test_owner_and_unassigned_ride_one_selector(self):
+        # "mine or nobody's" is ONE repeatable filter with two values, and
+        # the unassigned bucket travels as the empty string.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list",
+                 "--owner", "alice@corp.com", "--unassigned"], cls,
+                return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_findings.call_args[1]["owner"] == [
+                "alice@corp.com", "",
+            ]
+
+    def test_unassigned_alone_selects_the_empty_owner(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list", "--unassigned"], cls,
+                return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_findings.call_args[1]["owner"] == [""]
+
+    def test_no_owner_flags_send_no_constraint(self):
+        # An empty selector must be None, not [] — [""] would silently
+        # narrow the read to the untriaged bucket.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list"], cls,
+                return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_findings.call_args[1]["owner"] is None
+
+    def test_facets_owner_pin_is_separate_from_the_filter(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "facets",
+                 "--owner-pin", "me@corp.com", "--owner-pin", "bob@corp.com"],
+                cls, return_value={"facets": {}},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.get_finding_facets.call_args[1]
+            assert kwargs["owner_pin"] == ["me@corp.com", "bob@corp.com"]
+            # A pin selects nothing: the owner FILTER stays unset.
+            assert kwargs["owner"] is None
+
+    def test_export_findings_takes_the_owner_filter(self):
+        # The export must be the same filtered set the list shows.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "findings", "--owner", "alice@corp.com"],
+                cls,
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.export_findings_csv.call_args[1]["owner"] == [
+                "alice@corp.com",
+            ]
+
+
+class TestFindingCauses:
+    def test_causes_rollup_with_filters(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "causes",
+                 "--severity", "CRITICAL", "--limit", "5"], cls,
+                return_value={"causes": [], "distinct": 0},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_finding_causes.assert_called_once_with(
+                cause=None,
+                severity=["CRITICAL"],
+                finding_class=None,
+                status=None,
+                account=None,
+                owner=None,
+                reachable=None,
+                kev=None,
+                q=None,
+                limit=5,
+            )
+
+    def test_causes_single_cause(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "causes", "--cause", "lcrn:fw"], cls,
+                return_value={"causes": [{"key": "lcrn:fw", "count": 22}],
+                              "distinct": 1},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_finding_causes.call_args[1]["cause"] == "lcrn:fw"
+
+
+class TestCiemIdentities:
+    def test_identities_full_cross_filter(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "ciem", "identities",
+                 "--source", "okta", "--source", "gcp",
+                 "--account", "proj-1", "--region", "us-central1",
+                 "--kind", "service_account", "--criticality", "tier1",
+                 "--risk-band", "critical", "--mfa", "off",
+                 "--admin", "--no-external", "--can-escalate",
+                 "--with-sensitive", "-q", "deploy",
+                 "--limit", "50", "--cursor", "c1"], cls,
+                return_value={"principals": [], "next_cursor": None},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_identity_access.assert_called_once_with(
+                source=["okta", "gcp"],
+                account=["proj-1"],
+                region=["us-central1"],
+                kind=["service_account"],
+                criticality=["tier1"],
+                risk_band=["critical"],
+                mfa="off",
+                admin=True,
+                external=False,
+                public=None,
+                disabled=None,
+                crown_jewel=None,
+                can_escalate=True,
+                dormant_90d=None,
+                with_sensitive=True,
+                q="deploy",
+                cursor="c1",
+                limit=50,
+            )
+
+    def test_identities_unset_booleans_are_none_not_false(self):
+        # Tri-state: an omitted flag must leave the dimension
+        # unconstrained rather than pinning it to false.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "ciem", "identities"], cls,
+                return_value={"principals": []},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_identity_access.call_args[1]
+            for key in ["admin", "external", "public", "disabled",
+                        "crown_jewel", "can_escalate", "dormant_90d",
+                        "with_sensitive", "mfa"]:
+                assert kwargs[key] is None, key
+
+    def test_identities_rejects_unknown_mfa_state(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["cloudsec", "ciem", "identities", "--mfa", "maybe"],
+        )
+        assert result.exit_code != 0
+
+    def test_facets_take_the_same_cross_filter(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "ciem", "facets",
+                 "--kind", "user", "--mfa", "unknown"], cls,
+                return_value={"facets": {}},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.get_identity_facets.call_args[1]
+            assert kwargs["kind"] == ["user"]
+            assert kwargs["mfa"] == "unknown"
+
+
+class TestDataSecurityStores:
+    def test_stores_full_cross_filter(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "data-security", "stores",
+                 "--provider", "gcp", "--account", "proj-1",
+                 "--region", "us-central1", "--store-kind", "bucket",
+                 "--tier", "tier1", "--data-class", "pii",
+                 "--sensitive", "--not-public", "-q", "prod",
+                 "--limit", "50"], cls,
+                return_value={"stores": [], "next_cursor": ""},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_data_stores.assert_called_once_with(
+                provider=["gcp"],
+                account=["proj-1"],
+                region=["us-central1"],
+                store_kind=["bucket"],
+                tier=["tier1"],
+                data_class=["pii"],
+                sensitivity=True,
+                exposure=False,
+                q="prod",
+                cursor=None,
+                limit=50,
+            )
+
+    def test_stores_unset_tristates_are_none(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "data-security", "stores"], cls,
+                return_value={"stores": []},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_data_stores.call_args[1]
+            assert kwargs["sensitivity"] is None
+            assert kwargs["exposure"] is None
+
+    def test_facets_take_the_same_cross_filter(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "data-security", "facets",
+                 "--store-kind", "bucket", "--public"], cls,
+                return_value={"facets": {}},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.get_data_security_facets.call_args[1]
+            assert kwargs["store_kind"] == ["bucket"]
+            assert kwargs["exposure"] is True
+
+
+class TestFreeTier:
+    def test_free_tier(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "free-tier"], cls,
+                return_value={"is_free_tier": True, "sensor_quota": 2,
+                              "max_providers": 2, "enabled_providers": 1},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_free_tier.assert_called_once_with()
+            assert "is_free_tier" in result.output
