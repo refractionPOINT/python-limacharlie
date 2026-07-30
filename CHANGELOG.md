@@ -14,6 +14,55 @@
 
 ### Cloud Security (CNAPP)
 
+- **Findings owner filter**: `cloudsec finding list|facets --owner ALICE
+  [--unassigned]` / `list_findings(owner=[...])` filter the worklist by
+  assigned owner. The gateway has always accepted the selector, so
+  `finding set-owner` could assign an owner nothing could then filter by.
+  The unassigned bucket is the empty owner value, so `--owner alice
+  --unassigned` is "mine or nobody's" in one filter. `finding facets
+  --owner-pin` keeps named owners in the `owner` facet, which is capped at
+  the top 50 by count (`owner_truncated` says whether any were dropped) —
+  it is not a filter and changes no count, and the pin shares those 50 slots
+  with any `--owner` values, so it is a best effort past ~50 combined. `export findings` takes the
+  owner filter too, so an export stays the set the list shows.
+
+- **Shared-fix cause rollup**: `cloudsec finding causes` /
+  `CloudSec.list_finding_causes()` group findings by the mutable object
+  whose single edit resolves all of them ("change this one thing, close N
+  findings"), under the same filters as `finding list`. `--cause` returns
+  the count for one cause; otherwise the top causes by count plus
+  `distinct`, the total matching causes, so the ranked head discloses its
+  tail.
+
+- **Closed vocabularies are validated client-side**: `--risk-band`,
+  `--criticality` and `--tier` accept only `critical`/`high`/`medium`/`low`,
+  because the backend fails CLOSED on an unknown value — a typo would have
+  returned zero rows with a successful exit under a filter the user can see
+  is applied. `--unclassified` selects the no-tier-assigned bucket (the
+  empty value on the wire) and combines with a named tier, mirroring
+  `--unassigned` for owners.
+
+- **Identity access population**: `cloudsec ciem identities` /
+  `CloudSec.list_identity_access()` — the ranked, server-filtered,
+  keyset-paginated identity rollup (the pageable sibling of `ciem
+  public-access`'s top-N). `ciem facets` now takes the SAME cross-filter
+  (source/kind/criticality/risk_band/mfa plus the admin, external, public,
+  disabled, crown-jewel, escalation, dormancy and sensitive-access
+  tri-states), so a facet count describes the population the list returns —
+  except for the no-tier bucket, which both rails skip when counting.
+
+- **Data Security store list**: `cloudsec data-security stores` /
+  `CloudSec.list_data_stores()` — the keyset-paginated DSPM row list, and
+  `data-security facets` now takes the same cross-filter
+  (provider/account/region/store_kind/tier/data_class plus the sensitivity
+  and exposure tri-states).
+
+- **Free-tier standing**: `cloudsec free-tier` /
+  `CloudSec.get_free_tier()` report the org's tier, sensor quota and — for
+  a free-tier org — its provider cap and how many connections it is using,
+  so an upgrade prompt can precede the limit. It only describes the limits;
+  the collector and the provider-record validator enforce them.
+
 - **Sensor↔cloud resolution keeps the resolver-readiness signal**:
   `CloudSec.resolve_sensors()` / `resolve_assets()` chunk large batches and
   merge the responses; the merge dropped `resolver_ready`, so a caller could

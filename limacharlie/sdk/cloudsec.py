@@ -2,14 +2,17 @@
 
 Wraps the ``/cloudsec/{oid}/...`` REST routes served by the API
 gateway: the merged, risk-ranked findings worklist (CSPM + attack
-paths + CIEM), the single-identity access rollup, the resource
-inventory, the pre-aggregated estate topology and security graph,
-compliance assessment, the risk overview, CAASM (third-party asset
-attack surface), sensor<->cloud-asset resolution, the finding triage
+paths + CIEM) with its facet and shared-fix (cause) rollups, the
+identity access population and single-identity rollup, the resource
+inventory, the Data Security (DSPM) store list and facets, the
+pre-aggregated estate topology and security graph, compliance
+assessment, the risk overview, CAASM (third-party asset attack
+surface), sensor<->cloud-asset resolution, the finding triage
 writes, the cloudsec_policy authoring aids (vocabulary, live
 autocomplete, and the two "Simulate" preflights), CSV exports of the
-read surface, per-provider coverage manifests, and the multi-org
-fleet overview (``/cloudsec/fleet/overview``).
+read surface, per-provider coverage manifests, the free-tier
+standing, and the multi-org fleet overview
+(``/cloudsec/fleet/overview``).
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``; every route additionally requires the org to be
@@ -87,6 +90,8 @@ def _finding_query_pairs(
     finding_class: list[str] | None = None,
     status: list[str] | None = None,
     account: list[str] | None = None,
+    owner: list[str] | None = None,
+    owner_pin: list[str] | None = None,
     reachable: bool | None = None,
     kev: bool | None = None,
     q: str | None = None,
@@ -95,11 +100,80 @@ def _finding_query_pairs(
     cursor: str | None = None,
     limit: int | None = None,
 ) -> list[tuple[str, str]]:
-    """Assemble the findings worklist selectors shared by list/facets."""
+    """Assemble the findings worklist selectors shared by list/facets.
+
+    ``owner`` is the one selector here whose EMPTY value is a real
+    selection: ``owner=[""]`` asks for the UNASSIGNED bucket, so it must
+    reach the wire as ``?owner=`` rather than being dropped. Pass ``None``
+    (or ``[]``) for no owner constraint.
+    """
     return _query_pairs(
         severity=severity, finding_class=finding_class, status=status,
-        account=account, reachable=reachable, kev=kev, q=q,
+        account=account, owner=owner, owner_pin=owner_pin,
+        reachable=reachable, kev=kev, q=q,
         sort=sort, order=order, cursor=cursor, limit=limit,
+    )
+
+
+# The merged-identity cross-filter, shared verbatim by the identity facet
+# rail and the ranked Access list so a facet count describes the
+# population the list would return (the empty-tier bucket excepted — the
+# rail does not count it; see get_identity_facets).
+def _identity_query_pairs(
+    *,
+    provider: list[str] | None = None,
+    account: list[str] | None = None,
+    region: list[str] | None = None,
+    source: list[str] | None = None,
+    kind: list[str] | None = None,
+    criticality: list[str] | None = None,
+    risk_band: list[str] | None = None,
+    mfa: str | None = None,
+    admin: bool | None = None,
+    external: bool | None = None,
+    public: bool | None = None,
+    disabled: bool | None = None,
+    crown_jewel: bool | None = None,
+    can_escalate: bool | None = None,
+    dormant_90d: bool | None = None,
+    with_sensitive: bool | None = None,
+    q: str | None = None,
+    cursor: str | None = None,
+    limit: int | None = None,
+) -> list[tuple[str, str]]:
+    """Assemble the identity cross-filter shared by facets/access list."""
+    return _query_pairs(
+        provider=provider, account=account, region=region, source=source,
+        kind=kind, criticality=criticality, risk_band=risk_band, mfa=mfa,
+        admin=admin, external=external, public=public, disabled=disabled,
+        crown_jewel=crown_jewel, can_escalate=can_escalate,
+        dormant_90d=dormant_90d, with_sensitive=with_sensitive,
+        q=q, cursor=cursor, limit=limit,
+    )
+
+
+# The Data Security (DSPM) cross-filter, shared by the store facets and the
+# store list for the same reason.
+def _data_store_query_pairs(
+    *,
+    provider: list[str] | None = None,
+    account: list[str] | None = None,
+    region: list[str] | None = None,
+    store_kind: list[str] | None = None,
+    tier: list[str] | None = None,
+    data_class: list[str] | None = None,
+    sensitivity: bool | None = None,
+    exposure: bool | None = None,
+    q: str | None = None,
+    cursor: str | None = None,
+    limit: int | None = None,
+) -> list[tuple[str, str]]:
+    """Assemble the data-store cross-filter shared by facets/list."""
+    return _query_pairs(
+        provider=provider, account=account, region=region,
+        store_kind=store_kind, tier=tier, data_class=data_class,
+        sensitivity=sensitivity, exposure=exposure,
+        q=q, cursor=cursor, limit=limit,
     )
 
 
@@ -189,6 +263,7 @@ class CloudSec:
         finding_class: list[str] | None = None,
         status: list[str] | None = None,
         account: list[str] | None = None,
+        owner: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -214,6 +289,13 @@ class CloudSec:
                 ``open`` again. The same three values are the keys of the
                 ``status`` map returned by :meth:`get_finding_facets`.
             account: Cloud account filter values, OR'd.
+            owner: Assigned-owner filter values, OR'd. The EMPTY STRING is
+                a real value selecting the UNASSIGNED bucket, so
+                ``owner=[""]`` is the untriaged backlog and
+                ``owner=["alice@corp.com", ""]`` is "mine or nobody's".
+                Pass ``None`` for no owner constraint. Owners are set with
+                :meth:`set_finding_owner` and counted by the ``owner``
+                facet of :meth:`get_finding_facets`.
             reachable: Only findings on (non-)reachable resources.
             kev: Only findings with (without) a KEV vulnerability.
             q: Substring search.
@@ -228,7 +310,7 @@ class CloudSec:
         """
         return self._get("findings", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, reachable=reachable, kev=kev, q=q,
+            account=account, owner=owner, reachable=reachable, kev=kev, q=q,
             sort=sort, order=order, cursor=cursor, limit=limit,
         ))
 
@@ -239,6 +321,8 @@ class CloudSec:
         finding_class: list[str] | None = None,
         status: list[str] | None = None,
         account: list[str] | None = None,
+        owner: list[str] | None = None,
+        owner_pin: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -248,13 +332,104 @@ class CloudSec:
         Takes the same filter selectors as :meth:`list_findings`; each
         facet dimension is counted against the other active filters.
 
+        Args:
+            owner_pin: Owners to keep in the ``owner`` facet even when they
+                would not rank into it. NOT a filter — it selects no rows
+                and changes no count. The ``owner`` facet is capped at the
+                top 50 owners by count (``owner_truncated`` reports whether
+                any were dropped), so pin the calling user to keep their own
+                row reachable on an estate with more owners than the cap.
+                The unassigned bucket is always included and outranks every
+                pin.
+
+                The guarantee is BOUNDED BY THAT CAP, not absolute: the
+                pins and the active ``owner`` filter share the 50 slots
+                (and the unassigned bucket takes one), so past ~50
+                combined values a pin can still be dropped — and
+                ``owner_truncated`` cannot distinguish that from ordinary
+                tail truncation. Render a pinned-but-absent owner as zero
+                rather than assuming the map is complete.
+
         Returns:
-            ``{"facets": {...}}``.
+            ``{"facets": {..., "owner": {"": 12, "alice@corp.com": 3},
+            "owner_truncated": false}}``.
         """
         return self._get("findings/facets", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, reachable=reachable, kev=kev, q=q,
+            account=account, owner=owner, owner_pin=owner_pin,
+            reachable=reachable, kev=kev, q=q,
         ))
+
+    def list_finding_causes(
+        self,
+        *,
+        cause: str | None = None,
+        severity: list[str] | None = None,
+        finding_class: list[str] | None = None,
+        status: list[str] | None = None,
+        account: list[str] | None = None,
+        owner: list[str] | None = None,
+        reachable: bool | None = None,
+        kev: bool | None = None,
+        q: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Findings grouped by their CAUSE (the shared-fix rollup).
+
+        A cause is the mutable object — a firewall rule, the principal an
+        attack path's grants land on — whose single edit resolves every
+        finding grouped under it, so a worklist can be worked by fix
+        instead of by row. Takes the same filter selectors as
+        :meth:`list_findings`, so a rollup can be scoped exactly like the
+        list it summarizes.
+
+        **Only CAUSE-BEARING findings are in scope, which is a small slice
+        of an estate.** Causes are stamped on the attack-path classes;
+        vulnerability findings — roughly 90% of a typical estate —
+        deliberately carry none, because a per-package cause would evict
+        every attack-path fix from the ranking and would cost the sparse
+        index this rollup is fast because of. So the counts here never sum
+        to the worklist total, and a rollup scoped to a class that carries
+        no cause (``finding_class=["vulnerability"]``) legitimately returns
+        ``{"causes": [], "distinct": 0}`` — that is "no shared fix on this
+        class", not "no findings".
+
+        Args:
+            cause: One cause key. Set it for the count of that cause alone,
+                returned as a single-entry ``causes`` — or an EMPTY
+                ``causes`` when no finding under the filter carries it, so
+                read the list rather than indexing ``causes[0]``. Clamped
+                to 512 chars server-side.
+            limit: Rollup size when ``cause`` is omitted (default 20,
+                server cap 200). Not a page size — the rollup is not
+                paginated, and ``distinct`` reports the tail it hides.
+
+        Returns:
+            ``{"causes": [{"key": str, "name": str, "kind": str,
+            "count": int}, ...], "distinct": int}``. ``kind`` is an OPEN
+            vocabulary (``firewall_rule``, ``entitled_identity``, ...) that
+            grows server-side — treat an unrecognized value as "some
+            object" rather than assuming a class. ``distinct`` is the total
+            number of causes matching the filter and MAY exceed
+            ``len(causes)`` when ``limit`` truncates.
+
+            A count is a whole-population figure, not a capped one: it does
+            not degrade to a lower bound the way folding a paginated
+            worklist client-side does. It is computed on each finding's
+            STORED status, though, which lags a disposition that expired on
+            its own — an acceptance past its expiry still counts as
+            accepted until the projector's periodic backstop rewrites it,
+            while reading that finding returns it as open. Treat a count as
+            a ranking and scale signal; the finding's own read is the
+            authority on its status.
+        """
+        pairs = _finding_query_pairs(
+            severity=severity, finding_class=finding_class, status=status,
+            account=account, owner=owner, reachable=reachable, kev=kev, q=q,
+            limit=limit,
+        )
+        _add_scalar(pairs, "cause", cause)
+        return self._get("findings/causes", pairs)
 
     def get_finding(self, finding_id: str) -> dict[str, Any]:
         """Get one finding by id (e.g. ``fnd_<fingerprint>``).
@@ -388,13 +563,131 @@ class CloudSec:
         """
         return self._get("ciem/public-access")
 
-    def get_identity_facets(self) -> dict[str, Any]:
+    def get_identity_facets(
+        self,
+        *,
+        provider: list[str] | None = None,
+        account: list[str] | None = None,
+        region: list[str] | None = None,
+        source: list[str] | None = None,
+        kind: list[str] | None = None,
+        criticality: list[str] | None = None,
+        risk_band: list[str] | None = None,
+        mfa: str | None = None,
+        admin: bool | None = None,
+        external: bool | None = None,
+        public: bool | None = None,
+        disabled: bool | None = None,
+        crown_jewel: bool | None = None,
+        can_escalate: bool | None = None,
+        dormant_90d: bool | None = None,
+        with_sensitive: bool | None = None,
+        q: str | None = None,
+    ) -> dict[str, Any]:
         """CIEM identity facet counts.
+
+        Takes the same cross-filter as :meth:`list_identity_access`, so a
+        facet count describes the population that list would return — with
+        the single documented exception of the no-tier bucket under
+        ``criticality`` (see below). With no selectors the response is the whole-population
+        rollup. Each dimension is counted under the OTHER active
+        selectors but not its own, so a value's count is exactly how many
+        rows selecting it would list.
+
+        Args:
+            provider: Producing sweeps, OR'd (alias of ``source``).
+            account, region: Placement filters, OR'd. These two are served
+                from the projector's merged view; on a tenant whose view
+                has not been built yet the call FAILS rather than
+                returning a misleading zero.
+            source: Producing sweeps (``okta``, ``gcp``,
+                ``google_workspace``, ...), OR'd.
+            kind: Identity kinds (``user``, ``service_account``, ``group``,
+                ``ai_agent``, ...), OR'd.
+            criticality: Crown-jewel tiers, OR'd. A CLOSED vocabulary —
+                ``critical`` / ``high`` / ``medium`` / ``low`` — plus the
+                empty string, which selects identities with no tier
+                assigned. An unrecognized tier matches nothing rather than
+                erroring, so a typo reads as "no such identities". The
+                empty-tier bucket is the ONE selection the facet rail does
+                not count (the criticality facet skips it), so it is the
+                one case where a facet count cannot predict the list.
+            risk_band: Risk bands, OR'd — ``critical`` / ``high`` /
+                ``medium`` / ``low``, the band token rather than a numeric
+                range. Also closed, and also fails closed: an unrecognized
+                band selects nothing.
+            mfa: ``on`` | ``off`` | ``unknown``. ``unknown`` is everyone
+                the MFA question does not apply to (no identity-provider
+                observation, or non-human) — it is NOT ``off``.
+            admin, external, public, disabled, crown_jewel, can_escalate,
+                dormant_90d, with_sensitive: Tri-state — ``None`` leaves
+                the dimension unconstrained, which is NOT the same as
+                ``False`` (which pins it).
+            q: Substring filter over the identity's urn/email/kind.
 
         Returns:
             ``{"facets": {...}}``.
         """
-        return self._get("ciem/facets")
+        return self._get("ciem/facets", _identity_query_pairs(
+            provider=provider, account=account, region=region, source=source,
+            kind=kind, criticality=criticality, risk_band=risk_band, mfa=mfa,
+            admin=admin, external=external, public=public, disabled=disabled,
+            crown_jewel=crown_jewel, can_escalate=can_escalate,
+            dormant_90d=dormant_90d, with_sensitive=with_sensitive, q=q,
+        ))
+
+    def list_identity_access(
+        self,
+        *,
+        provider: list[str] | None = None,
+        account: list[str] | None = None,
+        region: list[str] | None = None,
+        source: list[str] | None = None,
+        kind: list[str] | None = None,
+        criticality: list[str] | None = None,
+        risk_band: list[str] | None = None,
+        mfa: str | None = None,
+        admin: bool | None = None,
+        external: bool | None = None,
+        public: bool | None = None,
+        disabled: bool | None = None,
+        crown_jewel: bool | None = None,
+        can_escalate: bool | None = None,
+        dormant_90d: bool | None = None,
+        with_sensitive: bool | None = None,
+        q: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """One page of the Access screen's identity population.
+
+        The same per-principal effective-access rollup rows
+        :meth:`get_public_access` carries (grant / privileged /
+        sensitive-reach counts, posture facets, risk score), but
+        server-filtered and pageable instead of a risk-ranked top-N.
+        Takes the same selectors as :meth:`get_identity_facets` — see
+        there for what each one means.
+
+        Ranked by risk score descending by default. A walk that spans a
+        projector recompute can move a row across the cursor, so use it
+        for browsing, not for exact exports.
+
+        Args:
+            cursor, limit: Keyset pagination (default page 500).
+
+        Returns:
+            ``{"principals": [...], "next_cursor": str | None}``, plus
+            ``served_from`` / ``data_as_of`` when the page came from the
+            projector's materialized merged view.
+        """
+        return self._get("ciem/identities", _identity_query_pairs(
+            provider=provider, account=account, region=region, source=source,
+            kind=kind, criticality=criticality, risk_band=risk_band, mfa=mfa,
+            admin=admin, external=external, public=public, disabled=disabled,
+            crown_jewel=crown_jewel, can_escalate=can_escalate,
+            dormant_90d=dormant_90d, with_sensitive=with_sensitive,
+            q=q, cursor=cursor, limit=limit,
+        ))
 
     def get_identity(self, urn: str) -> dict[str, Any]:
         """The single-identity effective-access rollup for one identity urn.
@@ -469,13 +762,98 @@ class CloudSec:
         """
         return self._get("topology")
 
-    def get_data_security_facets(self) -> dict[str, Any]:
+    def get_data_security_facets(
+        self,
+        *,
+        provider: list[str] | None = None,
+        account: list[str] | None = None,
+        region: list[str] | None = None,
+        store_kind: list[str] | None = None,
+        tier: list[str] | None = None,
+        data_class: list[str] | None = None,
+        sensitivity: bool | None = None,
+        exposure: bool | None = None,
+        q: str | None = None,
+    ) -> dict[str, Any]:
         """DSPM data-store facet counts (total/sensitive/public, store kinds).
+
+        Takes the same cross-filter as :meth:`list_data_stores`, so the
+        counts describe the population that list would return. Each
+        dimension is counted under the OTHER active selectors but not its
+        own. With no selectors the response is the whole-population
+        rollup.
+
+            ONE exception to that: the no-tier bucket. Both this rail and
+            the identity rail skip the empty value when counting, so
+            selecting it (``tier=[""]``) returns rows the facets never
+            counted. Every other value's count predicts its list exactly.
+
+        Args:
+            provider, account, region: Placement filters, OR'd within a
+                key. An empty-string value selects the unscoped bucket.
+            store_kind: Store kinds (``bucket``, ``sql_instance``, ...),
+                OR'd.
+            tier: Criticality tiers, OR'd. Same closed vocabulary as the
+                identity filter's ``criticality`` — ``critical`` /
+                ``high`` / ``medium`` / ``low``, plus the empty string for
+                stores with no tier assigned. That empty-tier bucket is the
+                ONE selection this rail does not count (the tier facet
+                skips it), so it is the one case where a facet count cannot
+                predict the list.
+            data_class: Content classes (``pii``, ``secrets``, ...), OR'd.
+            sensitivity: Tri-state — ``True`` only sensitive stores,
+                ``False`` only non-sensitive, ``None`` unconstrained.
+            exposure: Tri-state — ``True`` only publicly-exposed stores,
+                ``False`` only non-public, ``None`` unconstrained.
+            q: Substring filter over the store's name/urn.
 
         Returns:
             ``{"facets": {...}}``.
         """
-        return self._get("data-security/facets")
+        return self._get("data-security/facets", _data_store_query_pairs(
+            provider=provider, account=account, region=region,
+            store_kind=store_kind, tier=tier, data_class=data_class,
+            sensitivity=sensitivity, exposure=exposure, q=q,
+        ))
+
+    def list_data_stores(
+        self,
+        *,
+        provider: list[str] | None = None,
+        account: list[str] | None = None,
+        region: list[str] | None = None,
+        store_kind: list[str] | None = None,
+        tier: list[str] | None = None,
+        data_class: list[str] | None = None,
+        sensitivity: bool | None = None,
+        exposure: bool | None = None,
+        q: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """One keyset page of the org's data stores (DSPM row list).
+
+        Served from the materialized graph store under the same selectors
+        as :meth:`get_data_security_facets` — see there for what each one
+        means — so the filtered list stays exact at any estate size
+        instead of client-filtering a capped walk. Ordered by the stored
+        key, which is stable and safe for a full walk.
+
+        Args:
+            cursor, limit: Keyset pagination (server caps the page at
+                1000).
+
+        Returns:
+            ``{"stores": [{"urn", "name", "store_kind", "provider",
+            "account", "region", "is_public", "is_sensitive",
+            "criticality", "data_classes"}, ...], "next_cursor": str}``.
+        """
+        return self._get("data-security/stores", _data_store_query_pairs(
+            provider=provider, account=account, region=region,
+            store_kind=store_kind, tier=tier, data_class=data_class,
+            sensitivity=sensitivity, exposure=exposure,
+            q=q, cursor=cursor, limit=limit,
+        ))
 
     def get_resource(self, urn: str) -> dict[str, Any]:
         """Get the canonical record for any urn the graph knows.
@@ -952,6 +1330,29 @@ class CloudSec:
             type=provider_type,
         ))
 
+    def get_free_tier(self) -> dict[str, Any]:
+        """The org's cloud-security free-tier standing and its limits.
+
+        Describes where the org stands BEFORE it bounces off a limit; it
+        does not enforce anything (the collector and the provider-record
+        validator do, so a limit applies whether or not this was called).
+
+        The trial countdown is deliberately absent — the authoritative
+        clock lives in the datacenter, and a deadline derived here could
+        disagree with the enforcer. The collector publishes a gated reason
+        through :meth:`get_scan_status` instead.
+
+        Returns:
+            ``{"is_free_tier": bool, "sensor_quota": int}``, plus
+            ``max_providers`` and ``enabled_providers`` for a free-tier
+            org only (a paying org has no provider cap, so reporting one
+            would advertise a limit that does not exist).
+            ``enabled_providers`` is OMITTED — not zeroed — when the
+            count could not be read, so an absent key means "unknown",
+            never "none configured".
+        """
+        return self._get("free-tier")
+
     def test_provider(self, provider: dict[str, Any]) -> dict[str, Any]:
         """Preflight a cloud provider configuration before saving it.
 
@@ -1077,6 +1478,7 @@ class CloudSec:
         finding_class: list[str] | None = None,
         status: list[str] | None = None,
         account: list[str] | None = None,
+        owner: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -1094,7 +1496,7 @@ class CloudSec:
         """
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, reachable=reachable, kev=kev, q=q,
+            account=account, owner=owner, reachable=reachable, kev=kev, q=q,
             sort=sort, order=order,
         )
         pairs.append(("format", "csv"))

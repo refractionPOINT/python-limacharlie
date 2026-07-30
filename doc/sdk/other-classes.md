@@ -157,11 +157,25 @@ cs.list_findings(severity=["CRITICAL"], status=["open"])
 cs.get_finding("fnd_abc")
 cs.set_finding_status("fnd_abc", "mitigated", reason="SG tightened")
 
+# Owner filter: "" is the unassigned bucket, so this is "mine or nobody's"
+cs.list_findings(owner=["alice@corp.com", ""])
+cs.get_finding_facets(owner_pin=["alice@corp.com"])   # keep my row in the capped facet
+
+# Shared-fix rollup: one edit that closes N findings
+cs.list_finding_causes(severity=["CRITICAL"], limit=5)
+
 # Inventory, graph, compliance, overview
 cs.list_inventory(provider="gcp", resource_type="Bucket")
 cs.run_query(named="public-buckets")
 cs.get_compliance(framework="cis-gcp")
 cs.get_overview(trend_days=90)
+
+# Identity access population + Data Security stores (same selectors as their facets)
+cs.list_identity_access(kind=["service_account"], can_escalate=True)
+cs.list_data_stores(store_kind=["bucket"], sensitivity=True, exposure=True)
+
+# Free-tier standing and the limits that apply
+cs.get_free_tier()
 
 # Multi-org fleet posture (MSSP)
 cs.get_fleet_overview(group="my-group-id")
@@ -174,7 +188,7 @@ cs.test_provider({"provider_type": "gcp", "credentials": "hive://secret/gcp-sa"}
 cs.get_provider_manifests(provider_type="gcp")
 ```
 
-The Cloud Security (CNAPP) surface: findings (CSPM + attack paths + CIEM), resource inventory, security graph queries, compliance, DSPM facets, CAASM ingest/coverage, sensor↔asset resolution, fleet overview, and CSV exports. See [CLI: cloudsec](../cli/cloud-security.md) for the command-line equivalents.
+The Cloud Security (CNAPP) surface: findings (CSPM + attack paths + CIEM) with their facet and shared-fix rollups, resource inventory, security graph queries, compliance, the identity access population, DSPM stores and facets, CAASM ingest/coverage, sensor↔asset resolution, free-tier standing, fleet overview, and CSV exports. See [CLI: cloudsec](../cli/cloud-security.md) for the command-line equivalents.
 
 ## See Also
 

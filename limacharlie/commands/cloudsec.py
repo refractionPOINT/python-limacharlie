@@ -1,12 +1,15 @@
 """Cloud Security (CNAPP) commands for LimaCharlie CLI v2.
 
 Commands for the ``/cloudsec`` API surface: the merged, risk-ranked
-findings worklist (CSPM misconfigurations + attack paths + CIEM),
-the cloud resource inventory, the pre-aggregated estate topology and
+findings worklist (CSPM misconfigurations + attack paths + CIEM) with
+its facet and shared-fix (cause) rollups, the identity access
+population, the cloud resource inventory, the Data Security (DSPM)
+store list and facets, the pre-aggregated estate topology and
 security graph, compliance assessment, the risk overview, CAASM
 (third-party asset attack surface), sensor<->cloud-asset resolution,
-finding triage, and the cloudsec_policy authoring aids (vocabulary,
-autocomplete, and the "Simulate" matcher previews).
+finding triage, the free-tier standing, and the cloudsec_policy
+authoring aids (vocabulary, autocomplete, and the "Simulate" matcher
+previews).
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``. Every command requires the org to be subscribed to
@@ -78,6 +81,25 @@ Examples:
   limacharlie cloudsec scan-status --provider aws
 """
 
+_EXPLAIN_FREE_TIER = """\
+Where the org stands on the cloud-security free tier, and the limits
+that apply to it: is_free_tier, sensor_quota, and — for a free-tier
+org only — max_providers plus enabled_providers ("you are using N of
+M provider connections"). A paying org has no provider cap, so those
+two fields are absent for one.
+
+This endpoint only DESCRIBES the limits; the collector and the
+provider-record validator enforce them, so a limit applies whether or
+not you call this. enabled_providers is omitted rather than zeroed
+when the count could not be read, so an absent field means "unknown",
+never "none configured". There is no trial countdown here — the
+authoritative clock lives in the datacenter, and the collector
+publishes a gated reason through 'cloudsec scan-status'.
+
+Example:
+  limacharlie cloudsec free-tier
+"""
+
 _EXPLAIN_FINDING_LIST = """\
 List the merged, risk-ranked cloud-security findings (CSPM
 misconfigurations + graph toxic-combination attack paths + CIEM
@@ -92,6 +114,10 @@ privilege_escalation, vulnerability, misconfig, coverage_gap,
 device_posture. The canonical, always current list is served by
 'cloudsec finding classes'.
 
+--owner filters by assigned owner (set with 'finding set-owner');
+--unassigned selects the untriaged bucket and combines with --owner,
+so "mine or nobody's" is --owner me@corp.com --unassigned.
+
 Pagination is keyset-based: pass the previous page's next_cursor
 via --cursor.
 
@@ -99,6 +125,8 @@ Examples:
   limacharlie cloudsec finding list --severity CRITICAL
   limacharlie cloudsec finding list --class public_exposure --kev
   limacharlie cloudsec finding list --status open --limit 50
+  limacharlie cloudsec finding list --owner alice@corp.com --status open
+  limacharlie cloudsec finding list --unassigned --severity CRITICAL
 """
 
 _EXPLAIN_FINDING_FACETS = """\
@@ -106,8 +134,58 @@ Cross-filtered facet counts for the findings worklist under the
 same filter selectors as 'finding list'. Each facet dimension is
 counted against the other active filters.
 
-Example:
+The 'owner' facet is keyed by owner, with the empty string holding the
+unassigned bucket, and is capped at the top 50 owners by count —
+'owner_truncated' says whether any were dropped. --owner-pin keeps
+named owners in that capped facet even when they would not rank into
+it (pass your own identity so your row stays reachable on an estate
+with more owners than the cap). It is NOT a filter: it selects no rows
+and changes no count.
+
+That guarantee is bounded by the same cap rather than absolute: pins
+share the 50 slots with any --owner values (and the unassigned bucket
+takes one, outranking every pin), so past ~50 combined a pin can still
+be dropped and 'owner_truncated' cannot tell you it was. Render a
+pinned-but-absent owner as zero.
+
+Examples:
   limacharlie cloudsec finding facets --severity CRITICAL
+  limacharlie cloudsec finding facets --owner-pin me@corp.com
+"""
+
+_EXPLAIN_FINDING_CAUSES = """\
+Findings grouped by their CAUSE — the mutable object (a firewall
+rule, the principal an attack path's grants land on) whose single
+edit resolves every finding under it. Lets a worklist be worked by
+fix instead of by row: "change this one thing, close N findings".
+
+Only CAUSE-BEARING findings are in scope, and that is a small slice of
+an estate: causes are stamped on the attack-path classes, while
+vulnerability findings (~90% of a typical estate) deliberately carry
+none. So these counts never sum to the worklist total, and
+'--class vulnerability' legitimately returns no causes at all — that
+means "no shared fix on this class", not "no findings".
+
+Takes the same filters as 'finding list', so a rollup can be scoped
+exactly like the list it summarizes. Pass --cause for the count of
+one cause (an empty 'causes' means no finding under the filter
+carries it); omit it for the top causes by count (--limit, default
+20, cap 200). 'distinct' is the total number of matching causes, so
+you can tell how much tail the head hides.
+
+A count is a whole-population figure rather than a capped one, but it
+is computed on each finding's STORED status, which lags a disposition
+that expired on its own: an acceptance past its expiry still counts as
+accepted until the backstop rewrites it, while reading that finding
+returns it as open. Treat a count as a ranking and scale signal.
+
+'kind' is an open vocabulary that grows server-side; treat an
+unrecognized value as "some object" rather than assuming a class.
+
+Examples:
+  limacharlie cloudsec finding causes
+  limacharlie cloudsec finding causes --severity CRITICAL --limit 5
+  limacharlie cloudsec finding causes --cause "lcrn:...:firewalls/allow-all"
 """
 
 _EXPLAIN_FINDING_GET = """\
@@ -192,10 +270,53 @@ Example:
 """
 
 _EXPLAIN_CIEM_FACETS = """\
-CIEM identity facet counts (identity kinds, external/public splits).
+CIEM identity facet counts (identity kinds, MFA state, risk bands,
+plus the admin/external/public/disabled/dormant/escalation/
+sensitive-access rollups and the total), so the identity view can
+lead with insight before the row list.
 
-Example:
+The selectors CROSS-FILTER the rail: each dimension is counted under
+the other active selectors but not its own, so a value's count is
+exactly how many rows selecting it would list. With no selectors the
+response is the whole-population rollup. It takes the SAME selectors
+as 'ciem identities', so the counts and that list describe the same
+population — with ONE exception: the no-tier bucket that
+--unclassified selects is skipped when counting, so it is the only
+selection whose count the rail cannot give you.
+
+--mfa unknown is everyone the MFA question does not apply to (no
+identity-provider observation, or non-human) — it is NOT 'off'. The
+boolean filters are tri-state: omitting one leaves the dimension
+unconstrained, which is not the same as pinning it false.
+
+Examples:
   limacharlie cloudsec ciem facets
+  limacharlie cloudsec ciem facets --kind service_account --admin
+"""
+
+_EXPLAIN_CIEM_IDENTITIES = """\
+One page of the Access screen's identity population: the same
+per-principal effective-access rollup rows 'ciem public-access'
+carries (grant / privileged / sensitive-reach counts, posture facets,
+risk score), but server-filtered and pageable instead of a
+risk-ranked top-N.
+
+Takes the same selectors as 'ciem facets', so the rail's counts and
+this list describe the same population — except for the no-tier bucket
+(--unclassified), which the rail skips when counting. Ranked by risk score
+descending by default; a walk that spans a projector recompute can
+move a row across the cursor, so use it for browsing rather than for
+exact exports.
+
+--account / --region are served from the projector's merged view: on a
+tenant whose view has not been built yet the call fails loudly rather
+than returning a misleading zero.
+
+Examples:
+  limacharlie cloudsec ciem identities --limit 50
+  limacharlie cloudsec ciem identities --kind service_account --can-escalate
+  limacharlie cloudsec ciem identities --external --with-sensitive
+  limacharlie cloudsec ciem identities --mfa off --admin
 """
 
 _EXPLAIN_CIEM_IDENTITY = """\
@@ -247,8 +368,32 @@ _EXPLAIN_DATA_SECURITY_FACETS = """\
 DSPM data-store facet counts: total/sensitive/public/public-sensitive
 data stores plus store-kind, sensitivity, and exposure histograms.
 
-Example:
+The selectors cross-filter the rail (each dimension counted under the
+other active selectors but not its own) and are the SAME ones 'stores'
+takes, so the counts describe the population that list returns — except
+for the no-tier bucket (--unclassified), which the rail skips when
+counting and therefore cannot predict.
+
+Examples:
   limacharlie cloudsec data-security facets
+  limacharlie cloudsec data-security facets --store-kind bucket
+"""
+
+_EXPLAIN_DATA_SECURITY_STORES = """\
+One keyset page of the org's data stores, served from the
+materialized graph store under the same selectors as
+'data-security facets' — so the filtered list stays exact at any
+estate size instead of client-filtering a capped walk.
+
+--sensitive / --public are tri-state: omitting one leaves the
+dimension unconstrained; --no-sensitive / --no-public pin it to
+false. Rows are ordered by a stable stored key, so a full walk with
+--cursor is safe.
+
+Examples:
+  limacharlie cloudsec data-security stores --limit 50
+  limacharlie cloudsec data-security stores --sensitive --public
+  limacharlie cloudsec data-security stores --store-kind bucket --data-class pii
 """
 
 _EXPLAIN_RESOURCE_GET = """\
@@ -617,8 +762,10 @@ register_explain("cloudsec.changes", _EXPLAIN_CHANGES)
 register_explain("cloudsec.risk-trend", _EXPLAIN_RISK_TREND)
 register_explain("cloudsec.scan-status", _EXPLAIN_SCAN_STATUS)
 register_explain("cloudsec.topology", _EXPLAIN_TOPOLOGY)
+register_explain("cloudsec.free-tier", _EXPLAIN_FREE_TIER)
 register_explain("cloudsec.finding.list", _EXPLAIN_FINDING_LIST)
 register_explain("cloudsec.finding.facets", _EXPLAIN_FINDING_FACETS)
+register_explain("cloudsec.finding.causes", _EXPLAIN_FINDING_CAUSES)
 register_explain("cloudsec.finding.classes", _EXPLAIN_FINDING_CLASSES)
 register_explain("cloudsec.finding.get", _EXPLAIN_FINDING_GET)
 register_explain("cloudsec.finding.resolve", _EXPLAIN_FINDING_RESOLVE)
@@ -629,9 +776,11 @@ register_explain("cloudsec.attack-path.list", _EXPLAIN_ATTACK_PATH_LIST)
 register_explain("cloudsec.ciem.public-access", _EXPLAIN_CIEM_PUBLIC_ACCESS)
 register_explain("cloudsec.ciem.facets", _EXPLAIN_CIEM_FACETS)
 register_explain("cloudsec.ciem.identity", _EXPLAIN_CIEM_IDENTITY)
+register_explain("cloudsec.ciem.identities", _EXPLAIN_CIEM_IDENTITIES)
 register_explain("cloudsec.inventory.list", _EXPLAIN_INVENTORY_LIST)
 register_explain("cloudsec.inventory.facets", _EXPLAIN_INVENTORY_FACETS)
 register_explain("cloudsec.data-security.facets", _EXPLAIN_DATA_SECURITY_FACETS)
+register_explain("cloudsec.data-security.stores", _EXPLAIN_DATA_SECURITY_STORES)
 register_explain("cloudsec.resource.get", _EXPLAIN_RESOURCE_GET)
 register_explain("cloudsec.graph.neighbors", _EXPLAIN_GRAPH_NEIGHBORS)
 register_explain("cloudsec.query.list", _EXPLAIN_QUERY_LIST)
@@ -816,6 +965,20 @@ _SIMULATE_TARGET_CHOICES = click.Choice(
 _SUGGEST_DIMENSION_CHOICES = click.Choice(
     ["name", "account"], case_sensitive=False,
 )
+# The identity MFA selector is three-state by contract ("unknown" is not
+# "off"), and the set is closed server-side — a Choice keeps a typo from
+# reading as "no MFA constraint".
+_MFA_CHOICES = click.Choice(["on", "off", "unknown"], case_sensitive=False)
+# Risk bands partition the whole score space and criticality tiers are a
+# fixed assign-side vocabulary, so both are closed sets like --kind is not.
+# They get a Choice because the backend fails CLOSED on an unknown value:
+# an unrecognized band contributes a FALSE predicate and a misspelled tier
+# matches no row, so a typo would exit 0 with an empty result under a
+# filter the user can see is applied — the worst of both answers.
+_RISK_BAND_CHOICES = click.Choice(
+    ["critical", "high", "medium", "low"], case_sensitive=False,
+)
+_TIER_CHOICES = _RISK_BAND_CHOICES
 # Provider and CAASM-source values are deliberately NOT click.Choice lists:
 # both are growing server-side registries (new providers/sources ship without
 # a CLI release) and the server rejects unknown values with a clean error.
@@ -833,6 +996,22 @@ def _paging_options(f):
     return f
 
 
+def _selector_with_empty(values, include_empty: bool) -> list[str] | None:
+    """Fold a "…or none of them" flag into a repeatable wire selector.
+
+    Several dimensions express "not set" as the EMPTY value rather than
+    as a separate parameter: an unowned finding, an unclassified
+    criticality tier. That value rides the same repeatable selector, so
+    "mine or nobody's" is one filter with two values. No selection at
+    all returns None, so the request carries no constraint on the
+    dimension (an empty list would narrow it to the not-set bucket).
+    """
+    out = list(values)
+    if include_empty:
+        out.append("")
+    return out or None
+
+
 def _finding_filter_options(f):
     """The findings worklist filter selectors (shared by list/facets).
 
@@ -842,6 +1021,16 @@ def _finding_filter_options(f):
     f = click.option(
         "-q", "--search", "q", default=None,
         help="Substring search over the findings.",
+    )(f)
+    f = click.option(
+        "--unassigned", is_flag=True, default=False,
+        help="Include findings with no owner (the untriaged bucket); "
+             "combines with --owner.",
+    )(f)
+    f = click.option(
+        "--owner", "owners", multiple=True,
+        help="Filter by assigned owner; repeatable (OR). Use --unassigned "
+             "for findings nobody owns.",
     )(f)
     f = click.option(
         "--kev/--no-kev", "kev", default=None,
@@ -898,6 +1087,148 @@ def _inventory_filter_options(f):
     return f
 
 
+def _identity_filter_options(f):
+    """The merged-identity cross-filter (shared by ciem facets/identities).
+
+    One decorator for both routes on purpose: a dimension that reaches
+    the list and not the rail is how a facet count stops describing the
+    list it annotates. The boolean flags are tri-state — omitted leaves
+    the dimension unconstrained, which is not the same as pinning it
+    false, which is why every one of them defaults to None rather than
+    being an is_flag.
+    """
+    f = click.option(
+        "-q", "--search", "q", default=None,
+        help="Substring filter over the identity's urn/email/kind.",
+    )(f)
+    for opt, help_text in [
+        ("--with-sensitive/--no-with-sensitive",
+         "Holds (or not) at least one non-deny grant on a sensitive resource."),
+        ("--dormant-90d/--no-dormant-90d",
+         "No observed activity in 90 days (or some)."),
+        ("--can-escalate/--no-can-escalate",
+         "Can (or cannot) escalate its own privileges."),
+        ("--crown-jewel/--no-crown-jewel",
+         "Declared sensitive by the org's cloudsec_policy (or not) — the "
+         "flag any matching rule sets, independent of whether that rule "
+         "also assigned a tier (see --criticality)."),
+        ("--disabled/--no-disabled", "Disabled (or enabled) identities."),
+        ("--public/--no-public",
+         "Public principals (allUsers / allAuthenticatedUsers and "
+         "equivalents), or not."),
+        ("--external/--no-external",
+         "Outside (or inside) the org's own domains."),
+        ("--admin/--no-admin", "Holds (or does not hold) an admin role."),
+    ]:
+        f = click.option(
+            opt, default=None, help=f"{help_text} Omit for no constraint.",
+        )(f)
+    f = click.option(
+        "--mfa", default=None, type=_MFA_CHOICES,
+        help="MFA state: on | off | unknown. 'unknown' is everyone the "
+             "question does not apply to (no IdP observation, or non-human) "
+             "— it is NOT 'off'.",
+    )(f)
+    f = click.option(
+        "--risk-band", "risk_bands", multiple=True, type=_RISK_BAND_CHOICES,
+        help="Filter by risk band; repeatable (OR). The band token the rail "
+             "renders, not a numeric range.",
+    )(f)
+    f = click.option(
+        "--unclassified", "unclassified", is_flag=True, default=False,
+        help="Include identities with no TIER assigned; combines with "
+             "--criticality. Wider than --no-crown-jewel: a declared crown "
+             "jewel whose policy rule sets no tier lands here too. The "
+             "criticality facet does not count this bucket, so 'facets' "
+             "cannot predict how many rows it returns.",
+    )(f)
+    f = click.option(
+        "--criticality", "criticalities", multiple=True, type=_TIER_CHOICES,
+        help="Filter by assigned criticality tier; repeatable (OR). The tier "
+             "a cloudsec_policy rule assigned, which is a different column "
+             "from the crown-jewel flag --crown-jewel reads. Use "
+             "--unclassified for identities with no tier.",
+    )(f)
+    f = click.option(
+        "--kind", "kinds", multiple=True,
+        help="Filter by identity kind (user, service_account, group, "
+             "ai_agent, ...); repeatable (OR).",
+    )(f)
+    f = click.option(
+        "--region", "regions", multiple=True,
+        help="Filter by region; repeatable (OR). Served from the projector's "
+             "merged view — fails loudly on a tenant whose view is unbuilt.",
+    )(f)
+    f = click.option(
+        "--account", "accounts", multiple=True,
+        help="Filter by account/project; repeatable (OR). Served from the "
+             "merged view, like --region.",
+    )(f)
+    f = click.option(
+        "--source", "sources", multiple=True,
+        help="Filter by producing sweep (okta, gcp, google_workspace, ...); "
+             "repeatable (OR). Same dimension 'inventory list' calls "
+             "--provider.",
+    )(f)
+    return f
+
+
+def _data_store_filter_options(f):
+    """The Data Security cross-filter (shared by data-security facets/stores).
+
+    Shared for the same reason as the identity filter: the facet counts
+    must describe the population the store list returns. The one value
+    this cannot cover is the empty tier, which the facet pass skips.
+    """
+    f = click.option(
+        "-q", "--search", "q", default=None,
+        help="Substring filter over the store's name/urn.",
+    )(f)
+    f = click.option(
+        "--public/--no-public", "exposure", default=None,
+        help="The 'exposure' dimension: only publicly-exposed (or only "
+             "non-public) stores. Omit for no constraint.",
+    )(f)
+    f = click.option(
+        "--sensitive/--no-sensitive", "sensitivity", default=None,
+        help="The 'sensitivity' dimension: only sensitive (or only "
+             "non-sensitive) stores. Omit for no constraint.",
+    )(f)
+    f = click.option(
+        "--data-class", "data_classes", multiple=True,
+        help="Filter by content class (pii, secrets, ...); repeatable (OR).",
+    )(f)
+    f = click.option(
+        "--unclassified", "unclassified", is_flag=True, default=False,
+        help="Include stores with no criticality tier assigned; combines "
+             "with --tier. The tier facet does not count this bucket, so "
+             "'facets' cannot predict how many rows it returns.",
+    )(f)
+    f = click.option(
+        "--tier", "tiers", multiple=True, type=_TIER_CHOICES,
+        help="Filter by criticality tier; repeatable (OR). Use "
+             "--unclassified for stores with no tier.",
+    )(f)
+    f = click.option(
+        "--store-kind", "store_kinds", multiple=True,
+        help="Filter by store kind (bucket, sql_instance, ...); "
+             "repeatable (OR).",
+    )(f)
+    f = click.option(
+        "--region", "regions", multiple=True,
+        help="Filter by region; repeatable (OR).",
+    )(f)
+    f = click.option(
+        "--account", "accounts", multiple=True,
+        help="Filter by account/project; repeatable (OR).",
+    )(f)
+    f = click.option(
+        "--provider", "providers", multiple=True,
+        help="Filter by provider; repeatable (OR).",
+    )(f)
+    return f
+
+
 def _sort_options(f):
     f = click.option(
         "--order", default=None, type=_ORDER_CHOICES,
@@ -930,12 +1261,13 @@ def group() -> None:
       risk-trend          Risk-score history
       scan-status         Cloud-collection run status per provider
       topology            Pre-aggregated estate topology (exact at scale)
+      free-tier           Free-tier standing and the limits that apply
       fleet overview      Multi-org fleet posture board (MSSP)
-      finding ...         Findings worklist + triage (resolve, owner, ticket, classes)
+      finding ...         Findings worklist + triage (resolve, owner, ticket, causes, classes)
       attack-path list    Headline toxic-combination attack paths
-      ciem ...            Identity access views (public-access, facets, identity)
+      ciem ...            Identity access (public-access, facets, identities, identity)
       inventory ...       Cloud resource inventory
-      data-security ...   DSPM data-store facets
+      data-security ...   DSPM data-store facets + store list
       resource get        Canonical record for any urn
       graph neighbors     1-hop graph expansion around a urn
       query ...           Graph queries (list pack, run)
@@ -1027,6 +1359,19 @@ def topology(ctx) -> None:
     _output(ctx, cs.get_topology())
 
 
+@group.command("free-tier")
+@pass_context
+def free_tier(ctx) -> None:
+    """Free-tier standing and the limits that apply to the org.
+
+    \b
+    Example:
+      limacharlie cloudsec free-tier
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_free_tier())
+
+
 # ---------------------------------------------------------------------------
 # fleet subgroup (multi-org)
 # ---------------------------------------------------------------------------
@@ -1083,13 +1428,16 @@ def finding_group() -> None:
 @_paging_options
 @pass_context
 def finding_list(ctx, severities, finding_classes, statuses, accounts,
-                 reachable, kev, q, sort, order, cursor, limit) -> None:
+                 owners, unassigned, reachable, kev, q, sort, order,
+                 cursor, limit) -> None:
     """List the merged, risk-ranked cloud-security findings.
 
     \b
     Examples:
       limacharlie cloudsec finding list --severity CRITICAL --severity HIGH
       limacharlie cloudsec finding list --class public_exposure --kev
+      limacharlie cloudsec finding list --owner alice@corp.com
+      limacharlie cloudsec finding list --unassigned
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_findings(
@@ -1097,6 +1445,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
+        owner=_selector_with_empty(owners, unassigned),
         reachable=reachable,
         kev=kev,
         q=q,
@@ -1109,14 +1458,22 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts,
 
 @finding_group.command("facets")
 @_finding_filter_options
+@click.option("--owner-pin", "owner_pins", multiple=True,
+              help="Keep these owners in the capped 'owner' facet even when "
+                   "they would not rank into it (pass your own identity); "
+                   "repeatable. NOT a filter — selects no rows, changes no "
+                   "count. Bounded by the cap: pins share the facet's 50 "
+                   "slots with any --owner values, so past ~50 combined a "
+                   "pin can still be dropped.")
 @pass_context
 def finding_facets(ctx, severities, finding_classes, statuses, accounts,
-                   reachable, kev, q) -> None:
+                   owners, unassigned, reachable, kev, q, owner_pins) -> None:
     """Cross-filtered facet counts for the findings worklist.
 
     \b
-    Example:
+    Examples:
       limacharlie cloudsec finding facets --severity CRITICAL
+      limacharlie cloudsec finding facets --owner-pin me@corp.com
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.get_finding_facets(
@@ -1124,9 +1481,46 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
+        owner=_selector_with_empty(owners, unassigned),
+        owner_pin=list(owner_pins) or None,
         reachable=reachable,
         kev=kev,
         q=q,
+    ))
+
+
+@finding_group.command("causes")
+@_finding_filter_options
+@click.option("--cause", default=None,
+              help="One cause key: return the count for that cause alone "
+                   "instead of the ranked rollup (empty when no finding "
+                   "under the filter carries it).")
+@click.option("--limit", default=None, type=int,
+              help="Rollup size (default 20, cap 200). Not a page size — the "
+                   "rollup is not paginated; 'distinct' reports the tail.")
+@pass_context
+def finding_causes(ctx, severities, finding_classes, statuses, accounts,
+                   owners, unassigned, reachable, kev, q, cause,
+                   limit) -> None:
+    """Findings grouped by CAUSE: one edit that closes N findings.
+
+    \b
+    Examples:
+      limacharlie cloudsec finding causes --severity CRITICAL --limit 5
+      limacharlie cloudsec finding causes --cause "lcrn:...:firewalls/allow-all"
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.list_finding_causes(
+        cause=cause,
+        severity=list(severities) or None,
+        finding_class=list(finding_classes) or None,
+        status=list(statuses) or None,
+        account=list(accounts) or None,
+        owner=_selector_with_empty(owners, unassigned),
+        reachable=reachable,
+        kev=kev,
+        q=q,
+        limit=limit,
     ))
 
 
@@ -1293,16 +1687,76 @@ def ciem_public_access(ctx) -> None:
 
 
 @ciem_group.command("facets")
+@_identity_filter_options
 @pass_context
-def ciem_facets(ctx) -> None:
-    """CIEM identity facet counts.
+def ciem_facets(ctx, sources, accounts, regions, kinds, criticalities,
+                unclassified, risk_bands, mfa, admin, external, public,
+                disabled, crown_jewel, can_escalate, dormant_90d,
+                with_sensitive, q) -> None:
+    """CIEM identity facet counts (cross-filtered by the same selectors).
 
     \b
-    Example:
+    Examples:
       limacharlie cloudsec ciem facets
+      limacharlie cloudsec ciem facets --kind service_account --admin
     """
     cs = _get_cloudsec(ctx)
-    _output(ctx, cs.get_identity_facets())
+    _output(ctx, cs.get_identity_facets(
+        source=list(sources) or None,
+        account=list(accounts) or None,
+        region=list(regions) or None,
+        kind=list(kinds) or None,
+        criticality=_selector_with_empty(criticalities, unclassified),
+        risk_band=list(risk_bands) or None,
+        mfa=mfa,
+        admin=admin,
+        external=external,
+        public=public,
+        disabled=disabled,
+        crown_jewel=crown_jewel,
+        can_escalate=can_escalate,
+        dormant_90d=dormant_90d,
+        with_sensitive=with_sensitive,
+        q=q,
+    ))
+
+
+@ciem_group.command("identities")
+@_identity_filter_options
+@_paging_options
+@pass_context
+def ciem_identities(ctx, sources, accounts, regions, kinds, criticalities,
+                    unclassified, risk_bands, mfa, admin, external, public,
+                    disabled, crown_jewel, can_escalate, dormant_90d,
+                    with_sensitive, q, cursor, limit) -> None:
+    """One risk-ranked page of the identity access population.
+
+    \b
+    Examples:
+      limacharlie cloudsec ciem identities --limit 50
+      limacharlie cloudsec ciem identities --external --with-sensitive
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.list_identity_access(
+        source=list(sources) or None,
+        account=list(accounts) or None,
+        region=list(regions) or None,
+        kind=list(kinds) or None,
+        criticality=_selector_with_empty(criticalities, unclassified),
+        risk_band=list(risk_bands) or None,
+        mfa=mfa,
+        admin=admin,
+        external=external,
+        public=public,
+        disabled=disabled,
+        crown_jewel=crown_jewel,
+        can_escalate=can_escalate,
+        dormant_90d=dormant_90d,
+        with_sensitive=with_sensitive,
+        q=q,
+        cursor=cursor,
+        limit=limit,
+    ))
 
 
 @ciem_group.command("identity")
@@ -1374,16 +1828,60 @@ def data_security_group() -> None:
 
 
 @data_security_group.command("facets")
+@_data_store_filter_options
 @pass_context
-def data_security_facets(ctx) -> None:
-    """DSPM data-store facet counts.
+def data_security_facets(ctx, providers, accounts, regions, store_kinds,
+                         tiers, unclassified, data_classes, sensitivity,
+                         exposure, q) -> None:
+    """DSPM data-store facet counts (cross-filtered by the same selectors).
 
     \b
-    Example:
+    Examples:
       limacharlie cloudsec data-security facets
+      limacharlie cloudsec data-security facets --store-kind bucket
     """
     cs = _get_cloudsec(ctx)
-    _output(ctx, cs.get_data_security_facets())
+    _output(ctx, cs.get_data_security_facets(
+        provider=list(providers) or None,
+        account=list(accounts) or None,
+        region=list(regions) or None,
+        store_kind=list(store_kinds) or None,
+        tier=_selector_with_empty(tiers, unclassified),
+        data_class=list(data_classes) or None,
+        sensitivity=sensitivity,
+        exposure=exposure,
+        q=q,
+    ))
+
+
+@data_security_group.command("stores")
+@_data_store_filter_options
+@_paging_options
+@pass_context
+def data_security_stores(ctx, providers, accounts, regions, store_kinds,
+                         tiers, unclassified, data_classes, sensitivity,
+                         exposure, q, cursor, limit) -> None:
+    """One keyset page of the org's data stores.
+
+    \b
+    Examples:
+      limacharlie cloudsec data-security stores --limit 50
+      limacharlie cloudsec data-security stores --sensitive --public
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.list_data_stores(
+        provider=list(providers) or None,
+        account=list(accounts) or None,
+        region=list(regions) or None,
+        store_kind=list(store_kinds) or None,
+        tier=_selector_with_empty(tiers, unclassified),
+        data_class=list(data_classes) or None,
+        sensitivity=sensitivity,
+        exposure=exposure,
+        q=q,
+        cursor=cursor,
+        limit=limit,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -1987,13 +2485,15 @@ def export_group() -> None:
 @_export_output_option
 @pass_context
 def export_findings(ctx, severities, finding_classes, statuses, accounts,
-                    reachable, kev, q, sort, order, output_path) -> None:
+                    owners, unassigned, reachable, kev, q, sort, order,
+                    output_path) -> None:
     """Export the (filtered) findings worklist as CSV.
 
     \b
     Examples:
       limacharlie cloudsec export findings -o findings.csv
       limacharlie cloudsec export findings --severity CRITICAL --status open
+      limacharlie cloudsec export findings --owner alice@corp.com
     """
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_findings_csv(
@@ -2001,6 +2501,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
+        owner=_selector_with_empty(owners, unassigned),
         reachable=reachable,
         kev=kev,
         q=q,

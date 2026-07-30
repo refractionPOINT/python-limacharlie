@@ -24,7 +24,10 @@ limacharlie cloudsec scan-status --provider aws   # collection sweep status
 limacharlie cloudsec chokepoint list              # shared attack-path hops
 limacharlie cloudsec chokepoint dismiss "lcrn:..." --reason "planned decom"
 limacharlie cloudsec chokepoint restore "lcrn:..."
+limacharlie cloudsec free-tier                    # tier + provider usage vs the limits
 ```
+
+`free-tier` only DESCRIBES the free-tier limits — the collector and the provider-record validator enforce them, so a limit applies whether or not you ask. `enabled_providers` is omitted rather than zeroed when the count could not be read, so an absent field means "unknown", never "none configured". There is no trial countdown: the authoritative clock lives in the datacenter, and a gated collection reports its reason through `scan-status`.
 
 ## Fleet (multi-org, MSSP)
 
@@ -40,10 +43,18 @@ limacharlie cloudsec fleet overview --oid <OID1> --oid <OID2>
 
 Repeatable filters are OR within a key and AND across keys. Finding classes: `toxic_combination`, `public_exposure`, `ciem_risk`, `privilege_escalation`, `vulnerability`, `misconfig`, `coverage_gap`. Sort keys: `lc_risk` (default), `severity`, `first_seen`.
 
+`--owner` filters by assigned owner and `--unassigned` selects the untriaged bucket; they combine, so "mine or nobody's" is one filter with both. On `finding facets` the `owner` facet is capped at the top 50 owners by count (`owner_truncated` reports whether any were dropped) — `--owner-pin` keeps named owners in it even when they would not rank in, and filters nothing. That is bounded by the same cap: pins share the 50 slots with any `--owner` values, so past ~50 combined a pin can still be dropped and `owner_truncated` will not say so.
+
+`finding causes` groups findings by the mutable object whose single edit resolves all of them, so a worklist can be worked by fix instead of by row. It takes the same filters as `finding list`; `distinct` is the total number of matching causes, so you can see how much tail the ranked head hides.
+
 ```bash
 limacharlie cloudsec finding list --severity CRITICAL --severity HIGH
 limacharlie cloudsec finding list --class public_exposure --kev
+limacharlie cloudsec finding list --owner alice@corp.com --unassigned
 limacharlie cloudsec finding facets --status open
+limacharlie cloudsec finding facets --owner-pin me@corp.com
+limacharlie cloudsec finding causes --severity CRITICAL --limit 5
+limacharlie cloudsec finding causes --cause "lcrn:...:firewalls/allow-all"
 limacharlie cloudsec finding get fnd_0123abcd
 
 # Triage
@@ -56,19 +67,32 @@ limacharlie cloudsec finding set-ticket fnd_abc --ticket JIRA-123
 
 ## Attack paths & CIEM
 
+`ciem facets` and `ciem identities` take the SAME cross-filter, so the rail's counts describe the population the list returns — with one exception: the no-tier bucket `--unclassified` selects is skipped when counting, so it is the only selection the rail cannot give a count for (the same is true of `--unclassified` on `data-security`). The boolean filters are tri-state: omitting one leaves the dimension unconstrained, which is not the same as pinning it false. `--mfa unknown` is everyone the MFA question does not apply to (no identity-provider observation, or non-human) — it is not `off`.
+
+`--risk-band` and `--criticality` are closed vocabularies (`critical`, `high`, `medium`, `low`) validated client-side, because the backend fails closed: an unrecognized value would return zero rows with a successful exit. `--unclassified` selects identities with no tier assigned and combines with `--criticality`.
+
 ```bash
 limacharlie cloudsec attack-path list --severity CRITICAL
 limacharlie cloudsec ciem public-access    # public/external access to sensitive resources
-limacharlie cloudsec ciem facets           # identity facet counts
+limacharlie cloudsec ciem facets --kind service_account --admin
+limacharlie cloudsec ciem identities --limit 50            # ranked, paginated population
+limacharlie cloudsec ciem identities --external --with-sensitive
+limacharlie cloudsec ciem identities --mfa off --admin
+limacharlie cloudsec ciem identities --risk-band critical --unclassified
+limacharlie cloudsec ciem identity "lcrn:gcp:...:serviceAccount/deploy"   # one identity
 ```
 
 ## Inventory, resources & data security
+
+`data-security facets` and `data-security stores` share their selectors for the same reason (with the same `--unclassified` exception). `--sensitive` / `--public` are tri-state (`--no-sensitive` / `--no-public` pin them false). `--tier` takes the same closed tier vocabulary as `--criticality` above, with `--unclassified` for stores that have none.
 
 ```bash
 limacharlie cloudsec inventory list --type gcp_bucket --region us-central1
 limacharlie cloudsec inventory list --provider okta      # scope to one provider's sweep
 limacharlie cloudsec inventory facets
 limacharlie cloudsec data-security facets                # DSPM data-store rollup
+limacharlie cloudsec data-security stores --sensitive --public
+limacharlie cloudsec data-security stores --store-kind bucket --data-class pii
 limacharlie cloudsec resource get "lcrn:gcp:...:bucket/prod-data"
 ```
 
@@ -96,6 +120,7 @@ The server walks the full filtered set (no pagination), capped at 100k rows; a t
 
 ```bash
 limacharlie cloudsec export findings -o findings.csv --severity CRITICAL
+limacharlie cloudsec export findings --owner alice@corp.com   # same filters as 'finding list'
 limacharlie cloudsec export inventory -o inventory.csv --provider gcp
 limacharlie cloudsec export compliance -o cis-gcp.csv
 limacharlie cloudsec export query --named public-buckets -o rows.csv
