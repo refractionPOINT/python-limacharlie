@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 5.6.0 - July 30, 2026
 
 ### Search
 
@@ -25,16 +25,6 @@
   `None` rather than `0`, since in a set of limits a zero would read as "nothing allowed".
   `capabilities.openQueryListing` says whether `search queries` can report searches that are
   open but idle on this deployment.
-
-### Organization
-
-- **Set org description (org info)**: `Organization.set_description()` /
-  `limacharlie org set-description --description ...` update an organization's
-  description without renaming it (the helper re-submits the current name so
-  only the description changes). `Organization.rename()` and `limacharlie org
-  rename` also take an optional `description` to set both at once. The
-  backend only exposes the description through the rename endpoint, so these
-  are thin wrappers over `POST /v1/orgs/{oid}/name`.
 
 ### Cloud Security (CNAPP)
 
@@ -87,6 +77,22 @@
   so an upgrade prompt can precede the limit. It only describes the limits;
   the collector and the provider-record validator enforce them.
 
+## 5.5.5 - July 28, 2026
+
+### CLI
+
+- **`--brief` listings for document hives**: `sop list --brief`, `note list
+  --brief` and `ai-skill list --brief` reduce each record's `data` to the
+  fields that say what it is (`description`, and for skills also `name` /
+  `when_to_use`), dropping the body. The hive listing endpoint returns whole
+  records, so listing these otherwise pulls back every procedure, note, and
+  SKILL.md — including skills' bundled supporting files. That is costly when
+  the caller is an agent deciding what applies and paying for the output in
+  context: `--brief` gives it the index, and `get --key <name>` fetches the
+  ones that matter. Default output is unchanged.
+
+### Cloud Security (CNAPP)
+
 - **Sensor↔cloud resolution keeps the resolver-readiness signal**:
   `CloudSec.resolve_sensors()` / `resolve_assets()` chunk large batches and
   merge the responses; the merge dropped `resolver_ready`, so a caller could
@@ -94,6 +100,35 @@
   provisioned in this datacenter". It is now carried through, pessimistically
   (one not-ready chunk makes the whole batch not-ready), and stays absent when
   the backend never sent it.
+
+## 5.5.4 - July 23, 2026
+
+### Organization
+
+- **Set org description (org info)**: `Organization.set_description()` /
+  `limacharlie org set-description --description ...` update an organization's
+  description without renaming it (the helper re-submits the current name so
+  only the description changes). `Organization.rename()` and `limacharlie org
+  rename` also take an optional `description` to set both at once. The
+  backend only exposes the description through the rename endpoint, so these
+  are thin wrappers over `POST /v1/orgs/{oid}/name`.
+
+## 5.5.3 - July 20, 2026
+
+### Dependencies & Python support
+
+- **`requests` 2.32.3 -> 2.33.0**: picks up the fix for GHSA-gc5v-m9x4-r6x2
+  (insecure temp-file reuse in `extract_zipped_paths()`; vulnerable `<2.33.0`).
+- **Minimum Python is now 3.10** (was 3.9). `requests` 2.33.0 requires Python
+  `>=3.10`, and Python 3.9 reached end-of-life in October 2025. The 3.9 entries
+  in the CI matrices, Cloud Build, and PyPI classifiers are removed, and the
+  orjson/pytest version shims that existed only to keep 3.9 working are
+  simplified (orjson uncapped `>=3.10.0`; pytest pinned to the CVE-fixed 9.0.3
+  for all supported versions).
+
+## 5.5.2 - July 17, 2026
+
+### Cloud Security (CNAPP)
 
 - **Multi-org fleet overview**: `limacharlie cloudsec fleet overview` /
   `CloudSec.get_fleet_overview()` — one posture row per authorized org plus
@@ -118,30 +153,9 @@
   request-scoped JWT (multi-org for user credentials when `oid` is omitted)
   without touching the client's own token, cache, or refresh callback.
 
-### Dependencies & Python support
-
-- **`requests` 2.32.3 -> 2.33.0**: picks up the fix for GHSA-gc5v-m9x4-r6x2
-  (insecure temp-file reuse in `extract_zipped_paths()`; vulnerable `<2.33.0`).
-- **Minimum Python is now 3.10** (was 3.9). `requests` 2.33.0 requires Python
-  `>=3.10`, and Python 3.9 reached end-of-life in October 2025. The 3.9 entries
-  in the CI matrices, Cloud Build, and PyPI classifiers are removed, and the
-  orjson/pytest version shims that existed only to keep 3.9 working are
-  simplified (orjson uncapped `>=3.10.0`; pytest pinned to the CVE-fixed 9.0.3
-  for all supported versions).
-
 ## 5.2.0 - March 20, 2026
 
 ### CLI
-
-- **`--brief` listings for document hives**: `sop list --brief`, `note list
-  --brief` and `ai-skill list --brief` reduce each record's `data` to the
-  fields that say what it is (`description`, and for skills also `name` /
-  `when_to_use`), dropping the body. The hive listing endpoint returns whole
-  records, so listing these otherwise pulls back every procedure, note, and
-  SKILL.md — including skills' bundled supporting files. That is costly when
-  the caller is an agent deciding what applies and paying for the output in
-  context: `--brief` gives it the index, and `get --key <name>` fetches the
-  ones that matter. Default output is unchanged.
 
 - **Lazy command loading**: CLI startup is significantly faster. Commands are
   now loaded on-demand via a static map instead of eagerly importing all 49
