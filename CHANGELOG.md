@@ -22,7 +22,8 @@
   --unassigned` is "mine or nobody's" in one filter. `finding facets
   --owner-pin` keeps named owners in the `owner` facet, which is capped at
   the top 50 by count (`owner_truncated` says whether any were dropped) —
-  it is not a filter and changes no count. `export findings` takes the
+  it is not a filter and changes no count, and the pin shares those 50 slots
+  with any `--owner` values, so it is a best effort past ~50 combined. `export findings` takes the
   owner filter too, so an export stays the set the list shows.
 
 - **Shared-fix cause rollup**: `cloudsec finding causes` /

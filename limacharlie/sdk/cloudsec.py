@@ -382,6 +382,17 @@ class CloudSec:
         :meth:`list_findings`, so a rollup can be scoped exactly like the
         list it summarizes.
 
+        **Only CAUSE-BEARING findings are in scope, which is a small slice
+        of an estate.** Causes are stamped on the attack-path classes;
+        vulnerability findings — roughly 90% of a typical estate —
+        deliberately carry none, because a per-package cause would evict
+        every attack-path fix from the ranking and would cost the sparse
+        index this rollup is fast because of. So the counts here never sum
+        to the worklist total, and a rollup scoped to a class that carries
+        no cause (``finding_class=["vulnerability"]``) legitimately returns
+        ``{"causes": [], "distinct": 0}`` — that is "no shared fix on this
+        class", not "no findings".
+
         Args:
             cause: One cause key. Set it for the count of that cause alone,
                 returned as a single-entry ``causes`` — or an EMPTY
@@ -595,7 +606,10 @@ class CloudSec:
                 ``critical`` / ``high`` / ``medium`` / ``low`` — plus the
                 empty string, which selects identities with no tier
                 assigned. An unrecognized tier matches nothing rather than
-                erroring, so a typo reads as "no such identities".
+                erroring, so a typo reads as "no such identities". The
+                empty-tier bucket is the ONE selection the facet rail does
+                not count (the criticality facet skips it), so it is the
+                one case where a facet count cannot predict the list.
             risk_band: Risk bands, OR'd — ``critical`` / ``high`` /
                 ``medium`` / ``low``, the band token rather than a numeric
                 range. Also closed, and also fails closed: an unrecognized

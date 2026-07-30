@@ -142,6 +142,12 @@ it (pass your own identity so your row stays reachable on an estate
 with more owners than the cap). It is NOT a filter: it selects no rows
 and changes no count.
 
+That guarantee is bounded by the same cap rather than absolute: pins
+share the 50 slots with any --owner values (and the unassigned bucket
+takes one, outranking every pin), so past ~50 combined a pin can still
+be dropped and 'owner_truncated' cannot tell you it was. Render a
+pinned-but-absent owner as zero.
+
 Examples:
   limacharlie cloudsec finding facets --severity CRITICAL
   limacharlie cloudsec finding facets --owner-pin me@corp.com
@@ -152,6 +158,13 @@ Findings grouped by their CAUSE — the mutable object (a firewall
 rule, the principal an attack path's grants land on) whose single
 edit resolves every finding under it. Lets a worklist be worked by
 fix instead of by row: "change this one thing, close N findings".
+
+Only CAUSE-BEARING findings are in scope, and that is a small slice of
+an estate: causes are stamped on the attack-path classes, while
+vulnerability findings (~90% of a typical estate) deliberately carry
+none. So these counts never sum to the worklist total, and
+'--class vulnerability' legitimately returns no causes at all — that
+means "no shared fix on this class", not "no findings".
 
 Takes the same filters as 'finding list', so a rollup can be scoped
 exactly like the list it summarizes. Pass --cause for the count of
@@ -1120,7 +1133,9 @@ def _identity_filter_options(f):
         "--unclassified", "unclassified", is_flag=True, default=False,
         help="Include identities with no TIER assigned; combines with "
              "--criticality. Wider than --no-crown-jewel: a declared crown "
-             "jewel whose policy rule sets no tier lands here too.",
+             "jewel whose policy rule sets no tier lands here too. The "
+             "criticality facet does not count this bucket, so 'facets' "
+             "cannot predict how many rows it returns.",
     )(f)
     f = click.option(
         "--criticality", "criticalities", multiple=True, type=_TIER_CHOICES,
@@ -1180,7 +1195,8 @@ def _data_store_filter_options(f):
     f = click.option(
         "--unclassified", "unclassified", is_flag=True, default=False,
         help="Include stores with no criticality tier assigned; combines "
-             "with --tier.",
+             "with --tier. The tier facet does not count this bucket, so "
+             "'facets' cannot predict how many rows it returns.",
     )(f)
     f = click.option(
         "--tier", "tiers", multiple=True, type=_TIER_CHOICES,
@@ -1440,7 +1456,9 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts,
               help="Keep these owners in the capped 'owner' facet even when "
                    "they would not rank into it (pass your own identity); "
                    "repeatable. NOT a filter — selects no rows, changes no "
-                   "count.")
+                   "count. Bounded by the cap: pins share the facet's 50 "
+                   "slots with any --owner values, so past ~50 combined a "
+                   "pin can still be dropped.")
 @pass_context
 def finding_facets(ctx, severities, finding_classes, statuses, accounts,
                    owners, unassigned, reachable, kev, q, owner_pins) -> None:

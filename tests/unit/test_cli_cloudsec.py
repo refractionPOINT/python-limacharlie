@@ -1226,13 +1226,6 @@ class TestCiemIdentities:
                         "with_sensitive", "mfa"]:
                 assert kwargs[key] is None, key
 
-    def test_identities_rejects_unknown_mfa_state(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli, ["cloudsec", "ciem", "identities", "--mfa", "maybe"],
-        )
-        assert result.exit_code != 0
-
     def test_facets_take_the_same_cross_filter(self):
         p1, p2, p3 = _patches()
         with p1, p2, p3 as cls:
@@ -1353,8 +1346,9 @@ class TestClosedVocabularyGuards:
         )
 
     def test_rejects_unknown_mfa_state_by_parse_failure(self):
-        # The pre-existing --mfa test only asserted a non-zero exit; pin the
-        # parse failure here so the Choice cannot be removed unnoticed.
+        # Replaces an earlier --mfa guard that asserted only a non-zero exit,
+        # which an accepted value also produces without credentials: that one
+        # survived deleting the Choice, so it was not testing anything.
         self._rejects(
             ["cloudsec", "ciem", "identities", "--mfa", "maybe"], "--mfa",
         )
