@@ -279,8 +279,10 @@ The selectors CROSS-FILTER the rail: each dimension is counted under
 the other active selectors but not its own, so a value's count is
 exactly how many rows selecting it would list. With no selectors the
 response is the whole-population rollup. It takes the SAME selectors
-as 'ciem identities', so the counts and that list always describe the
-same population.
+as 'ciem identities', so the counts and that list describe the same
+population — with ONE exception: the no-tier bucket that
+--unclassified selects is skipped when counting, so it is the only
+selection whose count the rail cannot give you.
 
 --mfa unknown is everyone the MFA question does not apply to (no
 identity-provider observation, or non-human) — it is NOT 'off'. The
@@ -300,7 +302,8 @@ risk score), but server-filtered and pageable instead of a
 risk-ranked top-N.
 
 Takes the same selectors as 'ciem facets', so the rail's counts and
-this list always describe the same population. Ranked by risk score
+this list describe the same population — except for the no-tier bucket
+(--unclassified), which the rail skips when counting. Ranked by risk score
 descending by default; a walk that spans a projector recompute can
 move a row across the cursor, so use it for browsing rather than for
 exact exports.
@@ -367,7 +370,9 @@ data stores plus store-kind, sensitivity, and exposure histograms.
 
 The selectors cross-filter the rail (each dimension counted under the
 other active selectors but not its own) and are the SAME ones 'stores'
-takes, so the counts always describe the population that list returns.
+takes, so the counts describe the population that list returns — except
+for the no-tier bucket (--unclassified), which the rail skips when
+counting and therefore cannot predict.
 
 Examples:
   limacharlie cloudsec data-security facets
@@ -1172,7 +1177,8 @@ def _data_store_filter_options(f):
     """The Data Security cross-filter (shared by data-security facets/stores).
 
     Shared for the same reason as the identity filter: the facet counts
-    must describe the population the store list returns.
+    must describe the population the store list returns. The one value
+    this cannot cover is the empty tier, which the facet pass skips.
     """
     f = click.option(
         "-q", "--search", "q", default=None,

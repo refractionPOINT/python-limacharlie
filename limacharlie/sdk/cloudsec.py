@@ -116,8 +116,9 @@ def _finding_query_pairs(
 
 
 # The merged-identity cross-filter, shared verbatim by the identity facet
-# rail and the ranked Access list so a facet count always describes the
-# population the list would return.
+# rail and the ranked Access list so a facet count describes the
+# population the list would return (the empty-tier bucket excepted — the
+# rail does not count it; see get_identity_facets).
 def _identity_query_pairs(
     *,
     provider: list[str] | None = None,
@@ -586,8 +587,9 @@ class CloudSec:
         """CIEM identity facet counts.
 
         Takes the same cross-filter as :meth:`list_identity_access`, so a
-        facet count always describes the population that list would
-        return. With no selectors the response is the whole-population
+        facet count describes the population that list would return — with
+        the single documented exception of the no-tier bucket under
+        ``criticality`` (see below). With no selectors the response is the whole-population
         rollup. Each dimension is counted under the OTHER active
         selectors but not its own, so a value's count is exactly how many
         rows selecting it would list.
@@ -776,10 +778,15 @@ class CloudSec:
         """DSPM data-store facet counts (total/sensitive/public, store kinds).
 
         Takes the same cross-filter as :meth:`list_data_stores`, so the
-        counts always describe the population that list would return. Each
+        counts describe the population that list would return. Each
         dimension is counted under the OTHER active selectors but not its
         own. With no selectors the response is the whole-population
         rollup.
+
+            ONE exception to that: the no-tier bucket. Both this rail and
+            the identity rail skip the empty value when counting, so
+            selecting it (``tier=[""]``) returns rows the facets never
+            counted. Every other value's count predicts its list exactly.
 
         Args:
             provider, account, region: Placement filters, OR'd within a
@@ -789,7 +796,10 @@ class CloudSec:
             tier: Criticality tiers, OR'd. Same closed vocabulary as the
                 identity filter's ``criticality`` — ``critical`` /
                 ``high`` / ``medium`` / ``low``, plus the empty string for
-                stores with no tier assigned.
+                stores with no tier assigned. That empty-tier bucket is the
+                ONE selection this rail does not count (the tier facet
+                skips it), so it is the one case where a facet count cannot
+                predict the list.
             data_class: Content classes (``pii``, ``secrets``, ...), OR'd.
             sensitivity: Tri-state — ``True`` only sensitive stores,
                 ``False`` only non-sensitive, ``None`` unconstrained.

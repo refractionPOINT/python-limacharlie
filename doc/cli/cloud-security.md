@@ -67,7 +67,7 @@ limacharlie cloudsec finding set-ticket fnd_abc --ticket JIRA-123
 
 ## Attack paths & CIEM
 
-`ciem facets` and `ciem identities` take the SAME cross-filter, so the rail's counts always describe the population the list returns. The boolean filters are tri-state: omitting one leaves the dimension unconstrained, which is not the same as pinning it false. `--mfa unknown` is everyone the MFA question does not apply to (no identity-provider observation, or non-human) — it is not `off`.
+`ciem facets` and `ciem identities` take the SAME cross-filter, so the rail's counts describe the population the list returns — with one exception: the no-tier bucket `--unclassified` selects is skipped when counting, so it is the only selection the rail cannot give a count for (the same is true of `--unclassified` on `data-security`). The boolean filters are tri-state: omitting one leaves the dimension unconstrained, which is not the same as pinning it false. `--mfa unknown` is everyone the MFA question does not apply to (no identity-provider observation, or non-human) — it is not `off`.
 
 `--risk-band` and `--criticality` are closed vocabularies (`critical`, `high`, `medium`, `low`) validated client-side, because the backend fails closed: an unrecognized value would return zero rows with a successful exit. `--unclassified` selects identities with no tier assigned and combines with `--criticality`.
 
@@ -84,7 +84,7 @@ limacharlie cloudsec ciem identity "lcrn:gcp:...:serviceAccount/deploy"   # one 
 
 ## Inventory, resources & data security
 
-`data-security facets` and `data-security stores` share their selectors for the same reason. `--sensitive` / `--public` are tri-state (`--no-sensitive` / `--no-public` pin them false). `--tier` takes the same closed tier vocabulary as `--criticality` above, with `--unclassified` for stores that have none.
+`data-security facets` and `data-security stores` share their selectors for the same reason (with the same `--unclassified` exception). `--sensitive` / `--public` are tri-state (`--no-sensitive` / `--no-public` pin them false). `--tier` takes the same closed tier vocabulary as `--criticality` above, with `--unclassified` for stores that have none.
 
 ```bash
 limacharlie cloudsec inventory list --type gcp_bucket --region us-central1

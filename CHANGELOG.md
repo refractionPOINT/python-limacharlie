@@ -48,8 +48,8 @@
   public-access`'s top-N). `ciem facets` now takes the SAME cross-filter
   (source/kind/criticality/risk_band/mfa plus the admin, external, public,
   disabled, crown-jewel, escalation, dormancy and sensitive-access
-  tri-states), so a facet count always describes the population the list
-  returns.
+  tri-states), so a facet count describes the population the list returns —
+  except for the no-tier bucket, which both rails skip when counting.
 
 - **Data Security store list**: `cloudsec data-security stores` /
   `CloudSec.list_data_stores()` — the keyset-paginated DSPM row list, and
