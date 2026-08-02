@@ -269,6 +269,7 @@ class TestFindingCommands:
                 status=None,
                 account=None,
                 owner=None,
+                sla=None,
                 reachable=True,
                 kev=True,
                 q="prod",
@@ -827,8 +828,8 @@ class TestExport:
             assert result.output == "col_a,col_b\n1,2\n"
             inst.export_findings_csv.assert_called_once_with(
                 severity=["CRITICAL"], finding_class=None, status=["open"],
-                account=None, owner=None, reachable=None, kev=None, q=None,
-                sort=None, order=None,
+                account=None, owner=None, sla=None, reachable=None, kev=None,
+                q=None, sort=None, order=None,
             )
 
     def test_export_findings_to_file(self, tmp_path):
@@ -1110,6 +1111,63 @@ class TestFindingOwnerSelector:
             assert result.exit_code == 0, result.output
             assert inst.list_findings.call_args[1]["owner"] is None
 
+    def test_sla_filter_reaches_every_findings_surface(self):
+        # --sla rides the shared filter decorator, so it must reach ALL FOUR
+        # commands that decorator feeds. A surface that silently drops it
+        # returns the unfiltered estate while the caller believes they asked
+        # for the overdue slice.
+        for argv, method, extra in (
+            (["cloudsec", "finding", "list", "--sla", "breached"],
+             "list_findings", {"findings": []}),
+            (["cloudsec", "finding", "facets", "--sla", "breached"],
+             "get_finding_facets", {"facets": {}}),
+            (["cloudsec", "finding", "causes", "--sla", "breached"],
+             "list_finding_causes", {"causes": [], "distinct": 0}),
+            (["cloudsec", "export", "findings", "--sla", "breached"],
+             "export_findings_csv", None),
+        ):
+            p1, p2, p3 = _patches()
+            with p1, p2, p3 as cls:
+                if extra is None:
+                    result, inst = _invoke(argv, cls)
+                else:
+                    result, inst = _invoke(argv, cls, return_value=extra)
+                assert result.exit_code == 0, result.output
+                got = getattr(inst, method).call_args[1]["sla"]
+                assert got == ["breached"], f"{method} got sla={got!r}"
+
+    def test_sla_is_repeatable_and_absent_by_default(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list",
+                 "--sla", "breached", "--sla", "due_soon"],
+                cls, return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_findings.call_args[1]["sla"] == ["breached", "due_soon"]
+
+        # Unset must be None, not [] — an empty list would be forwarded as a
+        # present-but-empty selection.
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list"], cls,
+                return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_findings.call_args[1]["sla"] is None
+
+    def test_sort_due_at_forwards(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list", "--sort", "due_at"], cls,
+                return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_findings.call_args[1]["sort"] == "due_at"
+
     def test_facets_owner_pin_is_separate_from_the_filter(self):
         p1, p2, p3 = _patches()
         with p1, p2, p3 as cls:
@@ -1155,6 +1213,7 @@ class TestFindingCauses:
                 status=None,
                 account=None,
                 owner=None,
+                sla=None,
                 reachable=None,
                 kev=None,
                 q=None,
