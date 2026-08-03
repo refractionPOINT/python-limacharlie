@@ -92,6 +92,7 @@ def _finding_query_pairs(
     account: list[str] | None = None,
     owner: list[str] | None = None,
     owner_pin: list[str] | None = None,
+    sla: list[str] | None = None,
     reachable: bool | None = None,
     kev: bool | None = None,
     q: str | None = None,
@@ -109,7 +110,7 @@ def _finding_query_pairs(
     """
     return _query_pairs(
         severity=severity, finding_class=finding_class, status=status,
-        account=account, owner=owner, owner_pin=owner_pin,
+        account=account, owner=owner, owner_pin=owner_pin, sla=sla,
         reachable=reachable, kev=kev, q=q,
         sort=sort, order=order, cursor=cursor, limit=limit,
     )
@@ -264,6 +265,7 @@ class CloudSec:
         status: list[str] | None = None,
         account: list[str] | None = None,
         owner: list[str] | None = None,
+        sla: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -296,12 +298,25 @@ class CloudSec:
                 Pass ``None`` for no owner constraint. Owners are set with
                 :meth:`set_finding_owner` and counted by the ``owner``
                 facet of :meth:`get_finding_facets`.
+            sla: Remediation-SLA state filter values, OR'd:
+                ``breached`` (past due), ``due_soon`` (inside the last
+                quarter of its own window, clamped to 1-7 days),
+                ``on_track``, ``exempt`` (the finding is not open, so the
+                clock does not report on it), ``none`` (no SLA clause
+                covers it). The state is DERIVED at read time from the
+                finding's ``due_at`` and status — there is no built-in
+                default SLA, so on an org that has not written an ``sla``
+                policy every finding is ``none``. Counted by the ``sla``
+                facet of :meth:`get_finding_facets`.
             reachable: Only findings on (non-)reachable resources.
             kev: Only findings with (without) a KEV vulnerability.
             q: Substring search.
             sort: Server-side sort key: ``lc_risk`` (the default),
-                ``severity``, or ``first_seen``.
-            order: ``desc`` (the default) or ``asc``.
+                ``severity``, ``first_seen``, or ``due_at``. ``due_at``
+                is the one key that defaults to ASCENDING (soonest due
+                first) and it places findings with no due date LAST rather
+                than excluding them.
+            order: ``desc`` (the default, except for ``due_at``) or ``asc``.
             cursor: Keyset-pagination token from a previous page.
             limit: Page size (server clamps to 1000).
 
@@ -310,7 +325,8 @@ class CloudSec:
         """
         return self._get("findings", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, owner=owner, reachable=reachable, kev=kev, q=q,
+            account=account, owner=owner, sla=sla,
+            reachable=reachable, kev=kev, q=q,
             sort=sort, order=order, cursor=cursor, limit=limit,
         ))
 
@@ -323,6 +339,7 @@ class CloudSec:
         account: list[str] | None = None,
         owner: list[str] | None = None,
         owner_pin: list[str] | None = None,
+        sla: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -350,13 +367,20 @@ class CloudSec:
                 tail truncation. Render a pinned-but-absent owner as zero
                 rather than assuming the map is complete.
 
+            sla: Remediation-SLA state filter values — see
+                :meth:`list_findings`. The ``sla`` facet always carries
+                EVERY state key, zeroes included, so a caller never has to
+                invent a missing count (a ``breached`` chip that vanishes
+                reads as "the feature is off", not "you are on top of it").
+
         Returns:
             ``{"facets": {..., "owner": {"": 12, "alice@corp.com": 3},
-            "owner_truncated": false}}``.
+            "owner_truncated": false, "sla": {"breached": 4, "due_soon": 1,
+            "on_track": 20, "exempt": 0, "none": 900}}}``.
         """
         return self._get("findings/facets", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, owner=owner, owner_pin=owner_pin,
+            account=account, owner=owner, owner_pin=owner_pin, sla=sla,
             reachable=reachable, kev=kev, q=q,
         ))
 
@@ -369,6 +393,7 @@ class CloudSec:
         status: list[str] | None = None,
         account: list[str] | None = None,
         owner: list[str] | None = None,
+        sla: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -425,7 +450,8 @@ class CloudSec:
         """
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, owner=owner, reachable=reachable, kev=kev, q=q,
+            account=account, owner=owner, sla=sla,
+            reachable=reachable, kev=kev, q=q,
             limit=limit,
         )
         _add_scalar(pairs, "cause", cause)
@@ -1479,6 +1505,7 @@ class CloudSec:
         status: list[str] | None = None,
         account: list[str] | None = None,
         owner: list[str] | None = None,
+        sla: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -1486,6 +1513,9 @@ class CloudSec:
         order: str | None = None,
     ) -> str:
         """Export the (filtered) findings worklist as CSV text.
+
+        The exported rows carry ``due_at``, ``sla_state`` and
+        ``sla_source`` alongside the worklist fields.
 
         Takes the same filter selectors as :meth:`list_findings`; the
         server walks the full filtered set (no pagination), capped at
@@ -1496,7 +1526,8 @@ class CloudSec:
         """
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, owner=owner, reachable=reachable, kev=kev, q=q,
+            account=account, owner=owner, sla=sla,
+            reachable=reachable, kev=kev, q=q,
             sort=sort, order=order,
         )
         pairs.append(("format", "csv"))
