@@ -1359,6 +1359,26 @@ class TestStartSessionProviderEnvelope:
         }
         assert "anthropic_key" not in body
 
+    def test_legacy_combo_record_prefers_anthropic_secret(self, ai, mock_org):
+        """A legacy record carrying anthropic_secret ALONGSIDE a bedrock
+        block (the old hive validator allowed the combination) must keep
+        running anthropic — the only behavior it ever had — instead of
+        flipping to the now-working bedrock adapter on upgrade."""
+        defn = {
+            "prompt": "p",
+            "anthropic_secret": "hive://secret/anth",
+            "bedrock": {
+                "region": "us-east-1",
+                "access_key_id_secret": "hive://secret/ak",
+                "secret_access_key_secret": "hive://secret/sk",
+            },
+        }
+        body = self._run(mock_org, ai, defn, secrets={
+            "anth": "sk-ant-legacy", "ak": "AKIA123", "sk": "aws-secret"})
+        assert body["anthropic_key"] == "sk-ant-legacy"
+        assert "credentials" not in body
+        assert "provider" not in body
+
     def test_legacy_vertex_block_adapted(self, ai, mock_org):
         defn = {
             "prompt": "p",
@@ -1407,3 +1427,4 @@ class TestStartSessionProviderEnvelope:
         body = self._run(mock_org, ai, defn, anthropic_key="sk-override")
         assert body["anthropic_key"] == "sk-override"
         assert "credentials" not in body
+

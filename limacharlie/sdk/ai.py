@@ -170,8 +170,9 @@ class AI:
         Credential source precedence (first match wins): the
         ``credentials`` override, the ``anthropic_key`` override, the
         record's ``provider``/``credentials`` envelope, the record's
-        legacy ``bedrock`` block, the record's legacy ``vertex`` block,
-        then the record's ``anthropic_secret``.
+        record's ``anthropic_secret`` (kept ahead of bedrock/vertex so legacy
+        combo records don't switch providers on upgrade), then the legacy
+        ``bedrock`` block, then the legacy ``vertex`` block.
 
         Returns:
             dict: Session creation response with session_id and status.
@@ -238,6 +239,15 @@ class AI:
             anthropic_key_final = self._resolve_secret(anthropic_key)
         elif defn.get("credentials"):
             credentials_final = self._resolve_map_secrets(dict(defn["credentials"]))
+        elif defn.get("anthropic_secret"):
+            # Precedence deliberate: legacy records could historically carry
+            # anthropic_secret ALONGSIDE a bedrock/vertex block (the old
+            # validator never excluded that combination), and every launcher
+            # ran anthropic while dropping the other blocks. Now that the
+            # bedrock/vertex adapters work, anthropic_secret must keep
+            # winning on combo records or their provider silently flips on
+            # upgrade. New writes can't create combos (hive n-way rule).
+            anthropic_key_final = self._resolve_secret(defn["anthropic_secret"])
         elif defn.get("bedrock"):
             provider_final = provider_final or "anthropic"
             credentials_final = _bedrock_to_credentials(defn["bedrock"])
