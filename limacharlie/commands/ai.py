@@ -391,6 +391,13 @@ def _parse_env_kv(items: tuple[str, ...]) -> dict[str, str] | None:
 # Credential overrides.
 @click.option("--anthropic-key", default=None,
               help="Replace anthropic_secret. Literal key or hive://secret/<name>.")
+@click.option("--provider", default=None,
+              help="Replace the template's LLM provider (anthropic, openai, google, "
+                   "openrouter, ...). Not validated client-side; the server owns the list.")
+@click.option("--credential", "credential_pairs", multiple=True,
+              help="Repeatable KEY=VALUE entry for the provider-agnostic credentials "
+                   "envelope (e.g. api_key=hive://secret/my-key, auth=azure). VALUE may "
+                   "be hive://secret/<name>. Replaces the template's credentials.")
 @click.option("--lc-api-key", default=None,
               help="Replace lc_api_key_secret. Literal key or hive://secret/<name>.")
 @click.option("--lc-uid", default=None,
@@ -400,13 +407,15 @@ def start_session(ctx, definition, prompt, name, idempotent_key, data,
                   model, max_turns, max_budget_usd, task_budget_tokens,
                   ttl_seconds, one_shot, permission_mode,
                   allowed_tools, denied_tools, plugins, env_pairs,
-                  anthropic_key, lc_api_key, lc_uid) -> None:
+                  anthropic_key, provider, credential_pairs,
+                  lc_api_key, lc_uid) -> None:
     import json as _json
     parsed_data = None
     if data is not None:
         parsed_data = _json.loads(data)
     plugins_override: list[str] | None = list(plugins) if plugins else None
     environment_override = _parse_env_kv(env_pairs)
+    credentials_override = _parse_env_kv(credential_pairs)
     org = _get_org(ctx)
     sdk = AISDK(org)
     result = sdk.start_session(
@@ -427,6 +436,8 @@ def start_session(ctx, definition, prompt, name, idempotent_key, data,
         plugins=plugins_override,
         environment=environment_override,
         anthropic_key=anthropic_key,
+        provider=provider,
+        credentials=credentials_override,
         lc_api_key=lc_api_key,
         lc_uid=lc_uid,
     )
