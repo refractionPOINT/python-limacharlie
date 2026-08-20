@@ -107,6 +107,8 @@ class AI:
                       plugins: list[str] | None = None,
                       environment: dict[str, str] | None = None,
                       anthropic_key: str | None = None,
+                      provider: str | None = None,
+                      credentials: dict[str, str] | None = None,
                       lc_api_key: str | None = None,
                       lc_uid: str | None = None) -> dict[str, Any]:
         """Start an AI session using an ai_agent Hive definition as template.
@@ -134,7 +136,8 @@ class AI:
                 standalone CLI invocations that lack a D&R event).
 
         Keyword Args:
-            model: Replace the Anthropic model (e.g. ``claude-sonnet-4-6``).
+            model: Replace the model (provider-specific, e.g.
+                ``claude-sonnet-4-6``, ``gpt-5.2``, ``openai/gpt-5-mini``).
             max_turns: Replace the maximum number of agent turns.
             max_budget_usd: Replace the hard USD cost cap.
             task_budget_tokens: Replace the per-task token budget.
@@ -152,8 +155,24 @@ class AI:
                 ``hive://secret/<name>`` references.
             anthropic_key: Replace the Anthropic API key.  May be a
                 literal key or a ``hive://secret/<name>`` reference.
+            provider: Replace the template's LLM provider (e.g.
+                ``anthropic``, ``openai``, ``google``, ``openrouter``).
+                Not validated client-side — the server owns the provider
+                list, so new providers need no SDK change.
+            credentials: Replace the template's provider-agnostic
+                ``credentials`` map (flat KEY→VALUE, optional ``auth``
+                discriminator).  Values may be ``hive://secret/<name>``
+                references; every value is resolved before sending.  The
+                keys are forwarded verbatim for the server to interpret.
             lc_api_key: Replace the LC API key (literal or secret ref).
             lc_uid: Replace the LC user ID (literal or secret ref).
+
+        Credential source precedence (first match wins): the
+        ``credentials`` override, the ``anthropic_key`` override, the
+        record's ``provider``/``credentials`` envelope, the record's
+        record's ``anthropic_secret`` (kept ahead of bedrock/vertex so legacy
+        combo records don't switch providers on upgrade), then the legacy
+        ``bedrock`` block, then the legacy ``vertex`` block.
 
         Returns:
             dict: Session creation response with session_id and status.
@@ -172,14 +191,73 @@ class AI:
         record = Hive(self._org, "ai_agent").get(definition_name)
         defn = record.data or {}
 
-        # Credential resolution: override wins, otherwise pull from the
-        # hive record's *_secret field.  Override values are themselves
-        # passed through secret resolution so a caller can still supply
-        # a "hive://secret/..." reference.
-        anthropic_key_final = self._resolve_secret(
-            anthropic_key if anthropic_key is not None
-            else defn.get("anthropic_secret", "")
-        )
+        # ------------------------------------------------------------------
+        # Provider credential source selection.
+        #
+        # The server accepts either the legacy inline ``anthropic_key`` or
+        # the provider-agnostic envelope: ``provider`` + ``credentials`` (a
+        # flat map the server projects onto its typed credential fields —
+        # see ai-sessions pkg/api SessionRequest.ApplyCredentialsMap). This
+        # SDK deliberately carries NO per-provider knowledge: whatever keys
+        # the record or caller provides are secret-resolved and forwarded
+        # verbatim, so adding a provider requires no SDK change.
+        #
+        # The legacy ``bedrock`` / ``vertex`` record blocks are adapted into
+        # the envelope here (they were previously dropped on the floor and
+        # the request failed with "anthropic_key is required").
+        # ------------------------------------------------------------------
+        def _bedrock_to_credentials(block: dict[str, Any]) -> dict[str, str]:
+            creds: dict[str, str] = {"auth": "bedrock"}
+            if block.get("region"):
+                creds["region"] = block["region"]
+            for src, dst in (("access_key_id_secret", "access_key_id"),
+                             ("secret_access_key_secret", "secret_access_key"),
+                             ("session_token_secret", "session_token"),
+                             ("bearer_token_secret", "bearer_token")):
+                if block.get(src):
+                    creds[dst] = self._resolve_secret(block[src])
+            return creds
+
+        def _vertex_to_credentials(block: dict[str, Any]) -> dict[str, str]:
+            creds: dict[str, str] = {"auth": "vertex"}
+            if block.get("project_id"):
+                creds["project_id"] = block["project_id"]
+            if block.get("region"):
+                creds["region"] = block["region"]
+            if block.get("service_account_json_secret"):
+                creds["service_account_json"] = self._resolve_secret(
+                    block["service_account_json_secret"])
+            return creds
+
+        provider_final: str | None = provider or defn.get("provider") or None
+        credentials_final: dict[str, str] | None = None
+        anthropic_key_final = ""
+
+        if credentials is not None:
+            credentials_final = self._resolve_map_secrets(dict(credentials))
+        elif anthropic_key is not None:
+            anthropic_key_final = self._resolve_secret(anthropic_key)
+        elif defn.get("credentials"):
+            credentials_final = self._resolve_map_secrets(dict(defn["credentials"]))
+        elif defn.get("anthropic_secret"):
+            # Precedence deliberate: legacy records could historically carry
+            # anthropic_secret ALONGSIDE a bedrock/vertex block (the old
+            # validator never excluded that combination), and every launcher
+            # ran anthropic while dropping the other blocks. Now that the
+            # bedrock/vertex adapters work, anthropic_secret must keep
+            # winning on combo records or their provider silently flips on
+            # upgrade. New writes can't create combos (hive n-way rule).
+            anthropic_key_final = self._resolve_secret(defn["anthropic_secret"])
+        elif defn.get("bedrock"):
+            provider_final = provider_final or "anthropic"
+            credentials_final = _bedrock_to_credentials(defn["bedrock"])
+        elif defn.get("vertex"):
+            provider_final = provider_final or "anthropic"
+            credentials_final = _vertex_to_credentials(defn["vertex"])
+        else:
+            anthropic_key_final = self._resolve_secret(
+                defn.get("anthropic_secret", ""))
+
         lc_api_key_final = self._resolve_secret(
             lc_api_key if lc_api_key is not None
             else defn.get("lc_api_key_secret", "")
@@ -244,12 +322,22 @@ class AI:
             import yaml
             final_prompt += "\n\nEvent data:\n```yaml\n" + yaml.safe_dump(data, default_flow_style=False).rstrip("\n") + "\n```"
 
-        # Build the request body.
+        # Build the request body.  The envelope and the legacy inline field
+        # are mutually exclusive on the server, so exactly one is emitted.
         request_body: dict[str, Any] = {
             "prompt": final_prompt,
-            "anthropic_key": anthropic_key_final,
             "trigger_source": "cli",
         }
+        if credentials_final is not None:
+            if provider_final:
+                request_body["provider"] = provider_final
+            request_body["credentials"] = credentials_final
+        else:
+            # Legacy path: anthropic_key stays unconditional (empty string
+            # included) for wire compatibility with existing deployments.
+            request_body["anthropic_key"] = anthropic_key_final
+            if provider_final:
+                request_body["provider"] = provider_final
         if lc_api_key_final:
             request_body["lc_api_key"] = lc_api_key_final
         if lc_uid_final:

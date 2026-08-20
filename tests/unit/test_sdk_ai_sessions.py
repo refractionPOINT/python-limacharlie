@@ -1294,3 +1294,137 @@ class TestStartSessionHiveUri:
             ai.start_session("my-agent")
 
         hive_instance.get.assert_called_with("my-agent")
+
+
+class TestStartSessionProviderEnvelope:
+    """Provider-agnostic provider/credentials envelope passthrough.
+
+    The SDK must forward the record's flat credentials map verbatim
+    (secret-resolved) with zero per-provider knowledge, and must never
+    emit the legacy anthropic_key field alongside the envelope (the two
+    are mutually exclusive server-side).
+    """
+
+    def _run(self, mock_org, ai, defn, secrets=None, **kwargs):
+        with patch("limacharlie.sdk.hive.Hive") as MockHive:
+            hive_instance = MagicMock()
+            MockHive.return_value = hive_instance
+
+            def get_side_effect(name):
+                if name == "my-agent":
+                    return _make_hive_record(defn)
+                return _make_hive_record({"secret": (secrets or {})[name]})
+
+            hive_instance.get.side_effect = get_side_effect
+            mock_org.client.request.return_value = {"session_id": "s1"}
+            ai.start_session("my-agent", **kwargs)
+        return json.loads(mock_org.client.request.call_args[1]["raw_body"])
+
+    def test_envelope_passthrough_resolves_secrets(self, ai, mock_org):
+        defn = {
+            "prompt": "p",
+            "provider": "openrouter",
+            "credentials": {
+                "api_key": "hive://secret/or-key",
+                # Unknown-to-the-SDK keys must pass through untouched: the
+                # server owns interpretation.
+                "some_future_key": "literal-value",
+            },
+        }
+        body = self._run(mock_org, ai, defn, secrets={"or-key": "sk-or-resolved"})
+        assert body["provider"] == "openrouter"
+        assert body["credentials"]["api_key"] == "sk-or-resolved"
+        assert body["credentials"]["some_future_key"] == "literal-value"
+        assert "anthropic_key" not in body
+        assert not any(
+            v.startswith("hive://secret/") for v in body["credentials"].values()
+        )
+
+    def test_legacy_bedrock_block_adapted(self, ai, mock_org):
+        defn = {
+            "prompt": "p",
+            "bedrock": {
+                "region": "us-east-1",
+                "access_key_id_secret": "hive://secret/ak",
+                "secret_access_key_secret": "hive://secret/sk",
+            },
+        }
+        body = self._run(mock_org, ai, defn, secrets={"ak": "AKIA123", "sk": "aws-secret"})
+        assert body["provider"] == "anthropic"
+        assert body["credentials"] == {
+            "auth": "bedrock",
+            "region": "us-east-1",
+            "access_key_id": "AKIA123",
+            "secret_access_key": "aws-secret",
+        }
+        assert "anthropic_key" not in body
+
+    def test_legacy_combo_record_prefers_anthropic_secret(self, ai, mock_org):
+        """A legacy record carrying anthropic_secret ALONGSIDE a bedrock
+        block (the old hive validator allowed the combination) must keep
+        running anthropic — the only behavior it ever had — instead of
+        flipping to the now-working bedrock adapter on upgrade."""
+        defn = {
+            "prompt": "p",
+            "anthropic_secret": "hive://secret/anth",
+            "bedrock": {
+                "region": "us-east-1",
+                "access_key_id_secret": "hive://secret/ak",
+                "secret_access_key_secret": "hive://secret/sk",
+            },
+        }
+        body = self._run(mock_org, ai, defn, secrets={
+            "anth": "sk-ant-legacy", "ak": "AKIA123", "sk": "aws-secret"})
+        assert body["anthropic_key"] == "sk-ant-legacy"
+        assert "credentials" not in body
+        assert "provider" not in body
+
+    def test_legacy_vertex_block_adapted(self, ai, mock_org):
+        defn = {
+            "prompt": "p",
+            "vertex": {
+                "project_id": "proj-1",
+                "region": "us-central1",
+                "service_account_json_secret": "hive://secret/sa",
+            },
+        }
+        body = self._run(mock_org, ai, defn, secrets={"sa": "{\"type\":\"sa\"}"})
+        assert body["provider"] == "anthropic"
+        assert body["credentials"] == {
+            "auth": "vertex",
+            "project_id": "proj-1",
+            "region": "us-central1",
+            "service_account_json": "{\"type\":\"sa\"}",
+        }
+        assert "anthropic_key" not in body
+
+    def test_anthropic_secret_record_unchanged(self, ai, mock_org):
+        body = self._run(mock_org, ai, {"prompt": "p", "anthropic_secret": "sk-ant"})
+        assert body["anthropic_key"] == "sk-ant"
+        assert "provider" not in body
+        assert "credentials" not in body
+
+    def test_credentials_override_wins_over_record(self, ai, mock_org):
+        defn = {
+            "prompt": "p",
+            "provider": "openai",
+            "credentials": {"api_key": "record-key"},
+        }
+        body = self._run(
+            mock_org, ai, defn,
+            secrets={"g-key": "AIza-resolved"},
+            provider="google",
+            credentials={"api_key": "hive://secret/g-key"},
+        )
+        assert body["provider"] == "google"
+        assert body["credentials"] == {"api_key": "AIza-resolved"}
+
+    def test_anthropic_key_override_wins_over_legacy_blocks(self, ai, mock_org):
+        defn = {
+            "prompt": "p",
+            "bedrock": {"region": "us-east-1"},
+        }
+        body = self._run(mock_org, ai, defn, anthropic_key="sk-override")
+        assert body["anthropic_key"] == "sk-override"
+        assert "credentials" not in body
+
