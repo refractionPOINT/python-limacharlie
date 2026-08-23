@@ -47,6 +47,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "test_provider", "get_provider_manifests", "get_fleet_overview",
             "get_policy_vocabulary", "suggest_policy_values",
             "simulate_resource_match", "simulate_finding_match",
+            "list_code_repos", "get_code_status", "get_code_sbom",
         ]
     })
     # CSV exports return raw text, not a JSON-renderable object.
@@ -74,7 +75,7 @@ class TestCloudSecHelp:
             "overview", "changes", "risk-trend", "scan-status", "topology",
             "free-tier", "fleet", "finding", "attack-path", "ciem", "inventory",
             "data-security", "resource", "graph", "query", "compliance",
-            "chokepoint", "resolve", "caasm", "provider", "policy",
+            "chokepoint", "resolve", "caasm", "code", "provider", "policy",
             "simulate", "export",
         ]:
             assert cmd in result.output
@@ -268,6 +269,7 @@ class TestFindingCommands:
                 finding_class=["toxic_combination"],
                 status=None,
                 account=None,
+                repo=None,
                 owner=None,
                 sla=None,
                 reachable=True,
@@ -828,8 +830,8 @@ class TestExport:
             assert result.output == "col_a,col_b\n1,2\n"
             inst.export_findings_csv.assert_called_once_with(
                 severity=["CRITICAL"], finding_class=None, status=["open"],
-                account=None, owner=None, sla=None, reachable=None, kev=None,
-                q=None, sort=None, order=None,
+                account=None, repo=None, owner=None, sla=None, reachable=None,
+                kev=None, q=None, sort=None, order=None,
             )
 
     def test_export_findings_to_file(self, tmp_path):
@@ -1212,6 +1214,7 @@ class TestFindingCauses:
                 finding_class=None,
                 status=None,
                 account=None,
+                repo=None,
                 owner=None,
                 sla=None,
                 reachable=None,
@@ -1446,3 +1449,114 @@ class TestClosedVocabularyGuards:
             )
             assert result.exit_code == 0, result.output
             assert inst.list_data_stores.call_args[1]["tier"] is None
+
+
+# ---------------------------------------------------------------------------
+# code subgroup (AppSec code lane)
+# ---------------------------------------------------------------------------
+
+
+class TestCloudSecCode:
+    def test_code_subgroup_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cloudsec", "code", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["repos", "status", "sbom"]:
+            assert cmd in result.output
+
+    def test_code_repos(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "repos", "-q", "fixtures",
+                 "--with-findings", "--provider", "github", "--limit", "50"],
+                cs_cls, {"repos": [], "next_cursor": ""})
+            assert result.exit_code == 0
+            inst.list_code_repos.assert_called_once()
+            kwargs = inst.list_code_repos.call_args.kwargs
+            assert kwargs["q"] == "fixtures"
+            assert kwargs["has_findings"] is True
+            assert kwargs["provider"] == "github"
+            assert kwargs["limit"] == 50
+
+    def test_code_repos_without_findings_is_a_selection(self):
+        """--without-findings must reach the SDK as False, not as None."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "repos", "--without-findings"],
+                cs_cls, {"repos": []})
+            assert result.exit_code == 0
+            assert inst.list_code_repos.call_args.kwargs["has_findings"] is False
+
+    def test_code_repos_all_walks_the_cursor(self):
+        """--all must use the iterator, not a single page.
+
+        A filtered page can be short without being last, so a one-shot page
+        would quietly under-report the repository list.
+        """
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(["cloudsec", "code", "repos", "--all"],
+                                   cs_cls, {"repos": []})
+            inst.iter_code_repos.return_value = iter([])
+            assert result.exit_code == 0
+            inst.iter_code_repos.assert_called_once()
+            inst.list_code_repos.assert_not_called()
+
+    def test_code_status(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(["cloudsec", "code", "status"], cs_cls,
+                                   {"code": [], "totals": {}})
+            assert result.exit_code == 0
+            inst.get_code_status.assert_called_once_with()
+
+    def test_code_sbom_prints_the_link(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "sbom", "--repo", "acme/api"],
+                cs_cls, {"repo": "acme/api", "sbom": {"url": "https://x"}})
+            assert result.exit_code == 0
+            inst.get_code_sbom.assert_called_once_with("acme/api", provider=None)
+            inst.download_code_sbom.assert_not_called()
+
+    def test_code_sbom_download_missing_is_an_explained_failure(self):
+        """-o with no SBOM must NOT write an empty file that looks like one."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            inst = MagicMock()
+            cs_cls.return_value = inst
+            inst.download_code_sbom.return_value = None
+            inst.get_code_sbom.return_value = {
+                "repo": "acme/api", "sbom": None,
+                "reason": "sbom_not_generated_yet"}
+            runner = CliRunner()
+            with runner.isolated_filesystem():
+                result = runner.invoke(cli, [
+                    "--output", "json", "cloudsec", "code", "sbom",
+                    "--repo", "acme/api", "-o", "out.gz"])
+                assert result.exit_code != 0
+                assert "sbom_not_generated_yet" in result.output
+                import os
+                assert not os.path.exists("out.gz")
+
+    def test_finding_list_forwards_repo(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list", "--repo", "acme/api",
+                 "--repo", "acme/web"], cs_cls, {"findings": []})
+            assert result.exit_code == 0
+            assert inst.list_findings.call_args.kwargs["repo"] == [
+                "acme/api", "acme/web"]
+
+    def test_finding_facets_forwards_repo(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "facets", "--repo", "acme/api"],
+                cs_cls, {"facets": {}})
+            assert result.exit_code == 0
+            assert inst.get_finding_facets.call_args.kwargs["repo"] == ["acme/api"]
+
+    def test_export_findings_forwards_repo(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "findings", "--repo", "acme/api"],
+                cs_cls)
+            assert result.exit_code == 0
+            assert inst.export_findings_csv.call_args.kwargs["repo"] == ["acme/api"]
