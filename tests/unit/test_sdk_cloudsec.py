@@ -867,3 +867,106 @@ class TestFreeTier:
         assert url == f"cloudsec/{OID}/free-tier"
         assert qp is None
         assert out["max_providers"] == 2
+
+
+class TestCodeLane:
+    """The AppSec code lane's read surface."""
+
+    def test_list_code_repos_defaults(self, cs, mock_org):
+        mock_org.client.request.return_value = {"repos": []}
+        cs.list_code_repos()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/repos"
+        assert qp is None
+
+    def test_list_code_repos_selectors(self, cs, mock_org):
+        mock_org.client.request.return_value = {"repos": []}
+        cs.list_code_repos(q="fixtures", has_findings=True,
+                           provider="github", cursor="c1", limit=50)
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/repos"
+        assert ("q", "fixtures") in qp
+        assert ("has_findings", "true") in qp
+        assert ("provider", "github") in qp
+        assert ("cursor", "c1") in qp
+        assert ("limit", "50") in qp
+
+    def test_has_findings_false_is_a_real_selection(self, cs, mock_org):
+        """False must reach the wire; only None means 'no constraint'.
+
+        Dropping it would silently return the whole repository list under a
+        filter the caller believes is narrowing it to the clean ones.
+        """
+        mock_org.client.request.return_value = {"repos": []}
+        cs.list_code_repos(has_findings=False)
+        _, qp = _get_call(mock_org)
+        assert ("has_findings", "false") in qp
+
+        mock_org.client.request.return_value = {"repos": []}
+        cs.list_code_repos(has_findings=None)
+        _, qp = _get_call(mock_org)
+        assert qp is None
+
+    def test_iter_code_repos_follows_short_pages(self, cs, mock_org):
+        """A filtered page can be SHORT and still not be the last one.
+
+        The walk must be driven by next_cursor, never by the page length —
+        stopping on a short page silently truncates the caller's inventory.
+        """
+        pages = [
+            {"repos": [{"repo": "acme/api"}], "next_cursor": "c1"},
+            {"repos": [], "next_cursor": "c2"},
+            {"repos": [{"repo": "acme/web"}], "next_cursor": ""},
+        ]
+        mock_org.client.request.side_effect = pages
+        got = list(cs.iter_code_repos(q="acme"))
+        assert [r["repo"] for r in got] == ["acme/api", "acme/web"]
+        assert mock_org.client.request.call_count == 3
+
+    def test_get_code_status(self, cs, mock_org):
+        mock_org.client.request.return_value = {"code": [], "totals": {}}
+        cs.get_code_status()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/status"
+        assert qp is None
+
+    def test_get_code_sbom_percent_encodes_the_key(self, cs, mock_org):
+        """The repository key holds a '/', which must not become a path split.
+
+        Left unencoded it would add a path segment and the route would not
+        match at all — a 404 with nothing on the client side to explain it.
+        """
+        mock_org.client.request.return_value = {"sbom": None}
+        cs.get_code_sbom("refractionPOINT/lc-appsec-fixtures")
+        url, qp = _get_call(mock_org)
+        assert url == (
+            f"cloudsec/{OID}/code/repos/"
+            "refractionPOINT%2Flc-appsec-fixtures/sbom")
+        assert qp is None
+
+    def test_get_code_sbom_provider(self, cs, mock_org):
+        mock_org.client.request.return_value = {"sbom": None}
+        cs.get_code_sbom("acme/api", provider="github")
+        _, qp = _get_call(mock_org)
+        assert qp == [("provider", "github")]
+
+    def test_download_code_sbom_returns_none_when_absent(self, cs, mock_org):
+        """No SBOM yet is a normal answer, not an exception."""
+        mock_org.client.request.return_value = {
+            "sbom": None, "reason": "sbom_not_generated_yet"}
+        assert cs.download_code_sbom("acme/api") is None
+
+    def test_repo_filter_rides_the_findings_worklist(self, cs, mock_org):
+        """repo is an ordinary findings selector, on every worklist read."""
+        for call, path in (
+            (lambda: cs.list_findings(repo=["acme/api", "acme/web"]), "findings"),
+            (lambda: cs.get_finding_facets(repo=["acme/api", "acme/web"]), "findings/facets"),
+            (lambda: cs.list_finding_causes(repo=["acme/api", "acme/web"]), "findings/causes"),
+        ):
+            mock_org.client.request.reset_mock()
+            mock_org.client.request.return_value = {}
+            call()
+            url, qp = _get_call(mock_org)
+            assert url == f"cloudsec/{OID}/{path}"
+            assert ("repo", "acme/api") in qp
+            assert ("repo", "acme/web") in qp

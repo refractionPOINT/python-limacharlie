@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import json
 from typing import Any, TYPE_CHECKING
+from urllib.parse import quote as _quote
+from urllib.request import urlopen as _urlopen
 
 from ..errors import AuthenticationError
 
@@ -93,6 +95,7 @@ def _finding_query_pairs(
     owner: list[str] | None = None,
     owner_pin: list[str] | None = None,
     sla: list[str] | None = None,
+    repo: list[str] | None = None,
     reachable: bool | None = None,
     kev: bool | None = None,
     q: str | None = None,
@@ -107,11 +110,15 @@ def _finding_query_pairs(
     selection: ``owner=[""]`` asks for the UNASSIGNED bucket, so it must
     reach the wire as ``?owner=`` rather than being dropped. Pass ``None``
     (or ``[]``) for no owner constraint.
+
+    ``repo`` is deliberately NOT like that. A finding with no repository is
+    every cloud finding in the estate, which is not a bucket anyone selects,
+    so an empty value there matches nothing rather than meaning "unscoped".
     """
     return _query_pairs(
         severity=severity, finding_class=finding_class, status=status,
         account=account, owner=owner, owner_pin=owner_pin, sla=sla,
-        reachable=reachable, kev=kev, q=q,
+        repo=repo, reachable=reachable, kev=kev, q=q,
         sort=sort, order=order, cursor=cursor, limit=limit,
     )
 
@@ -266,6 +273,7 @@ class CloudSec:
         account: list[str] | None = None,
         owner: list[str] | None = None,
         sla: list[str] | None = None,
+        repo: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -308,6 +316,12 @@ class CloudSec:
                 default SLA, so on an org that has not written an ``sla``
                 policy every finding is ``none``. Counted by the ``sla``
                 facet of :meth:`get_finding_facets`.
+            repo: Source-repository filter values, OR'd, keyed
+                ``"<owner>/<name>"`` exactly as :meth:`list_code_repos`
+                returns them. This is the AppSec code lane's subject
+                selector; cloud findings have no repository, so any repo
+                filter excludes them. An unknown repository honestly
+                returns nothing rather than widening the read.
             reachable: Only findings on (non-)reachable resources.
             kev: Only findings with (without) a KEV vulnerability.
             q: Substring search.
@@ -325,7 +339,7 @@ class CloudSec:
         """
         return self._get("findings", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, owner=owner, sla=sla,
+            account=account, owner=owner, sla=sla, repo=repo,
             reachable=reachable, kev=kev, q=q,
             sort=sort, order=order, cursor=cursor, limit=limit,
         ))
@@ -340,6 +354,7 @@ class CloudSec:
         owner: list[str] | None = None,
         owner_pin: list[str] | None = None,
         sla: list[str] | None = None,
+        repo: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -372,6 +387,13 @@ class CloudSec:
                 EVERY state key, zeroes included, so a caller never has to
                 invent a missing count (a ``breached`` chip that vanishes
                 reads as "the feature is off", not "you are on top of it").
+            repo: Source-repository filter values — see
+                :meth:`list_findings`. The ``repo`` facet counts the code
+                lane's repositories and NEVER the non-repository findings
+                (there is no empty-key bucket holding the cloud estate). It
+                is capped at the top 200 by count, with any actively
+                selected repository pinned into it; ``repo_truncated``
+                reports whether any were dropped.
 
         Returns:
             ``{"facets": {..., "owner": {"": 12, "alice@corp.com": 3},
@@ -381,7 +403,7 @@ class CloudSec:
         return self._get("findings/facets", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, owner_pin=owner_pin, sla=sla,
-            reachable=reachable, kev=kev, q=q,
+            repo=repo, reachable=reachable, kev=kev, q=q,
         ))
 
     def list_finding_causes(
@@ -394,6 +416,7 @@ class CloudSec:
         account: list[str] | None = None,
         owner: list[str] | None = None,
         sla: list[str] | None = None,
+        repo: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -450,7 +473,7 @@ class CloudSec:
         """
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, owner=owner, sla=sla,
+            account=account, owner=owner, sla=sla, repo=repo,
             reachable=reachable, kev=kev, q=q,
             limit=limit,
         )
@@ -1112,6 +1135,151 @@ class CloudSec:
         return self._get("compliance/assignments")
 
     # ------------------------------------------------------------------
+    # AppSec code lane (repositories, scan status, SBOM)
+    # ------------------------------------------------------------------
+
+    def list_code_repos(
+        self,
+        *,
+        q: str | None = None,
+        has_findings: bool | None = None,
+        provider: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """List the org's source repositories as the code lane sees them.
+
+        Args:
+            q: Case-insensitive substring over the repository key
+                (``"<owner>/<name>"``) and urn.
+            has_findings: ``True`` keeps only repositories with at least one
+                OPEN finding, ``False`` only those with none. ``None`` (the
+                default) leaves the dimension unconstrained — note that
+                ``False`` is a real selection, not "no filter".
+            provider: Source-control provider (e.g. ``github``). Omit for
+                every provider that produces repositories.
+            cursor: Keyset-pagination token from a previous page.
+            limit: Page size (default 100, server clamps to 500).
+
+        Returns:
+            ``{"repos": [...], "next_cursor": str}``. Each entry carries
+            ``repo`` (the ``"<owner>/<name>"`` key every other code call
+            takes), ``urn``, ``owner``, ``provider``, the source-control
+            facts the connector collected, the code-scan state, and the open
+            finding rollup (``open_findings``, ``findings_by_class``,
+            ``findings_by_severity``, ``top_severity``).
+
+            ``scan_status`` is ``scanned``, ``partial`` or ``unknown``.
+            ``partial`` means the scan tripped a limit, so the finding set is
+            INCOMPLETE and must not be read as a clean bill. ``unknown``
+            means this surface has no scan state for the repository and says
+            so rather than implying it was never scanned; a machine-readable
+            ``scan_status_reason`` accompanies it. The authoritative view of
+            the RUN is :meth:`get_code_status`.
+
+        Note:
+            A page can come back SHORT while ``next_cursor`` is still set —
+            the cursor, not the page length, says whether the walk is done.
+            Use :meth:`iter_code_repos` to walk it correctly.
+        """
+        return self._get("code/repos", _query_pairs(
+            q=q, has_findings=has_findings, provider=provider,
+            cursor=cursor, limit=limit,
+        ))
+
+    def iter_code_repos(self, **selectors: Any):
+        """Yield every repository matching the selectors, page by page.
+
+        Wraps :meth:`list_code_repos` and follows ``next_cursor`` to the end,
+        which is the only correct way to walk this endpoint: a filtered page
+        may be short without being the last one, so a caller that stops on a
+        short page silently truncates its own inventory.
+        """
+        selectors.pop("cursor", None)
+        cursor: str | None = None
+        while True:
+            page = self.list_code_repos(cursor=cursor, **selectors)
+            for repo in page.get("repos") or []:
+                yield repo
+            cursor = page.get("next_cursor") or None
+            if not cursor:
+                return
+
+    def get_code_status(self) -> dict[str, Any]:
+        """Code-lane run status and lane-wide finding totals.
+
+        Returns:
+            ``{"code": [...], "any_running": bool, "totals": {...}}``. Each
+            ``code`` entry is one source-control connection's
+            ``code:<provider>`` scan row (``is_running``, ``started_at``,
+            ``completed_at``, ``last_stats``, ``last_error``); ``totals``
+            carries ``open_findings``, ``by_class`` and
+            ``repos_with_findings``.
+
+            An EMPTY ``code`` list means the lane has never run in this org.
+            It does not mean the lane is off — that is a property of the
+            org's ``code_scanning`` policy record, not of this call.
+        """
+        return self._get("code/status")
+
+    def get_code_sbom(
+        self, repo: str, *, provider: str | None = None,
+    ) -> dict[str, Any]:
+        """Get a short-lived signed download link for a repository's SBOM.
+
+        Args:
+            repo: The repository key ``"<owner>/<name>"`` as
+                :meth:`list_code_repos` returns it.
+            provider: The source-control provider the key belongs to;
+                defaults to ``github`` server-side.
+
+        Returns:
+            ``{"repo": str, "urn": str, "sbom": {...} | None,
+            "reason": str}``. When ``sbom`` is present it carries ``url``
+            (a plain unauthenticated GET, valid until ``expires_at``),
+            ``size_bytes``, ``format`` (``cyclonedx``) and
+            ``content_encoding`` (``gzip``).
+
+            A repository with no SBOM yet is a SUCCESSFUL response with
+            ``sbom`` ``None`` and a machine-readable ``reason``
+            (``sbom_not_generated_yet`` or
+            ``code_lane_not_enabled_in_datacenter``) — only a repository the
+            org does not have is an error. Check ``sbom`` for ``None`` before
+            using it.
+
+        Note:
+            The document is served straight from object storage, so the link
+            leaves this API's auth boundary. It is deliberately short-lived;
+            fetch it promptly and do not store it.
+        """
+        # The key contains a '/', so it is percent-encoded into ONE path
+        # segment. The gateway accepts either spelling, but encoding is what
+        # keeps the request unambiguous for anything in between.
+        quoted = _quote(repo, safe="")
+        return self._get(
+            f"code/repos/{quoted}/sbom", _query_pairs(provider=provider))
+
+    def download_code_sbom(
+        self, repo: str, *, provider: str | None = None,
+    ) -> bytes | None:
+        """Fetch a repository's SBOM document itself (gzipped CycloneDX).
+
+        Returns ``None`` — not an exception — when the repository has no SBOM
+        yet, mirroring :meth:`get_code_sbom`. Any other failure raises.
+
+        The signed link is fetched with a bare HTTP GET and deliberately
+        WITHOUT this SDK's auth headers: it is a pre-signed object-storage
+        URL, and sending LimaCharlie credentials to a Google endpoint would
+        put them somewhere they do not belong.
+        """
+        resp = self.get_code_sbom(repo, provider=provider)
+        sbom = resp.get("sbom")
+        if not sbom or not sbom.get("url"):
+            return None
+        with _urlopen(sbom["url"]) as body:
+            return body.read()
+
+    # ------------------------------------------------------------------
     # Overview / trends / chokepoints
     # ------------------------------------------------------------------
 
@@ -1506,6 +1674,7 @@ class CloudSec:
         account: list[str] | None = None,
         owner: list[str] | None = None,
         sla: list[str] | None = None,
+        repo: list[str] | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -1526,7 +1695,7 @@ class CloudSec:
         """
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
-            account=account, owner=owner, sla=sla,
+            account=account, owner=owner, sla=sla, repo=repo,
             reachable=reachable, kev=kev, q=q,
             sort=sort, order=order,
         )

@@ -1049,6 +1049,15 @@ def _finding_filter_options(f):
         help="Only findings on (non-)reachable resources.",
     )(f)
     f = click.option(
+        "--repo", "repos", multiple=True,
+        help="Filter to findings about a source repository, keyed "
+             "'<owner>/<name>' as 'cloudsec code repos' returns it; "
+             "repeatable (OR). This is the AppSec code lane's selector — "
+             "cloud findings have no repository, so any --repo excludes "
+             "them, and an unknown repository returns nothing rather than "
+             "everything.",
+    )(f)
+    f = click.option(
         "--account", "accounts", multiple=True,
         help="Filter by cloud account; repeatable (OR).",
     )(f)
@@ -1284,6 +1293,7 @@ def group() -> None:
       compliance ...      Framework assessment, frameworks, assignments
       chokepoint ...      Estate-wide chokepoints (list, dismiss, restore)
       resolve ...         Sensor <-> cloud asset resolution
+      code ...            AppSec code lane (repos, status, sbom)
       caasm ...           Third-party asset inventory, coverage, ingest
       provider ...        Credential preflight + coverage manifests
       policy ...          cloudsec_policy vocabulary + autocomplete
@@ -1383,6 +1393,128 @@ def free_tier(ctx) -> None:
 
 
 # ---------------------------------------------------------------------------
+# code subgroup (AppSec code lane)
+# ---------------------------------------------------------------------------
+
+@group.group("code")
+def code_group() -> None:
+    """AppSec code lane: repositories, scan status, SBOM export.
+
+    The lane scans a connected source-control organization's repositories
+    and emits findings into the same worklist the cloud collectors feed,
+    so the findings themselves are read with 'cloudsec finding list
+    --repo <owner>/<name>'. The commands here are the repository-shaped
+    views that worklist cannot give you.
+    """
+
+
+@code_group.command("repos")
+@click.option("-q", "--search", "q", default=None,
+              help="Substring over the repository key and urn.")
+@click.option("--with-findings/--without-findings", "has_findings", default=None,
+              help="Only repositories that do (or do not) have at least one "
+                   "OPEN finding. Omit for no constraint — note that "
+                   "--without-findings is a real selection, not 'no filter'.")
+@click.option("--provider", default=None,
+              help="Source-control provider (e.g. github). Omit for all.")
+@click.option("--all", "walk_all", is_flag=True, default=False,
+              help="Follow the cursor and return EVERY matching repository "
+                   "instead of one page. Filtered pages can be short without "
+                   "being last, so this is the safe way to get a full list.")
+@_paging_options
+@pass_context
+def code_repos(ctx, q, has_findings, provider, walk_all, cursor, limit) -> None:
+    """List the org's repositories with their scan state and finding counts.
+
+    Each row carries 'repo' (the '<owner>/<name>' key the other code
+    commands take), the connector's view of the repository, the code-scan
+    state, and the OPEN finding rollup.
+
+    'scan_status' is scanned, partial or unknown. 'partial' means the scan
+    tripped a limit, so the finding set is INCOMPLETE — not a clean bill.
+    'unknown' means this view has no scan state for the repository and says
+    so rather than guessing; 'cloudsec code status' is the authoritative
+    view of the run.
+
+    \b
+    Examples:
+      limacharlie cloudsec code repos
+      limacharlie cloudsec code repos --with-findings --all
+      limacharlie cloudsec code repos -q appsec-fixtures
+    """
+    cs = _get_cloudsec(ctx)
+    if walk_all:
+        repos = list(cs.iter_code_repos(
+            q=q, has_findings=has_findings, provider=provider, limit=limit))
+        _output(ctx, {"repos": repos, "next_cursor": ""})
+        return
+    _output(ctx, cs.list_code_repos(
+        q=q, has_findings=has_findings, provider=provider,
+        cursor=cursor, limit=limit,
+    ))
+
+
+@code_group.command("status")
+@pass_context
+def code_status(ctx) -> None:
+    """Code-lane run status per source-control connection, plus totals.
+
+    An empty 'code' list means the lane has never run in this org. It does
+    NOT mean the lane is off — that is the org's code_scanning
+    cloudsec_policy record, not this call.
+
+    \b
+    Example:
+      limacharlie cloudsec code status
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_code_status())
+
+
+@code_group.command("sbom")
+@click.option("--repo", required=True,
+              help="Repository key '<owner>/<name>' as 'code repos' returns it.")
+@click.option("--provider", default=None,
+              help="Source-control provider the key belongs to (default github).")
+@click.option("-o", "--output", "output_path", default=None,
+              help="Download the SBOM document to this path (gzipped "
+                   "CycloneDX). Omit to print the signed link and its "
+                   "metadata instead.")
+@pass_context
+def code_sbom(ctx, repo, provider, output_path) -> None:
+    """Get a repository's SBOM: the signed link, or the document itself.
+
+    A repository with no SBOM yet is not an error — the command reports the
+    reason (the first scan has not completed, or the lane is not enabled in
+    this datacenter) and exits non-zero only when -o was requested, since
+    there is then nothing to write.
+
+    The link is short-lived and leaves the API's auth boundary, so fetch it
+    promptly and do not store it.
+
+    \b
+    Examples:
+      limacharlie cloudsec code sbom --repo refractionPOINT/lc-appsec-fixtures
+      limacharlie cloudsec code sbom --repo acme/api -o api-sbom.json.gz
+    """
+    cs = _get_cloudsec(ctx)
+    if not output_path:
+        _output(ctx, cs.get_code_sbom(repo, provider=provider))
+        return
+    body = cs.download_code_sbom(repo, provider=provider)
+    if body is None:
+        # Report WHY, from the same response the download consulted, rather
+        # than writing an empty file that looks like an SBOM of nothing.
+        resp = cs.get_code_sbom(repo, provider=provider)
+        raise click.ClickException(
+            "no SBOM available for %s (%s)"
+            % (repo, resp.get("reason") or "unknown reason"))
+    with open(output_path, "wb") as f:
+        f.write(body)
+    _output(ctx, {"repo": repo, "written": output_path, "size_bytes": len(body)})
+
+
+# ---------------------------------------------------------------------------
 # fleet subgroup (multi-org)
 # ---------------------------------------------------------------------------
 
@@ -1437,7 +1569,7 @@ def finding_group() -> None:
 @_sort_options
 @_paging_options
 @pass_context
-def finding_list(ctx, severities, finding_classes, statuses, accounts,
+def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
                  owners, unassigned, sla_states, reachable, kev, q, sort,
                  order, cursor, limit) -> None:
     """List the merged, risk-ranked cloud-security findings.
@@ -1449,6 +1581,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts,
       limacharlie cloudsec finding list --owner alice@corp.com
       limacharlie cloudsec finding list --unassigned
       limacharlie cloudsec finding list --sla breached --sort due_at
+      limacharlie cloudsec finding list --repo refractionPOINT/lc-appsec-fixtures
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_findings(
@@ -1456,6 +1589,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
+        repo=list(repos) or None,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
         reachable=reachable,
@@ -1478,7 +1612,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts,
                    "slots with any --owner values, so past ~50 combined a "
                    "pin can still be dropped.")
 @pass_context
-def finding_facets(ctx, severities, finding_classes, statuses, accounts,
+def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
                    owners, unassigned, sla_states, reachable, kev, q,
                    owner_pins) -> None:
     """Cross-filtered facet counts for the findings worklist.
@@ -1494,6 +1628,7 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
+        repo=list(repos) or None,
         owner=_selector_with_empty(owners, unassigned),
         owner_pin=list(owner_pins) or None,
         sla=list(sla_states) or None,
@@ -1513,7 +1648,7 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts,
               help="Rollup size (default 20, cap 200). Not a page size — the "
                    "rollup is not paginated; 'distinct' reports the tail.")
 @pass_context
-def finding_causes(ctx, severities, finding_classes, statuses, accounts,
+def finding_causes(ctx, severities, finding_classes, statuses, accounts, repos,
                    owners, unassigned, sla_states, reachable, kev, q, cause,
                    limit) -> None:
     """Findings grouped by CAUSE: one edit that closes N findings.
@@ -1530,6 +1665,7 @@ def finding_causes(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
+        repo=list(repos) or None,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
         reachable=reachable,
@@ -2499,7 +2635,7 @@ def export_group() -> None:
 @_sort_options
 @_export_output_option
 @pass_context
-def export_findings(ctx, severities, finding_classes, statuses, accounts,
+def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
                     owners, unassigned, sla_states, reachable, kev, q, sort,
                     order, output_path) -> None:
     """Export the (filtered) findings worklist as CSV.
@@ -2516,6 +2652,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
         account=list(accounts) or None,
+        repo=list(repos) or None,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
         reachable=reachable,
