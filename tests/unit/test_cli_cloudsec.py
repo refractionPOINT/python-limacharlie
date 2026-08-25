@@ -1,6 +1,7 @@
 """Tests for limacharlie cloudsec CLI commands."""
 
 import json
+import os
 
 from unittest.mock import patch, MagicMock
 
@@ -1528,6 +1529,76 @@ class TestCloudSecCode:
             assert result.exit_code != 0
             assert "--repo" in result.output
             inst.ingest_code_results.assert_not_called()
+
+    def test_code_scan_container_invocation(self, tmp_path, monkeypatch):
+        """The docker argv is the only genuinely fragile thing in this command — the
+        mounts, the identity it runs as, and the data sources the scanner refuses to
+        start without. It is asserted here because getting it wrong produces a scanner
+        that cannot run at all, which is what happened once already."""
+        from limacharlie.commands import cloudsec as cs_mod
+
+        captured = {}
+
+        def fake_run(cmd, timeout_s, *, env=None, container=None):
+            captured["cmd"] = cmd
+            captured["container"] = container
+            # Stand in for the scanner: the caller reads this file next.
+            out = cmd[cmd.index("--out") + 1]
+            host_out = os.path.join(
+                cmd[cmd.index("-v") + 1].split(":")[0], os.path.basename(out))
+            with open(host_out, "wb") as f:
+                f.write(b"REPORT")
+
+        monkeypatch.setattr(cs_mod, "_run", fake_run)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, _ = _invoke(
+                ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api",
+                 "-o", str(tmp_path / "report.json.gz")],
+                cs_cls, {"result": {}})
+        assert result.exit_code == 0, result.output
+        cmd = captured["cmd"]
+        assert cmd[:3] == ["docker", "run", "--rm"]
+        joined = " ".join(cmd)
+        # The checkout is mounted READ-ONLY; the scratch volume is the private workdir.
+        assert "%s:/scan/src:ro" % str(tmp_path) in cmd
+        assert any(a.endswith(":/scan") for a in cmd)
+        # The scanner refuses to start without these, by design.
+        assert any(a.startswith("TRIVY_DB_REPOSITORY=") for a in cmd)
+        assert any(a.startswith("TRIVY_JAVA_DB_REPOSITORY=") for a in cmd)
+        # No checks mirror was given, so the compiled-in checks are used rather than
+        # silently skipping infrastructure files.
+        assert "--embedded-checks" in cmd
+        assert captured["container"] and "--name" in cmd
+        assert "--spec" in joined and "/scan/spec.json" in joined
+
+    def test_code_scan_refuses_scanners_it_cannot_run(self, tmp_path):
+        """An unknown scanner used to be dropped silently — a narrower scan reported as a
+        successful one. And `secrets` cannot work locally at all."""
+        for bad, expect in [("sca,iacc", "unknown scanner"),
+                            ("sca,secrets", "cannot run in a local scan")]:
+            with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+                result, _ = _invoke(
+                    ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api",
+                     "-o", str(tmp_path / "r.gz"), "--scanners", bad],
+                    cs_cls, {"result": {}})
+            assert result.exit_code != 0, bad
+            assert expect in result.output, result.output
+
+    def test_git_repo_key_refuses_a_remote_that_names_no_repository(self):
+        """A local remote yields a plausible, wrong key — exactly the guess --ingest
+        refuses to make from an absent one."""
+        from limacharlie.commands import cloudsec as cs_mod
+
+        cases = {
+            "https://github.com/acme/api.git": "acme/api",
+            "git@github.com:acme/api.git": "acme/api",
+            "/home/me/src/api": None,
+            "file:///home/me/src/api": None,
+            "../sibling/api": None,
+        }
+        for url, want in cases.items():
+            with patch.object(cs_mod, "_git", return_value=url):
+                assert cs_mod._git_repo_key("/anywhere") == want, url
 
     def test_code_repos_all_walks_the_cursor(self):
         """--all must use the iterator, not a single page.
