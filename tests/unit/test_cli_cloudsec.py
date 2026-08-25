@@ -48,6 +48,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "get_policy_vocabulary", "suggest_policy_values",
             "simulate_resource_match", "simulate_finding_match",
             "list_code_repos", "get_code_status", "get_code_sbom",
+            "ingest_code_results",
         ]
     })
     # CSV exports return raw text, not a JSON-renderable object.
@@ -1461,7 +1462,7 @@ class TestCloudSecCode:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "code", "--help"])
         assert result.exit_code == 0
-        for cmd in ["repos", "status", "sbom"]:
+        for cmd in ["repos", "status", "sbom", "ingest", "scan"]:
             assert cmd in result.output
 
     def test_code_repos(self):
@@ -1486,6 +1487,47 @@ class TestCloudSecCode:
                 cs_cls, {"repos": []})
             assert result.exit_code == 0
             assert inst.list_code_repos.call_args.kwargs["has_findings"] is False
+
+    def test_code_ingest_reads_the_file_and_pushes_it(self, tmp_path):
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--commit", "c0ffee"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            inst.ingest_code_results.assert_called_once()
+            args, kwargs = inst.ingest_code_results.call_args
+            assert args[0] == "acme/api"
+            assert args[1] == "sarif"
+            assert args[2] == b'{"version":"2.1.0","runs":[]}'
+            assert kwargs["commit"] == "c0ffee"
+
+    def test_code_scan_refuses_to_do_nothing(self, tmp_path):
+        """Without --ingest and without -o the report would be written into a
+        temporary directory and deleted — a command that appears to succeed and
+        leaves nothing behind. It must say so instead."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            with patch("limacharlie.commands.cloudsec._run_code_scanner"):
+                result, inst = _invoke(
+                    ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api"],
+                    cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "nothing to do with the report" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_code_scan_will_not_guess_the_repository(self, tmp_path):
+        """--ingest against a checkout whose origin names no repository must
+        refuse: which repository a finding belongs to is an identity, and a
+        guessed one attaches somebody's findings to the wrong node."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "scan", str(tmp_path), "--ingest"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "--repo" in result.output
+            inst.ingest_code_results.assert_not_called()
 
     def test_code_repos_all_walks_the_cursor(self):
         """--all must use the iterator, not a single page.
