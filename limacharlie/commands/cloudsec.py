@@ -52,6 +52,18 @@ from ..discovery import register_explain
 # it used precisely so that question has an answer.
 DEFAULT_CODE_SCANNER_IMAGE = "gcr.io/legion-212720/github.com/refractionpoint/lc-code-scanner:v0.4.0"
 
+# Where a LOCAL scan gets its vulnerability data.
+#
+# The image deliberately ships no defaults for these: inside the hosted sandbox the only
+# reachable source is our own mirror, and a default pointing anywhere else would work on a
+# developer's machine and then fail inside the sandbox — where the failure reads as "no
+# vulnerabilities found". A local scan is the other case, and it is the one these are for:
+# the machine has ordinary internet access, and the upstream public databases are what it
+# should use. Override with --db-repo / --java-db-repo for an air-gapped or rate-limited
+# network, which is exactly when a mirror of your own is worth having.
+DEFAULT_TRIVY_DB_REPO = "ghcr.io/aquasecurity/trivy-db:2"
+DEFAULT_TRIVY_JAVA_DB_REPO = "ghcr.io/aquasecurity/trivy-java-db:1"
+
 
 # ---------------------------------------------------------------------------
 # Explain texts
@@ -1592,9 +1604,17 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, provider) -> None:
                    "on purpose — see the command help.")
 @click.option("--timeout", "timeout_s", default=1800, show_default=True,
               help="Seconds to allow the scan.")
+@click.option("--db-repo", "db_repo", default=DEFAULT_TRIVY_DB_REPO, show_default=True,
+              help="Vulnerability database to scan against.")
+@click.option("--java-db-repo", "java_db_repo", default=DEFAULT_TRIVY_JAVA_DB_REPO,
+              show_default=True, help="Java artifact index to resolve jars against.")
+@click.option("--checks-repo", "checks_repo", default=None,
+              help="Infrastructure-checks bundle. Omit to use the checks compiled into "
+                   "the scanner, which is what a local scan normally wants.")
 @pass_context
 def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
-              output_path, scanners, timeout_s) -> None:
+              output_path, scanners, timeout_s, db_repo, java_db_repo,
+              checks_repo) -> None:
     """Scan a local checkout with the LimaCharlie code scanner.
 
     Runs the scanner over PATH (default: the current directory) and writes a
@@ -1639,7 +1659,11 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
 
     wanted = [s.strip() for s in scanners.split(",") if s.strip()]
     with tempfile.TemporaryDirectory(prefix="lc-code-scan-") as workdir:
-        report_path = output_path or os.path.join(workdir, "report.json.gz")
+        # The report is always produced inside this private directory and copied out
+        # afterwards. Writing it straight to --output would mean mounting whatever
+        # directory the caller named into the container, which hands a container running
+        # third-party engines write access to a directory it has no business in.
+        report_path = os.path.join(workdir, "report.json.gz")
         spec = {
             "job_id": "cli-%s" % uuid.uuid4().hex[:12],
             # Carried for the agent's own logging only; the scan is local and the
@@ -1653,13 +1677,16 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
                          ("sca", "secrets", "secrets_history", "iac", "sast", "licenses", "images")},
         }
         _run_code_scanner(spec, root, report_path, workdir,
-                          image=image, binary=binary, timeout_s=timeout_s)
+                          image=image, binary=binary, timeout_s=timeout_s,
+                          db_repo=db_repo, java_db_repo=java_db_repo,
+                          checks_repo=checks_repo)
         with open(report_path, "rb") as f:
             document = f.read()
 
-        result = {"report": output_path or None, "bytes": len(document),
-                  "repo": repo, "commit": commit}
+        result = {"bytes": len(document), "repo": repo, "commit": commit}
         if output_path:
+            with open(output_path, "wb") as f:
+                f.write(document)
             result["written"] = output_path
         if do_ingest:
             cs = _get_cloudsec(ctx)
@@ -1707,8 +1734,9 @@ def _git(root: str, *args: str) -> str | None:
 
 
 def _run_code_scanner(spec: dict, root: str, report_path: str, workdir: str,
-                      *, image: str | None, binary: str | None,
-                      timeout_s: int) -> None:
+                      *, image: str | None, binary: str | None, timeout_s: int,
+                      db_repo: str, java_db_repo: str,
+                      checks_repo: str | None) -> None:
     """Run the scanner over a local checkout, writing report_path.
 
     Two backends, one contract: the agent reads a spec and writes a gzipped
@@ -1717,34 +1745,63 @@ def _run_code_scanner(spec: dict, root: str, report_path: str, workdir: str,
     job that already has one should not pay for a pull.
     """
     spec_path = os.path.join(workdir, "spec.json")
+    # The scanner takes its data sources from the environment and refuses to start without
+    # them — which is the right behaviour for the sandbox and means a local run has to
+    # supply them.
+    env = dict(os.environ)
+    env["TRIVY_DB_REPOSITORY"] = db_repo
+    env["TRIVY_JAVA_DB_REPOSITORY"] = java_db_repo
+    extra_args: list[str] = []
+    if checks_repo:
+        env["TRIVY_CHECKS_BUNDLE_REPOSITORY"] = checks_repo
+    else:
+        # The checks compiled into the binary. A local scan has no mirror to point at, and
+        # the alternative — refusing to scan infrastructure files — would be a silent gap.
+        extra_args.append("--embedded-checks")
+
     if binary:
         with open(spec_path, "w") as f:
             json.dump(spec, f)
-        cmd = [binary, "--spec", spec_path, "--out", report_path]
-        _run(cmd, timeout_s)
+        cmd = [binary, "--spec", spec_path, "--out", report_path] + extra_args
+        _run(cmd, timeout_s, env=env)
         return
 
-    # In the container the checkout is mounted read-only at a fixed path, so
-    # the spec has to name THAT path rather than the host's.
+    # In the container the checkout is mounted read-only at a fixed path, so the spec has to
+    # name THAT path rather than the host's.
+    #
+    # The private working directory is mounted as the container's whole scratch volume
+    # (/scan), which is what the engines unpack databases and layers into. Mounting only an
+    # output directory looked tidier and does not work: the container runs as the invoking
+    # user (so the report comes back readable) and that user does not own the image's own
+    # /scan.
     container_spec = dict(spec, local_path="/scan/src")
     with open(spec_path, "w") as f:
         json.dump(container_spec, f)
-    out_dir = os.path.dirname(os.path.abspath(report_path)) or "."
     cmd = [
         "docker", "run", "--rm",
+        # As the invoking user, so the report comes back readable. The container's own
+        # identity is irrelevant here — there is no sandbox boundary on a laptop — and a
+        # root-owned artifact in somebody's temporary directory is a nuisance at best.
+        "--user", "%d:%d" % (os.getuid(), os.getgid()),
+        "-v", "%s:/scan" % workdir,
         "-v", "%s:/scan/src:ro" % root,
-        "-v", "%s:/scan/spec.json:ro" % spec_path,
-        "-v", "%s:/scan/out" % out_dir,
+        "-e", "TRIVY_DB_REPOSITORY=%s" % db_repo,
+        "-e", "TRIVY_JAVA_DB_REPOSITORY=%s" % java_db_repo,
+        "-e", "HOME=/scan",
+    ]
+    if checks_repo:
+        cmd += ["-e", "TRIVY_CHECKS_BUNDLE_REPOSITORY=%s" % checks_repo]
+    cmd += [
         image or DEFAULT_CODE_SCANNER_IMAGE,
         "--spec", "/scan/spec.json",
-        "--out", "/scan/out/%s" % os.path.basename(report_path),
-    ]
+        "--out", "/scan/%s" % os.path.basename(report_path),
+    ] + extra_args
     _run(cmd, timeout_s)
 
 
-def _run(cmd: list[str], timeout_s: int) -> None:
+def _run(cmd: list[str], timeout_s: int, *, env: dict | None = None) -> None:
     try:
-        proc = subprocess.run(cmd, timeout=timeout_s, check=False)
+        proc = subprocess.run(cmd, timeout=timeout_s, check=False, env=env)
     except FileNotFoundError:
         raise click.ClickException(
             "%s is not installed or not on PATH" % cmd[0])
