@@ -950,6 +950,31 @@ class TestCodeLane:
         _, qp = _get_call(mock_org)
         assert qp == [("provider", "github")]
 
+    def test_rescan_code_repo_posts_the_trigger(self, cs, mock_org):
+        mock_org.client.request.return_value = {"accepted": True}
+        cs.rescan_code_repo("refractionPOINT/lc-appsec-fixtures",
+                            ref="refs/heads/main", provider="github")
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/scan"
+        assert body == {
+            "repo": "refractionPOINT/lc-appsec-fixtures",
+            "source": "manual",
+            "ref": "refs/heads/main",
+            "provider": "github",
+        }
+
+    def test_rescan_code_repo_omits_optionals(self, cs, mock_org):
+        """An empty ref must not reach the wire.
+
+        The host declines a ref that names a branch other than the one the
+        last scan cloned, and an empty string is not 'unspecified' to a
+        gateway that bounds every non-empty field it forwards.
+        """
+        mock_org.client.request.return_value = {"accepted": True}
+        cs.rescan_code_repo("api")
+        _, body = _post_call(mock_org)
+        assert body == {"repo": "api", "source": "manual"}
+
     def test_download_code_sbom_returns_none_when_absent(self, cs, mock_org):
         """No SBOM yet is a normal answer, not an exception."""
         mock_org.client.request.return_value = {

@@ -1514,6 +1514,44 @@ def code_sbom(ctx, repo, provider, output_path) -> None:
     _output(ctx, {"repo": repo, "written": output_path, "size_bytes": len(body)})
 
 
+@code_group.command("rescan")
+@click.argument("repo")
+@click.option("--ref", default=None,
+              help="The git ref a push landed on (refs/heads/main). Optional "
+                   "— the lane scans the default branch either way, and a ref "
+                   "naming another branch is declined because scanning again "
+                   "would re-report the same commit.")
+@click.option("--provider", default=None,
+              help="Source-control provider the repository belongs to "
+                   "(default github).")
+@pass_context
+def code_rescan(ctx, repo, ref, provider) -> None:
+    """Rescan ONE repository now instead of waiting for its schedule.
+
+    REPO is '<owner>/<name>', the bare repository name, or its urn.
+
+    This is the manual door onto the trigger a push webhook takes. It
+    ACCEPTS and returns — the scan runs for minutes in a sandbox — and it is
+    debounced per repository ('debounce_seconds' in the response: a burst
+    collapses into one scan).
+
+    'accepted' does NOT mean a scan will run. Each of these is a quiet
+    no-op: a repository outside the org's code_scanning policy scope, one
+    over the free-tier quota or the per-connection daily cap, one in a
+    failure backoff, or a connection whose collection is paused right then.
+    Read the outcome per repository with 'cloudsec code repos', not from
+    this response and not from 'cloudsec code status' — that row is the
+    estate pass's, and a one-repository run deliberately does not touch it.
+
+    \b
+    Examples:
+      limacharlie cloudsec code rescan refractionPOINT/lc-appsec-fixtures
+      limacharlie cloudsec code rescan api --ref refs/heads/main
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.rescan_code_repo(repo, ref=ref, provider=provider))
+
+
 # ---------------------------------------------------------------------------
 # fleet subgroup (multi-org)
 # ---------------------------------------------------------------------------

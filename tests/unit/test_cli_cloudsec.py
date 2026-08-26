@@ -48,6 +48,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "get_policy_vocabulary", "suggest_policy_values",
             "simulate_resource_match", "simulate_finding_match",
             "list_code_repos", "get_code_status", "get_code_sbom",
+            "rescan_code_repo",
         ]
     })
     # CSV exports return raw text, not a JSON-renderable object.
@@ -1535,6 +1536,31 @@ class TestCloudSecCode:
                 assert "sbom_not_generated_yet" in result.output
                 import os
                 assert not os.path.exists("out.gz")
+
+    def test_code_rescan_forwards_the_repository_and_ref(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "rescan", "acme/api",
+                 "--ref", "refs/heads/main"],
+                cs_cls, {"accepted": True, "debounce_seconds": 600})
+            assert result.exit_code == 0
+            inst.rescan_code_repo.assert_called_once_with(
+                "acme/api", ref="refs/heads/main", provider=None)
+
+    def test_code_rescan_takes_the_repository_positionally(self):
+        """'rescan <repo>' — the repository is the subject, not an option.
+
+        The sibling 'code scan <path>' takes a filesystem path positionally
+        for the same reason; keeping the two shapes apart is what stops
+        'code rescan' from reading like a local scan of a directory.
+        """
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "rescan", "lc-appsec-fixtures"],
+                cs_cls, {"accepted": True})
+            assert result.exit_code == 0
+            inst.rescan_code_repo.assert_called_once_with(
+                "lc-appsec-fixtures", ref=None, provider=None)
 
     def test_finding_list_forwards_repo(self):
         with _patches()[0], _patches()[1], _patches()[2] as cs_cls:

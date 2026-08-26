@@ -1279,6 +1279,52 @@ class CloudSec:
         with _urlopen(sbom["url"]) as body:
             return body.read()
 
+    def rescan_code_repo(
+        self,
+        repo: str,
+        *,
+        ref: str | None = None,
+        provider: str | None = None,
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask the code lane to rescan ONE repository now.
+
+        This is the manual door onto the same trigger a push webhook takes.
+        It does not wait for the scan, and it is not a promise that one will
+        run: the response means the trigger was ACCEPTED.
+
+        Args:
+            repo: The repository — ``"<owner>/<name>"``, its bare name, or
+                its canonical urn.
+            ref: The git ref a push landed on
+                (``"refs/heads/main"``). Optional; the lane scans the
+                default branch either way, and a ref naming a branch other
+                than the one the last scan cloned is declined.
+            provider: The source-control provider the repository belongs to;
+                defaults to ``github`` server-side.
+            source: A short token recording who asked, for the host's log
+                line and the mark it persists. Defaults to ``manual``.
+
+        Returns:
+            ``{"accepted": bool, "repo": str, "provider": str,
+            "debounce_seconds": int}``. ``debounce_seconds`` is the window a
+            burst of triggers for one repository collapses into.
+
+        Note:
+            Several outcomes are a quiet no-op from here: a repository
+            outside the org's ``code_scanning`` policy scope, one over the
+            free-tier quota or the per-connection daily cap, one in a failure
+            backoff, or a connection whose collection is paused at that
+            instant. The result is visible per repository on
+            :meth:`list_code_repos`, not on this response.
+        """
+        body: dict[str, Any] = {"repo": repo, "source": source or "manual"}
+        if ref:
+            body["ref"] = ref
+        if provider:
+            body["provider"] = provider
+        return self._post("code/scan", body)
+
     # ------------------------------------------------------------------
     # Overview / trends / chokepoints
     # ------------------------------------------------------------------
