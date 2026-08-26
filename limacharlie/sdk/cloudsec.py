@@ -28,6 +28,7 @@ here are the pre-save credential preflight
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any, TYPE_CHECKING
 from urllib.parse import quote as _quote
@@ -1278,6 +1279,71 @@ class CloudSec:
             return None
         with _urlopen(sbom["url"]) as body:
             return body.read()
+
+    def ingest_code_results(
+        self,
+        repo: str,
+        source: str,
+        document: bytes | str | dict[str, Any],
+        *,
+        commit: str | None = None,
+        ref: str | None = None,
+        provider: str | None = None,
+    ) -> dict[str, Any]:
+        """Push results your own pipeline produced for one repository.
+
+        The document is recorded as Cloud Security findings on that
+        repository, deduplicated against the hosted scan by IDENTITY — so
+        pushing something the hosted scanner also found updates it rather
+        than duplicating it, and re-pushing an identical document writes
+        nothing.
+
+        Args:
+            repo: the ``"<owner>/<name>"`` key :meth:`list_code_repos`
+                returns. It must already be in the org's collected
+                inventory and be selected by an enabled ``code_scanning``
+                policy — the same switch the hosted lane uses.
+            source: ``"sarif"``, ``"cyclonedx"`` or ``"report"`` (the
+                LimaCharlie scanner's own ``report/v1`` document, which is
+                loss-free and therefore dedupes exactly).
+            document: the document, as raw bytes (gzipped or not), a string,
+                or an already-parsed object.
+            commit: the revision the document describes. Recorded, not
+                verified, and worth sending: it is what tells somebody
+                reading a finding which checkout produced it.
+
+        Returns:
+            ``{"result": {...}}`` — what landed: ``findings``, the SoR
+            counters (``created``/``updated``/``deleted``/``unchanged``),
+            what the merge did (``enriched``/``carried_forward``/``closed``)
+            and ``notes``, the machine-readable list of things the FORMAT
+            could not carry. A ``notes`` entry is not an error; it is the
+            honest half of the answer, and ``secrets_not_ingestable`` in
+            particular means credential findings were deliberately dropped
+            (a pushed document cannot carry the keyed digest a secret is
+            identified by, and the plaintext is never accepted).
+
+        A pushed document can only ever close findings IT previously
+        reported. It can never close what the hosted scanner found.
+        """
+        body: dict[str, Any] = {"repo": repo, "source": source}
+        if isinstance(document, (bytes, bytearray)):
+            # Sent base64 rather than decoded here: the document may be a gzip
+            # stream (the scanner writes report.json.gz) and decoding it
+            # locally only to re-encode it as JSON would parse a multi-megabyte
+            # payload twice for nothing.
+            body["document_b64"] = base64.b64encode(bytes(document)).decode("ascii")
+        elif isinstance(document, str):
+            body["document_b64"] = base64.b64encode(document.encode("utf-8")).decode("ascii")
+        else:
+            body["document"] = document
+        if commit is not None:
+            body["commit"] = commit
+        if ref is not None:
+            body["ref"] = ref
+        if provider is not None:
+            body["provider"] = provider
+        return self._post("code/ingest", body)
 
     # ------------------------------------------------------------------
     # Overview / trends / chokepoints
