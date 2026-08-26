@@ -1,5 +1,6 @@
 """Tests for limacharlie.sdk.cloudsec module."""
 
+import base64
 import json
 
 from unittest.mock import MagicMock
@@ -974,6 +975,41 @@ class TestCodeLane:
         cs.rescan_code_repo("api")
         _, body = _post_call(mock_org)
         assert body == {"repo": "api", "source": "manual"}
+    def test_ingest_code_results_sends_bytes_as_base64(self, cs, mock_org):
+        """A document read from a file is sent base64, NOT decoded and re-encoded.
+
+        The documents this takes are files — the scanner writes report.json.gz —
+        so decoding a gzip stream locally only to re-serialize it as JSON would
+        parse a multi-megabyte payload twice, and could not represent a
+        compressed one at all.
+        """
+        mock_org.client.request.return_value = {"result": {}}
+        cs.ingest_code_results("acme/api", "report", b"\x1f\x8bnot-really-gzip",
+                               commit="c0ffee")
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/ingest"
+        assert body["repo"] == "acme/api"
+        assert body["source"] == "report"
+        assert body["commit"] == "c0ffee"
+        assert base64.b64decode(body["document_b64"]) == b"\x1f\x8bnot-really-gzip"
+        assert "document" not in body
+
+    def test_ingest_code_results_sends_an_object_as_an_object(self, cs, mock_org):
+        """An already-parsed document goes in `document`: re-encoding it to base64
+        would make the gateway's JSON body opaque for no gain."""
+        mock_org.client.request.return_value = {"result": {}}
+        cs.ingest_code_results("acme/api", "sarif", {"version": "2.1.0", "runs": []})
+        _, body = _post_call(mock_org)
+        assert body["document"] == {"version": "2.1.0", "runs": []}
+        assert "document_b64" not in body
+
+    def test_ingest_code_results_omits_what_was_not_given(self, cs, mock_org):
+        """An absent commit must not become an empty one: '' is a value, and a
+        finding stamped with a blank revision is worse than one with none."""
+        mock_org.client.request.return_value = {"result": {}}
+        cs.ingest_code_results("acme/api", "cyclonedx", "{}")
+        _, body = _post_call(mock_org)
+        assert "commit" not in body and "ref" not in body and "provider" not in body
 
     def test_download_code_sbom_returns_none_when_absent(self, cs, mock_org):
         """No SBOM yet is a normal answer, not an exception."""

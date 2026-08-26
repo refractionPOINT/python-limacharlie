@@ -28,6 +28,10 @@ the one provider command here is the pre-save credential preflight
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import tempfile
+import uuid
 from typing import Any
 
 import click
@@ -38,6 +42,41 @@ from ..sdk.organization import Organization
 from ..sdk.cloudsec import CloudSec
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+
+
+# DEFAULT_CODE_SCANNER_IMAGE is the published scanner image `cloudsec code scan` runs.
+#
+# It is pinned to a TAG rather than floating on `latest`, because a scan's findings depend on
+# which engines produced them: a moving tag would silently change what a local scan reports
+# between two runs of the same command on the same tree, and the report records the versions
+# it used precisely so that question has an answer.
+DEFAULT_CODE_SCANNER_IMAGE = "gcr.io/legion-212720/github.com/refractionpoint/lc-code-scanner:v0.4.0"
+
+# Where a LOCAL scan gets its vulnerability data.
+#
+# The image deliberately ships no defaults for these: inside the hosted sandbox the only
+# reachable source is our own mirror, and a default pointing anywhere else would work on a
+# developer's machine and then fail inside the sandbox — where the failure reads as "no
+# vulnerabilities found". A local scan is the other case, and it is the one these are for:
+# the machine has ordinary internet access, and the upstream public databases are what it
+# should use. Override with --db-repo / --java-db-repo for an air-gapped or rate-limited
+# network, which is exactly when a mirror of your own is worth having.
+DEFAULT_TRIVY_DB_REPO = "ghcr.io/aquasecurity/trivy-db:2"
+DEFAULT_TRIVY_JAVA_DB_REPO = "ghcr.io/aquasecurity/trivy-java-db:1"
+
+# The scanner passes a local scan can run, and the two it cannot.
+#
+# `secrets` and `secrets_history` are refused rather than passed through because they cannot
+# WORK here and fail confusingly: the scanner keys a credential's identity with a
+# deployment-side salt this command does not have, refuses to look without one, and exits
+# with a configuration error that reads like a broken install. The honest answer belongs at
+# the flag, not three layers down.
+LOCAL_SCANNERS = ("sca", "iac", "sast", "licenses", "images")
+UNAVAILABLE_LOCAL_SCANNERS = ("secrets", "secrets_history")
+
+# maxCodeIngestBytes on the collection host, mirrored so an over-cap document is refused
+# here — with the size in the message — instead of arriving as a gateway 400 about a body.
+MAX_CODE_INGEST_BYTES = 20 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -1550,6 +1589,366 @@ def code_rescan(ctx, repo, ref, provider) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.rescan_code_repo(repo, ref=ref, provider=provider))
+@code_group.command("ingest")
+@click.option("--repo", required=True,
+              help="Repository key '<owner>/<name>' as 'code repos' returns it.")
+@click.option("--source", required=True,
+              type=click.Choice(["sarif", "cyclonedx", "report"]),
+              help="Format of the document: a SARIF results file, a CycloneDX "
+                   "bill of materials, or the LimaCharlie scanner's own "
+                   "report/v1 document.")
+@click.option("-f", "--file", "file_path", required=True,
+              help="Path to the document. A '.gz' file is sent compressed.")
+@click.option("--commit", default=None,
+              help="The revision the document describes. Recorded, not verified.")
+@click.option("--ref", default=None, help="The branch or tag, for context.")
+@click.option("--provider", default=None,
+              help="Source-control provider the key belongs to (default github).")
+@pass_context
+def code_ingest(ctx, repo, source, file_path, commit, ref, provider) -> None:
+    """Push scan results your own pipeline produced for one repository.
+
+    Findings are deduplicated against the hosted scan by IDENTITY, so
+    pushing something the hosted scanner also found updates it rather than
+    duplicating it, and re-pushing an identical document writes nothing.
+
+    Two things in the response are worth reading rather than skimming.
+    'notes' lists what the FORMAT could not carry — 'secrets_not_ingestable'
+    means credential findings were deliberately dropped, because a pushed
+    document cannot carry the keyed digest a secret is identified by and the
+    plaintext is never accepted. And 'closed' counts findings THIS source
+    previously reported and no longer does; a pushed document can never
+    close what the hosted scanner found.
+
+    \b
+    Examples:
+      limacharlie cloudsec code ingest --repo acme/api --source sarif -f trivy.sarif
+      limacharlie cloudsec code ingest --repo acme/api --source report -f report.json.gz \\
+          --commit "$GITHUB_SHA"
+    """
+    with open(file_path, "rb") as f:
+        document = f.read()
+    if len(document) > MAX_CODE_INGEST_BYTES:
+        # Refused here, with the size, rather than as a gateway error about a request body.
+        raise click.ClickException(
+            "%s is %d bytes; the ingest limit is %d. Narrow the scan, or push the "
+            "sections separately." % (file_path, len(document), MAX_CODE_INGEST_BYTES))
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.ingest_code_results(
+        repo, source, document, commit=commit, ref=ref, provider=provider))
+
+
+@code_group.command("scan")
+@click.argument("path", type=click.Path(exists=True, file_okay=False), default=".")
+@click.option("--repo", default=None,
+              help="Repository key '<owner>/<name>' to attribute the results to. "
+                   "Required with --ingest; inferred from the checkout's git "
+                   "origin when it can be.")
+@click.option("--commit", default=None,
+              help="The revision scanned. Read from the checkout when omitted.")
+@click.option("--ingest/--no-ingest", "do_ingest", default=False,
+              help="Push the report to LimaCharlie when the scan finishes.")
+@click.option("--image", "image", default=None,
+              help="Scanner image to run (default: the published lc-code-scanner).")
+@click.option("--binary", "binary", default=None,
+              help="Run this scanner-agent binary instead of the container.")
+@click.option("-o", "--output", "output_path", default=None,
+              help="Write the report here (default: a temporary file).")
+@click.option("--scanners", default="sca,iac,licenses",
+              help="Comma-separated scanners to run. 'secrets' is OFF by default "
+                   "on purpose — see the command help.")
+@click.option("--timeout", "timeout_s", default=1800, show_default=True,
+              help="Seconds to allow the scan.")
+@click.option("--db-repo", "db_repo", default=DEFAULT_TRIVY_DB_REPO, show_default=True,
+              help="Vulnerability database to scan against.")
+@click.option("--java-db-repo", "java_db_repo", default=DEFAULT_TRIVY_JAVA_DB_REPO,
+              show_default=True, help="Java artifact index to resolve jars against.")
+@click.option("--checks-repo", "checks_repo", default=None,
+              help="Infrastructure-checks bundle. Omit to use the checks compiled into "
+                   "the scanner, which is what a local scan normally wants.")
+@click.option("--ref", default=None, help="The branch or tag scanned, for context.")
+@click.option("--provider", default=None,
+              help="Source-control provider the repository key belongs to (default github).")
+@pass_context
+def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
+              output_path, scanners, timeout_s, db_repo, java_db_repo,
+              checks_repo, ref, provider) -> None:
+    """Scan a local checkout with the LimaCharlie code scanner.
+
+    Runs the scanner over PATH (default: the current directory) and writes a
+    report/v1 document. With --ingest the report is pushed to this org, where
+    it lands on exactly the rows a hosted scan of the same repository would
+    write — the report format is loss-free, so the identities match and
+    nothing is duplicated.
+
+    The scanner runs in a container by default; --binary runs an already
+    installed scanner-agent instead. Nothing about the checkout leaves your
+    machine except the report.
+
+    SECRET SCANNING IS OFF BY DEFAULT and turning it on here is usually not
+    what you want. A secret's identity in this pipeline is a digest keyed by
+    a deployment-side salt this command does not have, so locally-found
+    credentials would not dedupe against the hosted scan's, and the ingest
+    refuses them for the same reason. Use the hosted lane for secrets.
+
+    \b
+    Examples:
+      limacharlie cloudsec code scan
+      limacharlie cloudsec code scan ~/src/api --repo acme/api --ingest \\
+          --commit "$(git -C ~/src/api rev-parse HEAD)"
+    """
+    root = os.path.abspath(path)
+    if commit is None:
+        commit = _git_head(root)
+    if repo is None:
+        repo = _git_repo_key(root)
+    if do_ingest and not repo:
+        raise click.ClickException(
+            "--ingest needs --repo '<owner>/<name>': this checkout's git origin "
+            "did not name one, and the repository a finding belongs to is not "
+            "something to guess")
+    if not do_ingest and not output_path:
+        # Checked BEFORE the scan, not after: the report would be written into a
+        # temporary directory and deleted with it, so the command would spend
+        # minutes of somebody's time and leave nothing behind.
+        raise click.ClickException(
+            "nothing to do with the report: pass --ingest to push it, or "
+            "-o PATH to keep it")
+
+    wanted = _resolve_local_scanners(scanners)
+    if ":" in root:
+        # The checkout is bind-mounted as "<path>:/scan/src:ro", so a ':' in the path
+        # mis-splits and docker answers with an opaque "invalid mode".
+        raise click.ClickException(
+            "the path %r contains ':', which cannot be mounted into the scanner; "
+            "scan it from a path without one" % root)
+    if output_path:
+        # Probed BEFORE the scan for the same reason the two checks above are: discovering
+        # an unwritable destination after twenty minutes of scanning helps nobody.
+        try:
+            with open(output_path, "ab"):
+                pass
+        except OSError as exc:
+            raise click.ClickException("cannot write %s: %s" % (output_path, exc))
+
+    with tempfile.TemporaryDirectory(prefix="lc-code-scan-") as workdir:
+        # The report is always produced inside this private directory and copied out
+        # afterwards. Writing it straight to --output would mean mounting whatever
+        # directory the caller named into the container, which hands a container running
+        # third-party engines write access to a directory it has no business in.
+        report_path = os.path.join(workdir, "report.json.gz")
+        spec = {
+            "job_id": "cli-%s" % uuid.uuid4().hex[:12],
+            # Carried for the agent's own logging only; the scan is local and the
+            # agent makes no per-tenant decision from it.
+            "oid": getattr(ctx.obj, 'oid', None) or "",
+            "mode": "repo",
+            "source": {"kind": "local", "org": "", "repo": "", "clone_url": "", "ref": "",
+                       "default_branch": ""},
+            "local_path": root,
+            "scanners": {s: (s in wanted) for s in
+                         LOCAL_SCANNERS + UNAVAILABLE_LOCAL_SCANNERS},
+        }
+        _run_code_scanner(spec, root, report_path, workdir,
+                          image=image, binary=binary, timeout_s=timeout_s,
+                          db_repo=db_repo, java_db_repo=java_db_repo,
+                          checks_repo=checks_repo)
+        with open(report_path, "rb") as f:
+            document = f.read()
+
+        result = {"bytes": len(document), "repo": repo, "commit": commit}
+        if output_path:
+            with open(output_path, "wb") as f:
+                f.write(document)
+            result["written"] = output_path
+        if do_ingest:
+            cs = _get_cloudsec(ctx)
+            result["ingest"] = cs.ingest_code_results(
+                repo, "report", document, commit=commit, ref=ref, provider=provider)
+        _output(ctx, result)
+
+
+def _resolve_local_scanners(scanners: str) -> list[str]:
+    """Parse --scanners, refusing what a local scan cannot run.
+
+    Unknown names used to be dropped silently, so `--scanners sca,iacc` ran a
+    narrower scan and reported success without ever mentioning the pass that did
+    not happen — a scan that looks clean because nobody looked."""
+    wanted = [s.strip().lower() for s in scanners.split(",") if s.strip()]
+    if not wanted:
+        raise click.ClickException("--scanners is empty; name at least one of: %s"
+                                   % ", ".join(LOCAL_SCANNERS))
+    unavailable = [s for s in wanted if s in UNAVAILABLE_LOCAL_SCANNERS]
+    if unavailable:
+        raise click.ClickException(
+            "%s cannot run in a local scan: a credential's identity here is a digest keyed "
+            "by a value only the hosted lane holds, so locally-found secrets would neither "
+            "dedupe against the hosted scan's nor be accepted by the ingest. Use the hosted "
+            "lane for secrets." % ", ".join(unavailable))
+    unknown = [s for s in wanted if s not in LOCAL_SCANNERS]
+    if unknown:
+        raise click.ClickException(
+            "unknown scanner(s) %s; available: %s"
+            % (", ".join(unknown), ", ".join(LOCAL_SCANNERS)))
+    return wanted
+
+
+def _git_head(root: str) -> str | None:
+    """The checked-out commit, or None. A checkout that is not a git working
+    tree is a perfectly good thing to scan; it just cannot say which revision
+    it is, and a fabricated one would mislabel every finding."""
+    return _git(root, "rev-parse", "HEAD")
+
+
+def _git_repo_key(root: str) -> str | None:
+    """The '<owner>/<name>' key from the checkout's origin remote, or None.
+
+    Read from the remote rather than from the directory name: the directory
+    is whatever the person cloned it as, and the repository a finding belongs
+    to is an identity, not a label."""
+    url = _git(root, "config", "--get", "remote.origin.url")
+    if not url:
+        return None
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    # Both spellings of a HOSTED remote: https://host/owner/name and git@host:owner/name.
+    # A remote with neither — a local path, a `file://` clone — is refused rather than
+    # parsed: `/home/me/src/api` would yield the plausible and wrong key "src/api", which
+    # is exactly the guess the --ingest guard says must not happen. The guard catches an
+    # ABSENT remote; this catches an unparseable one.
+    if "://" in url:
+        scheme, rest = url.split("://", 1)
+        if scheme.lower() in ("file",) or "/" not in rest:
+            return None
+        host, _, tail = rest.partition("/")
+        if "." not in host and host.lower() != "localhost":
+            return None
+    elif ":" in url:
+        host, _, tail = url.partition(":")
+        # scp-style: [user@]host:owner/name
+        host = host.rpartition("@")[2]
+        if "." not in host:
+            return None
+    else:
+        return None
+    parts = [p for p in tail.split("/") if p]
+    if len(parts) < 2:
+        return None
+    return "%s/%s" % (parts[-2], parts[-1])
+
+
+def _git(root: str, *args: str) -> str | None:
+    try:
+        out = subprocess.run(("git", "-C", root) + args, capture_output=True,
+                             timeout=15, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.decode("utf-8", "replace").strip() or None
+
+
+def _run_code_scanner(spec: dict, root: str, report_path: str, workdir: str,
+                      *, image: str | None, binary: str | None, timeout_s: int,
+                      db_repo: str, java_db_repo: str,
+                      checks_repo: str | None) -> None:
+    """Run the scanner over a local checkout, writing report_path.
+
+    Two backends, one contract: the agent reads a spec and writes a gzipped
+    report. The container is the default because it carries the pinned engines
+    and their databases; a locally installed binary is offered because a CI
+    job that already has one should not pay for a pull.
+    """
+    spec_path = os.path.join(workdir, "spec.json")
+    # The scanner takes its data sources from the environment and refuses to start without
+    # them — which is the right behaviour for the sandbox and means a local run has to
+    # supply them.
+    env = dict(os.environ)
+    env["TRIVY_DB_REPOSITORY"] = db_repo
+    env["TRIVY_JAVA_DB_REPOSITORY"] = java_db_repo
+    extra_args: list[str] = []
+    if checks_repo:
+        env["TRIVY_CHECKS_BUNDLE_REPOSITORY"] = checks_repo
+    else:
+        # The checks compiled into the binary. A local scan has no mirror to point at, and
+        # the alternative — refusing to scan infrastructure files — would be a silent gap.
+        extra_args.append("--embedded-checks")
+
+    if binary:
+        with open(spec_path, "w") as f:
+            json.dump(spec, f)
+        cmd = [binary, "--spec", spec_path, "--out", report_path] + extra_args
+        _run(cmd, timeout_s, env=env)
+        return
+
+    # In the container the checkout is mounted read-only at a fixed path, so the spec has to
+    # name THAT path rather than the host's.
+    #
+    # The private working directory is mounted as the container's whole scratch volume
+    # (/scan), which is what the engines unpack databases and layers into. Mounting only an
+    # output directory looked tidier and does not work: the container runs as the invoking
+    # user (so the report comes back readable) and that user does not own the image's own
+    # /scan.
+    container_spec = dict(spec, local_path="/scan/src")
+    with open(spec_path, "w") as f:
+        json.dump(container_spec, f)
+    container = "lc-code-scan-%s" % uuid.uuid4().hex[:12]
+    cmd = [
+        "docker", "run", "--rm",
+        # A name, so a scan that outruns --timeout can actually be stopped: killing the
+        # docker CLI leaves the container running, and the temporary directory it is
+        # writing into is about to be removed under it.
+        "--name", container,
+        "-v", "%s:/scan" % workdir,
+        "-v", "%s:/scan/src:ro" % root,
+        "-e", "TRIVY_DB_REPOSITORY=%s" % db_repo,
+        "-e", "TRIVY_JAVA_DB_REPOSITORY=%s" % java_db_repo,
+        "-e", "HOME=/scan",
+    ]
+    if hasattr(os, "getuid"):
+        # As the invoking user, so the report comes back readable. The container's own
+        # identity is irrelevant here — there is no sandbox boundary on a laptop — and a
+        # root-owned artifact in somebody's temporary directory is a nuisance at best.
+        # Absent on Windows, where the daemon does not map host uids anyway.
+        cmd += ["--user", "%d:%d" % (os.getuid(), os.getgid())]
+    if checks_repo:
+        cmd += ["-e", "TRIVY_CHECKS_BUNDLE_REPOSITORY=%s" % checks_repo]
+    cmd += [
+        image or DEFAULT_CODE_SCANNER_IMAGE,
+        "--spec", "/scan/spec.json",
+        "--out", "/scan/%s" % os.path.basename(report_path),
+    ] + extra_args
+    _run(cmd, timeout_s, container=container)
+
+
+def _run(cmd: list[str], timeout_s: int, *, env: dict | None = None,
+         container: str | None = None) -> None:
+    try:
+        proc = subprocess.run(cmd, timeout=timeout_s, check=False, env=env)
+    except FileNotFoundError:
+        raise click.ClickException(
+            "%s is not installed or not on PATH" % cmd[0])
+    except subprocess.TimeoutExpired:
+        if container:
+            # The timeout killed the docker CLI, not the container: the daemon keeps
+            # running it, and the workspace it is writing into is removed a moment from
+            # now. Stop it explicitly, best-effort — a failure to kill must not replace the
+            # timeout message with a docker one.
+            try:
+                subprocess.run(["docker", "kill", container], timeout=30,
+                               check=False, capture_output=True)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        raise click.ClickException(
+            "the scan did not finish within %d seconds" % timeout_s)
+    if proc.returncode != 0:
+        # The agent's exit codes are a closed vocabulary and it prints a
+        # machine-readable line before a fatal exit, so the caller is pointed at
+        # that rather than told a number.
+        raise click.ClickException(
+            "the scanner exited %d; its last line names the reason "
+            "(error_code=...)" % proc.returncode)
 
 
 # ---------------------------------------------------------------------------

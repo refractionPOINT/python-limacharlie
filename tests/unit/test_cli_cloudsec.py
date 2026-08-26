@@ -1,6 +1,7 @@
 """Tests for limacharlie cloudsec CLI commands."""
 
 import json
+import os
 
 from unittest.mock import patch, MagicMock
 
@@ -49,6 +50,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "simulate_resource_match", "simulate_finding_match",
             "list_code_repos", "get_code_status", "get_code_sbom",
             "rescan_code_repo",
+            "ingest_code_results",
         ]
     })
     # CSV exports return raw text, not a JSON-renderable object.
@@ -1462,7 +1464,7 @@ class TestCloudSecCode:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "code", "--help"])
         assert result.exit_code == 0
-        for cmd in ["repos", "status", "sbom"]:
+        for cmd in ["repos", "status", "sbom", "ingest", "scan"]:
             assert cmd in result.output
 
     def test_code_repos(self):
@@ -1487,6 +1489,117 @@ class TestCloudSecCode:
                 cs_cls, {"repos": []})
             assert result.exit_code == 0
             assert inst.list_code_repos.call_args.kwargs["has_findings"] is False
+
+    def test_code_ingest_reads_the_file_and_pushes_it(self, tmp_path):
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--commit", "c0ffee"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            inst.ingest_code_results.assert_called_once()
+            args, kwargs = inst.ingest_code_results.call_args
+            assert args[0] == "acme/api"
+            assert args[1] == "sarif"
+            assert args[2] == b'{"version":"2.1.0","runs":[]}'
+            assert kwargs["commit"] == "c0ffee"
+
+    def test_code_scan_refuses_to_do_nothing(self, tmp_path):
+        """Without --ingest and without -o the report would be written into a
+        temporary directory and deleted — a command that appears to succeed and
+        leaves nothing behind. It must say so instead."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            with patch("limacharlie.commands.cloudsec._run_code_scanner"):
+                result, inst = _invoke(
+                    ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api"],
+                    cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "nothing to do with the report" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_code_scan_will_not_guess_the_repository(self, tmp_path):
+        """--ingest against a checkout whose origin names no repository must
+        refuse: which repository a finding belongs to is an identity, and a
+        guessed one attaches somebody's findings to the wrong node."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "scan", str(tmp_path), "--ingest"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "--repo" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_code_scan_container_invocation(self, tmp_path, monkeypatch):
+        """The docker argv is the only genuinely fragile thing in this command — the
+        mounts, the identity it runs as, and the data sources the scanner refuses to
+        start without. It is asserted here because getting it wrong produces a scanner
+        that cannot run at all, which is what happened once already."""
+        from limacharlie.commands import cloudsec as cs_mod
+
+        captured = {}
+
+        def fake_run(cmd, timeout_s, *, env=None, container=None):
+            captured["cmd"] = cmd
+            captured["container"] = container
+            # Stand in for the scanner: the caller reads this file next.
+            out = cmd[cmd.index("--out") + 1]
+            host_out = os.path.join(
+                cmd[cmd.index("-v") + 1].split(":")[0], os.path.basename(out))
+            with open(host_out, "wb") as f:
+                f.write(b"REPORT")
+
+        monkeypatch.setattr(cs_mod, "_run", fake_run)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, _ = _invoke(
+                ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api",
+                 "-o", str(tmp_path / "report.json.gz")],
+                cs_cls, {"result": {}})
+        assert result.exit_code == 0, result.output
+        cmd = captured["cmd"]
+        assert cmd[:3] == ["docker", "run", "--rm"]
+        joined = " ".join(cmd)
+        # The checkout is mounted READ-ONLY; the scratch volume is the private workdir.
+        assert "%s:/scan/src:ro" % str(tmp_path) in cmd
+        assert any(a.endswith(":/scan") for a in cmd)
+        # The scanner refuses to start without these, by design.
+        assert any(a.startswith("TRIVY_DB_REPOSITORY=") for a in cmd)
+        assert any(a.startswith("TRIVY_JAVA_DB_REPOSITORY=") for a in cmd)
+        # No checks mirror was given, so the compiled-in checks are used rather than
+        # silently skipping infrastructure files.
+        assert "--embedded-checks" in cmd
+        assert captured["container"] and "--name" in cmd
+        assert "--spec" in joined and "/scan/spec.json" in joined
+
+    def test_code_scan_refuses_scanners_it_cannot_run(self, tmp_path):
+        """An unknown scanner used to be dropped silently — a narrower scan reported as a
+        successful one. And `secrets` cannot work locally at all."""
+        for bad, expect in [("sca,iacc", "unknown scanner"),
+                            ("sca,secrets", "cannot run in a local scan")]:
+            with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+                result, _ = _invoke(
+                    ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api",
+                     "-o", str(tmp_path / "r.gz"), "--scanners", bad],
+                    cs_cls, {"result": {}})
+            assert result.exit_code != 0, bad
+            assert expect in result.output, result.output
+
+    def test_git_repo_key_refuses_a_remote_that_names_no_repository(self):
+        """A local remote yields a plausible, wrong key — exactly the guess --ingest
+        refuses to make from an absent one."""
+        from limacharlie.commands import cloudsec as cs_mod
+
+        cases = {
+            "https://github.com/acme/api.git": "acme/api",
+            "git@github.com:acme/api.git": "acme/api",
+            "/home/me/src/api": None,
+            "file:///home/me/src/api": None,
+            "../sibling/api": None,
+        }
+        for url, want in cases.items():
+            with patch.object(cs_mod, "_git", return_value=url):
+                assert cs_mod._git_repo_key("/anywhere") == want, url
 
     def test_code_repos_all_walks_the_cursor(self):
         """--all must use the iterator, not a single page.
