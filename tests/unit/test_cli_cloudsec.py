@@ -49,7 +49,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "get_policy_vocabulary", "suggest_policy_values",
             "simulate_resource_match", "simulate_finding_match",
             "list_code_repos", "get_code_status", "get_code_sbom",
-            "rescan_code_repo",
+            "rescan_code_repo", "autofix_code_finding",
             "ingest_code_results",
         ]
     })
@@ -1674,6 +1674,31 @@ class TestCloudSecCode:
             assert result.exit_code == 0
             inst.rescan_code_repo.assert_called_once_with(
                 "lc-appsec-fixtures", ref=None, provider=None)
+
+    def test_code_autofix_takes_the_finding_positionally(self):
+        """'autofix <finding_id>' — the finding is the subject.
+
+        And there is no --package/--version option, on purpose: the backend
+        resolves the id against its own scan's rows, so naming a package here
+        would be the one way to request a fix the scan never found.
+        """
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "autofix", "fnd_" + "a" * 32],
+                cs_cls, {"accepted": True, "debounce_seconds": 10})
+            assert result.exit_code == 0
+            inst.autofix_code_finding.assert_called_once_with(
+                "fnd_" + "a" * 32, repo=None, provider=None)
+
+    def test_code_autofix_forwards_the_repository_hint(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "autofix", "fnd_" + "b" * 32,
+                 "--repo", "acme/api"],
+                cs_cls, {"accepted": True})
+            assert result.exit_code == 0
+            inst.autofix_code_finding.assert_called_once_with(
+                "fnd_" + "b" * 32, repo="acme/api", provider=None)
 
     def test_finding_list_forwards_repo(self):
         with _patches()[0], _patches()[1], _patches()[2] as cs_cls:

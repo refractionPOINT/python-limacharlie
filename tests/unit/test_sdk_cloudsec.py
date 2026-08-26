@@ -975,6 +975,33 @@ class TestCodeLane:
         cs.rescan_code_repo("api")
         _, body = _post_call(mock_org)
         assert body == {"repo": "api", "source": "manual"}
+    def test_autofix_code_finding_posts_only_the_finding_id(self, cs, mock_org):
+        """The finding id is the ONLY input that decides anything.
+
+        There is deliberately no package or version parameter: the backend
+        resolves the id against the dependency rows its own scan produced, so
+        a fix can never be requested for a package or a version the org's own
+        scan did not find. A body that could carry them would be the way past
+        that.
+        """
+        mock_org.client.request.return_value = {"accepted": True}
+        cs.autofix_code_finding("fnd_" + "a" * 32)
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/autofix"
+        assert body == {"finding_id": "fnd_" + "a" * 32}
+
+    def test_autofix_code_finding_forwards_the_repository_hint(self, cs, mock_org):
+        mock_org.client.request.return_value = {"accepted": True}
+        cs.autofix_code_finding("fnd_" + "b" * 32,
+                                repo="refractionPOINT/lc-appsec-fixtures",
+                                provider="github")
+        _, body = _post_call(mock_org)
+        assert body == {
+            "finding_id": "fnd_" + "b" * 32,
+            "repo": "refractionPOINT/lc-appsec-fixtures",
+            "provider": "github",
+        }
+
     def test_ingest_code_results_sends_bytes_as_base64(self, cs, mock_org):
         """A document read from a file is sent base64, NOT decoded and re-encoded.
 

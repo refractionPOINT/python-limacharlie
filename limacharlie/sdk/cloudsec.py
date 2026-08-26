@@ -1325,6 +1325,64 @@ class CloudSec:
         if provider:
             body["provider"] = provider
         return self._post("code/scan", body)
+    def autofix_code_finding(
+        self,
+        finding_id: str,
+        *,
+        repo: str | None = None,
+        provider: str | None = None,
+    ) -> dict[str, Any]:
+        """Open a pull request raising the vulnerable dependency a finding is about.
+
+        The finding id is the ONLY input that decides anything. The backend
+        resolves it against the dependency rows its own scan produced and
+        raises that package to that advisory's fixed version, so a fix can
+        never be requested for a package or a version the organization's own
+        scan did not find.
+
+        Args:
+            finding_id: the id of an open dependency (SCA) finding, as
+                returned by :meth:`list_findings`.
+            repo: optional — narrows the search to one repository. It is a
+                hint, not an authorization: the finding id is what is acted
+                on.
+            provider: the source-control provider; defaults to ``github``
+                server-side.
+
+        Returns:
+            ``{"accepted": bool, "finding_id": str, "repo": str,
+            "provider": str, "debounce_seconds": int}``.
+
+        Note:
+            ``accepted`` does not mean a pull request exists. The request is
+            acknowledged immediately and handed to the collector replica
+            holding that connection, which clones the repository in a
+            sandbox, edits the manifest and opens the pull request — that
+            pull request is where the result appears. Each of these is a
+            quiet no-op from here: an organization with no Code Actions App
+            configured (the write App is separate and opt-in — the read-only
+            connection App is never used to write) or one whose App lacks
+            *Contents: Read and write*; a finding whose package is flagged
+            malicious (the remediation is removal and credential rotation,
+            not an upgrade) or for which no fixed version has been
+            published; an ecosystem other than npm, pip, go or maven; a
+            repository outside the ``code_scanning`` policy scope or over the
+            free-tier quota; a package that already has an AutoFix pull
+            request open; and a connection at its daily AutoFix limit.
+
+            For **npm** and **go** the lockfile is not regenerated — the
+            scanning sandbox has no package-registry access by design — and
+            the pull request says so prominently and names the command to
+            run. For **pip** (``requirements.txt``) and **maven** there is no
+            lockfile, so the change is complete.
+        """
+        body: dict[str, Any] = {"finding_id": finding_id}
+        if repo:
+            body["repo"] = repo
+        if provider:
+            body["provider"] = provider
+        return self._post("code/autofix", body)
+
     def ingest_code_results(
         self,
         repo: str,
