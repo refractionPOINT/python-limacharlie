@@ -1121,7 +1121,7 @@ def _inventory_filter_options(f):
     """The inventory filter selectors (shared by list/export)."""
     f = click.option(
         "--unscoped-account", "unscoped_account", is_flag=True, default=False,
-        help="Select only resources that have no cloud account (the '~' bucket).",
+        help="Select only resources that have no cloud account.",
     )(f)
     f = click.option(
         "--all-accounts", "all_accounts", is_flag=True, default=False,

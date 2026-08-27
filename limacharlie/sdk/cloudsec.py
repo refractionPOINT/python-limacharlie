@@ -778,8 +778,8 @@ class CloudSec:
             account, region: Scalar filters.
             q: Substring search.
             account_unscoped: When ``True``, select only resources whose
-                account is empty (the accountless ``~`` bucket). Omit both
-                this and ``account`` to span the whole estate. The gateway
+                account is empty. Omit both this and ``account`` to span the
+                whole estate. The gateway
                 ignores a ``False`` value.
             cursor, limit: Keyset pagination.
 
