@@ -1333,6 +1333,7 @@ class CloudSec:
         *,
         commit: str | None = None,
         ref: str | None = None,
+        default_branch: str | None = None,
         provider: str | None = None,
     ) -> dict[str, Any]:
         """Push results your own pipeline produced for one repository.
@@ -1363,6 +1364,10 @@ class CloudSec:
             commit: the revision the document describes. Recorded, not
                 verified, and worth sending: it is what tells somebody
                 reading a finding which checkout produced it.
+            default_branch: the repository's shipping branch. Only worth
+                sending for a repository LimaCharlie does not collect —
+                nothing else can state it there, and it is left unset rather
+                than guessed when you do not know it.
 
         Returns:
             ``{"result": {...}}`` — what landed: ``findings``, the SoR
@@ -1393,6 +1398,8 @@ class CloudSec:
             body["commit"] = commit
         if ref is not None:
             body["ref"] = ref
+        if default_branch is not None:
+            body["default_branch"] = default_branch
         if provider is not None:
             body["provider"] = provider
         return self._post("code/ingest", body)

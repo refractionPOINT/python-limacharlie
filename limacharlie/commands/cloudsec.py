@@ -1602,10 +1602,14 @@ def code_rescan(ctx, repo, ref, provider) -> None:
 @click.option("--commit", default=None,
               help="The revision the document describes. Recorded, not verified.")
 @click.option("--ref", default=None, help="The branch or tag, for context.")
+@click.option("--default-branch", "default_branch", default=None,
+              help="The repository's shipping branch. Only worth sending for a "
+                   "repository LimaCharlie does not collect — nothing else can "
+                   "state it there.")
 @click.option("--provider", default=None,
               help="Source-control provider the key belongs to (default github).")
 @pass_context
-def code_ingest(ctx, repo, source, file_path, commit, ref, provider) -> None:
+def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provider) -> None:
     """Push scan results your own pipeline produced for one repository.
 
     Findings are deduplicated against the hosted scan by IDENTITY, so
@@ -1644,7 +1648,8 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, provider) -> None:
             "sections separately." % (file_path, len(document), MAX_CODE_INGEST_BYTES))
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.ingest_code_results(
-        repo, source, document, commit=commit, ref=ref, provider=provider))
+        repo, source, document, commit=commit, ref=ref,
+        default_branch=default_branch, provider=provider))
 
 
 @code_group.command("scan")
