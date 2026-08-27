@@ -624,7 +624,7 @@ class TestInventoryAccountUnscoped:
         assert qp == [("account_unscoped", "true")]
 
     def test_list_inventory_false_is_omitted(self, cs, mock_org):
-        # The account-scoped default must not forward a falsey value.
+        # The estate-wide default must not accidentally select the accountless bucket.
         mock_org.client.request.return_value = {"resources": []}
         cs.list_inventory(account_unscoped=False)
         _, qp = _get_call(mock_org)

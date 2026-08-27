@@ -777,10 +777,10 @@ class CloudSec:
                 ``aws``, ``okta``, ``google_workspace``).
             account, region: Scalar filters.
             q: Substring search.
-            account_unscoped: Escape hatch — when ``True`` the walk drops
-                the per-account scoping and spans the whole estate. Only
-                forwarded when set (the account-scoped default holds
-                otherwise); the gateway ignores a ``False`` value.
+            account_unscoped: When ``True``, select only resources whose
+                account is empty (the accountless ``~`` bucket). Omit both
+                this and ``account`` to span the whole estate. The gateway
+                ignores a ``False`` value.
             cursor, limit: Keyset pagination.
 
         Returns:

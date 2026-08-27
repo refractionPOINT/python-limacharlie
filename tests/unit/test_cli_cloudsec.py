@@ -943,6 +943,20 @@ class TestInventoryAllAccounts:
             assert result.exit_code == 0, result.output
             inst.list_inventory.assert_called_once_with(
                 resource_type=None, provider=None, account=None,
+                region=None, q=None, account_unscoped=None,
+                cursor=None, limit=None,
+            )
+
+    def test_list_unscoped_account_flag(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "inventory", "list", "--unscoped-account"], cls,
+                return_value={"resources": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_inventory.assert_called_once_with(
+                resource_type=None, provider=None, account=None,
                 region=None, q=None, account_unscoped=True,
                 cursor=None, limit=None,
             )
@@ -968,8 +982,31 @@ class TestInventoryAllAccounts:
             assert result.exit_code == 0, result.output
             inst.export_inventory_csv.assert_called_once_with(
                 resource_type=None, provider=None, account=None,
+                region=None, q=None, account_unscoped=None,
+            )
+
+    def test_export_unscoped_account_flag(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "inventory", "--unscoped-account"], cls,
+            )
+            assert result.exit_code == 0, result.output
+            inst.export_inventory_csv.assert_called_once_with(
+                resource_type=None, provider=None, account=None,
                 region=None, q=None, account_unscoped=True,
             )
+
+    def test_account_scope_flags_are_mutually_exclusive(self):
+        runner = CliRunner()
+        for args in [
+            ["--account", "project-1", "--all-accounts"],
+            ["--account", "project-1", "--unscoped-account"],
+            ["--all-accounts", "--unscoped-account"],
+        ]:
+            result = runner.invoke(cli, ["cloudsec", "inventory", "list", *args])
+            assert result.exit_code != 0
+            assert "mutually exclusive" in result.output
 
 
 class TestPolicy:

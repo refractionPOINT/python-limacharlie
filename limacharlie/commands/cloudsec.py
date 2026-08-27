@@ -1120,9 +1120,13 @@ def _finding_filter_options(f):
 def _inventory_filter_options(f):
     """The inventory filter selectors (shared by list/export)."""
     f = click.option(
+        "--unscoped-account", "unscoped_account", is_flag=True, default=False,
+        help="Select only resources that have no cloud account (the '~' bucket).",
+    )(f)
+    f = click.option(
         "--all-accounts", "all_accounts", is_flag=True, default=False,
-        help="Escape hatch: drop the per-account scoping and span the "
-             "whole estate (the account-scoped default holds otherwise).",
+        help="Span the whole estate. This is already the default and the flag is "
+             "retained for compatibility.",
     )(f)
     f = click.option(
         "-q", "--search", "q", default=None, help="Substring search.",
@@ -1141,6 +1145,23 @@ def _inventory_filter_options(f):
         "--type", "resource_type", default=None, help="Filter by resource type.",
     )(f)
     return f
+
+
+def _inventory_account_unscoped(account: str | None, all_accounts: bool,
+                                unscoped_account: bool) -> bool | None:
+    """Translate CLI account scope flags to the API's accountless-bucket selector.
+
+    Inventory is estate-wide when no account selector is sent. Historically the CLI
+    implemented ``--all-accounts`` by sending ``account_unscoped=true``; that parameter
+    actually means account == '' and silently hid every cloud-account resource. Keep the
+    old flag as a compatibility no-op and expose the real accountless selection explicitly.
+    """
+    selected = int(bool(account)) + int(all_accounts) + int(unscoped_account)
+    if selected > 1:
+        raise click.UsageError(
+            "--account, --all-accounts, and --unscoped-account are mutually exclusive."
+        )
+    return True if unscoped_account else None
 
 
 def _identity_filter_options(f):
@@ -2375,7 +2396,7 @@ def inventory_group() -> None:
 @_paging_options
 @pass_context
 def inventory_list(ctx, resource_type, provider, account, region, q,
-                   all_accounts, cursor, limit) -> None:
+                   all_accounts, unscoped_account, cursor, limit) -> None:
     """List the cloud resource inventory.
 
     \b
@@ -2384,11 +2405,14 @@ def inventory_list(ctx, resource_type, provider, account, region, q,
       limacharlie cloudsec inventory list --provider okta
       limacharlie cloudsec inventory list -q prod --limit 50
       limacharlie cloudsec inventory list --all-accounts
+      limacharlie cloudsec inventory list --unscoped-account
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_inventory(
         resource_type=resource_type, provider=provider, account=account,
-        region=region, q=q, account_unscoped=all_accounts or None,
+        region=region, q=q,
+        account_unscoped=_inventory_account_unscoped(
+            account, all_accounts, unscoped_account),
         cursor=cursor, limit=limit,
     ))
 
@@ -3105,7 +3129,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
 @_export_output_option
 @pass_context
 def export_inventory(ctx, resource_type, provider, account, region, q,
-                     all_accounts, output_path) -> None:
+                     all_accounts, unscoped_account, output_path) -> None:
     """Export the (filtered) cloud resource inventory as CSV.
 
     \b
@@ -3116,7 +3140,9 @@ def export_inventory(ctx, resource_type, provider, account, region, q,
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_inventory_csv(
         resource_type=resource_type, provider=provider, account=account,
-        region=region, q=q, account_unscoped=all_accounts or None,
+        region=region, q=q,
+        account_unscoped=_inventory_account_unscoped(
+            account, all_accounts, unscoped_account),
     ), output_path)
 
 
