@@ -341,8 +341,10 @@ class CloudSec:
 
                 It is applied INSIDE the server's keyset query, so a page
                 and a count under it describe the same set. An unrecognised
-                value matches nothing and returns an empty page rather than
-                silently widening the read.
+                value is REJECTED by the server with an error naming it,
+                never quietly ignored: this selector is a scalar, so a
+                dropped value and an absent one are the same thing on the
+                wire, and absent means unconstrained.
             reachable: Only findings on (non-)reachable resources.
             kev: Only findings with (without) a KEV vulnerability.
             q: Substring search.
@@ -427,14 +429,24 @@ class CloudSec:
 
                 It is applied INSIDE the server's keyset query, so a page
                 and a count under it describe the same set. An unrecognised
-                value matches nothing and returns an empty page rather than
-                silently widening the read.
+                value is REJECTED by the server with an error naming it,
+                never quietly ignored: this selector is a scalar, so a
+                dropped value and an absent one are the same thing on the
+                wire, and absent means unconstrained.
 
                 The ``source`` facet is the one dimension here whose values
                 SUM EXACTLY TO ``total`` — every key is always present,
                 zeroes included — which is what lets a hosted-vs-pushed
                 split be quoted as a share of the estate rather than of one
-                page.
+                page. That holds only when ``source`` is NOT itself
+                filtered: like every dimension it is counted with its own
+                filter excluded while ``total`` applies it, so under
+                ``source="hosted"`` the map still sums to the unfiltered
+                population. Compute a share on an unfiltered read.
+
+                The key is ABSENT if the server has the facet turned off.
+                That never means zero — read it with ``.get("source")`` and
+                render nothing rather than a 0% split.
 
         Returns:
             ``{"facets": {..., "owner": {"": 12, "alice@corp.com": 3},

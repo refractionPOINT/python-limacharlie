@@ -1099,7 +1099,10 @@ def _finding_filter_options(f):
              "finding. 'both' (the default) applies no filter. Not a list — "
              "'both' is what a multi-value selection would mean. The server "
              "applies it inside the paged query, so 'finding facets' counts "
-             "under it describe the same set the list returns.",
+             "under it describe the same set the list returns; the 'source' "
+             "facet's values sum to its total on an UNFILTERED read (like "
+             "every dimension it excludes its own filter, while the total "
+             "applies it).",
     )(f)
     f = click.option(
         "--repo", "repos", multiple=True,
