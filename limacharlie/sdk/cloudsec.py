@@ -1345,9 +1345,16 @@ class CloudSec:
 
         Args:
             repo: the ``"<owner>/<name>"`` key :meth:`list_code_repos`
-                returns. It must already be in the org's collected
-                inventory and be selected by an enabled ``code_scanning``
-                policy — the same switch the hosted lane uses.
+                returns. It must be selected by an enabled ``code_scanning``
+                policy — the same switch the hosted lane uses — but it does
+                NOT have to be in the org's collected inventory: pushing for
+                a repository no connected source-control organization covers
+                creates it, with only the facts the push vouches for and
+                ``source: "ingest"`` on :meth:`list_code_repos`. Such a
+                repository counts against the free tier's repository quota
+                exactly like a collected one, and is removed along with its
+                findings if it goes a month with no push that moves its
+                commit.
             source: ``"sarif"``, ``"cyclonedx"`` or ``"report"`` (the
                 LimaCharlie scanner's own ``report/v1`` document, which is
                 loss-free and therefore dedupes exactly).

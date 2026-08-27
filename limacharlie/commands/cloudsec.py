@@ -1612,6 +1612,15 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, provider) -> None:
     pushing something the hosted scanner also found updates it rather than
     duplicating it, and re-pushing an identical document writes nothing.
 
+    The repository does not have to be one LimaCharlie collects. Pushing for
+    a repository no connected source-control organization covers creates it,
+    carrying only what the push vouches for, and 'cloudsec code repos' shows
+    it with source 'ingest' (and 'both' once a connection collects it too).
+    Such a repository counts against the free tier's repository quota exactly
+    like a collected one, and is removed with its findings if it goes a month
+    with no push that moves its commit. It must still be selected by an
+    enabled code_scanning policy.
+
     Two things in the response are worth reading rather than skimming.
     'notes' lists what the FORMAT could not carry — 'secrets_not_ingestable'
     means credential findings were deliberately dropped, because a pushed
