@@ -97,6 +97,7 @@ def _finding_query_pairs(
     owner_pin: list[str] | None = None,
     sla: list[str] | None = None,
     repo: list[str] | None = None,
+    source: str | None = None,
     reachable: bool | None = None,
     kev: bool | None = None,
     q: str | None = None,
@@ -115,11 +116,16 @@ def _finding_query_pairs(
     ``repo`` is deliberately NOT like that. A finding with no repository is
     every cloud finding in the estate, which is not a bucket anyone selects,
     so an empty value there matches nothing rather than meaning "unscoped".
+
+    ``source`` is a SCALAR, not a list, because the vocabulary it mirrors is
+    the one-word answer ``list_code_repos`` gives per repository — and
+    ``"both"``, the value that would otherwise want a list, already means
+    "no constraint".
     """
     return _query_pairs(
         severity=severity, finding_class=finding_class, status=status,
         account=account, owner=owner, owner_pin=owner_pin, sla=sla,
-        repo=repo, reachable=reachable, kev=kev, q=q,
+        repo=repo, source=source, reachable=reachable, kev=kev, q=q,
         sort=sort, order=order, cursor=cursor, limit=limit,
     )
 
@@ -275,6 +281,7 @@ class CloudSec:
         owner: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -323,6 +330,19 @@ class CloudSec:
                 selector; cloud findings have no repository, so any repo
                 filter excludes them. An unknown repository honestly
                 returns nothing rather than widening the read.
+            source: The code lane's PRODUCER filter — which scanner found
+                the finding. ``"hosted"`` is the scan LimaCharlie ran,
+                ``"ingest"`` a document your own pipeline pushed (SARIF,
+                CycloneDX, or a local ``cloudsec code scan``), ``"other"``
+                a producer that is neither — today the source control's own
+                detectors — and ``"none"`` a finding with no code
+                provenance at all, which on a cloud estate is nearly every
+                row. ``"both"`` (and ``None``) apply no constraint.
+
+                It is applied INSIDE the server's keyset query, so a page
+                and a count under it describe the same set. An unrecognised
+                value matches nothing and returns an empty page rather than
+                silently widening the read.
             reachable: Only findings on (non-)reachable resources.
             kev: Only findings with (without) a KEV vulnerability.
             q: Substring search.
@@ -341,7 +361,7 @@ class CloudSec:
         return self._get("findings", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
-            reachable=reachable, kev=kev, q=q,
+            source=source, reachable=reachable, kev=kev, q=q,
             sort=sort, order=order, cursor=cursor, limit=limit,
         ))
 
@@ -356,6 +376,7 @@ class CloudSec:
         owner_pin: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -395,6 +416,25 @@ class CloudSec:
                 is capped at the top 200 by count, with any actively
                 selected repository pinned into it; ``repo_truncated``
                 reports whether any were dropped.
+            source: The code lane's PRODUCER filter — which scanner found
+                the finding. ``"hosted"`` is the scan LimaCharlie ran,
+                ``"ingest"`` a document your own pipeline pushed (SARIF,
+                CycloneDX, or a local ``cloudsec code scan``), ``"other"``
+                a producer that is neither — today the source control's own
+                detectors — and ``"none"`` a finding with no code
+                provenance at all, which on a cloud estate is nearly every
+                row. ``"both"`` (and ``None``) apply no constraint.
+
+                It is applied INSIDE the server's keyset query, so a page
+                and a count under it describe the same set. An unrecognised
+                value matches nothing and returns an empty page rather than
+                silently widening the read.
+
+                The ``source`` facet is the one dimension here whose values
+                SUM EXACTLY TO ``total`` — every key is always present,
+                zeroes included — which is what lets a hosted-vs-pushed
+                split be quoted as a share of the estate rather than of one
+                page.
 
         Returns:
             ``{"facets": {..., "owner": {"": 12, "alice@corp.com": 3},
@@ -404,7 +444,7 @@ class CloudSec:
         return self._get("findings/facets", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, owner_pin=owner_pin, sla=sla,
-            repo=repo, reachable=reachable, kev=kev, q=q,
+            repo=repo, source=source, reachable=reachable, kev=kev, q=q,
         ))
 
     def list_finding_causes(
@@ -418,6 +458,7 @@ class CloudSec:
         owner: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -475,7 +516,7 @@ class CloudSec:
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
-            reachable=reachable, kev=kev, q=q,
+            source=source, reachable=reachable, kev=kev, q=q,
             limit=limit,
         )
         _add_scalar(pairs, "cause", cause)
@@ -1786,6 +1827,7 @@ class CloudSec:
         owner: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
         q: str | None = None,
@@ -1807,7 +1849,7 @@ class CloudSec:
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
-            reachable=reachable, kev=kev, q=q,
+            source=source, reachable=reachable, kev=kev, q=q,
             sort=sort, order=order,
         )
         pairs.append(("format", "csv"))

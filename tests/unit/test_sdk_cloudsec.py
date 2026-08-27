@@ -100,6 +100,44 @@ class TestFindings:
         assert url == f"cloudsec/{OID}/findings/facets"
         assert qp == [("severity", "LOW"), ("kev", "true")]
 
+    def test_source_selector_reaches_every_findings_route(self, cs, mock_org):
+        """The producer selector rides the SHARED query builder.
+
+        All four findings routes take it, which is the point: a page, its
+        facet counts, the shared-fix rollup and the CSV export are the same
+        filtered set or none of them can be compared to each other.
+        """
+        for call, route in [
+            (lambda: cs.list_findings(source="hosted"), f"cloudsec/{OID}/findings"),
+            (lambda: cs.get_finding_facets(source="hosted"), f"cloudsec/{OID}/findings/facets"),
+            (lambda: cs.list_finding_causes(source="hosted"), f"cloudsec/{OID}/findings/causes"),
+        ]:
+            mock_org.client.request.return_value = {}
+            call()
+            url, qp = _get_call(mock_org)
+            assert url == route
+            assert ("source", "hosted") in qp, f"{route} dropped the selector"
+
+    def test_source_is_a_scalar_and_absent_by_default(self, cs, mock_org):
+        """Omitted means UNCONSTRAINED and must add no query pair at all.
+
+        A `source=` on the wire with an empty value would be an unrecognised
+        producer at the backend, which matches nothing — so an unfiltered
+        call would come back empty.
+        """
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings()
+        _, qp = _get_call(mock_org)
+        assert qp is None
+
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings(source="both")
+        _, qp = _get_call(mock_org)
+        assert qp == [("source", "both")], (
+            "'both' travels to the server, which is what treats it as "
+            "unconstrained — the CLI must not decide that locally"
+        )
+
     def test_get_finding(self, cs, mock_org):
         mock_org.client.request.return_value = {"finding": {}}
         cs.get_finding("fnd_abc")

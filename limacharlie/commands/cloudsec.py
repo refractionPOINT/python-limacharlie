@@ -1088,6 +1088,20 @@ def _finding_filter_options(f):
         help="Only findings on (non-)reachable resources.",
     )(f)
     f = click.option(
+        "--source", "source", default=None,
+        type=click.Choice(["hosted", "ingest", "other", "none", "both"]),
+        help="Filter by WHICH SCANNER found it (the AppSec code lane's "
+             "producer): 'hosted' = the scan LimaCharlie ran; 'ingest' = a "
+             "document your own pipeline pushed ('cloudsec code ingest', or "
+             "'cloudsec code scan --ingest'); 'other' = a producer that is "
+             "neither, today the source control's own detectors; 'none' = no "
+             "code provenance at all, which on a cloud estate is nearly every "
+             "finding. 'both' (the default) applies no filter. Not a list — "
+             "'both' is what a multi-value selection would mean. The server "
+             "applies it inside the paged query, so 'finding facets' counts "
+             "under it describe the same set the list returns.",
+    )(f)
+    f = click.option(
         "--repo", "repos", multiple=True,
         help="Filter to findings about a source repository, keyed "
              "'<owner>/<name>' as 'cloudsec code repos' returns it; "
@@ -2007,8 +2021,8 @@ def finding_group() -> None:
 @_paging_options
 @pass_context
 def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
-                 owners, unassigned, sla_states, reachable, kev, q, sort,
-                 order, cursor, limit) -> None:
+                 source, owners, unassigned, sla_states, reachable, kev, q,
+                 sort, order, cursor, limit) -> None:
     """List the merged, risk-ranked cloud-security findings.
 
     \b
@@ -2027,6 +2041,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        source=source,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
         reachable=reachable,
@@ -2050,7 +2065,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
                    "pin can still be dropped.")
 @pass_context
 def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
-                   owners, unassigned, sla_states, reachable, kev, q,
+                   source, owners, unassigned, sla_states, reachable, kev, q,
                    owner_pins) -> None:
     """Cross-filtered facet counts for the findings worklist.
 
@@ -2066,6 +2081,7 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        source=source,
         owner=_selector_with_empty(owners, unassigned),
         owner_pin=list(owner_pins) or None,
         sla=list(sla_states) or None,
@@ -2086,8 +2102,8 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
                    "rollup is not paginated; 'distinct' reports the tail.")
 @pass_context
 def finding_causes(ctx, severities, finding_classes, statuses, accounts, repos,
-                   owners, unassigned, sla_states, reachable, kev, q, cause,
-                   limit) -> None:
+                   source, owners, unassigned, sla_states, reachable, kev, q,
+                   cause, limit) -> None:
     """Findings grouped by CAUSE: one edit that closes N findings.
 
     \b
@@ -2103,6 +2119,7 @@ def finding_causes(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        source=source,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
         reachable=reachable,
@@ -3073,8 +3090,8 @@ def export_group() -> None:
 @_export_output_option
 @pass_context
 def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
-                    owners, unassigned, sla_states, reachable, kev, q, sort,
-                    order, output_path) -> None:
+                    source, owners, unassigned, sla_states, reachable, kev, q,
+                    sort, order, output_path) -> None:
     """Export the (filtered) findings worklist as CSV.
 
     \b
@@ -3090,6 +3107,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        source=source,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
         reachable=reachable,
