@@ -810,7 +810,7 @@ class TestInventoryProvider:
             assert result.exit_code == 0, result.output
             inst.list_inventory.assert_called_once_with(
                 resource_type=None, provider="okta", account=None,
-                region=None, q=None, account_unscoped=None,
+                region=None, q=None, account_empty=None,
                 cursor=None, limit=None,
             )
 
@@ -857,7 +857,7 @@ class TestExport:
             assert result.exit_code == 0, result.output
             inst.export_inventory_csv.assert_called_once_with(
                 resource_type="Bucket", provider="gcp", account=None,
-                region=None, q=None, account_unscoped=None,
+                region=None, q=None, account_empty=None,
             )
 
     def test_export_compliance(self):
@@ -943,11 +943,25 @@ class TestInventoryAllAccounts:
             assert result.exit_code == 0, result.output
             inst.list_inventory.assert_called_once_with(
                 resource_type=None, provider=None, account=None,
-                region=None, q=None, account_unscoped=True,
+                region=None, q=None, account_empty=None,
                 cursor=None, limit=None,
             )
 
-    def test_list_default_omits_account_unscoped(self):
+    def test_list_account_empty_flag(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "inventory", "list", "--account-empty"], cls,
+                return_value={"resources": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_inventory.assert_called_once_with(
+                resource_type=None, provider=None, account=None,
+                region=None, q=None, account_empty=True,
+                cursor=None, limit=None,
+            )
+
+    def test_list_default_omits_account_empty(self):
         p1, p2, p3 = _patches()
         with p1, p2, p3 as cls:
             result, inst = _invoke(
@@ -956,8 +970,8 @@ class TestInventoryAllAccounts:
             )
             assert result.exit_code == 0, result.output
             _, kwargs = inst.list_inventory.call_args
-            # The default must not forward a falsey account_unscoped.
-            assert kwargs["account_unscoped"] is None
+            # The default must not forward a falsey account_empty.
+            assert kwargs["account_empty"] is None
 
     def test_export_all_accounts_flag(self):
         p1, p2, p3 = _patches()
@@ -968,8 +982,31 @@ class TestInventoryAllAccounts:
             assert result.exit_code == 0, result.output
             inst.export_inventory_csv.assert_called_once_with(
                 resource_type=None, provider=None, account=None,
-                region=None, q=None, account_unscoped=True,
+                region=None, q=None, account_empty=None,
             )
+
+    def test_export_account_empty_flag(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "inventory", "--account-empty"], cls,
+            )
+            assert result.exit_code == 0, result.output
+            inst.export_inventory_csv.assert_called_once_with(
+                resource_type=None, provider=None, account=None,
+                region=None, q=None, account_empty=True,
+            )
+
+    def test_account_scope_flags_are_mutually_exclusive(self):
+        runner = CliRunner()
+        for args in [
+            ["--account", "project-1", "--all-accounts"],
+            ["--account", "project-1", "--account-empty"],
+            ["--all-accounts", "--account-empty"],
+        ]:
+            result = runner.invoke(cli, ["cloudsec", "inventory", "list", *args])
+            assert result.exit_code != 0
+            assert "mutually exclusive" in result.output
 
 
 class TestPolicy:

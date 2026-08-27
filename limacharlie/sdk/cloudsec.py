@@ -87,6 +87,28 @@ def _query_pairs(**params: Any) -> list[tuple[str, str]]:
     return pairs
 
 
+def _inventory_account_selector(
+    account_empty: bool | None,
+    account_unscoped: bool | None,
+) -> dict[str, bool | None]:
+    """Return one inventory account-empty query selector.
+
+    ``account_unscoped`` is the deprecated API name. Preserve it on the wire for
+    callers that still use that argument, while new callers use the unambiguous
+    ``account_empty`` name. Sending conflicting aliases is almost certainly a caller
+    bug and must not silently choose one.
+    """
+    if account_empty is not None and account_unscoped is not None:
+        if bool(account_empty) != bool(account_unscoped):
+            raise ValueError(
+                "account_empty and account_unscoped cannot have different values"
+            )
+        return {"account_empty": account_empty or None}
+    if account_empty is not None:
+        return {"account_empty": account_empty or None}
+    return {"account_unscoped": account_unscoped or None}
+
+
 def _finding_query_pairs(
     *,
     severity: list[str] | None = None,
@@ -765,6 +787,7 @@ class CloudSec:
         account: str | None = None,
         region: str | None = None,
         q: str | None = None,
+        account_empty: bool | None = None,
         account_unscoped: bool | None = None,
         cursor: str | None = None,
         limit: int | None = None,
@@ -777,19 +800,20 @@ class CloudSec:
                 ``aws``, ``okta``, ``google_workspace``).
             account, region: Scalar filters.
             q: Substring search.
-            account_unscoped: Escape hatch — when ``True`` the walk drops
-                the per-account scoping and spans the whole estate. Only
-                forwarded when set (the account-scoped default holds
-                otherwise); the gateway ignores a ``False`` value.
+            account_empty: When ``True``, select only resources whose account
+                is empty. Omit this and ``account`` to span the whole estate.
+            account_unscoped: Deprecated alias for ``account_empty``. It is
+                retained for compatibility with older gateways and callers.
             cursor, limit: Keyset pagination.
 
         Returns:
             ``{"resources": [...], "next_cursor": str}``.
         """
+        selector = _inventory_account_selector(account_empty, account_unscoped)
         return self._get("inventory", _query_pairs(
             type=resource_type, provider=provider, account=account,
             region=region, q=q,
-            account_unscoped=account_unscoped or None,
+            **selector,
             cursor=cursor, limit=limit,
         ))
 
@@ -1821,6 +1845,7 @@ class CloudSec:
         account: str | None = None,
         region: str | None = None,
         q: str | None = None,
+        account_empty: bool | None = None,
         account_unscoped: bool | None = None,
     ) -> str:
         """Export the (filtered) cloud resource inventory as CSV text.
@@ -1832,10 +1857,11 @@ class CloudSec:
         Returns:
             The CSV document as a string.
         """
+        selector = _inventory_account_selector(account_empty, account_unscoped)
         pairs = _query_pairs(
             type=resource_type, provider=provider, account=account,
             region=region, q=q,
-            account_unscoped=account_unscoped or None,
+            **selector,
         )
         pairs.append(("format", "csv"))
         return self._get("inventory", pairs, raw_response=True)

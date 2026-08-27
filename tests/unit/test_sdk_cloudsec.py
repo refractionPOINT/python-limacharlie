@@ -581,12 +581,12 @@ class TestCsvExports:
         assert json.loads(kwargs["raw_body"]) == {"named": "public_data_stores"}
         assert kwargs["raw_response"] is True
 
-    def test_export_inventory_csv_all_accounts(self, cs, mock_org):
+    def test_export_inventory_csv_account_empty(self, cs, mock_org):
         mock_org.client.request.return_value = "urn\n"
-        cs.export_inventory_csv(provider="gcp", account_unscoped=True)
+        cs.export_inventory_csv(provider="gcp", account_empty=True)
         _, kwargs = mock_org.client.request.call_args
         assert kwargs["query_params"] == [
-            ("provider", "gcp"), ("account_unscoped", "true"), ("format", "csv"),
+            ("provider", "gcp"), ("account_empty", "true"), ("format", "csv"),
         ]
 
 
@@ -615,20 +615,30 @@ class TestIdentityGet:
         assert qp == [("urn", "lcrn:sa")]
 
 
-class TestInventoryAccountUnscoped:
-    def test_list_inventory_all_accounts(self, cs, mock_org):
+class TestInventoryAccountEmpty:
+    def test_list_inventory_account_empty(self, cs, mock_org):
         mock_org.client.request.return_value = {"resources": []}
-        cs.list_inventory(account_unscoped=True)
+        cs.list_inventory(account_empty=True)
         url, qp = _get_call(mock_org)
         assert url == f"cloudsec/{OID}/inventory"
+        assert qp == [("account_empty", "true")]
+
+    def test_deprecated_alias_is_preserved_on_wire(self, cs, mock_org):
+        mock_org.client.request.return_value = {"resources": []}
+        cs.list_inventory(account_unscoped=True)
+        _, qp = _get_call(mock_org)
         assert qp == [("account_unscoped", "true")]
 
     def test_list_inventory_false_is_omitted(self, cs, mock_org):
-        # The account-scoped default must not forward a falsey value.
+        # The estate-wide default must not accidentally select the accountless bucket.
         mock_org.client.request.return_value = {"resources": []}
-        cs.list_inventory(account_unscoped=False)
+        cs.list_inventory(account_empty=False)
         _, qp = _get_call(mock_org)
         assert qp is None
+
+    def test_conflicting_aliases_are_rejected(self, cs):
+        with pytest.raises(ValueError, match="cannot have different values"):
+            cs.list_inventory(account_empty=True, account_unscoped=False)
 
 
 class TestPolicyAuthoring:
