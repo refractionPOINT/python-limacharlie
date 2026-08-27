@@ -1120,7 +1120,7 @@ def _finding_filter_options(f):
 def _inventory_filter_options(f):
     """The inventory filter selectors (shared by list/export)."""
     f = click.option(
-        "--unscoped-account", "unscoped_account", is_flag=True, default=False,
+        "--account-empty", "account_empty", is_flag=True, default=False,
         help="Select only resources that have no cloud account.",
     )(f)
     f = click.option(
@@ -1147,21 +1147,22 @@ def _inventory_filter_options(f):
     return f
 
 
-def _inventory_account_unscoped(account: str | None, all_accounts: bool,
-                                unscoped_account: bool) -> bool | None:
+def _inventory_account_empty(account: str | None, all_accounts: bool,
+                             account_empty: bool) -> bool | None:
     """Translate CLI account scope flags to the API's accountless-bucket selector.
 
     Inventory is estate-wide when no account selector is sent. Historically the CLI
-    implemented ``--all-accounts`` by sending ``account_unscoped=true``; that parameter
-    actually means account == '' and silently hid every cloud-account resource. Keep the
-    old flag as a compatibility no-op and expose the real accountless selection explicitly.
+    implemented ``--all-accounts`` by sending the deprecated
+    ``account_unscoped=true`` selector; that parameter actually means account == '' and
+    silently hid every cloud-account resource. Keep the old flag as a compatibility no-op
+    and expose the real account-empty selection with an unambiguous name.
     """
-    selected = int(bool(account)) + int(all_accounts) + int(unscoped_account)
+    selected = int(bool(account)) + int(all_accounts) + int(account_empty)
     if selected > 1:
         raise click.UsageError(
-            "--account, --all-accounts, and --unscoped-account are mutually exclusive."
+            "--account, --all-accounts, and --account-empty are mutually exclusive."
         )
-    return True if unscoped_account else None
+    return True if account_empty else None
 
 
 def _identity_filter_options(f):
@@ -2396,7 +2397,7 @@ def inventory_group() -> None:
 @_paging_options
 @pass_context
 def inventory_list(ctx, resource_type, provider, account, region, q,
-                   all_accounts, unscoped_account, cursor, limit) -> None:
+                   all_accounts, account_empty, cursor, limit) -> None:
     """List the cloud resource inventory.
 
     \b
@@ -2405,14 +2406,14 @@ def inventory_list(ctx, resource_type, provider, account, region, q,
       limacharlie cloudsec inventory list --provider okta
       limacharlie cloudsec inventory list -q prod --limit 50
       limacharlie cloudsec inventory list --all-accounts
-      limacharlie cloudsec inventory list --unscoped-account
+      limacharlie cloudsec inventory list --account-empty
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_inventory(
         resource_type=resource_type, provider=provider, account=account,
         region=region, q=q,
-        account_unscoped=_inventory_account_unscoped(
-            account, all_accounts, unscoped_account),
+        account_empty=_inventory_account_empty(
+            account, all_accounts, account_empty),
         cursor=cursor, limit=limit,
     ))
 
@@ -3129,7 +3130,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
 @_export_output_option
 @pass_context
 def export_inventory(ctx, resource_type, provider, account, region, q,
-                     all_accounts, unscoped_account, output_path) -> None:
+                     all_accounts, account_empty, output_path) -> None:
     """Export the (filtered) cloud resource inventory as CSV.
 
     \b
@@ -3141,8 +3142,8 @@ def export_inventory(ctx, resource_type, provider, account, region, q,
     _emit_csv(ctx, cs.export_inventory_csv(
         resource_type=resource_type, provider=provider, account=account,
         region=region, q=q,
-        account_unscoped=_inventory_account_unscoped(
-            account, all_accounts, unscoped_account),
+        account_empty=_inventory_account_empty(
+            account, all_accounts, account_empty),
     ), output_path)
 
 
