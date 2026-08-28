@@ -560,8 +560,10 @@ def message_get(ctx, msg_uuid) -> None:
 @click.argument("msg_uuid")
 @click.option("--justification", required=True,
               help="Why you are downloading this person's mail. Written to the access audit.")
-@click.option("--output", "out_path", default=None, type=click.Path(dir_okay=False),
-              help="Write the bytes here instead of to stdout.")
+@click.option("--out-file", "out_path", default=None, type=click.Path(dir_okay=False),
+              help="Write the raw bytes to this path instead of to stdout. Deliberately NOT "
+                   "--output: that is the global format option, and a command-level --output "
+                   "would shadow it so that `--output yaml` silently wrote a file named 'yaml'.")
 @pass_context
 def message_eml(ctx, msg_uuid, justification, out_path) -> None:
     """Download the original bytes of a message (audited).
