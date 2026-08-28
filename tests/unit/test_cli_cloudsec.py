@@ -252,6 +252,51 @@ class TestTopLevel:
 
 
 class TestFindingCommands:
+    def test_source_selector_forwards_on_list_and_facets(self):
+        """--source reaches BOTH routes, because a rail whose counts are
+        filtered differently from the list beside it is worse than no rail.
+        """
+        for argv, method in [
+            (["cloudsec", "finding", "list", "--source", "hosted"], "list_findings"),
+            (["cloudsec", "finding", "facets", "--source", "ingest"], "get_finding_facets"),
+        ]:
+            p1, p2, p3 = _patches()
+            with p1, p2, p3 as cls:
+                result, inst = _invoke(argv, cls, return_value={"findings": []})
+                assert result.exit_code == 0, result.output
+                kwargs = getattr(inst, method).call_args.kwargs
+                assert kwargs["source"] == argv[-1], f"{method} got {kwargs['source']!r}"
+
+    def test_source_omitted_is_unconstrained(self):
+        """No --source must send None, not a value the backend would read as
+        an unrecognised producer and match nothing against.
+        """
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list"], cls, return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.list_findings.call_args.kwargs["source"] is None
+
+    def test_source_rejects_a_value_outside_the_vocabulary(self):
+        """The vocabulary is CLOSED and the failure is local.
+
+        The gateway forwards an unknown value verbatim on purpose (so it can
+        never widen the read), which means a typo would come back as an empty
+        worklist after a round trip. Click can tell the caller what the four
+        words are before that happens, so it does.
+        """
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list", "--source", "hosetd"], cls,
+                return_value={"findings": []},
+            )
+            assert result.exit_code != 0
+            assert "hosetd" in result.output
+            inst.list_findings.assert_not_called()
+
     def test_list_repeatable_filters(self):
         p1, p2, p3 = _patches()
         with p1, p2, p3 as cls:
@@ -273,6 +318,7 @@ class TestFindingCommands:
                 status=None,
                 account=None,
                 repo=None,
+                source=None,
                 owner=None,
                 sla=None,
                 reachable=True,
@@ -833,8 +879,8 @@ class TestExport:
             assert result.output == "col_a,col_b\n1,2\n"
             inst.export_findings_csv.assert_called_once_with(
                 severity=["CRITICAL"], finding_class=None, status=["open"],
-                account=None, repo=None, owner=None, sla=None, reachable=None,
-                kev=None, q=None, sort=None, order=None,
+                account=None, repo=None, source=None, owner=None, sla=None,
+                reachable=None, kev=None, q=None, sort=None, order=None,
             )
 
     def test_export_findings_to_file(self, tmp_path):
@@ -1255,6 +1301,7 @@ class TestFindingCauses:
                 status=None,
                 account=None,
                 repo=None,
+                source=None,
                 owner=None,
                 sla=None,
                 reachable=None,
