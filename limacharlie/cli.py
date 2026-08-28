@@ -152,6 +152,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "logging": ("logging_cmd", "group"),
     "lookup": ("lookup", "group"),
     "note": ("note", "group"),
+    "mailsec": ("mailsec", "group"),
     "org": ("org", "group"),
     "output": ("output_cmd", "group"),
     "payload": ("payload", "group"),

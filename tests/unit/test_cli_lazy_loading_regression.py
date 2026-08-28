@@ -50,7 +50,7 @@ EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
     "detection", "download", "dr", "endpoint-policy", "event", "exfil",
     "extension", "external-adapter", "feedback", "fp", "group", "help", "hive",
     "ingestion-key", "installation-key", "integrity", "ioc", "job", "logging",
-    "lookup", "note", "org", "output", "payload", "playbook", "replay",
+    "lookup", "mailsec", "note", "org", "output", "payload", "playbook", "replay",
     "schema", "search", "secret", "sensor", "sop", "spotcheck", "stream",
     "sync", "tag", "task", "user", "usp", "vulnerability", "yara",
 })
@@ -94,6 +94,7 @@ EXPECTED_MODULE_MAP = {
     "ioc": ("group", "ioc"),
     "job": ("group", "job"),
     "logging_cmd": ("group", "logging"),
+    "mailsec": ("group", "mailsec"),
     "lookup": ("group", "lookup"),
     "note": ("group", "note"),
     "org": ("group", "org"),
@@ -190,6 +191,10 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "ioc": frozenset({"batch-enrich", "batch-search", "enrich", "hosts", "search"}),
     "job": frozenset({"delete", "get", "list", "wait"}),
     "logging": frozenset({"create", "delete", "get", "list"}),
+    "mailsec": frozenset({
+        "coverage", "analyze", "onboarding", "message", "campaign", "sender",
+        "action", "report", "hunt", "rule", "connection",
+    }),
     "lookup": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "note": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "org": frozenset({
