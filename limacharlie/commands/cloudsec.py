@@ -1628,6 +1628,58 @@ def code_rescan(ctx, repo, ref, provider) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.rescan_code_repo(repo, ref=ref, provider=provider))
+
+
+@code_group.command("autofix")
+@click.argument("finding_id")
+@click.option("--repo", default=None,
+              help="Narrow the search to one repository. A HINT, not an "
+                   "authorization — the finding id is what is acted on — but "
+                   "worth passing: without it the backend searches the "
+                   "in-scope repositories.")
+@click.option("--provider", default=None,
+              help="Source-control provider the repository belongs to "
+                   "(default github).")
+@pass_context
+def code_autofix(ctx, finding_id, repo, provider) -> None:
+    """Open a pull request fixing a dependency finding.
+
+    FINDING_ID is the id of an open dependency (SCA) finding, as 'cloudsec
+    findings' returns it.
+
+    The finding id is the only input that decides anything: the backend
+    resolves it against the dependency rows ITS OWN scan produced and raises
+    that package to that advisory's fixed version. There is deliberately no
+    way to name a package or a version here.
+
+    It ACCEPTS and returns — cloning the repository in a sandbox, editing the
+    manifest and opening the pull request takes minutes. THE PULL REQUEST IS
+    THE RESULT; this response is only that the request was queued.
+
+    'accepted' does NOT mean a pull request exists. Each of these is a quiet
+    no-op: an org with no Code Actions App configured, or one whose App
+    lacks 'Contents: Read and write' (the write App is separate and opt-in —
+    the read-only connection App is never used to write); a finding whose
+    package is flagged malicious, where the fix is removal and credential
+    rotation rather than an upgrade; a finding with no published fixed
+    version; an ecosystem other than npm, pip, go or maven; a repository
+    outside the code_scanning policy scope or over the free-tier quota; a
+    package that already has an AutoFix pull request open; and a connection
+    at its daily AutoFix limit.
+
+    For npm and go the LOCKFILE IS NOT REGENERATED — the scanning sandbox
+    has no package-registry access by design — and the pull request says so
+    prominently and names the command to run. pip (requirements.txt) and
+    maven have no lockfile, so those changes are complete.
+
+    \b
+    Examples:
+      limacharlie cloudsec code autofix fnd_2290bab86c1b4d0374d1e2666f64aeca
+      limacharlie cloudsec code autofix fnd_2290... --repo refractionPOINT/lc-appsec-fixtures
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.autofix_code_finding(finding_id, repo=repo, provider=provider))
+
 @code_group.command("ingest")
 @click.option("--repo", required=True,
               help="Repository key '<owner>/<name>' as 'code repos' returns it.")
