@@ -1357,6 +1357,7 @@ class CloudSec:
         *,
         commit: str | None = None,
         ref: str | None = None,
+        default_branch: str | None = None,
         provider: str | None = None,
     ) -> dict[str, Any]:
         """Push results your own pipeline produced for one repository.
@@ -1369,9 +1370,16 @@ class CloudSec:
 
         Args:
             repo: the ``"<owner>/<name>"`` key :meth:`list_code_repos`
-                returns. It must already be in the org's collected
-                inventory and be selected by an enabled ``code_scanning``
-                policy — the same switch the hosted lane uses.
+                returns. It must be selected by an enabled ``code_scanning``
+                policy — the same switch the hosted lane uses — but it does
+                NOT have to be in the org's collected inventory: pushing for
+                a repository no connected source-control organization covers
+                creates it, with only the facts the push vouches for and
+                ``source: "ingest"`` on :meth:`list_code_repos`. Such a
+                repository counts against the free tier's repository quota
+                exactly like a collected one, and is removed along with its
+                findings if it goes a month with no push that moves its
+                commit.
             source: ``"sarif"``, ``"cyclonedx"`` or ``"report"`` (the
                 LimaCharlie scanner's own ``report/v1`` document, which is
                 loss-free and therefore dedupes exactly).
@@ -1380,6 +1388,10 @@ class CloudSec:
             commit: the revision the document describes. Recorded, not
                 verified, and worth sending: it is what tells somebody
                 reading a finding which checkout produced it.
+            default_branch: the repository's shipping branch. Only worth
+                sending for a repository LimaCharlie does not collect —
+                nothing else can state it there, and it is left unset rather
+                than guessed when you do not know it.
 
         Returns:
             ``{"result": {...}}`` — what landed: ``findings``, the SoR
@@ -1410,6 +1422,8 @@ class CloudSec:
             body["commit"] = commit
         if ref is not None:
             body["ref"] = ref
+        if default_branch is not None:
+            body["default_branch"] = default_branch
         if provider is not None:
             body["provider"] = provider
         return self._post("code/ingest", body)

@@ -1624,15 +1624,28 @@ def code_rescan(ctx, repo, ref, provider) -> None:
 @click.option("--commit", default=None,
               help="The revision the document describes. Recorded, not verified.")
 @click.option("--ref", default=None, help="The branch or tag, for context.")
+@click.option("--default-branch", "default_branch", default=None,
+              help="The repository's shipping branch. Only worth sending for a "
+                   "repository LimaCharlie does not collect — nothing else can "
+                   "state it there.")
 @click.option("--provider", default=None,
               help="Source-control provider the key belongs to (default github).")
 @pass_context
-def code_ingest(ctx, repo, source, file_path, commit, ref, provider) -> None:
+def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provider) -> None:
     """Push scan results your own pipeline produced for one repository.
 
     Findings are deduplicated against the hosted scan by IDENTITY, so
     pushing something the hosted scanner also found updates it rather than
     duplicating it, and re-pushing an identical document writes nothing.
+
+    The repository does not have to be one LimaCharlie collects. Pushing for
+    a repository no connected source-control organization covers creates it,
+    carrying only what the push vouches for, and 'cloudsec code repos' shows
+    it with source 'ingest' (and 'both' once a connection collects it too).
+    Such a repository counts against the free tier's repository quota exactly
+    like a collected one, and is removed with its findings if it goes a month
+    with no push that moves its commit. It must still be selected by an
+    enabled code_scanning policy.
 
     Two things in the response are worth reading rather than skimming.
     'notes' lists what the FORMAT could not carry — 'secrets_not_ingestable'
@@ -1657,7 +1670,8 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, provider) -> None:
             "sections separately." % (file_path, len(document), MAX_CODE_INGEST_BYTES))
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.ingest_code_results(
-        repo, source, document, commit=commit, ref=ref, provider=provider))
+        repo, source, document, commit=commit, ref=ref,
+        default_branch=default_branch, provider=provider))
 
 
 @code_group.command("scan")

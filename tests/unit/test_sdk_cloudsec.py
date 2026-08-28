@@ -1013,6 +1013,15 @@ class TestCodeLane:
         assert body["document"] == {"version": "2.1.0", "runs": []}
         assert "document_b64" not in body
 
+    def test_ingest_code_results_sends_the_default_branch(self, cs, mock_org):
+        """The shipping branch reaches the backend, because for a repository
+        LimaCharlie does not collect nothing else can state it — and it is
+        omitted, never guessed, when the caller does not know it."""
+        mock_org.client.request.return_value = {"result": {}}
+        cs.ingest_code_results("byo-only/demo", "sarif", "{}", default_branch="trunk")
+        _, body = _post_call(mock_org)
+        assert body["default_branch"] == "trunk"
+
     def test_ingest_code_results_omits_what_was_not_given(self, cs, mock_org):
         """An absent commit must not become an empty one: '' is a value, and a
         finding stamped with a blank revision is worse than one with none."""
