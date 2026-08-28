@@ -183,6 +183,40 @@ class TestRules:
         assert body["since"] == "2026-08-01"
 
 
+class TestPathSegmentsAreEscaped:
+    """A caller-supplied id must not be able to change which route is addressed.
+
+    Most of these are server-minted UUIDs, but the sender key is an address or
+    domain a person types and the connection record is a hive record name. An
+    unescaped slash in either silently addresses a DIFFERENT route rather than
+    failing — a typo becoming a request nobody intended.
+    """
+
+    def test_a_slash_in_a_sender_key_cannot_change_the_route(self, ms, mock_org):
+        ms.get_sender_profile("evil/../../admin")
+        url, _ = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/senders/evil%2F..%2F..%2Fadmin"
+        assert url.count("/") == 3, f"the key escaped its segment: {url}"
+
+    def test_a_slash_in_a_connection_record_cannot_change_the_route(self, ms, mock_org):
+        ms.test_connection("a/b")
+        url, _ = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/connections/a%2Fb/test"
+
+    def test_ordinary_ids_are_unharmed(self, ms, mock_org):
+        ms.get_message("0057db2b-3a06-5aab-b3be-c1e6c15dcf10")
+        url, _ = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/messages/0057db2b-3a06-5aab-b3be-c1e6c15dcf10"
+
+    def test_an_email_sender_key_survives_readably(self, ms, mock_org):
+        """@ and . are escaped but the request still resolves; the point is that
+        the segment cannot BREAK OUT, not that it stays pretty."""
+        ms.get_sender_profile("cfo@corp.example")
+        url, _ = _get_call(mock_org)
+        assert url.startswith(f"mailsec/{OID}/senders/")
+        assert "/" not in url[len(f"mailsec/{OID}/senders/"):]
+
+
 class TestRouteCoverage:
     """Every gateway route has an SDK method.
 

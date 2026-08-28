@@ -42,9 +42,23 @@ from __future__ import annotations
 
 import json
 from typing import Any, TYPE_CHECKING
+from urllib.parse import quote as _quote
 
 if TYPE_CHECKING:
     from .organization import Organization
+
+
+def _seg(value: str) -> str:
+    """Escape one caller-supplied path segment.
+
+    `safe=""` so a slash is escaped too. Most of these ids are UUIDs the server
+    minted and are harmless either way, but two are arbitrary user input: the
+    sender key is an address or domain a person types, and the connection record
+    is a hive record name. An unescaped slash in either silently addresses a
+    DIFFERENT route rather than failing, which is the shape that turns a typo
+    into a request nobody intended.
+    """
+    return _quote(str(value), safe="")
 
 
 def _add_pairs(
@@ -227,7 +241,7 @@ class Mailsec:
         An unknown id returns ``{"message": None}`` rather than an error: the
         index has a 35-day TTL, so a miss is a normal outcome.
         """
-        return self._get(f"messages/{msg_uuid}")
+        return self._get(f"messages/{_seg(msg_uuid)}")
 
     def get_message_eml(self, msg_uuid: str, justification: str) -> Any:
         """The original RFC822 bytes of a message.
@@ -248,7 +262,7 @@ class Mailsec:
                 "and an unexplained one is not auditable"
             )
         return self._get(
-            f"messages/{msg_uuid}/eml",
+            f"messages/{_seg(msg_uuid)}/eml",
             [("justification", justification)],
         )
 
@@ -264,7 +278,7 @@ class Mailsec:
         pairs: list[tuple[str, str]] = []
         _add_scalar(pairs, "cursor", cursor)
         _add_scalar(pairs, "limit", limit)
-        return self._get(f"messages/{msg_uuid}/similar", pairs)
+        return self._get(f"messages/{_seg(msg_uuid)}/similar", pairs)
 
     def act_on_message(
         self,
@@ -300,7 +314,7 @@ class Mailsec:
         for key, val in (("reason", reason), ("attempt", attempt), ("banner", banner)):
             if val is not None:
                 body[key] = val
-        return self._post(f"messages/{msg_uuid}/actions", body)
+        return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
 
     # ------------------------------------------------------------------
     # Campaigns
@@ -333,7 +347,7 @@ class Mailsec:
 
     def get_campaign(self, campaign_id: str) -> dict[str, Any]:
         """One campaign with its aggregates and cluster keys."""
-        return self._get(f"campaigns/{campaign_id}")
+        return self._get(f"campaigns/{_seg(campaign_id)}")
 
     def act_on_campaign(
         self,
@@ -366,7 +380,7 @@ class Mailsec:
         for key, val in (("confirm", confirm), ("reason", reason), ("actor", actor)):
             if val is not None:
                 body[key] = val
-        return self._post(f"campaigns/{campaign_id}/actions", body)
+        return self._post(f"campaigns/{_seg(campaign_id)}/actions", body)
 
     # ------------------------------------------------------------------
     # Senders and the audit trail
@@ -381,12 +395,12 @@ class Mailsec:
                 (``corp.example``), optionally prefixed ``email:`` /
                 ``domain:`` to disambiguate.
         """
-        return self._get(f"senders/{key}")
+        return self._get(f"senders/{_seg(key)}")
 
     def get_action(self, action_id: str) -> dict[str, Any]:
         """One record from the action audit trail: what was decided, by whom,
         why, and what the provider actually did."""
-        return self._get(f"actions/{action_id}")
+        return self._get(f"actions/{_seg(action_id)}")
 
     # ------------------------------------------------------------------
     # Standalone analysis
@@ -475,7 +489,7 @@ class Mailsec:
         An unknown id returns ``{"report": None}``, matching the message
         drawer, so a client branches on null rather than on a status code.
         """
-        return self._get(f"reports/{report_id}")
+        return self._get(f"reports/{_seg(report_id)}")
 
     def resolve_report(self, report_id: str, disposition: str) -> dict[str, Any]:
         """Close a report with a disposition. Requires ``mailsec.set``.
@@ -496,7 +510,7 @@ class Mailsec:
             and the second must not get a failure for an outcome that already
             holds.
         """
-        return self._post(f"reports/{report_id}/resolve", {"disposition": disposition})
+        return self._post(f"reports/{_seg(report_id)}/resolve", {"disposition": disposition})
 
     # ------------------------------------------------------------------
     # Hunts
@@ -534,7 +548,7 @@ class Mailsec:
 
     def get_hunt(self, hunt_id: str) -> dict[str, Any]:
         """A hunt's status and results."""
-        return self._get(f"hunts/{hunt_id}")
+        return self._get(f"hunts/{_seg(hunt_id)}")
 
     def remediate_hunt(
         self,
@@ -553,7 +567,7 @@ class Mailsec:
         for key, val in (("confirm", confirm), ("reason", reason)):
             if val is not None:
                 body[key] = val
-        return self._post(f"hunts/{hunt_id}/remediate", body)
+        return self._post(f"hunts/{_seg(hunt_id)}/remediate", body)
 
     # ------------------------------------------------------------------
     # Custom rules
@@ -627,7 +641,7 @@ class Mailsec:
         per-connection capabilities that depend on which scopes the customer's
         admin granted.
         """
-        return self._post(f"connections/{record}/test", {})
+        return self._post(f"connections/{_seg(record)}/test", {})
 
     def get_onboarding(self, *, provider: str | None = None) -> dict[str, Any]:
         """The setup guide for connecting a mail provider, with this org's own
