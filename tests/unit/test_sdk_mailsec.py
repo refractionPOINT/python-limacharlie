@@ -123,6 +123,14 @@ class TestActions:
         assert url == f"mailsec/{OID}/messages/msg-1/actions"
         assert body == {"action": "quarantine_message", "reason": "phish"}
 
+    def test_banner_uses_the_gateway_wire_name(self, ms, mock_org):
+        ms.act_on_message("msg-1", "banner_message", banner="<div>external sender</div>")
+        _, body = _post_call(mock_org)
+        assert body == {
+            "action": "banner_message",
+            "banner_html": "<div>external sender</div>",
+        }
+
     def test_campaign_action_previews_without_confirm(self, ms, mock_org):
         """confirm is what turns a preview into an execution. Its absence must
         reach the server as an absence, not as an empty string that could be

@@ -602,7 +602,7 @@ def message_similar(ctx, msg_uuid, cursor, limit) -> None:
 @message_group.command("action")
 @click.argument("msg_uuid")
 @click.option("--action", "action_name", required=True,
-              help="quarantine_message|trash_message|restore_message|apply_banner|remove_banner")
+              help="quarantine_message|trash_message|restore_message|banner_message|unbanner_message")
 @click.option("--reason", default=None, help="Recorded on the audit row.")
 @click.option("--attempt", default=None, help="Caller-supplied idempotency token.")
 @click.option("--banner", default=None, help="Banner HTML, for the banner actions.")
