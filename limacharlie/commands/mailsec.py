@@ -576,13 +576,12 @@ def message_eml(ctx, msg_uuid, justification, out_path) -> None:
     ms = _get_mailsec(ctx)
     data = ms.get_message_eml(msg_uuid, justification)
     if out_path:
-        payload = data if isinstance(data, (bytes, bytearray)) else str(data).encode()
         with open(out_path, "wb") as f:
-            f.write(payload)
+            f.write(data)
         if not ctx.obj.quiet:
-            click.echo(f"wrote {len(payload)} bytes to {out_path}")
+            click.echo(f"wrote {len(data)} bytes to {out_path}")
         return
-    _output(ctx, data)
+    click.get_binary_stream("stdout").write(data)
 
 
 @message_group.command("similar")

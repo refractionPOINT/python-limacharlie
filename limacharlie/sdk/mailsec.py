@@ -40,6 +40,8 @@ Two conventions inherited from the API contract that callers must not
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from typing import Any, TYPE_CHECKING
 from urllib.parse import quote as _quote
@@ -243,7 +245,7 @@ class Mailsec:
         """
         return self._get(f"messages/{_seg(msg_uuid)}")
 
-    def get_message_eml(self, msg_uuid: str, justification: str) -> Any:
+    def get_message_eml(self, msg_uuid: str, justification: str) -> bytes:
         """The original RFC822 bytes of a message.
 
         Requires ``mailsec.get.eml`` — a different privilege from opening the
@@ -261,10 +263,22 @@ class Mailsec:
                 "a justification is required to download raw mail: the access is audited, "
                 "and an unexplained one is not auditable"
             )
-        return self._get(
+        response = self._get(
             f"messages/{_seg(msg_uuid)}/eml",
             [("justification", justification)],
         )
+        if not isinstance(response, dict) or not isinstance(response.get("eml_b64"), str):
+            raise ValueError("mailsec EML response did not contain eml_b64")
+        try:
+            raw = base64.b64decode(response["eml_b64"], validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("mailsec EML response contained invalid base64") from exc
+        size = response.get("size")
+        if not isinstance(size, int) or isinstance(size, bool) or size != len(raw):
+            raise ValueError(
+                f"mailsec EML response size mismatch: declared {size!r}, decoded {len(raw)}"
+            )
+        return raw
 
     def list_similar_messages(
         self,
