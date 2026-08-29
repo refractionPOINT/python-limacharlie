@@ -97,6 +97,13 @@ class TestInsightSearchIoc:
         call_args = mock_org.client.request.call_args
         assert call_args[0][1] == "insight/test-oid/objects/file_hash"
 
+    def test_email_object_type_reaches_public_route(self, insight, mock_org):
+        mock_org.client.request.return_value = {"results": []}
+        insight.search_ioc("email", "analyst@example.com")
+        call_args = mock_org.client.request.call_args
+        assert call_args[0][1] == "insight/test-oid/objects/email"
+        assert call_args[1]["query_params"]["name"] == "analyst@example.com"
+
 
 class TestInsightBatchSearch:
     def test_path_and_params(self, insight, mock_org):
