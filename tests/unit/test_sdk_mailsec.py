@@ -137,6 +137,19 @@ class TestActions:
         assert body["confirm"] == "cmp-1"
 
 
+class TestConnectionDiagnostics:
+    def test_watch_probe_is_absent_by_default(self, ms, mock_org):
+        ms.test_connection("workspace")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/connections/workspace/test"
+        assert body == {}
+
+    def test_watch_probe_requires_explicit_opt_in(self, ms, mock_org):
+        ms.test_connection("workspace", include_watch=True)
+        _, body = _post_call(mock_org)
+        assert body == {"include_watch": True}
+
+
 class TestAnalyze:
     def test_analyze_needs_content(self, ms):
         with pytest.raises(ValueError, match="eml"):
