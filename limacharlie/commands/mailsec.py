@@ -296,6 +296,7 @@ admin granted.
 
 Examples:
   limacharlie mailsec connection test gws-exp
+  limacharlie mailsec connection test gws-exp --include-watch
 """
 
 _EXPLAIN_ONBOARDING = """\
@@ -880,8 +881,14 @@ def rule_backtest(ctx, rule_file, rule_id, since, until) -> None:
 
 @connection_group.command("test")
 @click.argument("record")
+@click.option(
+    "--include-watch",
+    is_flag=True,
+    default=False,
+    help="Establish a real Workspace push watch to verify delivery (side effect; idempotent).",
+)
 @pass_context
-def connection_test(ctx, record) -> None:
+def connection_test(ctx, record, include_watch) -> None:
     """Exercise a saved provider connection end to end.
 
     \b
@@ -890,8 +897,9 @@ def connection_test(ctx, record) -> None:
     \b
     Example:
       limacharlie mailsec connection test gws-exp
+      limacharlie mailsec connection test gws-exp --include-watch
     """
-    _output(ctx, _get_mailsec(ctx).test_connection(record))
+    _output(ctx, _get_mailsec(ctx).test_connection(record, include_watch=include_watch))
 
 
 # ---------------------------------------------------------------------------

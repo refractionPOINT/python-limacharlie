@@ -631,7 +631,7 @@ class Mailsec:
     # Connections and onboarding
     # ------------------------------------------------------------------
 
-    def test_connection(self, record: str) -> dict[str, Any]:
+    def test_connection(self, record: str, *, include_watch: bool = False) -> dict[str, Any]:
         """Exercise a saved provider connection end to end.
 
         Takes the RECORD NAME of a ``mailsec_provider`` hive record, never a
@@ -640,8 +640,17 @@ class Mailsec:
         connection can actually do — directory access, mail read, and the
         per-connection capabilities that depend on which scopes the customer's
         admin granted.
+
+        Args:
+            record: Saved ``mailsec_provider`` record name.
+            include_watch: Opt in to the side-effecting Workspace push probe.
+                The provider establishes or replaces a real watch; the call is
+                idempotent and the watch expires on its provider schedule.
         """
-        return self._post(f"connections/{_seg(record)}/test", {})
+        body: dict[str, Any] = {}
+        if include_watch:
+            body["include_watch"] = True
+        return self._post(f"connections/{_seg(record)}/test", body)
 
     def get_onboarding(self, *, provider: str | None = None) -> dict[str, Any]:
         """The setup guide for connecting a mail provider, with this org's own
