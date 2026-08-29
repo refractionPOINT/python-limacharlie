@@ -110,10 +110,29 @@ class TestEMLRequiresJustification:
             ms.get_message_eml("msg-1", "   ")
 
     def test_justification_is_forwarded(self, ms, mock_org):
-        ms.get_message_eml("msg-1", "INC-4471")
+        mock_org.client.request.return_value = {
+            "eml_b64": "RnJvbTogc2VuZGVyQGV4YW1wbGUuY29tDQoNCmhlbGxvDQo=",
+            "size": 35,
+        }
+        raw = ms.get_message_eml("msg-1", "INC-4471")
         url, qp = _get_call(mock_org)
         assert url == f"mailsec/{OID}/messages/msg-1/eml"
         assert ("justification", "INC-4471") in qp
+        assert raw == b"From: sender@example.com\r\n\r\nhello\r\n"
+
+    @pytest.mark.parametrize(
+        "response, match",
+        [
+            ({}, "did not contain eml_b64"),
+            ({"eml_b64": "***", "size": 0}, "invalid base64"),
+            ({"eml_b64": "YWJj", "size": 2}, "size mismatch"),
+            ({"eml_b64": "YWJj", "size": True}, "size mismatch"),
+        ],
+    )
+    def test_malformed_download_response_is_refused(self, ms, mock_org, response, match):
+        mock_org.client.request.return_value = response
+        with pytest.raises(ValueError, match=match):
+            ms.get_message_eml("msg-1", "INC-4471")
 
 
 class TestActions:
@@ -225,6 +244,9 @@ class TestRouteCoverage:
     """
 
     def test_every_route_has_a_method(self, ms, mock_org):
+        # Most methods do not inspect the mocked response. The EML route does,
+        # because its SDK contract is the decoded byte stream.
+        mock_org.client.request.return_value = {"eml_b64": "", "size": 0}
         calls = [
             (lambda: ms.get_coverage(), "GET", f"mailsec/{OID}/coverage"),
             (lambda: ms.list_messages(), "GET", f"mailsec/{OID}/messages"),
