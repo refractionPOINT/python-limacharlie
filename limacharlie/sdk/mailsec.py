@@ -312,7 +312,7 @@ class Mailsec:
         Args:
             msg_uuid: The message to act on.
             action: ``quarantine_message``, ``trash_message``,
-                ``restore_message``, ``apply_banner``, ``remove_banner``.
+                ``restore_message``, ``banner_message``, ``unbanner_message``.
             reason: Free-text justification recorded on the audit row.
             attempt: Caller-supplied idempotency token.
             banner: Banner HTML, for the banner actions.
@@ -325,7 +325,7 @@ class Mailsec:
             ``ok``.
         """
         body: dict[str, Any] = {"action": action}
-        for key, val in (("reason", reason), ("attempt", attempt), ("banner", banner)):
+        for key, val in (("reason", reason), ("attempt", attempt), ("banner_html", banner)):
             if val is not None:
                 body[key] = val
         return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
