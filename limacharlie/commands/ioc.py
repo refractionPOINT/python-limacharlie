@@ -91,6 +91,7 @@ Supported --type values:
   file_path    - Full file path
   file_name    - File name only (no directory)
   user         - User or account name
+  email        - Email address
   service_name - Service/daemon name
   package_name - Installed package name
 
@@ -144,7 +145,7 @@ The file should map IOC types to lists of values:
     file_hash:
       - abc123def456...
 
-Valid IOC types: domain, ip, file_hash, file_path, file_name, user,
+Valid IOC types: domain, ip, file_hash, file_path, file_name, user, email,
 service_name, package_name.
 
 This is more efficient than running individual searches when you have
@@ -233,7 +234,7 @@ including related objects, first/last seen times, and context from
 sensor telemetry.
 
 Supported --type values: domain, ip, file_hash, file_path, file_name,
-user, service_name, package_name.
+user, email, service_name, package_name.
 
 Unlike "search" (which returns prevalence per sensor), "enrich" returns
 the object's own metadata and relationships.
@@ -247,7 +248,7 @@ register_explain("ioc.enrich", _EXPLAIN_ENRICH)
 
 
 @group.command()
-@click.option("--type", "obj_type", required=True, help="Indicator type (domain, ip, file_hash, file_path, file_name, user, service_name, package_name).")
+@click.option("--type", "obj_type", required=True, help="Indicator type (domain, ip, file_hash, file_path, file_name, user, email, service_name, package_name).")
 @click.option("--value", required=True, help="Indicator value to look up.")
 @pass_context
 def enrich(ctx: click.Context, obj_type: str, value: str) -> None:
@@ -272,7 +273,7 @@ of values:
     ip:
       - 1.2.3.4
 
-Valid types: domain, ip, file_hash, file_path, file_name, user,
+Valid types: domain, ip, file_hash, file_path, file_name, user, email,
 service_name, package_name.
 
 Results include object metadata and relationships for each indicator.

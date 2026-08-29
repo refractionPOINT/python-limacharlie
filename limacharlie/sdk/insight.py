@@ -32,7 +32,7 @@ class Insight:
         """Search for an IOC.
 
         Args:
-            obj_type: IOC type (domain, ip, file_hash, file_path, file_name, user, service_name, package_name).
+            obj_type: IOC type (domain, ip, file_hash, file_path, file_name, user, email, service_name, package_name).
             obj_name: IOC value to search for.
             info: Type of information to query ('summary' or 'locations').
             case_sensitive: Case-sensitive matching (default True).
@@ -103,7 +103,7 @@ class Insight:
         about an observed object (IOC).
 
         Args:
-            obj_type: Object type (domain, ip, file_hash, file_path, file_name, user, service_name, package_name).
+            obj_type: Object type (domain, ip, file_hash, file_path, file_name, user, email, service_name, package_name).
             obj_name: Object value to look up.
             info: Type of information ('summary' or 'locations').
             case_sensitive: Case-sensitive matching (default True).
@@ -120,4 +120,3 @@ class Insight:
             wildcards=wildcards,
             limit=limit,
         )
-

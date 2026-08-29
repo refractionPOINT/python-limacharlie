@@ -520,11 +520,13 @@ for searching across your telemetry:
   ip             - IP address (IPv4 or IPv6)
   domain         - Domain name
   user           - User name
+  email          - Email address
   service_name   - Service/daemon name
   package_name   - Software package name
 
 Usage:
   limacharlie ioc search --type ip --value "10.0.0.1"
+  limacharlie ioc search --type email --value "analyst@example.com"
   limacharlie ioc batch-search --input-file iocs.json
 
 The batch-search command accepts a JSON file with multiple IOC searches.
