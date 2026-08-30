@@ -149,13 +149,13 @@ Examples:
 _EXPLAIN_CAMPAIGN_ACTION = """\
 Sweep an action across every member of a campaign. Requires mailsec.act.
 
-PREVIEWS BY DEFAULT. --confirm <campaign_id> is what turns the preview
-into an execution, which is the right default for an operation whose
-blast radius is every mailbox that received the attack.
+PREVIEWS BY DEFAULT. Copy the preview's member-bound `confirm` token into
+--confirm to execute exactly the reviewed member set. A campaign id is not
+a confirmation token and is refused by the server.
 
 Examples:
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message
-  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm ec7e273b-...
+  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e...
 """
 
 _EXPLAIN_SENDER_GET = """\
@@ -666,7 +666,7 @@ def campaign_get(ctx, campaign_id) -> None:
 @click.argument("campaign_id")
 @click.option("--action", "action_name", required=True, help="The typed action to sweep.")
 @click.option("--confirm", default=None,
-              help="Pass the campaign id to EXECUTE. Omit to preview — previewing is the default.")
+              help="Pass the member-bound token returned by the preview to EXECUTE. Omit to preview.")
 @click.option("--reason", default=None, help="Recorded on every resulting audit row.")
 @pass_context
 def campaign_action(ctx, campaign_id, action_name, confirm, reason) -> None:
@@ -677,7 +677,7 @@ def campaign_action(ctx, campaign_id, action_name, confirm, reason) -> None:
 
     \b
     Example:
-      limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm ec7e273b-...
+      limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e...
     """
     ms = _get_mailsec(ctx)
     _output(ctx, ms.act_on_campaign(campaign_id, action_name, confirm=confirm, reason=reason))

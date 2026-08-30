@@ -33,3 +33,10 @@ def test_include_watch_reaches_the_public_sdk_call():
     result, mailsec = invoke_connection("workspace", "--include-watch")
     assert result.exit_code == 0, result.output
     mailsec.test_connection.assert_called_once_with("workspace", include_watch=True)
+
+
+def test_campaign_action_help_requires_the_preview_token():
+    result = CliRunner().invoke(cli, ["mailsec", "campaign", "action", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "member-bound token returned by the preview" in result.output
+    assert "Pass the campaign id" not in result.output
