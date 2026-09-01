@@ -159,9 +159,9 @@ class TestActions:
         assert "confirm" not in body
 
     def test_campaign_action_confirm_is_forwarded(self, ms, mock_org):
-        ms.act_on_campaign("cmp-1", "quarantine_message", confirm="cmp-1")
+        ms.act_on_campaign("cmp-1", "quarantine_message", confirm="member-bound-token")
         _, body = _post_call(mock_org)
-        assert body["confirm"] == "cmp-1"
+        assert body["confirm"] == "member-bound-token"
 
 
 class TestConnectionDiagnostics:

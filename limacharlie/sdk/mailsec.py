@@ -384,7 +384,8 @@ class Mailsec:
         Args:
             campaign_id: The campaign to sweep.
             action: The typed action, as for :meth:`act_on_message`.
-            confirm: Pass the campaign id to execute. Omit to preview.
+            confirm: Pass the member-bound token returned by the preview to
+                execute. Omit to preview.
             reason: Recorded on every resulting audit row.
             actor: Ignored if supplied — the gateway stamps the acting
                 identity from the authenticated claims, so an audit trail's
