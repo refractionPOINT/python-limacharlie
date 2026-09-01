@@ -2,10 +2,10 @@
 
 Wraps the ``/mailsec/{oid}/...`` REST routes served by the API gateway: the
 coverage screen, the message index and its drawer, the justified raw-EML
-download, campaigns, sender profiles, the action audit trail, the
-abuse-mailbox report queue, standalone EML analysis, retro-hunts, custom-rule
-validation and backtest, the provider connection preflight, and the served
-onboarding guide.
+download, analyst verdict revision and its history, campaigns, sender
+profiles, the action audit trail, the abuse-mailbox report queue and its
+reopen, standalone EML analysis, retro-hunts, custom-rule validation and
+backtest, the provider connection preflight, and the served onboarding guide.
 
 Permissions, which are four rather than the usual get/set pair because mailsec
 asks to be trusted with four different things:
@@ -48,6 +48,14 @@ from urllib.parse import quote as _quote
 
 if TYPE_CHECKING:
     from .organization import Organization
+
+
+# Verdict-revision rationale bounds, mirrored client-side so a caller learns
+# the limit from a clear local error rather than from a 400 after the round
+# trip. These match the gateway's own validation: at least one line, at most
+# ten, each no longer than 280 characters.
+_MAX_RATIONALE_LINES = 10
+_MAX_RATIONALE_LEN = 280
 
 
 def _seg(value: str) -> str:
@@ -330,6 +338,84 @@ class Mailsec:
                 body[key] = val
         return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
 
+    def revise_verdict(
+        self,
+        msg_uuid: str,
+        verdict: str,
+        rationale: list[str],
+        *,
+        mode: str = "analyst",
+        score: float | None = None,
+    ) -> dict[str, Any]:
+        """Revise the verdict on one message. Requires ``mailsec.act``.
+
+        This records a human's disposition over the scorer's — a triage
+        decision, not a remediation — and appends a revision to the message's
+        immutable verdict history rather than overwriting the last one.
+
+        ``mode`` defaults to ``analyst`` because the caller of this SDK from
+        the CLI is a person. An autonomous agent revises with its own key and
+        ``mode="ai"``; the two are kept distinct so the audit trail can always
+        say whether a person or a model decided.
+
+        The rationale is REQUIRED and audited: at least one line, at most ten,
+        each no longer than 280 characters. The bounds are checked here so a
+        caller gets a clear local error instead of a 400 after the round trip.
+
+        Args:
+            msg_uuid: The message whose verdict is being revised.
+            verdict: ``malicious``, ``suspicious``, ``graymail``, ``benign``,
+                or ``unknown``.
+            rationale: One or more free-text lines explaining the change.
+            mode: The deciding actor's mode; ``analyst`` for a human,
+                ``ai`` for an agent. The gateway stamps the actor identity
+                itself — this only says which KIND of actor decided.
+            score: An optional numeric score to record alongside the verdict.
+
+        Returns:
+            The revision result. ``applied`` is the honest outcome to read:
+            ``applied: false`` means the message was already at this verdict
+            and nothing changed — a no-op reported truthfully, not an error.
+            The response also carries ``revision_seq``, ``prior``, and
+            ``newly_flagged``.
+        """
+        if not rationale:
+            raise ValueError(
+                "a verdict revision needs at least one rationale line: the change is "
+                "audited, and an unexplained one is not auditable"
+            )
+        if len(rationale) > _MAX_RATIONALE_LINES:
+            raise ValueError(
+                f"too many rationale lines: {len(rationale)} given, at most "
+                f"{_MAX_RATIONALE_LINES} allowed"
+            )
+        for line in rationale:
+            if not isinstance(line, str) or not line.strip():
+                raise ValueError("every rationale line must be non-empty text")
+            if len(line) > _MAX_RATIONALE_LEN:
+                raise ValueError(
+                    f"a rationale line is too long: {len(line)} characters, at most "
+                    f"{_MAX_RATIONALE_LEN} allowed"
+                )
+        body: dict[str, Any] = {
+            "verdict": verdict,
+            "mode": mode,
+            "rationale": list(rationale),
+        }
+        if score is not None:
+            body["score"] = score
+        return self._post(f"messages/{_seg(msg_uuid)}/verdict", body)
+
+    def list_revisions(self, msg_uuid: str) -> dict[str, Any]:
+        """The verdict revision history for one message, oldest first.
+
+        Requires ``mailsec.get``. Every entry carries its ``seq``, the
+        ``mode`` and ``actor`` that decided it, the ``verdict`` it set, its
+        ``decided_at`` time, and the ``rationale`` given — the audit of how a
+        message's disposition moved over time, read from the bottom up.
+        """
+        return self._get(f"messages/{_seg(msg_uuid)}/revisions")
+
     # ------------------------------------------------------------------
     # Campaigns
     # ------------------------------------------------------------------
@@ -525,6 +611,19 @@ class Mailsec:
             holds.
         """
         return self._post(f"reports/{_seg(report_id)}/resolve", {"disposition": disposition})
+
+    def reopen_report(self, report_id: str) -> dict[str, Any]:
+        """Reopen a resolved report. Requires ``mailsec.set``.
+
+        The inverse of :meth:`resolve_report`: a report closed too early, or
+        closed and then contradicted by new evidence, returns to the queue
+        rather than staying settled on a disposition that no longer holds.
+
+        Reopening an already-open report succeeds and says so — the queue's
+        state is what matters, not who raced to change it — so a client does
+        not have to treat "already open" as a failure.
+        """
+        return self._post(f"reports/{_seg(report_id)}/reopen", {})
 
     # ------------------------------------------------------------------
     # Hunts

@@ -208,6 +208,72 @@ class TestReports:
         assert url == f"mailsec/{OID}/reports/rep-1/resolve"
         assert body == {"disposition": "true_positive"}
 
+    def test_reopen_sends_empty_body(self, ms, mock_org):
+        ms.reopen_report("rep-1")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/reports/rep-1/reopen"
+        assert body == {}
+
+
+class TestVerdictRevision:
+    """A verdict revision is a human triage decision appended to the message's
+    verdict history. mode defaults to analyst because the caller is a person;
+    the rationale is required and audited, so its bounds are enforced locally
+    to fail with a clear message rather than a 400 after the round trip."""
+
+    def test_revise_body_defaults_to_analyst_mode(self, ms, mock_org):
+        ms.revise_verdict("msg-1", "malicious", ["confirmed phish"])
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/messages/msg-1/verdict"
+        assert body == {
+            "verdict": "malicious",
+            "mode": "analyst",
+            "rationale": ["confirmed phish"],
+        }
+
+    def test_revise_forwards_score_and_multiple_rationale(self, ms, mock_org):
+        ms.revise_verdict("msg-1", "benign", ["a", "b"], score=12.5)
+        _, body = _post_call(mock_org)
+        assert body["rationale"] == ["a", "b"]
+        assert body["score"] == 12.5
+
+    def test_score_is_omitted_when_absent(self, ms, mock_org):
+        ms.revise_verdict("msg-1", "benign", ["a"])
+        _, body = _post_call(mock_org)
+        assert "score" not in body
+
+    def test_empty_rationale_is_refused(self, ms):
+        with pytest.raises(ValueError, match="at least one rationale"):
+            ms.revise_verdict("msg-1", "malicious", [])
+
+    def test_blank_rationale_line_is_refused(self, ms):
+        with pytest.raises(ValueError, match="non-empty"):
+            ms.revise_verdict("msg-1", "malicious", ["   "])
+
+    def test_too_many_rationale_lines_is_refused(self, ms):
+        with pytest.raises(ValueError, match="too many rationale"):
+            ms.revise_verdict("msg-1", "malicious", [f"line {i}" for i in range(11)])
+
+    def test_ten_rationale_lines_is_allowed(self, ms, mock_org):
+        ms.revise_verdict("msg-1", "malicious", [f"line {i}" for i in range(10)])
+        _, body = _post_call(mock_org)
+        assert len(body["rationale"]) == 10
+
+    def test_overlong_rationale_line_is_refused(self, ms):
+        with pytest.raises(ValueError, match="too long"):
+            ms.revise_verdict("msg-1", "malicious", ["x" * 281])
+
+    def test_rationale_line_at_the_limit_is_allowed(self, ms, mock_org):
+        ms.revise_verdict("msg-1", "malicious", ["x" * 280])
+        _, body = _post_call(mock_org)
+        assert body["rationale"] == ["x" * 280]
+
+    def test_revisions_reads_oldest_first_history(self, ms, mock_org):
+        ms.list_revisions("msg-1")
+        url, qp = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/messages/msg-1/revisions"
+        assert qp is None
+
 
 class TestRules:
     def test_validate_body(self, ms, mock_org):
@@ -274,6 +340,7 @@ class TestRouteCoverage:
             (lambda: ms.get_message("m"), "GET", f"mailsec/{OID}/messages/m"),
             (lambda: ms.get_message_eml("m", "why"), "GET", f"mailsec/{OID}/messages/m/eml"),
             (lambda: ms.list_similar_messages("m"), "GET", f"mailsec/{OID}/messages/m/similar"),
+            (lambda: ms.list_revisions("m"), "GET", f"mailsec/{OID}/messages/m/revisions"),
             (lambda: ms.list_campaigns(), "GET", f"mailsec/{OID}/campaigns"),
             (lambda: ms.get_campaign("c"), "GET", f"mailsec/{OID}/campaigns/c"),
             (lambda: ms.get_sender_profile("s"), "GET", f"mailsec/{OID}/senders/s"),
@@ -284,16 +351,18 @@ class TestRouteCoverage:
             (lambda: ms.get_onboarding(), "GET", f"mailsec/{OID}/onboarding"),
             (lambda: ms.analyze(eml="x"), "POST", f"mailsec/{OID}/analyze"),
             (lambda: ms.act_on_message("m", "a"), "POST", f"mailsec/{OID}/messages/m/actions"),
+            (lambda: ms.revise_verdict("m", "malicious", ["why"]), "POST", f"mailsec/{OID}/messages/m/verdict"),
             (lambda: ms.act_on_campaign("c", "a"), "POST", f"mailsec/{OID}/campaigns/c/actions"),
             (lambda: ms.resolve_report("r", "benign"), "POST", f"mailsec/{OID}/reports/r/resolve"),
+            (lambda: ms.reopen_report("r"), "POST", f"mailsec/{OID}/reports/r/reopen"),
             (lambda: ms.create_hunt(lcql="q"), "POST", f"mailsec/{OID}/hunts"),
             (lambda: ms.remediate_hunt("h", "a"), "POST", f"mailsec/{OID}/hunts/h/remediate"),
             (lambda: ms.validate_rule({}), "POST", f"mailsec/{OID}/rules/validate"),
             (lambda: ms.backtest_rule({}), "POST", f"mailsec/{OID}/rules/backtest"),
             (lambda: ms.test_connection("rec"), "POST", f"mailsec/{OID}/connections/rec/test"),
         ]
-        # 22 gateway routes, 22 SDK methods.
-        assert len(calls) == 22
+        # 25 gateway routes, 25 SDK methods.
+        assert len(calls) == 25
         for fn, method, expected_url in calls:
             mock_org.client.request.reset_mock()
             fn()
