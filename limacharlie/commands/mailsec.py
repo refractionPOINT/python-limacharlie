@@ -131,6 +131,38 @@ Examples:
   limacharlie mailsec message action 0057db2b-... --action restore_message
 """
 
+_EXPLAIN_MESSAGE_REVISE = """\
+Revise a message's verdict as an analyst. Requires mailsec.act.
+
+This records a human triage decision over the scorer's — it is a
+disposition, not a remediation — and appends to the message's verdict
+history rather than overwriting it. --rationale is required and audited:
+at least one, at most ten, each <= 280 characters.
+
+mode is fixed to 'analyst' here because the operator of this CLI is a
+person. An autonomous agent revises with its OWN key and mode 'ai'
+through the API, not this command, so the audit can always say whether a
+person or a model decided.
+
+applied:false is an honest outcome, not an error: it means the message
+was already at this verdict and nothing changed.
+
+Examples:
+  limacharlie mailsec message revise 0057db2b-... --verdict malicious --rationale "confirmed credential harvest"
+  limacharlie mailsec message revise 0057db2b-... --verdict benign --rationale "internal test send" --rationale "sender verified"
+"""
+
+_EXPLAIN_MESSAGE_REVISIONS = """\
+The verdict revision history for one message, oldest first.
+
+Each entry is who decided (mode/actor), the verdict they set, when, and
+the rationale they gave — the audit of how a message's disposition moved
+over time.
+
+Examples:
+  limacharlie mailsec message revisions 0057db2b-...
+"""
+
 _EXPLAIN_CAMPAIGN_LIST = """\
 Campaigns: one attack triaged once, rather than once per mailbox.
 
@@ -224,6 +256,20 @@ an outcome that already holds.
 
 Examples:
   limacharlie mailsec report resolve <report_id> --disposition true_positive
+"""
+
+_EXPLAIN_REPORT_REOPEN = """\
+Reopen a resolved report. Requires mailsec.set.
+
+The inverse of resolve: a report closed too early, or contradicted by
+new evidence, returns to the queue rather than staying settled on a
+disposition that no longer holds.
+
+Reopening an already-open report succeeds and says so — the queue's
+state is the point, not who raced to change it.
+
+Examples:
+  limacharlie mailsec report reopen <report_id>
 """
 
 _EXPLAIN_HUNT_CREATE = """\
@@ -379,12 +425,12 @@ def group() -> None:
 
     \b
       coverage            Mailbox coverage and analysed volume
-      message ...         The triage queue, drawer, raw EML, similar, actions
+      message ...         The triage queue, drawer, raw EML, similar, actions, revise
       campaign ...        Campaigns and campaign-wide sweeps
       sender get          A sender's history with this org
       action get          One record from the action audit trail
       analyze             Parse and score an EML without ingesting it
-      report ...          Abuse-mailbox report queue (list, get, resolve)
+      report ...          Abuse-mailbox report queue (list, get, resolve, reopen)
       hunt ...            Retro-hunts (create, get, remediate)
       rule ...            Custom rule validation and backtest
       connection test     Provider connection preflight
@@ -394,7 +440,7 @@ def group() -> None:
 
 @group.group("message")
 def message_group() -> None:
-    """The message index, drawer, raw EML, similar mail, and actions."""
+    """The message index, drawer, raw EML, similar mail, actions, verdict revision."""
 
 
 @group.group("campaign")
@@ -414,7 +460,7 @@ def action_group() -> None:
 
 @group.group("report")
 def report_group() -> None:
-    """The abuse-mailbox report queue."""
+    """The abuse-mailbox report queue (list, get, resolve, reopen)."""
 
 
 @group.group("hunt")
@@ -620,6 +666,45 @@ def message_action(ctx, msg_uuid, action_name, reason, attempt, banner) -> None:
     ))
 
 
+@message_group.command("revise")
+@click.argument("msg_uuid")
+@click.option("--verdict", required=True,
+              type=click.Choice(["malicious", "suspicious", "graymail", "benign", "unknown"]),
+              help="The verdict to set.")
+@click.option("--rationale", "rationale", multiple=True, required=True,
+              help="Why the verdict is changing (repeatable, at least one, each <= 280 chars). "
+                   "Written to the revision audit.")
+@click.option("--score", default=None, type=float, help="Optional score to record with the revision.")
+@pass_context
+def message_revise(ctx, msg_uuid, verdict, rationale, score) -> None:
+    """Revise a message's verdict as an analyst (mailsec.act).
+
+    \b
+    mode is 'analyst' — the operator of this CLI is a person. An agent
+    revises with its own key and mode 'ai' through the API, not here.
+    applied:false means it was already this verdict, not an error.
+
+    \b
+    Example:
+      limacharlie mailsec message revise 0057db2b-... --verdict malicious --rationale "confirmed phish"
+    """
+    ms = _get_mailsec(ctx)
+    _output(ctx, ms.revise_verdict(msg_uuid, verdict, list(rationale), score=score))
+
+
+@message_group.command("revisions")
+@click.argument("msg_uuid")
+@pass_context
+def message_revisions(ctx, msg_uuid) -> None:
+    """The verdict revision history for a message, oldest first.
+
+    \b
+    Example:
+      limacharlie mailsec message revisions 0057db2b-...
+    """
+    _output(ctx, _get_mailsec(ctx).list_revisions(msg_uuid))
+
+
 # ---------------------------------------------------------------------------
 # Campaigns
 # ---------------------------------------------------------------------------
@@ -770,6 +855,23 @@ def report_resolve(ctx, report_id, disposition) -> None:
     _output(ctx, _get_mailsec(ctx).resolve_report(report_id, disposition))
 
 
+@report_group.command("reopen")
+@click.argument("report_id")
+@pass_context
+def report_reopen(ctx, report_id) -> None:
+    """Reopen a resolved report (mailsec.set).
+
+    \b
+    The inverse of resolve. Reopening an already-open report succeeds
+    and says so.
+
+    \b
+    Example:
+      limacharlie mailsec report reopen <report_id>
+    """
+    _output(ctx, _get_mailsec(ctx).reopen_report(report_id))
+
+
 # ---------------------------------------------------------------------------
 # Hunts
 # ---------------------------------------------------------------------------
@@ -913,6 +1015,8 @@ register_explain("mailsec.message.get", _EXPLAIN_MESSAGE_GET)
 register_explain("mailsec.message.eml", _EXPLAIN_MESSAGE_EML)
 register_explain("mailsec.message.similar", _EXPLAIN_MESSAGE_SIMILAR)
 register_explain("mailsec.message.action", _EXPLAIN_MESSAGE_ACTION)
+register_explain("mailsec.message.revise", _EXPLAIN_MESSAGE_REVISE)
+register_explain("mailsec.message.revisions", _EXPLAIN_MESSAGE_REVISIONS)
 register_explain("mailsec.campaign.list", _EXPLAIN_CAMPAIGN_LIST)
 register_explain("mailsec.campaign.get", _EXPLAIN_CAMPAIGN_GET)
 register_explain("mailsec.campaign.action", _EXPLAIN_CAMPAIGN_ACTION)
@@ -921,6 +1025,7 @@ register_explain("mailsec.action.get", _EXPLAIN_ACTION_GET)
 register_explain("mailsec.report.list", _EXPLAIN_REPORT_LIST)
 register_explain("mailsec.report.get", _EXPLAIN_REPORT_GET)
 register_explain("mailsec.report.resolve", _EXPLAIN_REPORT_RESOLVE)
+register_explain("mailsec.report.reopen", _EXPLAIN_REPORT_REOPEN)
 register_explain("mailsec.hunt.create", _EXPLAIN_HUNT_CREATE)
 register_explain("mailsec.hunt.get", _EXPLAIN_HUNT_GET)
 register_explain("mailsec.hunt.remediate", _EXPLAIN_HUNT_REMEDIATE)
