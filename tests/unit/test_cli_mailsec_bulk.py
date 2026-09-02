@@ -551,6 +551,35 @@ class TestTheHandleIsNeverLost:
         assert f"bulk-status {BULK_ID}" in result.stderr
         ms.bulk_action_execute.assert_called_once()
 
+    def test_the_reason_reaches_the_execute(self):
+        """The justification a human typed, on the verb that moves up to 500
+        people's mail. It is recorded on the job's audit row and on every
+        message's — the same record `message action --reason` produces for one."""
+        result, ms = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN, "--reason", "INC-4471",
+            sdk_returns=_HAPPY,
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ms.bulk_action_execute.call_args.kwargs["reason"] == "INC-4471"
+
+    def test_a_reason_on_a_preview_is_said_out_loud_not_dropped(self):
+        """The preview mints the confirmation and takes no reason by design: one
+        that reached it could enter the token, and rewording a justification
+        would then invalidate a selection somebody had already approved. So the
+        verb SAYS the reason applies to the execute rather than accepting it
+        quietly — a justification silently discarded is worse than a refused one,
+        because the caller believes it was recorded."""
+        result, ms = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--reason", "INC-4471",
+            sdk_returns=_HAPPY,
+        )
+        assert result.exit_code == 0, result.stderr
+        assert "--reason applies to the execute" in result.stderr
+        # And it really did not travel: the preview call carries no reason.
+        assert "reason" not in ms.bulk_action_preview.call_args.kwargs
+
     def test_adopting_an_existing_job_is_reported_not_hidden(self):
         """started:false is the idempotent path — a re-sent execute adopting the
         job it already created. Saying so is what stops it reading as a second

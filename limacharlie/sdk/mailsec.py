@@ -576,6 +576,7 @@ class Mailsec:
         *,
         attempt: str | None = None,
         banner: str | None = None,
+        reason: str | None = None,
     ) -> dict[str, Any]:
         """Execute a previewed bulk action. Requires ``mailsec.act``.
 
@@ -609,6 +610,11 @@ class Mailsec:
             banner: Banner HTML for ``banner_message``, supplied once for the
                 whole batch — it carries the org's text, which is a property of
                 the org rather than of any one message.
+            reason: Free-text justification, recorded on the job's audit row AND
+                on every message's, exactly as :meth:`act_on_message` records it
+                for one. It is deliberately NOT part of the confirmation, so
+                rewording it between previewing and executing neither invalidates
+                the token nor starts a second job over the same messages.
 
         Returns:
             ``{"accepted": True, "bulk_id": str, "state": str, "counts": {...},
@@ -618,19 +624,20 @@ class Mailsec:
             not a failure.
 
         Note:
-            There is deliberately no ``reason``. The gateway forwards only
-            ``action``, ``msg_uuids``, ``confirm``, ``attempt`` and the banner on
-            this route, so a reason would be accepted by this client and dropped
-            in transit — a justification that silently never reaches the audit
-            trail is worse than one the caller knows it cannot give. Per-message
-            reasons remain available through :meth:`act_on_message`.
+            ``reason`` requires a backend that reads it. Older deployments
+            forwarded only ``action``, ``msg_uuids``, ``confirm``, ``attempt``
+            and the banner on this route and dropped a reason in transit; against
+            those, a justification sent here never reaches the audit trail. It is
+            an ordinary optional argument rather than a version probe, because a
+            client cannot tell the two apart from the response — the execute
+            answers 200 either way.
         """
         body: dict[str, Any] = {
             "action": action,
             "msg_uuids": normalize_bulk_selection(msg_uuids),
             "confirm": confirm,
         }
-        for key, val in (("attempt", attempt), ("banner", banner)):
+        for key, val in (("attempt", attempt), ("banner", banner), ("reason", reason)):
             if val is not None:
                 body[key] = val
         return self._post("actions/bulk/execute", body)

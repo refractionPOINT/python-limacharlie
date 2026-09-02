@@ -386,6 +386,27 @@ class TestBulkRemediation:
         _, body = _post_call(mock_org)
         assert set(body) == {"action", "msg_uuids", "confirm"}
 
+    def test_execute_carries_the_operator_reason(self, ms, mock_org):
+        """The justification a human typed, on the route that moves up to 500
+        people's mail at once. It reaches the job's audit row and every
+        message's, the same way act_on_message's does for one."""
+        ms.bulk_action_execute("trash_message", ["a"], "tok", reason="INC-4471")
+        _, body = _post_call(mock_org)
+        assert body["reason"] == "INC-4471"
+
+    def test_the_preview_takes_no_reason(self, ms, mock_org):
+        """The other half, and the reason the execute may carry one at all.
+
+        The preview mints the confirmation, which the backend derives from
+        (oid, action, attempt, members) and NOT from the reason. A reason that
+        reached the preview could end up in that derivation, which would mean
+        rewording a justification invalidated a selection somebody had already
+        approved — and minted a second bulk id over the same messages. So it is
+        not a parameter here, and the gateway's own preview allow-list refuses
+        to forward one."""
+        with pytest.raises(TypeError):
+            ms.bulk_action_preview("trash_message", ["a"], reason="INC-4471")
+
     def test_an_empty_selection_never_reaches_the_network(self, ms, mock_org):
         for call in (
             lambda: ms.bulk_action_preview("trash_message", []),
