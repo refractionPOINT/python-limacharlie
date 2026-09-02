@@ -2,11 +2,11 @@
 
 import json
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from limacharlie.sdk.mailsec import Mailsec, normalize_bulk_selection
+from limacharlie.sdk.mailsec import BULK_TERMINAL_STATES, Mailsec, normalize_bulk_selection
 
 
 OID = "11111111-2222-3333-4444-555555555555"
@@ -370,9 +370,12 @@ class TestBulkRemediation:
         assert preview_body["msg_uuids"] == execute_body["msg_uuids"] == ["a", "b", "c"]
 
     def test_banner_is_spelled_banner_on_the_wire(self, ms, mock_org):
-        """The gateway translates `banner` to the collector's `banner_html`.
-        Sending banner_html here would be dropped by its allow-list, and
-        banner_message would run with no banner."""
+        """`banner` is the PUBLIC spelling; the gateway translates it to the
+        collector's `banner_html` (mailsecBulkExecuteArgs). Its allow-list
+        happens to forward a literal `banner_html` too, so both would in fact
+        work — but only `banner` is in the documented body schema, and pinning
+        the documented name is what keeps this client on the contract rather
+        than on an implementation detail of the forwarder."""
         ms.bulk_action_execute("banner_message", ["a"], "tok", banner="<b>caution</b>")
         _, body = _post_call(mock_org)
         assert body["banner"] == "<b>caution</b>"
@@ -403,6 +406,91 @@ class TestBulkRemediation:
         ms.bulk_action_status("a/b")
         url, _ = _get_call(mock_org)
         assert url == f"mailsec/{OID}/actions/bulk/a%2Fb"
+
+
+def _bulk_status(state="running", stalled=False, ok=0):
+    return {"bulk_id": "b", "state": state, "stalled": stalled,
+            "counts": {"total": 2, "ok": ok, "failed": 0, "pending": 2 - ok}}
+
+
+class TestWaitForBulk:
+    """Three things stop the wait, and conflating any two of them costs a real
+    operator real time: a finished job, a job nobody is working, and a deadline
+    that says nothing about the job at all."""
+
+    def test_it_polls_until_the_job_leaves_running(self, ms):
+        ms.bulk_action_status = MagicMock(side_effect=[
+            _bulk_status("running"),
+            _bulk_status("running", ok=1),
+            _bulk_status("complete", ok=2),
+        ])
+        with patch("limacharlie.sdk.mailsec.time.sleep") as sleep:
+            final = ms.wait_for_bulk("b", timeout=300, poll_interval=3)
+        assert final["state"] == "complete"
+        assert ms.bulk_action_status.call_count == 3
+        assert sleep.call_count == 2
+
+    def test_interrupted_is_terminal_too(self, ms):
+        """A worker that lost its pod finalizes the record with the outcomes it
+        had. The answer has already arrived; polling for a different one would
+        burn the whole timeout."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("interrupted", ok=1))
+        final = ms.wait_for_bulk("b", timeout=300)
+        assert final["state"] == "interrupted"
+        assert ms.bulk_action_status.call_count == 1
+
+    def test_the_terminal_states_are_the_two_the_gateway_defines(self):
+        assert BULK_TERMINAL_STATES == ("complete", "interrupted")
+
+    def test_stalled_stops_the_wait_even_though_the_job_is_running(self, ms):
+        """There is deliberately no automatic resumption: the record is not
+        being heartbeaten, so no amount of further polling will move it."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("running", stalled=True))
+        final = ms.wait_for_bulk("b", timeout=300)
+        assert final["stalled"] is True
+        assert final["state"] == "running"
+        assert ms.bulk_action_status.call_count == 1
+
+    def test_the_deadline_returns_the_last_running_document(self, ms):
+        """No exception, following Jobs.wait: a document that comes back running
+        and not stalled is one the deadline ended, and the caller is the only
+        one who knows whether that matters."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("running"))
+        with patch("limacharlie.sdk.mailsec.time.monotonic", side_effect=[0.0, 10_000.0]):
+            final = ms.wait_for_bulk("b", timeout=300)
+        assert final["state"] == "running"
+        assert final["stalled"] is False
+        assert ms.bulk_action_status.call_count == 1
+
+    def test_the_sleep_never_overshoots_the_deadline(self, ms):
+        """A 300s poll interval against a 5s timeout must not park the caller
+        for five minutes past the deadline it asked for."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("running"))
+        with (
+            patch("limacharlie.sdk.mailsec.time.monotonic", side_effect=[0.0, 2.0, 10.0]),
+            patch("limacharlie.sdk.mailsec.time.sleep") as sleep,
+        ):
+            ms.wait_for_bulk("b", timeout=5, poll_interval=300)
+        assert sleep.call_args.args[0] == 3.0
+
+    def test_on_poll_sees_every_status_document(self, ms):
+        """The CLI narrates from this; a callback that skipped the terminal poll
+        would make a caller reconstruct the ending from the return value."""
+        seen = []
+        ms.bulk_action_status = MagicMock(side_effect=[
+            _bulk_status("running"), _bulk_status("complete", ok=2),
+        ])
+        with patch("limacharlie.sdk.mailsec.time.sleep"):
+            ms.wait_for_bulk("b", on_poll=seen.append)
+        assert [s["state"] for s in seen] == ["running", "complete"]
+
+    def test_it_adds_no_route_of_its_own(self, ms, mock_org):
+        """It is a loop over an existing route, not a new capability. If this
+        ever issued anything else, the route inventory below would be wrong."""
+        mock_org.client.request.return_value = _bulk_status("complete", ok=2)
+        ms.wait_for_bulk("b")
+        for call in mock_org.client.request.call_args_list:
+            assert call.args == ("GET", f"mailsec/{OID}/actions/bulk/b")
 
 
 class TestPathSegmentsAreEscaped:

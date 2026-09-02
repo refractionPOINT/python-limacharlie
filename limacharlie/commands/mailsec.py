@@ -32,8 +32,7 @@ post-save preflight (``mailsec connection test``) and the served setup guide
 from __future__ import annotations
 
 import json
-import sys
-import time
+import re
 from typing import Any
 
 import click
@@ -44,6 +43,8 @@ from ..sdk.organization import Organization
 from ..sdk.mailsec import BULK_ACTIONS, Mailsec, normalize_bulk_selection
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._input_helpers import load_file, load_stdin
+from ._output_helpers import note
 
 
 # ---------------------------------------------------------------------------
@@ -174,26 +175,56 @@ on all of them at once. Up to 500 per call — a larger selection is
 REFUSED, not truncated, because acting on the first 500 of 900 leaves
 the rest in inboxes nobody will look at. Split it yourself.
 
-PREVIEWS FIRST, ALWAYS. The preview reads the index and reports, per
-message, whether it still exists, where it is now, and whether it is
-already where the action would put it — plus the distinct-mailbox count,
-which is the blast radius you are actually approving. Then it asks. Pass
---yes to skip the question in a script, or --preview-only to stop there.
+TWO STEPS, like `campaign action` and `hunt remediate`:
 
-The preview's `confirm` token is DERIVED FROM THE EXACT SELECTION, not
-issued as a nonce, so it can only execute the set you read. This command
-reuses one normalized list for both calls, so that holds by construction;
-if you two-step it by hand, feed --confirm the identical --msg-uuids.
+  omit --confirm         preview only; nothing is changed
+  --confirm <token>      execute the previewed selection
+
+The preview reads the index and reports, per message, whether it still
+exists, where it is now, and whether it is already where the action would
+put it — plus the distinct-mailbox count, which is the blast radius you
+are actually approving. It prints on stdout, `confirm` token included, so
+a script reads step one's answer and passes it to step two.
+
+The token is DERIVED FROM (action, attempt, the normalized member list),
+not issued as a nonce, so it can only execute what you previewed. The
+execute must therefore repeat the IDENTICAL --action, --msg-uuids and
+--attempt the preview was minted with; change any of the three and the
+server refuses the token as stale rather than acting on a set nobody read.
 
 Expired ids and already-done messages are REPORTED, not errors and not
 dropped. They stay in the confirmed set, and the provider re-checks each
 one and answers `skipped` — the index only records where remediation last
 put a message, and its owner may have moved it since.
 
+Ids must be message UUIDs. A selection that carries anything else — the
+header row and second column of a pasted CSV are the usual way this
+happens — is refused by name, because a phantom id comes back from the
+preview as "NOT IN INDEX", identical to a legitimately expired one, and
+the counts you would be consenting over would be wrong.
+
 Execution is ASYNCHRONOUS: 500 provider writes paced to respect Microsoft
 365 / Google throttling cannot fit in one request. You get a bulk_id back
-immediately; --wait (the default) polls until the job settles. Partial
-failure is a normal, honestly-reported outcome, never a rollback.
+immediately (announced on stderr before the first poll, so a poll that
+fails still leaves you the handle); --wait (the default) polls until the
+job settles. Partial failure is a normal, honestly-reported outcome,
+never a rollback.
+
+THE EXIT CODE CARRIES THE OUTCOME, so `&&` means what it looks like:
+
+  0    complete, with at least one message acted on (or --no-wait, or a
+       preview that produced a token)
+  !=0  not accepted; complete but every attempt failed; interrupted;
+       stalled; still running at the timeout; or a poll that errored
+
+A stalled job is the one worth knowing: the worker that accepted it is
+gone. Re-send the same execute request with the same confirmation token
+to finish it — every message already acted on collapses onto its existing
+action row rather than being acted on twice.
+
+--quiet silences both streams, as everywhere in this CLI. With it, the
+exit code above and `mailsec message bulk-status <bulk_id>` are how you
+read the result.
 
 There is no --reason: the execute route does not carry one, and a
 justification that never reaches the audit trail would be worse than an
@@ -201,10 +232,12 @@ absent one. Use `mailsec message action --reason` per message when the
 reason matters.
 
 Examples:
-  limacharlie mailsec message bulk-action --action trash_message --msg-uuids a,b,c
-  limacharlie mailsec message bulk-action --action quarantine_message --input-file uuids.txt --yes
-  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids a,b --preview-only
-  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids a,b --confirm 3f31ed...
+  limacharlie mailsec message bulk-action --action trash_message --msg-uuids 0057db2b-3a06-5aab-b3be-c1e6c15dcf10
+  limacharlie mailsec message bulk-action --action quarantine_message --input-file uuids.txt
+  limacharlie mailsec message list --verdict malicious --output json \\
+    | jq -r '.messages[].msg_uuid' \\
+    | limacharlie mailsec message bulk-action --action quarantine_message --input-file -
+  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids 0057db2b-... --confirm 3f31ed...
 """
 
 _EXPLAIN_MESSAGE_BULK_STATUS = """\
@@ -216,10 +249,10 @@ failures is complete, because what a poller asks is whether anything is
 still moving.
 
 stalled:true means the worker that accepted the job is gone — the record
-has not been heartbeaten within its window. The repair is one more
-execute with the SAME confirmation and the same selection: every message
-already acted on collapses onto its existing action row rather than being
-acted on twice.
+has not been heartbeaten within its window. The repair is to re-send the
+same execute request with the same confirmation token to finish it: every
+message already acted on collapses onto its existing action row rather
+than being acted on twice.
 
 Each item carries the action_id of its authoritative audit row, which
 `mailsec action get` expands. items is a projection of the job record and
@@ -462,26 +495,72 @@ def _load_json_file(path: str, param_hint: str) -> Any:
         raise click.BadParameter(f"{path} is not valid JSON: {e}", param_hint=param_hint)
 
 
-def _note(ctx: click.Context, text: str) -> None:
-    """Narrate to STDERR.
-
-    Deliberately not stdout: a bulk action makes three calls, and a command that
-    printed each of them would emit three documents where `--output json` promises
-    one. Progress belongs beside the operator, the result belongs in the pipe.
-    Suppressed by --quiet, like every other narration in this CLI.
-    """
-    if not ctx.obj.quiet:
-        click.echo(text, err=True)
-
-
 def _split_ids(text: str) -> list[str]:
-    """Split a selection on commas and whitespace, dropping blanks.
+    """Split one --msg-uuids value on commas, trimming each item.
 
-    Both separators, because the two sources this reads spell a list differently:
-    a shell argument is `a,b,c` and a file is one id per line. Accepting either
-    everywhere means a caller never has to know which parser they landed in.
+    Comma-only, matching every other repeatable-and-comma-separated option in
+    this CLI. It TRIMS around items rather than splitting ON whitespace, so a
+    shell-quoted `"a, b"` is two ids and a value that somehow contains a space
+    stays one token — which is what lets the shape check below name it instead
+    of silently turning one bad paste into several plausible-looking members.
     """
-    return [part for chunk in text.split(",") for part in chunk.split() if part]
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _ids_from_document(value: Any, hint: str) -> list[str]:
+    """Pull message ids out of a parsed --input-file / stdin document.
+
+    The file goes through the shared YAML-or-JSON loader, so a caller can hand
+    us a JSON array, a YAML list, or the ordinary one-id-per-line file. That
+    last one parses as a single folded scalar — YAML turns its line breaks into
+    spaces — so splitting the scalar on whitespace here is restoring the file's
+    own line separators, not the flag-splitting rule above.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part for line in value.split() for part in _split_ids(line)]
+    if isinstance(value, (list, tuple)):
+        ids: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise click.BadParameter(
+                    f"expected message ids; found a {type(item).__name__}", param_hint=hint,
+                )
+            ids.extend(part for line in item.split() for part in _split_ids(line))
+        return ids
+    raise click.BadParameter(
+        f"expected a list of message ids or one id per line; found a {type(value).__name__}",
+        param_hint=hint,
+    )
+
+
+# A msg_uuid is a UUID the backend derives; nothing else is one.
+_MSG_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def _reject_non_message_ids(ids: list[str]) -> None:
+    """Refuse a selection carrying anything that is not a message id.
+
+    Shape-checking input is usually the server's job, but not here, because the
+    server's answer is INDISTINGUISHABLE from a legitimate one: a phantom member
+    comes back from the preview as "NOT IN INDEX", exactly like an id that
+    expired past the 35-day retention. The member_count and mailbox_count a human
+    is consenting over would silently be wrong.
+
+    The way this happens in practice is a pasted CSV export: the header row and
+    the second column become members. So the first offending token is named, in
+    the order it was given, rather than reported as a count.
+    """
+    for value in ids:
+        if not _MSG_UUID_RE.match(value):
+            raise click.UsageError(
+                f"'{value}' does not look like a message id: expected a UUID such as "
+                "0057db2b-3a06-5aab-b3be-c1e6c15dcf10. A selection pasted out of a CSV "
+                "usually needs its header row and its other columns removed."
+            )
 
 
 def _bulk_selection(msg_uuids: tuple[str, ...], input_file: str | None) -> list[str]:
@@ -490,22 +569,31 @@ def _bulk_selection(msg_uuids: tuple[str, ...], input_file: str | None) -> list[
     Normalized once and reused, never rebuilt between the preview and the execute:
     the confirmation token is derived from the member list, so a second derivation
     is a second chance to disagree with the set a human just approved.
+
+    Three sources, in the CLI's usual order of explicitness: the flag, a named
+    file (``-`` being stdin), and — following the hive commands' idiom — a pipe,
+    when nothing was named and stdin is not a terminal.
     """
-    raw = list(msg_uuids)
-    if input_file:
-        try:
-            with open(input_file, "r", encoding="utf-8") as f:
-                raw.append(f.read())
-        except OSError as e:
-            raise click.BadParameter(f"cannot read {input_file}: {e}", param_hint="--input-file")
     ids: list[str] = []
-    for chunk in raw:
+    for chunk in msg_uuids:
         ids.extend(_split_ids(chunk))
+    if input_file == "-":
+        ids.extend(_ids_from_document(load_stdin(), "stdin"))
+    elif input_file:
+        ids.extend(_ids_from_document(load_file(input_file, "--input-file"), "--input-file"))
+    elif not ids:
+        ids.extend(_ids_from_document(load_stdin(), "stdin"))
+    if not ids:
+        # An empty selection is a usage mistake, not a backend one, and it is
+        # worth saying so before a round trip that would only agree.
+        raise click.UsageError(
+            "a bulk action needs at least one msg_uuid: pass --msg-uuids, --input-file, "
+            "or pipe ids on stdin"
+        )
+    _reject_non_message_ids(ids)
     try:
         return normalize_bulk_selection(ids)
     except ValueError as e:
-        # An empty selection is a usage mistake, not a backend one, and it is
-        # worth saying so before a round trip that would only agree.
         raise click.UsageError(f"{e}: pass --msg-uuids and/or --input-file")
 
 
@@ -517,33 +605,62 @@ def _echo_bulk_preview(ctx: click.Context, preview: dict) -> None:
     operator is being asked to approve.
     """
     summary = preview.get("summary") or {}
-    _note(ctx, "")
-    _note(ctx, f"action:        {preview.get('action')}")
+    note(ctx, "")
+    note(ctx, f"action:        {preview.get('action')}")
     if preview.get("has_target_state"):
-        _note(ctx, f"target state:  {preview.get('target_state')}")
-    _note(ctx, f"selected:      {preview.get('member_count')} of at most {preview.get('cap')}")
-    _note(ctx, f"mailboxes:     {summary.get('mailbox_count')}")
+        note(ctx, f"target state:  {preview.get('target_state')}")
+    note(ctx, f"selected:      {preview.get('member_count')} of at most {preview.get('cap')}")
+    note(ctx, f"mailboxes:     {summary.get('mailbox_count')}")
     by_provider = summary.get("by_provider") or {}
     if by_provider:
-        _note(ctx, "providers:     " + ", ".join(f"{k}={v}" for k, v in sorted(by_provider.items())))
-    _note(
+        note(ctx, "providers:     " + ", ".join(f"{k}={v}" for k, v in sorted(by_provider.items())))
+    note(
         ctx,
         f"actionable:    {summary.get('actionable')}   "
         f"(already in target state: {summary.get('already_in_target_state')}, "
         f"no longer indexed: {summary.get('missing')})",
     )
-    _note(ctx, "")
+    note(ctx, "")
     for m in preview.get("messages") or []:
         if not m.get("exists"):
-            _note(ctx, f"  {m.get('msg_uuid')}  NOT IN INDEX (expired past retention, or never ingested)")
+            note(ctx, f"  {m.get('msg_uuid')}  NOT IN INDEX (expired past retention, or never ingested)")
             continue
         flag = "  already in target state" if m.get("already_in_target_state") else ""
-        _note(
+        note(
             ctx,
             f"  {m.get('msg_uuid')}  state={m.get('state')} "
             f"mailbox={m.get('mailbox')} provider={m.get('provider')}{flag}",
         )
-    _note(ctx, "")
+    note(ctx, "")
+    if preview.get("confirm"):
+        note(ctx, f"confirm:       {preview.get('confirm')}")
+        note(ctx, "")
+
+
+def _output_preview(ctx: click.Context, preview: dict) -> None:
+    """Emit the preview document without the table renderer's lossy summarising.
+
+    Now that the preview IS the default output of this verb, the format matters.
+    The table renderer flattens a record to one row per key and renders any
+    nested value as a placeholder: measured on this document, `messages` becomes
+    "[2 items]" and `summary` becomes "{7 keys}". Those two ARE the preview — the
+    per-message placement and the mailbox count are the blast radius the operator
+    is being asked to approve — so a table renders away the entire point.
+
+    (The `confirm` token itself survives: the gateway's token is 32 hex
+    characters and the renderer's cell width is never below 40. It is printed on
+    stderr as well, by :func:`_echo_bulk_preview`, so a copy-paste never depends
+    on that arithmetic staying true.)
+
+    So the human rendering of a preview is the stderr report, and the document on
+    stdout falls back to JSON when the format would have been a table. Every
+    other format round-trips nested values whole and is left alone.
+    """
+    fmt = ctx.obj.output_format or detect_output_format()
+    if fmt == "table":
+        fmt = "json"
+    if not ctx.obj.quiet:
+        click.echo(format_output(preview, fmt))
 
 
 def _bulk_state_line(status: dict) -> str:
@@ -556,43 +673,69 @@ def _bulk_state_line(status: dict) -> str:
 
 
 def _wait_for_bulk(ctx: click.Context, ms: Mailsec, bulk_id: str, timeout: int,
-                   poll_interval: float) -> dict:
-    """Poll a bulk job until it settles, bounded by *timeout*.
+                   poll_interval: int) -> dict:
+    """Poll a bulk job until it settles, narrating each poll.
 
-    Every exit emits exactly one terminal line — settled, stalled, or timed out —
-    so a watcher never ends in silence and a caller never has to infer which of
-    the three happened from the absence of the other two.
-
-    `stalled` is terminal HERE even though the job is not finished, because there
-    is deliberately no automatic resumption: the record is not being heartbeaten,
-    so no amount of further polling will move it. The repair is stated instead.
+    The loop itself lives in the SDK (:meth:`Mailsec.wait_for_bulk`), where a
+    caller that is not this CLI can have it too. This is the narration half:
+    progress lines while the job is moving, and nothing at the end, because the
+    single terminal line is :func:`_bulk_outcome`'s to write next to the exit
+    code it chooses.
     """
-    deadline = time.monotonic() + timeout
-    status = ms.bulk_action_status(bulk_id)
-    while True:
-        if status.get("state") != "running":
-            _note(ctx, f"bulk {bulk_id} settled: {_bulk_state_line(status)}")
-            return status
-        if status.get("stalled"):
-            _note(
+    def _on_poll(status: dict) -> None:
+        if status.get("state") == "running" and not status.get("stalled"):
+            note(ctx, f"bulk {bulk_id} {_bulk_state_line(status)}")
+
+    return ms.wait_for_bulk(bulk_id, timeout=timeout, poll_interval=poll_interval,
+                            on_poll=_on_poll)
+
+
+def _bulk_outcome(ctx: click.Context, bulk_id: str, status: dict, timeout: int) -> int:
+    """Say how the job ended, once, and return the exit code that means it.
+
+    Exactly one terminal line per exit, so a watcher never ends in silence, and
+    the code is the machine-readable half of the same sentence: a runbook chained
+    with `&&` must stop when nothing was remediated, and must not stop merely
+    because some members were already where the action would have put them.
+    """
+    line = _bulk_state_line(status)
+    counts = status.get("counts") or {}
+    if status.get("stalled"):
+        note(
+            ctx,
+            f"bulk {bulk_id} is STALLED: {line} — no worker has touched it within its "
+            f"heartbeat window. Re-send the same execute request with the same confirmation "
+            f"token to finish it; nothing is acted on twice.",
+        )
+        return 1
+    if status.get("state") == "interrupted":
+        note(
+            ctx,
+            f"bulk {bulk_id} settled: {line} — INTERRUPTED: the job was finalized before "
+            f"every member was acted on. The outcomes above are real; inspect them with "
+            f"`limacharlie mailsec message bulk-status {bulk_id}`.",
+        )
+        return 1
+    if status.get("state") == "complete":
+        # Per-item failures inside an otherwise successful batch are the caller's
+        # data, not an error. Zero successes and at least one failure is not:
+        # nothing was remediated, and a chained command must not run as if it was.
+        if not counts.get("ok") and counts.get("failed"):
+            note(
                 ctx,
-                f"bulk {bulk_id} is STALLED: {_bulk_state_line(status)} — no worker has "
-                f"touched it within its heartbeat window. Re-send the same execute with the "
-                f"same --confirm and --msg-uuids to finish it; nothing is acted on twice.",
+                f"bulk {bulk_id} settled: {line} — NOTHING WAS REMEDIATED: every attempted "
+                f"member failed. `limacharlie mailsec message bulk-status {bulk_id}` has the "
+                f"per-message reason.",
             )
-            return status
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            _note(
-                ctx,
-                f"bulk {bulk_id} still running after {timeout}s: {_bulk_state_line(status)} — "
-                f"the job is unaffected; keep polling with "
-                f"`limacharlie mailsec message bulk-status {bulk_id}`",
-            )
-            return status
-        _note(ctx, f"bulk {bulk_id} {_bulk_state_line(status)}")
-        time.sleep(min(poll_interval, remaining))
-        status = ms.bulk_action_status(bulk_id)
+            return 1
+        note(ctx, f"bulk {bulk_id} settled: {line}")
+        return 0
+    note(
+        ctx,
+        f"bulk {bulk_id} still running after {timeout}s: {line} — the job is unaffected; "
+        f"keep polling with `limacharlie mailsec message bulk-status {bulk_id}`",
+    )
+    return 1
 
 
 def _tri_state(flag: bool, no_flag: bool, name: str) -> bool | None:
@@ -912,47 +1055,46 @@ def message_revisions(ctx, msg_uuid) -> None:
               help="The action to apply to every selected message: " + "|".join(BULK_ACTIONS) + ".")
 @click.option("--msg-uuids", "msg_uuids", multiple=True,
               help="Message ids, comma-separated and/or repeatable. Combined with --input-file.")
-@click.option("--input-file", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="File of message ids, one per line (commas also accepted).")
+@click.option("--input-file", default=None,
+              type=click.Path(exists=True, dir_okay=False, allow_dash=True),
+              help="File of message ids: a JSON/YAML list, or one per line. '-' reads stdin, and "
+                   "stdin is also read when neither this nor --msg-uuids is given.")
 @click.option("--attempt", default=None,
               help="Idempotency token. It is part of the confirmation, so a NEW attempt over the "
                    "same selection is a deliberate second run rather than a re-run of the first.")
 @click.option("--banner", default=None, help="Banner HTML, for banner_message. Applies to the whole batch.")
 @click.option("--confirm", default=None,
-              help="Execute directly with a token from an earlier --preview-only, skipping this "
-                   "command's own preview. The token is bound to the selection it was minted over, "
-                   "so pass the identical --msg-uuids.")
-@click.option("--preview-only", is_flag=True, default=False,
-              help="Stop after the preview and print it, including the confirm token, so a script "
-                   "can review and then execute in a second call.")
-@click.option("--yes", "-y", is_flag=True, default=False,
-              help="Skip the interactive confirmation. The preview still runs and is still shown.")
+              help="Pass the token the preview returned to EXECUTE. Omit to preview. The token is "
+                   "derived from the action, the attempt and the member list, so the execute must "
+                   "repeat the identical --action, --msg-uuids and --attempt.")
 @click.option("--wait/--no-wait", default=True,
               help="Poll until the job settles (default), or return as soon as it is accepted.")
-@click.option("--timeout", default=300, type=int, help="Maximum seconds to wait (default: 300).")
-@click.option("--poll-interval", default=3.0, type=float, help="Seconds between polls (default: 3).")
+@click.option("--timeout", default=300, type=click.IntRange(min=5),
+              help="Maximum seconds to wait (default: 300).")
+@click.option("--poll-interval", default=3, type=click.IntRange(min=1),
+              help="Seconds between polls (default: 3).")
 @pass_context
 def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner, confirm,
-                        preview_only, yes, wait, timeout, poll_interval) -> None:
+                        wait, timeout, poll_interval) -> None:
     """Remediate a set of messages you name, in bulk (mailsec.act).
 
     \b
-    Previews, asks, then executes asynchronously and polls. The preview's
-    confirm token is bound to the exact selection, so the set you approve
-    is the set that runs. Up to 500 per call; a larger one is refused
+    Previews unless --confirm is given, like `campaign action` and
+    `hunt remediate`. The preview prints its confirm token, which is
+    bound to the action, the attempt and the exact selection: repeat all
+    three on the execute. Up to 500 per call; a larger one is refused
     rather than truncated.
 
     \b
-    Example:
-      limacharlie mailsec message bulk-action --action trash_message --msg-uuids a,b,c
-      limacharlie mailsec message bulk-action --action quarantine_message --input-file uuids.txt --yes
-    """
-    if preview_only and confirm:
-        raise click.UsageError(
-            "--preview-only and --confirm are opposite halves of the same two-step: the first "
-            "mints a token, the second spends one"
-        )
+    The exit code carries the outcome: 0 for a completed job that acted on
+    something, non-zero for not-accepted, all-failed, interrupted, stalled,
+    timed-out, or a failed poll.
 
+    \b
+    Example:
+      limacharlie mailsec message bulk-action --action trash_message --msg-uuids 0057db2b-...
+      limacharlie mailsec message bulk-action --action trash_message --msg-uuids 0057db2b-... --confirm 3f31ed...
+    """
     # ONE list, normalized once, used by both calls. Rebuilding it between the
     # preview and the execute would be a second chance to disagree with the set
     # the operator just approved, which is exactly what the token exists to catch.
@@ -961,39 +1103,52 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
 
     if not confirm:
         preview = ms.bulk_action_preview(action_name, selection, attempt=attempt)
-        if preview_only:
-            _output(ctx, preview)
-            return
         _echo_bulk_preview(ctx, preview)
-        confirm = preview.get("confirm")
-        if not confirm:
-            raise click.ClickException("the preview returned no confirmation token; refusing to execute")
-        if not yes:
-            # Consent has to be given by someone who saw the preview. With --quiet
-            # it was suppressed, and off a TTY nobody is there to read it, so both
-            # are refused with the flag that says "I already decided" rather than
-            # prompted into a stream that cannot answer.
-            if ctx.obj.quiet or not sys.stdin.isatty():
-                raise click.UsageError(
-                    "not running interactively: pass --yes to execute without the prompt, or "
-                    "--preview-only to review the selection first"
-                )
-            click.confirm(
-                f"Apply {action_name} to {len(selection)} message(s)?",
-                abort=True, err=True,
-            )
+        _output_preview(ctx, preview)
+        return
 
     accepted = ms.bulk_action_execute(
         action_name, selection, confirm, attempt=attempt, banner=banner,
     )
     bulk_id = accepted.get("bulk_id")
-    if not wait or not bulk_id:
+    if not accepted.get("accepted") or not bulk_id:
+        # The response says it did not take the job. Reporting success here is
+        # how a runbook proceeds to its next step over mail nobody touched.
+        note(ctx, "the bulk execute was NOT accepted; nothing is running")
+        _output(ctx, accepted)
+        ctx.exit(1)
+        return
+
+    # The handle, on stderr, BEFORE anything that can fail. A poll that 502s
+    # after this still leaves the operator holding the id of a job that is
+    # running; one that 502s before it would have orphaned the job entirely.
+    note(ctx, f"bulk {bulk_id} accepted")
+    if not accepted.get("started", True):
+        note(ctx, f"bulk {bulk_id} already existed; adopting it rather than acting twice")
+
+    if not wait:
         _output(ctx, accepted)
         return
 
-    if not accepted.get("started", True):
-        _note(ctx, f"bulk {bulk_id} already existed; adopting it rather than acting twice")
-    _output(ctx, _wait_for_bulk(ctx, ms, bulk_id, timeout, poll_interval))
+    try:
+        status = _wait_for_bulk(ctx, ms, bulk_id, timeout, poll_interval)
+    except Exception as e:
+        note(ctx, f"bulk {bulk_id} accepted, but polling it failed: {e}")
+        note(
+            ctx,
+            f"the job is unaffected; resume with: "
+            f"limacharlie mailsec message bulk-status {bulk_id}",
+        )
+        # The acceptance is what stdout has to carry: it is the document that
+        # holds the bulk_id, and stdout stays one parseable document either way.
+        _output(ctx, accepted)
+        ctx.exit(1)
+        return
+
+    _output(ctx, status)
+    code = _bulk_outcome(ctx, bulk_id, status, timeout)
+    if code:
+        ctx.exit(code)
 
 
 @message_group.command("bulk-status")

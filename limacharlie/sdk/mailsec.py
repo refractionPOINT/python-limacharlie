@@ -44,7 +44,8 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from typing import Any, TYPE_CHECKING
+import time
+from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as _quote
 
 if TYPE_CHECKING:
@@ -78,6 +79,17 @@ BULK_ACTIONS = (
     "banner_message",
     "unbanner_message",
 )
+
+
+# The states in which a bulk job has stopped moving of its own accord.
+#
+# ``interrupted`` belongs here with ``complete``: a worker that lost its pod
+# finalizes the record with whatever outcomes it had, so the answer has already
+# arrived and polling for a different one only burns the wait. What is NOT here
+# is ``stalled``, which is a flag on a still-``running`` record rather than a
+# state, and which is terminal for a different reason — see
+# :meth:`Mailsec.wait_for_bulk`.
+BULK_TERMINAL_STATES = ("complete", "interrupted")
 
 
 def normalize_bulk_selection(msg_uuids: Any) -> list[str]:
@@ -657,6 +669,52 @@ class Mailsec:
             a lost action.
         """
         return self._get(f"actions/bulk/{_seg(bulk_id)}")
+
+    def wait_for_bulk(
+        self,
+        bulk_id: str,
+        timeout: int = 300,
+        poll_interval: int = 3,
+        *,
+        on_poll: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Poll a bulk action until it stops moving, bounded by *timeout*.
+
+        Three things stop the loop, and they are deliberately not one thing:
+
+        - the job reached a state in :data:`BULK_TERMINAL_STATES`;
+        - ``stalled`` is true, which is terminal even though the job is not
+          finished, because there is no automatic resumption — the record is not
+          being heartbeaten, so no amount of further polling will move it;
+        - the deadline passed, which says nothing about the job.
+
+        Args:
+            bulk_id: The handle returned by :meth:`bulk_action_execute`.
+            timeout: Maximum seconds to wait.
+            poll_interval: Seconds between polls.
+            on_poll: Called with each status document as it arrives, for a
+                caller that wants to narrate progress. It is invoked for the
+                terminal poll too, so a caller that only wants progress should
+                filter on the state itself.
+
+        Returns:
+            dict: The LAST status document, whichever of the three stopped the
+            loop. There is no timeout exception, following :meth:`Jobs.wait`:
+            a document that comes back ``running`` and not ``stalled`` is one
+            the deadline ended, and the distinction is the caller's to draw
+            because only the caller knows what it wants to do about it.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            status = self.bulk_action_status(bulk_id)
+            if on_poll is not None:
+                on_poll(status)
+            if status.get("state") in BULK_TERMINAL_STATES or status.get("stalled"):
+                return status
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return status
+            time.sleep(min(poll_interval, remaining))
 
     # ------------------------------------------------------------------
     # Campaigns

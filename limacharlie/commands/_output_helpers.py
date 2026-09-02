@@ -23,3 +23,20 @@ def command_output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
+
+
+def note(ctx: click.Context, text: str) -> None:
+    """Narrate one line to STDERR, suppressed by --quiet.
+
+    The counterpart to :func:`command_output`, and the reason it exists is the
+    split: a command that makes several calls and prints each of them emits
+    several documents where ``--output json`` promises one. Progress, warnings
+    and the handle for a job that is still running belong beside the operator on
+    stderr; the result belongs in the pipe.
+
+    Args:
+        ctx: Click context carrying obj.quiet.
+        text: The line to narrate.
+    """
+    if not ctx.obj.quiet:
+        click.echo(text, err=True)
