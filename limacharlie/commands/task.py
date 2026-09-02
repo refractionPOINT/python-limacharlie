@@ -78,6 +78,8 @@ The --task value is the full command string.  Common task commands:
 
   File system:
     dir_list <path>             - List a directory
+    dir_find <path>             - Find files by size, mtime or hash (bounded)
+    file_grep <path> -p <str>   - Search file contents for a literal (bounded)
     file_get <path>             - Retrieve a file as artifact
     file_del <path>             - Delete a file
     file_hash <path>            - Get hash of a file
@@ -98,7 +100,8 @@ The --task value is the full command string.  Common task commands:
 
   Scanning:
     yara_scan <rule> <path>     - YARA scan a file or directory
-    artifact_get <path>         - Collect an artifact (file/log)
+    artifact_get --file <path>  - Collect one file as an artifact
+    artifact_get --root-dir <p> - Collect many files as artifacts (bounded)
 
   System info:
     os_version                  - Get OS version info
@@ -106,6 +109,16 @@ The --task value is the full command string.  Common task commands:
     os_autoruns                 - List autorun entries
     os_users                    - List local user accounts (Win)
     history_dump                - Dump recent telemetry
+    container_list              - List containers and images (Linux only)
+
+The commands marked (bounded) stop at whichever budget is reached first
+and report that in the reply via SCAN_IS_TRUNCATED and
+SCAN_STOPPED_REASON, so an empty result is not necessarily a clean host.
+Widen with --depth, --limit, --max-seconds and --max-files-scanned.
+
+This list is not exhaustive.  The task string is parsed by the backend,
+not by this CLI, so the full and current set of commands and flags is
+documented at https://docs.limacharlie.io/8-reference/endpoint-commands.
 
 This command does not wait for a response.  To see results, use
 'limacharlie task request' (synchronous) or 'limacharlie stream events'.
