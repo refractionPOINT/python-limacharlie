@@ -1,5 +1,6 @@
 """Tests for limacharlie.discovery module."""
 
+import click
 import pytest
 
 from limacharlie.discovery import (
@@ -17,7 +18,7 @@ class TestProfiles:
         expected = [
             "sensor_management", "detection_engineering", "historical_data",
             "live_investigation", "threat_response", "fleet_management",
-            "platform_admin", "ai_powered",
+            "platform_admin", "ai_powered", "cases", "email_security",
         ]
         for name in expected:
             assert name in PROFILES, f"Missing profile: {name}"
@@ -41,6 +42,61 @@ class TestProfiles:
         assert len(profiles) == len(PROFILES)
         names = [p[0] for p in profiles]
         assert "sensor_management" in names
+
+
+def _leaf_paths(cmd: click.BaseCommand, prefix: list[str]) -> list[str]:
+    """Every runnable command path under ``cmd``, space-joined."""
+    if isinstance(cmd, click.Group):
+        paths = []
+        for name, sub in cmd.commands.items():
+            paths.extend(_leaf_paths(sub, prefix + [name]))
+        return paths
+    return [" ".join(prefix)]
+
+
+class TestMailsecCoverage:
+    """Pin ``mailsec`` command coverage in PROFILES.
+
+    ``limacharlie help discover`` is how an operator (or an agent) finds
+    out a command exists at all, so a verb that never appears in any
+    profile is effectively invisible. These tests fail when the mailsec
+    surface and the discovery map drift apart in either direction.
+    """
+
+    @staticmethod
+    def _mailsec_paths() -> set[str]:
+        from limacharlie.commands.mailsec import group as mailsec_group
+
+        return set(_leaf_paths(mailsec_group, ["mailsec"]))
+
+    @staticmethod
+    def _profiled_paths() -> set[str]:
+        return {
+            cmd
+            for profile in PROFILES.values()
+            for cmd in profile["commands"]
+            if cmd.split()[0] == "mailsec"
+        }
+
+    def test_every_mailsec_command_is_discoverable(self):
+        """A new mailsec verb must be added to a discovery profile."""
+        missing = self._mailsec_paths() - self._profiled_paths()
+        if missing:
+            pytest.fail(
+                "mailsec commands that no discovery profile lists, so "
+                "'limacharlie help discover' cannot surface them:\n\n"
+                + "\n".join(f'    "{cmd}",' for cmd in sorted(missing))
+                + "\n\n  Add them to the 'email_security' profile in "
+                "limacharlie/discovery.py."
+            )
+
+    def test_no_stale_mailsec_entries(self):
+        """A profile must not advertise a mailsec verb that no longer exists."""
+        stale = self._profiled_paths() - self._mailsec_paths()
+        assert not stale, (
+            f"Discovery profiles list mailsec commands that do not exist: "
+            f"{sorted(stale)}. Remove or rename them in limacharlie/discovery.py."
+        )
 
 
 class TestExplainRegistry:
