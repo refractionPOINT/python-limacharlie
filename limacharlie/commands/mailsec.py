@@ -192,6 +192,13 @@ execute must therefore repeat the IDENTICAL --action, --msg-uuids and
 --attempt the preview was minted with; change any of the three and the
 server refuses the token as stale rather than acting on a set nobody read.
 
+--reason is NOT one of them. It is your justification, recorded on the
+job's audit row and on every message's, and it belongs to the execute
+alone — rewording it does not invalidate a token you already hold, and
+does not start a second job over the same messages. Passing it to a
+preview does nothing, which the command says rather than accepting it
+quietly.
+
 Expired ids and already-done messages are REPORTED, not errors and not
 dropped. They stay in the confirmed set, and the provider re-checks each
 one and answers `skipped` — the index only records where remediation last
@@ -1063,6 +1070,10 @@ def message_revisions(ctx, msg_uuid) -> None:
               help="Idempotency token. It is part of the confirmation, so a NEW attempt over the "
                    "same selection is a deliberate second run rather than a re-run of the first.")
 @click.option("--banner", default=None, help="Banner HTML, for banner_message. Applies to the whole batch.")
+@click.option("--reason", default=None,
+              help="Why you are doing this. Recorded on the job's audit row and on every message's, "
+                   "the same way `message action --reason` records one. It is NOT part of the "
+                   "confirmation, so rewording it does not invalidate a token or start a second job.")
 @click.option("--confirm", default=None,
               help="Pass the token the preview returned to EXECUTE. Omit to preview. The token is "
                    "derived from the action, the attempt and the member list, so the execute must "
@@ -1074,7 +1085,7 @@ def message_revisions(ctx, msg_uuid) -> None:
 @click.option("--poll-interval", default=3, type=click.IntRange(min=1),
               help="Seconds between polls (default: 3).")
 @pass_context
-def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner, confirm,
+def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner, reason, confirm,
                         wait, timeout, poll_interval) -> None:
     """Remediate a set of messages you name, in bulk (mailsec.act).
 
@@ -1093,7 +1104,7 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
     \b
     Example:
       limacharlie mailsec message bulk-action --action trash_message --msg-uuids 0057db2b-...
-      limacharlie mailsec message bulk-action --action trash_message --msg-uuids 0057db2b-... --confirm 3f31ed...
+      limacharlie mailsec message bulk-action --action trash_message --msg-uuids 0057db2b-... --confirm 3f31ed... --reason "INC-4471"
     """
     # ONE list, normalized once, used by both calls. Rebuilding it between the
     # preview and the execute would be a second chance to disagree with the set
@@ -1102,13 +1113,19 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
     ms = _get_mailsec(ctx)
 
     if not confirm:
+        if reason:
+            # Said out loud rather than dropped. The preview mints the
+            # confirmation and takes no reason by design — one that reached it
+            # could end up in the token, which would mean rewording a
+            # justification invalidated a selection somebody already approved.
+            note(ctx, "--reason applies to the execute, not the preview; pass it again with --confirm")
         preview = ms.bulk_action_preview(action_name, selection, attempt=attempt)
         _echo_bulk_preview(ctx, preview)
         _output_preview(ctx, preview)
         return
 
     accepted = ms.bulk_action_execute(
-        action_name, selection, confirm, attempt=attempt, banner=banner,
+        action_name, selection, confirm, attempt=attempt, banner=banner, reason=reason,
     )
     bulk_id = accepted.get("bulk_id")
     if not accepted.get("accepted") or not bulk_id:
