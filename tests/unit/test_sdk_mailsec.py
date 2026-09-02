@@ -2,11 +2,11 @@
 
 import json
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from limacharlie.sdk.mailsec import Mailsec
+from limacharlie.sdk.mailsec import BULK_TERMINAL_STATES, Mailsec, normalize_bulk_selection
 
 
 OID = "11111111-2222-3333-4444-555555555555"
@@ -289,6 +289,210 @@ class TestRules:
         assert body["since"] == "2026-08-01"
 
 
+class TestBulkSelectionNormalization:
+    """The confirmation token is DERIVED from the normalized member list, so
+    this function is the contract and not a tidy-up: if the client's
+    normalization disagreed with the server's, a preview a human approved would
+    mint a token its own execute could not spend."""
+
+    def test_duplicates_collapse_and_order_is_canonical(self):
+        assert normalize_bulk_selection(["b", "a", "b", " a "]) == ["a", "b"]
+
+    def test_reordering_the_input_does_not_change_the_selection(self):
+        """The property the token binding rests on: the same SET is the same
+        list, whatever order a caller happened to build it in."""
+        assert normalize_bulk_selection(["c", "a", "b"]) == normalize_bulk_selection(["b", "c", "a"])
+
+    def test_blank_entries_are_dropped_not_sent(self):
+        assert normalize_bulk_selection(["a", "", "   ", "b"]) == ["a", "b"]
+
+    def test_an_empty_selection_is_refused(self):
+        with pytest.raises(ValueError, match="at least one msg_uuid"):
+            normalize_bulk_selection([])
+
+    def test_a_selection_of_only_blanks_is_refused(self):
+        """Empty AFTER normalization is still empty; a caller that passed
+        whitespace gets the same refusal as one who passed nothing."""
+        with pytest.raises(ValueError, match="at least one msg_uuid"):
+            normalize_bulk_selection(["", "  "])
+
+    def test_a_bare_string_is_refused_rather_than_split_into_characters(self):
+        with pytest.raises(ValueError, match="not a single string"):
+            normalize_bulk_selection("0057db2b-3a06-5aab-b3be-c1e6c15dcf10")
+
+    def test_the_cap_is_not_enforced_client_side(self):
+        """500 is the SERVER's policy and it refuses an oversized selection
+        rather than truncating it. A client that trimmed to fit would leave the
+        remainder in inboxes nobody looks at, and the caller would never learn
+        it had happened."""
+        assert len(normalize_bulk_selection([f"m{i:04d}" for i in range(900)])) == 900
+
+
+class TestBulkRemediation:
+    def test_preview_sends_the_normalized_selection(self, ms, mock_org):
+        ms.bulk_action_preview("quarantine_message", ["b", "a", "a"], attempt="inc-1")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/preview"
+        assert body == {
+            "action": "quarantine_message",
+            "msg_uuids": ["a", "b"],
+            "attempt": "inc-1",
+        }
+
+    def test_preview_omits_an_absent_attempt(self, ms, mock_org):
+        """attempt participates in the token, so an absent one and an empty one
+        are different selections. Sending "" for absent would mint a token the
+        server derived over a different input."""
+        ms.bulk_action_preview("trash_message", ["a"])
+        _, body = _post_call(mock_org)
+        assert "attempt" not in body
+
+    def test_execute_carries_the_confirmation_and_the_same_list(self, ms, mock_org):
+        ms.bulk_action_execute("trash_message", ["b", "a"], "tok-1", attempt="inc-1")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/execute"
+        assert body == {
+            "action": "trash_message",
+            "msg_uuids": ["a", "b"],
+            "confirm": "tok-1",
+            "attempt": "inc-1",
+        }
+
+    def test_preview_and_execute_agree_on_the_wire_selection(self, ms, mock_org):
+        """The binding property, asserted where it is actually observable: two
+        differently-ordered spellings of one set produce byte-identical
+        msg_uuids on both routes, so a token minted by the preview is spendable
+        by the execute."""
+        ms.bulk_action_preview("trash_message", ["c", "a", "b"])
+        _, preview_body = _post_call(mock_org)
+        ms.bulk_action_execute("trash_message", ["b", "c", "a"], "tok-1")
+        _, execute_body = _post_call(mock_org)
+        assert preview_body["msg_uuids"] == execute_body["msg_uuids"] == ["a", "b", "c"]
+
+    def test_banner_is_spelled_banner_on_the_wire(self, ms, mock_org):
+        """`banner` is the PUBLIC spelling; the gateway translates it to the
+        collector's `banner_html` (mailsecBulkExecuteArgs). Its allow-list
+        happens to forward a literal `banner_html` too, so both would in fact
+        work — but only `banner` is in the documented body schema, and pinning
+        the documented name is what keeps this client on the contract rather
+        than on an implementation detail of the forwarder."""
+        ms.bulk_action_execute("banner_message", ["a"], "tok", banner="<b>caution</b>")
+        _, body = _post_call(mock_org)
+        assert body["banner"] == "<b>caution</b>"
+        assert "banner_html" not in body
+
+    def test_execute_omits_absent_optionals(self, ms, mock_org):
+        ms.bulk_action_execute("trash_message", ["a"], "tok")
+        _, body = _post_call(mock_org)
+        assert set(body) == {"action", "msg_uuids", "confirm"}
+
+    def test_an_empty_selection_never_reaches_the_network(self, ms, mock_org):
+        for call in (
+            lambda: ms.bulk_action_preview("trash_message", []),
+            lambda: ms.bulk_action_execute("trash_message", [], "tok"),
+        ):
+            mock_org.client.request.reset_mock()
+            with pytest.raises(ValueError, match="at least one msg_uuid"):
+                call()
+            mock_org.client.request.assert_not_called()
+
+    def test_status_reads_the_job_by_id(self, ms, mock_org):
+        ms.bulk_action_status("bulk-1")
+        url, qp = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/bulk-1"
+        assert qp is None
+
+    def test_a_slash_in_a_bulk_id_cannot_change_the_route(self, ms, mock_org):
+        ms.bulk_action_status("a/b")
+        url, _ = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/a%2Fb"
+
+
+def _bulk_status(state="running", stalled=False, ok=0):
+    return {"bulk_id": "b", "state": state, "stalled": stalled,
+            "counts": {"total": 2, "ok": ok, "failed": 0, "pending": 2 - ok}}
+
+
+class TestWaitForBulk:
+    """Three things stop the wait, and conflating any two of them costs a real
+    operator real time: a finished job, a job nobody is working, and a deadline
+    that says nothing about the job at all."""
+
+    def test_it_polls_until_the_job_leaves_running(self, ms):
+        ms.bulk_action_status = MagicMock(side_effect=[
+            _bulk_status("running"),
+            _bulk_status("running", ok=1),
+            _bulk_status("complete", ok=2),
+        ])
+        with patch("limacharlie.sdk.mailsec.time.sleep") as sleep:
+            final = ms.wait_for_bulk("b", timeout=300, poll_interval=3)
+        assert final["state"] == "complete"
+        assert ms.bulk_action_status.call_count == 3
+        assert sleep.call_count == 2
+
+    def test_interrupted_is_terminal_too(self, ms):
+        """A worker that lost its pod finalizes the record with the outcomes it
+        had. The answer has already arrived; polling for a different one would
+        burn the whole timeout."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("interrupted", ok=1))
+        final = ms.wait_for_bulk("b", timeout=300)
+        assert final["state"] == "interrupted"
+        assert ms.bulk_action_status.call_count == 1
+
+    def test_the_terminal_states_are_the_two_the_gateway_defines(self):
+        assert BULK_TERMINAL_STATES == ("complete", "interrupted")
+
+    def test_stalled_stops_the_wait_even_though_the_job_is_running(self, ms):
+        """There is deliberately no automatic resumption: the record is not
+        being heartbeaten, so no amount of further polling will move it."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("running", stalled=True))
+        final = ms.wait_for_bulk("b", timeout=300)
+        assert final["stalled"] is True
+        assert final["state"] == "running"
+        assert ms.bulk_action_status.call_count == 1
+
+    def test_the_deadline_returns_the_last_running_document(self, ms):
+        """No exception, following Jobs.wait: a document that comes back running
+        and not stalled is one the deadline ended, and the caller is the only
+        one who knows whether that matters."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("running"))
+        with patch("limacharlie.sdk.mailsec.time.monotonic", side_effect=[0.0, 10_000.0]):
+            final = ms.wait_for_bulk("b", timeout=300)
+        assert final["state"] == "running"
+        assert final["stalled"] is False
+        assert ms.bulk_action_status.call_count == 1
+
+    def test_the_sleep_never_overshoots_the_deadline(self, ms):
+        """A 300s poll interval against a 5s timeout must not park the caller
+        for five minutes past the deadline it asked for."""
+        ms.bulk_action_status = MagicMock(return_value=_bulk_status("running"))
+        with (
+            patch("limacharlie.sdk.mailsec.time.monotonic", side_effect=[0.0, 2.0, 10.0]),
+            patch("limacharlie.sdk.mailsec.time.sleep") as sleep,
+        ):
+            ms.wait_for_bulk("b", timeout=5, poll_interval=300)
+        assert sleep.call_args.args[0] == 3.0
+
+    def test_on_poll_sees_every_status_document(self, ms):
+        """The CLI narrates from this; a callback that skipped the terminal poll
+        would make a caller reconstruct the ending from the return value."""
+        seen = []
+        ms.bulk_action_status = MagicMock(side_effect=[
+            _bulk_status("running"), _bulk_status("complete", ok=2),
+        ])
+        with patch("limacharlie.sdk.mailsec.time.sleep"):
+            ms.wait_for_bulk("b", on_poll=seen.append)
+        assert [s["state"] for s in seen] == ["running", "complete"]
+
+    def test_it_adds_no_route_of_its_own(self, ms, mock_org):
+        """It is a loop over an existing route, not a new capability. If this
+        ever issued anything else, the route inventory below would be wrong."""
+        mock_org.client.request.return_value = _bulk_status("complete", ok=2)
+        ms.wait_for_bulk("b")
+        for call in mock_org.client.request.call_args_list:
+            assert call.args == ("GET", f"mailsec/{OID}/actions/bulk/b")
+
+
 class TestPathSegmentsAreEscaped:
     """A caller-supplied id must not be able to change which route is addressed.
 
@@ -360,9 +564,14 @@ class TestRouteCoverage:
             (lambda: ms.validate_rule({}), "POST", f"mailsec/{OID}/rules/validate"),
             (lambda: ms.backtest_rule({}), "POST", f"mailsec/{OID}/rules/backtest"),
             (lambda: ms.test_connection("rec"), "POST", f"mailsec/{OID}/connections/rec/test"),
+            (lambda: ms.bulk_action_preview("trash_message", ["m"]), "POST",
+             f"mailsec/{OID}/actions/bulk/preview"),
+            (lambda: ms.bulk_action_execute("trash_message", ["m"], "tok"), "POST",
+             f"mailsec/{OID}/actions/bulk/execute"),
+            (lambda: ms.bulk_action_status("b"), "GET", f"mailsec/{OID}/actions/bulk/b"),
         ]
-        # 25 gateway routes, 25 SDK methods.
-        assert len(calls) == 25
+        # 28 gateway routes, 28 SDK methods.
+        assert len(calls) == 28
         for fn, method, expected_url in calls:
             mock_org.client.request.reset_mock()
             fn()
