@@ -1,11 +1,11 @@
 """Email Security (mailsec) commands for LimaCharlie CLI v2.
 
 Commands for the ``/mailsec`` API surface: the coverage screen, the message
-index and its drawer, the justified raw-EML download, campaigns and
-campaign-wide sweeps, sender profiles, the action audit trail, the
-abuse-mailbox report queue, standalone EML analysis, retro-hunts, custom-rule
-validation and backtest, the connection preflight, and the served onboarding
-guide.
+index and its drawer, the justified raw-EML download, bulk remediation across a
+selection you name, campaigns and campaign-wide sweeps, sender profiles, the
+action audit trail, the abuse-mailbox report queue, standalone EML analysis,
+retro-hunts, custom-rule validation and backtest, the connection preflight, and
+the served onboarding guide.
 
 Four permissions rather than the usual get/set pair, because mailsec asks to be
 trusted with four different things:
@@ -32,6 +32,8 @@ post-save preflight (``mailsec connection test``) and the served setup guide
 from __future__ import annotations
 
 import json
+import sys
+import time
 from typing import Any
 
 import click
@@ -39,7 +41,7 @@ import click
 from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
-from ..sdk.mailsec import Mailsec
+from ..sdk.mailsec import BULK_ACTIONS, Mailsec, normalize_bulk_selection
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 
@@ -161,6 +163,71 @@ over time.
 
 Examples:
   limacharlie mailsec message revisions 0057db2b-...
+"""
+
+_EXPLAIN_MESSAGE_BULK_ACTION = """\
+Remediate a set of messages you name, in bulk. Requires mailsec.act.
+
+This is what turns a search result into provider-side action: pipe ids
+out of `mailsec message list`, or paste a selection into a file, and act
+on all of them at once. Up to 500 per call — a larger selection is
+REFUSED, not truncated, because acting on the first 500 of 900 leaves
+the rest in inboxes nobody will look at. Split it yourself.
+
+PREVIEWS FIRST, ALWAYS. The preview reads the index and reports, per
+message, whether it still exists, where it is now, and whether it is
+already where the action would put it — plus the distinct-mailbox count,
+which is the blast radius you are actually approving. Then it asks. Pass
+--yes to skip the question in a script, or --preview-only to stop there.
+
+The preview's `confirm` token is DERIVED FROM THE EXACT SELECTION, not
+issued as a nonce, so it can only execute the set you read. This command
+reuses one normalized list for both calls, so that holds by construction;
+if you two-step it by hand, feed --confirm the identical --msg-uuids.
+
+Expired ids and already-done messages are REPORTED, not errors and not
+dropped. They stay in the confirmed set, and the provider re-checks each
+one and answers `skipped` — the index only records where remediation last
+put a message, and its owner may have moved it since.
+
+Execution is ASYNCHRONOUS: 500 provider writes paced to respect Microsoft
+365 / Google throttling cannot fit in one request. You get a bulk_id back
+immediately; --wait (the default) polls until the job settles. Partial
+failure is a normal, honestly-reported outcome, never a rollback.
+
+There is no --reason: the execute route does not carry one, and a
+justification that never reaches the audit trail would be worse than an
+absent one. Use `mailsec message action --reason` per message when the
+reason matters.
+
+Examples:
+  limacharlie mailsec message bulk-action --action trash_message --msg-uuids a,b,c
+  limacharlie mailsec message bulk-action --action quarantine_message --input-file uuids.txt --yes
+  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids a,b --preview-only
+  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids a,b --confirm 3f31ed...
+"""
+
+_EXPLAIN_MESSAGE_BULK_STATUS = """\
+A bulk action's progress and per-message outcomes.
+
+state is 'running', 'complete' or 'interrupted', and it answers a
+different question from the outcome: a job that finished with six
+failures is complete, because what a poller asks is whether anything is
+still moving.
+
+stalled:true means the worker that accepted the job is gone — the record
+has not been heartbeaten within its window. The repair is one more
+execute with the SAME confirmation and the same selection: every message
+already acted on collapses onto its existing action row rather than being
+acted on twice.
+
+Each item carries the action_id of its authoritative audit row, which
+`mailsec action get` expands. items is a projection of the job record and
+can lag by up to one heartbeat; it says so (items_source) rather than
+presenting itself as the audit trail.
+
+Examples:
+  limacharlie mailsec message bulk-status 8f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f
 """
 
 _EXPLAIN_CAMPAIGN_LIST = """\
@@ -395,6 +462,139 @@ def _load_json_file(path: str, param_hint: str) -> Any:
         raise click.BadParameter(f"{path} is not valid JSON: {e}", param_hint=param_hint)
 
 
+def _note(ctx: click.Context, text: str) -> None:
+    """Narrate to STDERR.
+
+    Deliberately not stdout: a bulk action makes three calls, and a command that
+    printed each of them would emit three documents where `--output json` promises
+    one. Progress belongs beside the operator, the result belongs in the pipe.
+    Suppressed by --quiet, like every other narration in this CLI.
+    """
+    if not ctx.obj.quiet:
+        click.echo(text, err=True)
+
+
+def _split_ids(text: str) -> list[str]:
+    """Split a selection on commas and whitespace, dropping blanks.
+
+    Both separators, because the two sources this reads spell a list differently:
+    a shell argument is `a,b,c` and a file is one id per line. Accepting either
+    everywhere means a caller never has to know which parser they landed in.
+    """
+    return [part for chunk in text.split(",") for part in chunk.split() if part]
+
+
+def _bulk_selection(msg_uuids: tuple[str, ...], input_file: str | None) -> list[str]:
+    """Build the ONE normalized selection both bulk calls will use.
+
+    Normalized once and reused, never rebuilt between the preview and the execute:
+    the confirmation token is derived from the member list, so a second derivation
+    is a second chance to disagree with the set a human just approved.
+    """
+    raw = list(msg_uuids)
+    if input_file:
+        try:
+            with open(input_file, "r", encoding="utf-8") as f:
+                raw.append(f.read())
+        except OSError as e:
+            raise click.BadParameter(f"cannot read {input_file}: {e}", param_hint="--input-file")
+    ids: list[str] = []
+    for chunk in raw:
+        ids.extend(_split_ids(chunk))
+    try:
+        return normalize_bulk_selection(ids)
+    except ValueError as e:
+        # An empty selection is a usage mistake, not a backend one, and it is
+        # worth saying so before a round trip that would only agree.
+        raise click.UsageError(f"{e}: pass --msg-uuids and/or --input-file")
+
+
+def _echo_bulk_preview(ctx: click.Context, preview: dict) -> None:
+    """Render the preview for a human to consent from, on stderr.
+
+    Every member is listed rather than a head of them: the point of this screen
+    is the blast radius, and a truncated one under-reports exactly the thing the
+    operator is being asked to approve.
+    """
+    summary = preview.get("summary") or {}
+    _note(ctx, "")
+    _note(ctx, f"action:        {preview.get('action')}")
+    if preview.get("has_target_state"):
+        _note(ctx, f"target state:  {preview.get('target_state')}")
+    _note(ctx, f"selected:      {preview.get('member_count')} of at most {preview.get('cap')}")
+    _note(ctx, f"mailboxes:     {summary.get('mailbox_count')}")
+    by_provider = summary.get("by_provider") or {}
+    if by_provider:
+        _note(ctx, "providers:     " + ", ".join(f"{k}={v}" for k, v in sorted(by_provider.items())))
+    _note(
+        ctx,
+        f"actionable:    {summary.get('actionable')}   "
+        f"(already in target state: {summary.get('already_in_target_state')}, "
+        f"no longer indexed: {summary.get('missing')})",
+    )
+    _note(ctx, "")
+    for m in preview.get("messages") or []:
+        if not m.get("exists"):
+            _note(ctx, f"  {m.get('msg_uuid')}  NOT IN INDEX (expired past retention, or never ingested)")
+            continue
+        flag = "  already in target state" if m.get("already_in_target_state") else ""
+        _note(
+            ctx,
+            f"  {m.get('msg_uuid')}  state={m.get('state')} "
+            f"mailbox={m.get('mailbox')} provider={m.get('provider')}{flag}",
+        )
+    _note(ctx, "")
+
+
+def _bulk_state_line(status: dict) -> str:
+    counts = status.get("counts") or {}
+    parts = ", ".join(
+        f"{k}={counts[k]}" for k in ("ok", "skipped", "failed", "alert_only", "not_found", "pending")
+        if k in counts
+    )
+    return f"state={status.get('state')} {parts}".rstrip()
+
+
+def _wait_for_bulk(ctx: click.Context, ms: Mailsec, bulk_id: str, timeout: int,
+                   poll_interval: float) -> dict:
+    """Poll a bulk job until it settles, bounded by *timeout*.
+
+    Every exit emits exactly one terminal line — settled, stalled, or timed out —
+    so a watcher never ends in silence and a caller never has to infer which of
+    the three happened from the absence of the other two.
+
+    `stalled` is terminal HERE even though the job is not finished, because there
+    is deliberately no automatic resumption: the record is not being heartbeaten,
+    so no amount of further polling will move it. The repair is stated instead.
+    """
+    deadline = time.monotonic() + timeout
+    status = ms.bulk_action_status(bulk_id)
+    while True:
+        if status.get("state") != "running":
+            _note(ctx, f"bulk {bulk_id} settled: {_bulk_state_line(status)}")
+            return status
+        if status.get("stalled"):
+            _note(
+                ctx,
+                f"bulk {bulk_id} is STALLED: {_bulk_state_line(status)} — no worker has "
+                f"touched it within its heartbeat window. Re-send the same execute with the "
+                f"same --confirm and --msg-uuids to finish it; nothing is acted on twice.",
+            )
+            return status
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _note(
+                ctx,
+                f"bulk {bulk_id} still running after {timeout}s: {_bulk_state_line(status)} — "
+                f"the job is unaffected; keep polling with "
+                f"`limacharlie mailsec message bulk-status {bulk_id}`",
+            )
+            return status
+        _note(ctx, f"bulk {bulk_id} {_bulk_state_line(status)}")
+        time.sleep(min(poll_interval, remaining))
+        status = ms.bulk_action_status(bulk_id)
+
+
 def _tri_state(flag: bool, no_flag: bool, name: str) -> bool | None:
     """Resolve a --x / --no-x pair into a tri-state.
 
@@ -425,7 +625,8 @@ def group() -> None:
 
     \b
       coverage            Mailbox coverage and analysed volume
-      message ...         The triage queue, drawer, raw EML, similar, actions, revise
+      message ...         The triage queue, drawer, raw EML, similar, actions,
+                          revise, and bulk remediation of a selection
       campaign ...        Campaigns and campaign-wide sweeps
       sender get          A sender's history with this org
       action get          One record from the action audit trail
@@ -440,7 +641,8 @@ def group() -> None:
 
 @group.group("message")
 def message_group() -> None:
-    """The message index, drawer, raw EML, similar mail, actions, verdict revision."""
+    """The message index, drawer, raw EML, similar mail, actions, verdict revision,
+    and bulk remediation across a selection you name."""
 
 
 @group.group("campaign")
@@ -703,6 +905,112 @@ def message_revisions(ctx, msg_uuid) -> None:
       limacharlie mailsec message revisions 0057db2b-...
     """
     _output(ctx, _get_mailsec(ctx).list_revisions(msg_uuid))
+
+
+@message_group.command("bulk-action")
+@click.option("--action", "action_name", required=True,
+              help="The action to apply to every selected message: " + "|".join(BULK_ACTIONS) + ".")
+@click.option("--msg-uuids", "msg_uuids", multiple=True,
+              help="Message ids, comma-separated and/or repeatable. Combined with --input-file.")
+@click.option("--input-file", default=None, type=click.Path(exists=True, dir_okay=False),
+              help="File of message ids, one per line (commas also accepted).")
+@click.option("--attempt", default=None,
+              help="Idempotency token. It is part of the confirmation, so a NEW attempt over the "
+                   "same selection is a deliberate second run rather than a re-run of the first.")
+@click.option("--banner", default=None, help="Banner HTML, for banner_message. Applies to the whole batch.")
+@click.option("--confirm", default=None,
+              help="Execute directly with a token from an earlier --preview-only, skipping this "
+                   "command's own preview. The token is bound to the selection it was minted over, "
+                   "so pass the identical --msg-uuids.")
+@click.option("--preview-only", is_flag=True, default=False,
+              help="Stop after the preview and print it, including the confirm token, so a script "
+                   "can review and then execute in a second call.")
+@click.option("--yes", "-y", is_flag=True, default=False,
+              help="Skip the interactive confirmation. The preview still runs and is still shown.")
+@click.option("--wait/--no-wait", default=True,
+              help="Poll until the job settles (default), or return as soon as it is accepted.")
+@click.option("--timeout", default=300, type=int, help="Maximum seconds to wait (default: 300).")
+@click.option("--poll-interval", default=3.0, type=float, help="Seconds between polls (default: 3).")
+@pass_context
+def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner, confirm,
+                        preview_only, yes, wait, timeout, poll_interval) -> None:
+    """Remediate a set of messages you name, in bulk (mailsec.act).
+
+    \b
+    Previews, asks, then executes asynchronously and polls. The preview's
+    confirm token is bound to the exact selection, so the set you approve
+    is the set that runs. Up to 500 per call; a larger one is refused
+    rather than truncated.
+
+    \b
+    Example:
+      limacharlie mailsec message bulk-action --action trash_message --msg-uuids a,b,c
+      limacharlie mailsec message bulk-action --action quarantine_message --input-file uuids.txt --yes
+    """
+    if preview_only and confirm:
+        raise click.UsageError(
+            "--preview-only and --confirm are opposite halves of the same two-step: the first "
+            "mints a token, the second spends one"
+        )
+
+    # ONE list, normalized once, used by both calls. Rebuilding it between the
+    # preview and the execute would be a second chance to disagree with the set
+    # the operator just approved, which is exactly what the token exists to catch.
+    selection = _bulk_selection(msg_uuids, input_file)
+    ms = _get_mailsec(ctx)
+
+    if not confirm:
+        preview = ms.bulk_action_preview(action_name, selection, attempt=attempt)
+        if preview_only:
+            _output(ctx, preview)
+            return
+        _echo_bulk_preview(ctx, preview)
+        confirm = preview.get("confirm")
+        if not confirm:
+            raise click.ClickException("the preview returned no confirmation token; refusing to execute")
+        if not yes:
+            # Consent has to be given by someone who saw the preview. With --quiet
+            # it was suppressed, and off a TTY nobody is there to read it, so both
+            # are refused with the flag that says "I already decided" rather than
+            # prompted into a stream that cannot answer.
+            if ctx.obj.quiet or not sys.stdin.isatty():
+                raise click.UsageError(
+                    "not running interactively: pass --yes to execute without the prompt, or "
+                    "--preview-only to review the selection first"
+                )
+            click.confirm(
+                f"Apply {action_name} to {len(selection)} message(s)?",
+                abort=True, err=True,
+            )
+
+    accepted = ms.bulk_action_execute(
+        action_name, selection, confirm, attempt=attempt, banner=banner,
+    )
+    bulk_id = accepted.get("bulk_id")
+    if not wait or not bulk_id:
+        _output(ctx, accepted)
+        return
+
+    if not accepted.get("started", True):
+        _note(ctx, f"bulk {bulk_id} already existed; adopting it rather than acting twice")
+    _output(ctx, _wait_for_bulk(ctx, ms, bulk_id, timeout, poll_interval))
+
+
+@message_group.command("bulk-status")
+@click.argument("bulk_id")
+@pass_context
+def message_bulk_status(ctx, bulk_id) -> None:
+    """A bulk action's progress and per-message outcomes.
+
+    \b
+    state is running|complete|interrupted. stalled:true means the worker
+    is gone — re-send the same execute to finish it.
+
+    \b
+    Example:
+      limacharlie mailsec message bulk-status 8f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f
+    """
+    _output(ctx, _get_mailsec(ctx).bulk_action_status(bulk_id))
 
 
 # ---------------------------------------------------------------------------
@@ -1017,6 +1325,8 @@ register_explain("mailsec.message.similar", _EXPLAIN_MESSAGE_SIMILAR)
 register_explain("mailsec.message.action", _EXPLAIN_MESSAGE_ACTION)
 register_explain("mailsec.message.revise", _EXPLAIN_MESSAGE_REVISE)
 register_explain("mailsec.message.revisions", _EXPLAIN_MESSAGE_REVISIONS)
+register_explain("mailsec.message.bulk-action", _EXPLAIN_MESSAGE_BULK_ACTION)
+register_explain("mailsec.message.bulk-status", _EXPLAIN_MESSAGE_BULK_STATUS)
 register_explain("mailsec.campaign.list", _EXPLAIN_CAMPAIGN_LIST)
 register_explain("mailsec.campaign.get", _EXPLAIN_CAMPAIGN_GET)
 register_explain("mailsec.campaign.action", _EXPLAIN_CAMPAIGN_ACTION)

@@ -2,10 +2,11 @@
 
 Wraps the ``/mailsec/{oid}/...`` REST routes served by the API gateway: the
 coverage screen, the message index and its drawer, the justified raw-EML
-download, analyst verdict revision and its history, campaigns, sender
-profiles, the action audit trail, the abuse-mailbox report queue and its
-reopen, standalone EML analysis, retro-hunts, custom-rule validation and
-backtest, the provider connection preflight, and the served onboarding guide.
+download, analyst verdict revision and its history, bulk remediation across a
+caller-supplied selection, campaigns, sender profiles, the action audit trail,
+the abuse-mailbox report queue and its reopen, standalone EML analysis,
+retro-hunts, custom-rule validation and backtest, the provider connection
+preflight, and the served onboarding guide.
 
 Permissions, which are four rather than the usual get/set pair because mailsec
 asks to be trusted with four different things:
@@ -56,6 +57,72 @@ if TYPE_CHECKING:
 # ten, each no longer than 280 characters.
 _MAX_RATIONALE_LINES = 10
 _MAX_RATIONALE_LEN = 280
+
+
+# The bulk remediation vocabulary, for documentation and for building help text.
+#
+# It is the per-message vocabulary plus ``move_to_spam`` and minus
+# ``submit_to_triage``: bulk-submitting 500 messages to triage is not a bulk
+# remediation but a bulk SPEND, so it sits behind a decision about cost rather
+# than behind a preview that reports placement.
+#
+# Nothing in this module validates against it. The server owns the vocabulary,
+# names the whole set in its refusal (``error_code: bulk_unsupported_action``,
+# with ``supported_actions``), and a client-side copy that went stale would
+# refuse an action the backend had just started supporting.
+BULK_ACTIONS = (
+    "quarantine_message",
+    "trash_message",
+    "move_to_spam",
+    "restore_message",
+    "banner_message",
+    "unbanner_message",
+)
+
+
+def normalize_bulk_selection(msg_uuids: Any) -> list[str]:
+    """Trim, drop blanks, deduplicate and sort a bulk selection.
+
+    This mirrors the server's own normalization step for step, and that IS the
+    contract rather than a tidy-up: the confirmation token a preview mints is
+    derived from the normalized member list, so previewing one selection and
+    executing a different one is refused instead of acting on messages nobody
+    approved. Normalizing once and reusing the result for both calls is what
+    makes the two lists provably the same list.
+
+    Deduplication is a safety property and not only a convenience — a repeated
+    id would otherwise be counted twice in the totals a human reads.
+
+    The CAP is deliberately NOT applied here. 500 is the server's policy, it is
+    re-checked on every call, and a second copy in the client would be a limit
+    that drifts. A client that silently truncated a 900-message selection to fit
+    would leave the remaining 400 in inboxes nobody is going to look at, which is
+    why the server refuses an oversized selection rather than trimming it.
+
+    Raises:
+        ValueError: when the selection is empty once blanks are dropped. A bulk
+            action over nothing is a caller bug worth surfacing rather than a
+            successful no-op.
+    """
+    if isinstance(msg_uuids, str):
+        raise ValueError(
+            "msg_uuids must be a list of message ids, not a single string: pass "
+            "[uuid] rather than uuid so a selection of one is still a selection"
+        )
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in msg_uuids or []:
+        if not isinstance(raw, str):
+            raise ValueError(f"every msg_uuid must be a string; found a {type(raw).__name__}")
+        value = raw.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    if not out:
+        raise ValueError("a bulk action needs at least one msg_uuid")
+    out.sort()
+    return out
 
 
 def _seg(value: str) -> str:
@@ -415,6 +482,181 @@ class Mailsec:
         message's disposition moved over time, read from the bottom up.
         """
         return self._get(f"messages/{_seg(msg_uuid)}/revisions")
+
+    # ------------------------------------------------------------------
+    # Bulk remediation by message id
+    # ------------------------------------------------------------------
+    #
+    # The campaign sweep's preview-then-confirm discipline over a selection the
+    # CALLER names rather than a cluster the backend clusters — which is what
+    # turns any search result (the message index, a hunt, a shell pipeline) into
+    # provider-side action.
+    #
+    # Three routes rather than two, because the execute CANNOT finish inside a
+    # request: 500 provider writes paced to respect Microsoft 365 / Google
+    # throttling do not fit the gateway's action budget. Execute therefore
+    # returns a handle and the work proceeds on the collector, so a caller polls
+    # :meth:`bulk_action_status` for outcomes.
+
+    def bulk_action_preview(
+        self,
+        action: str,
+        msg_uuids: Any,
+        *,
+        attempt: str | None = None,
+    ) -> dict[str, Any]:
+        """Report what a bulk action would do, and mint the confirmation that
+        authorizes exactly that. Requires ``mailsec.get``.
+
+        NOTHING IS CHANGED and no job is created. This reads the message index
+        and reports, per message, whether it still exists, its current verdict
+        and placement, and whether it is already where the action would put it.
+
+        It REPORTS rather than refuses. A message that expired past the 35-day
+        retention, and a message already in the target state, are both reported
+        and both stay in the confirmed set — acting on a search result taken
+        minutes ago legitimately includes both, and failing the batch over one
+        expired id would make the feature unusable at exactly the window it
+        exists for. An already-done message is still executed rather than
+        filtered out, because ``already_in_target_state`` is read off the index
+        and is ADVISORY: the index records where remediation last put a message
+        and its owner may have moved it since, so the provider re-checks and
+        answers ``skipped``.
+
+        Args:
+            action: One of :data:`BULK_ACTIONS`.
+            msg_uuids: The selection. Normalized by
+                :func:`normalize_bulk_selection` before it is sent.
+            attempt: Caller-supplied idempotency token. It participates in the
+                confirmation, so a NEW attempt over the same selection is a new
+                token, a new job, and a deliberate second run — which is the
+                escape hatch for acting on the same messages again.
+
+        Returns:
+            The per-message report in ``messages``, a ``summary``
+            (``total``/``found``/``missing``/``already_in_target_state``/
+            ``actionable``/``mailbox_count``/``by_provider`` — note
+            ``mailbox_count``, which is the blast radius an operator actually
+            reasons about), the ``cap``, and a ``confirm`` token DERIVED FROM
+            THE EXACT SELECTION. Pass that token, this action, this attempt and
+            this same list to :meth:`bulk_action_execute`; any change to the
+            selection invalidates it.
+
+        Raises:
+            ValueError: on an empty selection. An oversized one is refused by
+                the server, which names the cap and answers
+                ``error_code: bulk_too_large`` so a caller can split rather
+                than guess.
+        """
+        body: dict[str, Any] = {
+            "action": action,
+            "msg_uuids": normalize_bulk_selection(msg_uuids),
+        }
+        if attempt is not None:
+            body["attempt"] = attempt
+        return self._post("actions/bulk/preview", body)
+
+    def bulk_action_execute(
+        self,
+        action: str,
+        msg_uuids: Any,
+        confirm: str,
+        *,
+        attempt: str | None = None,
+        banner: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute a previewed bulk action. Requires ``mailsec.act``.
+
+        ASYNCHRONOUS, and the shape is not a convenience: up to 500 provider
+        writes paced by the collector's rate governor cannot fit in one request,
+        so this RETURNS IMMEDIATELY with a ``bulk_id`` and the work proceeds in
+        the background. A caller that reported "quarantined 300 messages" off
+        this response would be reporting what was asked for, not what happened;
+        poll :meth:`bulk_action_status` for that.
+
+        Idempotent by construction. The confirmation re-derives to a fixed bulk
+        id, so re-sending the same request ADOPTS the existing job rather than
+        acting twice, and each member's action collapses onto the audit row it
+        already has. That is also the repair for a job whose worker died —
+        status reports ``stalled``, and one more execute with the same
+        confirmation finishes it.
+
+        Partial failure is a normal, honestly-reported outcome and never a
+        rollback: provider actions are not transactional, and "restoring" a
+        message we quarantined is a second visible move in somebody's mailbox
+        rather than an undo.
+
+        Args:
+            action: The action the preview was taken over. It is part of the
+                confirmation, so it must match.
+            msg_uuids: The SAME selection the preview was taken over. Normalized
+                identically here, so passing the preview's own list back is
+                enough; passing a different set is refused rather than acted on.
+            confirm: The token from :meth:`bulk_action_preview`.
+            attempt: The same attempt the preview used, when one was used.
+            banner: Banner HTML for ``banner_message``, supplied once for the
+                whole batch — it carries the org's text, which is a property of
+                the org rather than of any one message.
+
+        Returns:
+            ``{"accepted": True, "bulk_id": str, "state": str, "counts": {...},
+            "member_count": int, "started": bool, "already_running": bool,
+            "already_complete": bool}``. ``started: false`` means this call
+            adopted a job that already existed, which is the idempotent path and
+            not a failure.
+
+        Note:
+            There is deliberately no ``reason``. The gateway forwards only
+            ``action``, ``msg_uuids``, ``confirm``, ``attempt`` and the banner on
+            this route, so a reason would be accepted by this client and dropped
+            in transit — a justification that silently never reaches the audit
+            trail is worse than one the caller knows it cannot give. Per-message
+            reasons remain available through :meth:`act_on_message`.
+        """
+        body: dict[str, Any] = {
+            "action": action,
+            "msg_uuids": normalize_bulk_selection(msg_uuids),
+            "confirm": confirm,
+        }
+        for key, val in (("attempt", attempt), ("banner", banner)):
+            if val is not None:
+                body[key] = val
+        return self._post("actions/bulk/execute", body)
+
+    def bulk_action_status(self, bulk_id: str) -> dict[str, Any]:
+        """A bulk action's progress and per-message outcomes. Requires
+        ``mailsec.get``.
+
+        Args:
+            bulk_id: The handle returned by :meth:`bulk_action_execute`. A
+                preview mints no job and an ordinary action id is not one;
+                either returns a typed not-found rather than a partial answer.
+
+        Returns:
+            ``state`` (``running``, ``complete`` or ``interrupted``), ``counts``
+            (``ok``/``skipped``/``failed``/``alert_only``/``not_found``/
+            ``pending``/``total``), and ``items`` — each member's ``result``,
+            its ``reason``, and the ``action_id`` of its authoritative audit row,
+            expandable through :meth:`get_action`.
+
+            ``state`` and the row's outcome are separate on purpose: a job that
+            finished with six failures is ``complete``, because the question a
+            poller asks is whether anything is still moving.
+
+            ``stalled`` is the field that makes a dead worker visible. The job
+            record is heartbeaten whether or not anything changed, so a running
+            job whose record has not moved is one nobody is working — and the
+            repair is one more execute with the same confirmation, which is safe
+            because every message already acted on collapses onto its existing
+            action row.
+
+            ``items`` is a projection of the job record rather than a re-read of
+            the audit rows (``items_source: bulk_record``), so it can lag by up
+            to one heartbeat. It says so rather than presenting itself as the
+            audit trail, because a lag that looked authoritative would look like
+            a lost action.
+        """
+        return self._get(f"actions/bulk/{_seg(bulk_id)}")
 
     # ------------------------------------------------------------------
     # Campaigns

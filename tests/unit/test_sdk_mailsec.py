@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from limacharlie.sdk.mailsec import Mailsec
+from limacharlie.sdk.mailsec import Mailsec, normalize_bulk_selection
 
 
 OID = "11111111-2222-3333-4444-555555555555"
@@ -289,6 +289,122 @@ class TestRules:
         assert body["since"] == "2026-08-01"
 
 
+class TestBulkSelectionNormalization:
+    """The confirmation token is DERIVED from the normalized member list, so
+    this function is the contract and not a tidy-up: if the client's
+    normalization disagreed with the server's, a preview a human approved would
+    mint a token its own execute could not spend."""
+
+    def test_duplicates_collapse_and_order_is_canonical(self):
+        assert normalize_bulk_selection(["b", "a", "b", " a "]) == ["a", "b"]
+
+    def test_reordering_the_input_does_not_change_the_selection(self):
+        """The property the token binding rests on: the same SET is the same
+        list, whatever order a caller happened to build it in."""
+        assert normalize_bulk_selection(["c", "a", "b"]) == normalize_bulk_selection(["b", "c", "a"])
+
+    def test_blank_entries_are_dropped_not_sent(self):
+        assert normalize_bulk_selection(["a", "", "   ", "b"]) == ["a", "b"]
+
+    def test_an_empty_selection_is_refused(self):
+        with pytest.raises(ValueError, match="at least one msg_uuid"):
+            normalize_bulk_selection([])
+
+    def test_a_selection_of_only_blanks_is_refused(self):
+        """Empty AFTER normalization is still empty; a caller that passed
+        whitespace gets the same refusal as one who passed nothing."""
+        with pytest.raises(ValueError, match="at least one msg_uuid"):
+            normalize_bulk_selection(["", "  "])
+
+    def test_a_bare_string_is_refused_rather_than_split_into_characters(self):
+        with pytest.raises(ValueError, match="not a single string"):
+            normalize_bulk_selection("0057db2b-3a06-5aab-b3be-c1e6c15dcf10")
+
+    def test_the_cap_is_not_enforced_client_side(self):
+        """500 is the SERVER's policy and it refuses an oversized selection
+        rather than truncating it. A client that trimmed to fit would leave the
+        remainder in inboxes nobody looks at, and the caller would never learn
+        it had happened."""
+        assert len(normalize_bulk_selection([f"m{i:04d}" for i in range(900)])) == 900
+
+
+class TestBulkRemediation:
+    def test_preview_sends_the_normalized_selection(self, ms, mock_org):
+        ms.bulk_action_preview("quarantine_message", ["b", "a", "a"], attempt="inc-1")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/preview"
+        assert body == {
+            "action": "quarantine_message",
+            "msg_uuids": ["a", "b"],
+            "attempt": "inc-1",
+        }
+
+    def test_preview_omits_an_absent_attempt(self, ms, mock_org):
+        """attempt participates in the token, so an absent one and an empty one
+        are different selections. Sending "" for absent would mint a token the
+        server derived over a different input."""
+        ms.bulk_action_preview("trash_message", ["a"])
+        _, body = _post_call(mock_org)
+        assert "attempt" not in body
+
+    def test_execute_carries_the_confirmation_and_the_same_list(self, ms, mock_org):
+        ms.bulk_action_execute("trash_message", ["b", "a"], "tok-1", attempt="inc-1")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/execute"
+        assert body == {
+            "action": "trash_message",
+            "msg_uuids": ["a", "b"],
+            "confirm": "tok-1",
+            "attempt": "inc-1",
+        }
+
+    def test_preview_and_execute_agree_on_the_wire_selection(self, ms, mock_org):
+        """The binding property, asserted where it is actually observable: two
+        differently-ordered spellings of one set produce byte-identical
+        msg_uuids on both routes, so a token minted by the preview is spendable
+        by the execute."""
+        ms.bulk_action_preview("trash_message", ["c", "a", "b"])
+        _, preview_body = _post_call(mock_org)
+        ms.bulk_action_execute("trash_message", ["b", "c", "a"], "tok-1")
+        _, execute_body = _post_call(mock_org)
+        assert preview_body["msg_uuids"] == execute_body["msg_uuids"] == ["a", "b", "c"]
+
+    def test_banner_is_spelled_banner_on_the_wire(self, ms, mock_org):
+        """The gateway translates `banner` to the collector's `banner_html`.
+        Sending banner_html here would be dropped by its allow-list, and
+        banner_message would run with no banner."""
+        ms.bulk_action_execute("banner_message", ["a"], "tok", banner="<b>caution</b>")
+        _, body = _post_call(mock_org)
+        assert body["banner"] == "<b>caution</b>"
+        assert "banner_html" not in body
+
+    def test_execute_omits_absent_optionals(self, ms, mock_org):
+        ms.bulk_action_execute("trash_message", ["a"], "tok")
+        _, body = _post_call(mock_org)
+        assert set(body) == {"action", "msg_uuids", "confirm"}
+
+    def test_an_empty_selection_never_reaches_the_network(self, ms, mock_org):
+        for call in (
+            lambda: ms.bulk_action_preview("trash_message", []),
+            lambda: ms.bulk_action_execute("trash_message", [], "tok"),
+        ):
+            mock_org.client.request.reset_mock()
+            with pytest.raises(ValueError, match="at least one msg_uuid"):
+                call()
+            mock_org.client.request.assert_not_called()
+
+    def test_status_reads_the_job_by_id(self, ms, mock_org):
+        ms.bulk_action_status("bulk-1")
+        url, qp = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/bulk-1"
+        assert qp is None
+
+    def test_a_slash_in_a_bulk_id_cannot_change_the_route(self, ms, mock_org):
+        ms.bulk_action_status("a/b")
+        url, _ = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/actions/bulk/a%2Fb"
+
+
 class TestPathSegmentsAreEscaped:
     """A caller-supplied id must not be able to change which route is addressed.
 
@@ -360,9 +476,14 @@ class TestRouteCoverage:
             (lambda: ms.validate_rule({}), "POST", f"mailsec/{OID}/rules/validate"),
             (lambda: ms.backtest_rule({}), "POST", f"mailsec/{OID}/rules/backtest"),
             (lambda: ms.test_connection("rec"), "POST", f"mailsec/{OID}/connections/rec/test"),
+            (lambda: ms.bulk_action_preview("trash_message", ["m"]), "POST",
+             f"mailsec/{OID}/actions/bulk/preview"),
+            (lambda: ms.bulk_action_execute("trash_message", ["m"], "tok"), "POST",
+             f"mailsec/{OID}/actions/bulk/execute"),
+            (lambda: ms.bulk_action_status("b"), "GET", f"mailsec/{OID}/actions/bulk/b"),
         ]
-        # 25 gateway routes, 25 SDK methods.
-        assert len(calls) == 25
+        # 28 gateway routes, 28 SDK methods.
+        assert len(calls) == 28
         for fn, method, expected_url in calls:
             mock_org.client.request.reset_mock()
             fn()
