@@ -13,7 +13,7 @@ PROFILES = {
     "sensor_management": {
         "description": "Sensor lifecycle, deployment, and monitoring commands",
         "commands": [
-            "sensor list", "sensor get", "sensor delete", "sensor online",
+            "sensor list", "sensor get", "sensor delete",
             "sensor wait-online", "sensor upgrade", "sensor set-version",
             "sensor export", "sensor dump", "sensor sweep",
             "tag list", "tag add", "tag remove", "tag find",
@@ -26,19 +26,19 @@ PROFILES = {
     "detection_engineering": {
         "description": "D&R rule creation, testing, deployment, and false positives",
         "commands": [
-            "rule list", "rule get", "rule create", "rule update", "rule delete",
-            "rule test", "rule replay", "rule validate", "rule export", "rule import",
-            "fp list", "fp get", "fp create", "fp delete",
+            "dr list", "dr get", "dr set", "dr delete",
+            "dr test", "dr replay", "dr validate", "dr export", "dr import",
+            "dr convert-rules",
+            "fp list", "fp get", "fp set", "fp delete",
             "replay run",
             "ai generate-rule", "ai generate-detection", "ai generate-response",
-            "dr convert-rules",
         ],
     },
     "historical_data": {
         "description": "Searching, querying, and analyzing historical telemetry",
         "commands": [
-            "search run", "search validate", "search estimate", "search interactive",
-            "search saved list", "search saved get", "search saved create", "search saved delete",
+            "search run", "search validate", "search estimate",
+            "search saved-list", "search saved-get", "search saved-create", "search saved-delete",
             "event list", "event get", "event children", "event overview", "event timeline",
             "event types", "event schema", "event retention",
             "detection list", "detection get",
@@ -76,14 +76,14 @@ PROFILES = {
             "download sensor", "download adapter", "download list",
             "sensor upgrade", "sensor set-version", "sensor export",
             "tag mass-add", "tag mass-remove",
-            "sync pull", "sync push", "sync diff",
+            "sync pull", "sync push",
         ],
     },
     "platform_admin": {
         "description": "Users, groups, API keys, billing, outputs, and organization management",
         "commands": [
-            "org info", "org list", "org create", "org delete", "org config get",
-            "org config set", "org urls", "org stats", "org errors",
+            "org info", "org list", "org create", "org delete", "org config-get",
+            "org config-set", "org urls", "org stats", "org errors",
             "user list", "user invite", "user remove", "user permissions list",
             "group list", "group create", "group delete",
             "api-key list", "api-key create", "api-key delete",

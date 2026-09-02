@@ -44,6 +44,39 @@ class TestProfiles:
         assert "sensor_management" in names
 
 
+def _resolve(path: str) -> str | None:
+    """Resolve a profile entry against the live command tree.
+
+    Returns None when the path names a real, runnable command, or a
+    human-readable reason when it does not.
+    """
+    import importlib
+
+    from limacharlie.cli import _COMMAND_MODULE_MAP
+
+    parts = path.split()
+    top = parts[0]
+    if top not in _COMMAND_MODULE_MAP:
+        return f"no top-level command named {top!r}"
+
+    modname, attr = _COMMAND_MODULE_MAP[top]
+    cmd = getattr(importlib.import_module(f"limacharlie.commands.{modname}"), attr)
+
+    for i, part in enumerate(parts[1:]):
+        parent = " ".join(parts[: i + 1])
+        if not isinstance(cmd, click.Group):
+            return f"{parent!r} takes no subcommands, so {part!r} cannot exist"
+        sub = cmd.commands.get(part)
+        if sub is None:
+            options = ", ".join(sorted(cmd.commands))
+            return f"{parent!r} has no subcommand {part!r} (it has: {options})"
+        cmd = sub
+
+    if isinstance(cmd, click.Group):
+        return f"{path!r} is a group, not a runnable command"
+    return None
+
+
 def _leaf_paths(cmd: click.BaseCommand, prefix: list[str]) -> list[str]:
     """Every runnable command path under ``cmd``, space-joined."""
     if isinstance(cmd, click.Group):
@@ -52,6 +85,38 @@ def _leaf_paths(cmd: click.BaseCommand, prefix: list[str]) -> list[str]:
             paths.extend(_leaf_paths(sub, prefix + [name]))
         return paths
     return [" ".join(prefix)]
+
+
+class TestProfileEntriesResolve:
+    """Every profile entry must name a command that actually exists.
+
+    ``limacharlie help discover`` prints these strings as literal
+    ``limacharlie <entry>`` invocations, so a rotted entry tells an
+    operator — or an agent — to run something that cannot work. This
+    catches a command being renamed or moved out from under a profile.
+
+    Note this is deliberately one-directional: it does not require that
+    every command appear in some profile. Which commands are worth
+    surfacing is a curation call, and many groups are not profiled yet.
+    """
+
+    def test_no_unresolvable_entries(self):
+        broken = []
+        for profile_name, profile in sorted(PROFILES.items()):
+            for entry in profile["commands"]:
+                reason = _resolve(entry)
+                if reason is not None:
+                    broken.append(f'    [{profile_name}] "{entry}" -> {reason}')
+
+        if broken:
+            pytest.fail(
+                "Discovery profiles advertise commands that do not exist. "
+                "'limacharlie help discover' prints these verbatim, so each "
+                "one is advice that cannot be followed:\n\n"
+                + "\n".join(broken)
+                + "\n\n  Fix the spelling, or drop the entry, in "
+                "limacharlie/discovery.py."
+            )
 
 
 class TestMailsecCoverage:
