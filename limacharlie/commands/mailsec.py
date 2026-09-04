@@ -471,6 +471,29 @@ Examples:
 # Helpers
 # ---------------------------------------------------------------------------
 
+_DEPRECATED_BANNER_HELP = (
+    "DEPRECATED and ignored. The warning banner is rendered by the server from the "
+    "organization's mailsec_policy record of type 'banners'; set the wording there."
+)
+
+
+def _note_banner_is_ignored(ctx: click.Context, banner: str | None) -> None:
+    """Say out loud that --banner went nowhere.
+
+    The flag used to carry HTML that was spliced into the recipient's mailbox
+    verbatim. It is now rendered by the server from the org's `banners` policy
+    record, escaped into a fixed template. The flag is kept, hidden and ignored
+    for one release so an existing runbook does not start failing on an unknown
+    option — but silently discarding what an operator typed is how a person ends
+    up believing they configured something they did not.
+    """
+    if not banner:
+        return
+    note(ctx, "--banner is deprecated and ignored: the banner's wording comes from the "
+              "organization's mailsec_policy record of type 'banners' "
+              "(limacharlie hive get --hive-name mailsec_policy ...)")
+
+
 def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
@@ -1003,7 +1026,7 @@ def message_similar(ctx, msg_uuid, cursor, limit) -> None:
               help="quarantine_message|trash_message|restore_message|banner_message|unbanner_message")
 @click.option("--reason", default=None, help="Recorded on the audit row.")
 @click.option("--attempt", default=None, help="Caller-supplied idempotency token.")
-@click.option("--banner", default=None, help="Banner HTML, for the banner actions.")
+@click.option("--banner", default=None, hidden=True, help=_DEPRECATED_BANNER_HELP)
 @pass_context
 def message_action(ctx, msg_uuid, action_name, reason, attempt, banner) -> None:
     """Remediate one message at the provider (mailsec.act).
@@ -1012,9 +1035,10 @@ def message_action(ctx, msg_uuid, action_name, reason, attempt, banner) -> None:
     Example:
       limacharlie mailsec message action 0057db2b-... --action quarantine_message --reason "phish"
     """
+    _note_banner_is_ignored(ctx, banner)
     ms = _get_mailsec(ctx)
     _output(ctx, ms.act_on_message(
-        msg_uuid, action_name, reason=reason, attempt=attempt, banner=banner,
+        msg_uuid, action_name, reason=reason, attempt=attempt,
     ))
 
 
@@ -1069,7 +1093,7 @@ def message_revisions(ctx, msg_uuid) -> None:
 @click.option("--attempt", default=None,
               help="Idempotency token. It is part of the confirmation, so a NEW attempt over the "
                    "same selection is a deliberate second run rather than a re-run of the first.")
-@click.option("--banner", default=None, help="Banner HTML, for banner_message. Applies to the whole batch.")
+@click.option("--banner", default=None, hidden=True, help=_DEPRECATED_BANNER_HELP)
 @click.option("--reason", default=None,
               help="Why you are doing this. Recorded on the job's audit row and on every message's, "
                    "the same way `message action --reason` records one. It is NOT part of the "
@@ -1110,6 +1134,7 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
     # preview and the execute would be a second chance to disagree with the set
     # the operator just approved, which is exactly what the token exists to catch.
     selection = _bulk_selection(msg_uuids, input_file)
+    _note_banner_is_ignored(ctx, banner)
     ms = _get_mailsec(ctx)
 
     if not confirm:
@@ -1125,7 +1150,7 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
         return
 
     accepted = ms.bulk_action_execute(
-        action_name, selection, confirm, attempt=attempt, banner=banner, reason=reason,
+        action_name, selection, confirm, attempt=attempt, reason=reason,
     )
     bulk_id = accepted.get("bulk_id")
     if not accepted.get("accepted") or not bulk_id:

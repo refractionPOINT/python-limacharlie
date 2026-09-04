@@ -1,5 +1,6 @@
 """Tests for limacharlie.sdk.mailsec module."""
 
+import warnings
 import json
 
 from unittest.mock import MagicMock, patch
@@ -142,13 +143,25 @@ class TestActions:
         assert url == f"mailsec/{OID}/messages/msg-1/actions"
         assert body == {"action": "quarantine_message", "reason": "phish"}
 
-    def test_banner_uses_the_gateway_wire_name(self, ms, mock_org):
-        ms.act_on_message("msg-1", "banner_message", banner="<div>external sender</div>")
+    def test_a_caller_supplied_banner_is_deprecated_and_never_sent(self, ms, mock_org):
+        """The banner used to travel on the request and was spliced into the
+        recipient's mailbox verbatim, so a caller chose the HTML that ran in
+        somebody else's mail client. It is rendered by the server from the org's
+        `banners` policy record now. The argument is kept and IGNORED for one
+        release — an existing script keeps working — but it warns, because a
+        field that quietly stops meaning anything is worse than one that says
+        so."""
+        with pytest.deprecated_call():
+            ms.act_on_message("msg-1", "banner_message", banner="<img src=x onerror=alert(1)>")
         _, body = _post_call(mock_org)
-        assert body == {
-            "action": "banner_message",
-            "banner_html": "<div>external sender</div>",
-        }
+        assert body == {"action": "banner_message"}
+
+    def test_a_banner_free_action_does_not_warn(self, ms, mock_org):
+        """The control for the test above: the deprecation fires on the
+        argument, not on every action."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            ms.act_on_message("msg-1", "banner_message")
 
     def test_campaign_action_previews_without_confirm(self, ms, mock_org):
         """confirm is what turns a preview into an execution. Its absence must
@@ -369,16 +382,15 @@ class TestBulkRemediation:
         _, execute_body = _post_call(mock_org)
         assert preview_body["msg_uuids"] == execute_body["msg_uuids"] == ["a", "b", "c"]
 
-    def test_banner_is_spelled_banner_on_the_wire(self, ms, mock_org):
-        """`banner` is the PUBLIC spelling; the gateway translates it to the
-        collector's `banner_html` (mailsecBulkExecuteArgs). Its allow-list
-        happens to forward a literal `banner_html` too, so both would in fact
-        work — but only `banner` is in the documented body schema, and pinning
-        the documented name is what keeps this client on the contract rather
-        than on an implementation detail of the forwarder."""
-        ms.bulk_action_execute("banner_message", ["a"], "tok", banner="<b>caution</b>")
+    def test_a_caller_supplied_banner_is_deprecated_and_never_sent(self, ms, mock_org):
+        """The bulk route mattered most: one request bannered up to 500
+        mailboxes with the caller's HTML. Nothing banner-shaped leaves the
+        client any more; the server renders each member's banner from the org's
+        `banners` policy record."""
+        with pytest.deprecated_call():
+            ms.bulk_action_execute("banner_message", ["a"], "tok", banner="<script>alert(1)</script>")
         _, body = _post_call(mock_org)
-        assert body["banner"] == "<b>caution</b>"
+        assert "banner" not in body
         assert "banner_html" not in body
 
     def test_execute_omits_absent_optionals(self, ms, mock_org):
