@@ -307,14 +307,21 @@ class TestPreviewToExecuteBinding:
         assert result.exit_code == 0, result.stderr
         ms.bulk_action_preview.assert_not_called()
 
-    def test_the_banner_is_forwarded_on_the_execute(self):
+    def test_the_banner_flag_is_ignored_and_said_so(self):
+        """--banner used to carry HTML that was spliced into up to 500 mailboxes
+        verbatim. The banner is rendered by the server from the org's `banners`
+        policy record now. The flag is accepted and ignored for one release so an
+        existing runbook does not start failing on an unknown option — and the
+        command SAYS it was ignored, because silently discarding what an operator
+        typed is how somebody ends up believing they configured something."""
         result, ms = _invoke(
             "mailsec", "message", "bulk-action", "--action", "banner_message",
             "--msg-uuids", U_A, "--confirm", TOKEN, "--banner", "<b>caution</b>",
             sdk_returns=_HAPPY,
         )
         assert result.exit_code == 0, result.stderr
-        assert ms.bulk_action_execute.call_args.kwargs["banner"] == "<b>caution</b>"
+        assert "banner" not in ms.bulk_action_execute.call_args.kwargs
+        assert "--banner is deprecated and ignored" in result.stderr + result.stdout
 
 
 class TestSelectionAssembly:
