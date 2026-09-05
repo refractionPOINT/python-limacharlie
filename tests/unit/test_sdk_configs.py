@@ -198,7 +198,7 @@ class TestConfigsFetchToFile:
 class TestAllHives:
     def test_all_hives_constant(self):
         expected = {
-            "dr-general", "dr-managed", "dr-service", "fp",
+            "acl", "dr-general", "dr-managed", "dr-service", "fp",
             "cloud_sensor", "extension_config", "yara", "lookup",
             "secret", "query", "playbook", "ai_agent",
             "ai_skill", "ai_memory", "external_adapter",

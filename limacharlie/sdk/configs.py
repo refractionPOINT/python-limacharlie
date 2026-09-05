@@ -40,6 +40,7 @@ class Configs:
 
     # All known hive names that can be synced.
     ALL_HIVES = {
+        "acl",
         "dr-general",
         "dr-managed",
         "dr-service",

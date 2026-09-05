@@ -40,6 +40,24 @@ configs.push_from_file("org.yaml", sync_outputs=True,
                        sync_hives={"dr-general": True})
 ```
 
+## ACL Scope Membership
+
+```python
+# Preserve scope membership and the ACL tags on secret records together.
+hives = {"acl": True, "secret": True}
+configs.fetch_to_file("acl.yaml", sync_hives=hives)
+results, errors = configs.push_from_file("acl.yaml", sync_hives=hives, is_dry_run=True)
+if errors:
+    raise RuntimeError("; ".join(errors))
+```
+
+ACL scopes are records under `hives.acl`; classification tags remain in each
+record's `usr_mtd.tags`. Fetching membership requires `acl.get`; writing it or
+changing `acl:` tags requires `acl.set`, alongside the existing resource permissions.
+The syncing identity must also hold each scope needed to read restricted contents.
+Do not use an `acl_restricted: true` redaction marker as replacement record data.
+See [CLI ACL sync](../cli/infrastructure.md#acl-scopes) for permission setup.
+
 ## See Also
 
 - [CLI: sync](../cli/infrastructure.md#sync) — CLI equivalents
