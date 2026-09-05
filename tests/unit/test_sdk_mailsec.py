@@ -590,12 +590,78 @@ class TestRouteCoverage:
             (lambda: ms.bulk_action_execute("trash_message", ["m"], "tok"), "POST",
              f"mailsec/{OID}/actions/bulk/execute"),
             (lambda: ms.bulk_action_status("b"), "GET", f"mailsec/{OID}/actions/bulk/b"),
+            (lambda: ms.prepare_tenant_purge(), "GET", f"mailsec/{OID}/tenant"),
+            (lambda: ms.purge_tenant("tok"), "DELETE", f"mailsec/{OID}/tenant"),
         ]
-        # 28 gateway routes, 28 SDK methods.
-        assert len(calls) == 28
+        # 30 gateway routes, 30 SDK methods.
+        assert len(calls) == 30
         for fn, method, expected_url in calls:
             mock_org.client.request.reset_mock()
             fn()
             args, _ = mock_org.client.request.call_args
             assert args[0] == method, f"{expected_url}: wrong HTTP method"
             assert args[1] == expected_url
+
+
+class TestTenantPurge:
+    """The irreversible one.
+
+    Two properties matter more than the rest: the destructive half is a DELETE
+    to its own route and cannot be reached without a token, and the token/reason
+    reach the wire as query params rather than a body the gateway would not read.
+    """
+
+    def test_prepare_is_a_read_and_mints_nothing_of_its_own(self, ms, mock_org):
+        mock_org.client.request.return_value = {
+            "confirmation": "tok", "expires_in_seconds": 300, "warning": "..."
+        }
+        assert ms.prepare_tenant_purge()["confirmation"] == "tok"
+        url, qp = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/tenant"
+        assert qp is None
+
+    def test_purge_is_a_delete_carrying_the_token_as_a_query_param(self, ms, mock_org):
+        ms.purge_tenant("tok")
+        args, kwargs = mock_org.client.request.call_args
+        assert args[0] == "DELETE"
+        assert args[1] == f"mailsec/{OID}/tenant"
+        assert kwargs["query_params"] == [("confirmation", "tok")]
+        # A DELETE with a JSON body would be silently ignored by the gateway.
+        assert kwargs.get("raw_body") is None
+
+    def test_the_audited_reason_is_forwarded(self, ms, mock_org):
+        ms.purge_tenant("tok", reason="customer offboarded")
+        _, kwargs = mock_org.client.request.call_args
+        assert kwargs["query_params"] == [
+            ("confirmation", "tok"), ("reason", "customer offboarded")
+        ]
+
+    def test_an_absent_reason_sends_no_pair(self, ms, mock_org):
+        ms.purge_tenant("tok", reason=None)
+        _, kwargs = mock_org.client.request.call_args
+        assert [k for k, _ in kwargs["query_params"]] == ["confirmation"]
+
+    def test_an_empty_reason_is_still_sent(self, ms, mock_org):
+        """`reason=""` is a caller saying "record that I gave none", which is
+        not the same as never passing the parameter."""
+        ms.purge_tenant("tok", reason="")
+        _, kwargs = mock_org.client.request.call_args
+        assert ("reason", "") in kwargs["query_params"]
+
+    @pytest.mark.parametrize("bad", ["", "   ", None])
+    def test_a_missing_token_never_reaches_the_network(self, ms, mock_org, bad):
+        with pytest.raises(ValueError):
+            ms.purge_tenant(bad)
+        mock_org.client.request.assert_not_called()
+
+    def test_an_over_long_reason_is_refused_before_the_token_is_spent(self, ms, mock_org):
+        """The token is single-use: learning about the bound from the server
+        costs a re-mint, so it is checked here."""
+        with pytest.raises(ValueError, match="1024"):
+            ms.purge_tenant("tok", reason="x" * 1025)
+        mock_org.client.request.assert_not_called()
+
+    def test_the_bound_itself_is_accepted(self, ms, mock_org):
+        ms.purge_tenant("tok", reason="x" * 1024)
+        _, kwargs = mock_org.client.request.call_args
+        assert ("reason", "x" * 1024) in kwargs["query_params"]
