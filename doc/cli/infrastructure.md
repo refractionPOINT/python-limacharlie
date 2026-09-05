@@ -45,6 +45,8 @@ It also needs the relevant scope membership to read restricted record contents;
 `acl.set` does not itself grant that read access. Do not push redacted content
 containing `acl_restricted: true` as a replacement for the original record.
 Permission failures are reported by push and produce a nonzero exit status.
+User members must use their stable UID, not an email address; API-key members
+use the key name.
 
 Existing Owner/Administrator assignments may need to be reapplied, or the new
 permissions granted explicitly, before an existing automation identity can sync ACLs.

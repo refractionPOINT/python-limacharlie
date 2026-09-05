@@ -39,7 +39,7 @@ def test_acl_pull_push_preserves_records_and_tags(tmp_path, sync_transport, flag
             "acl": {
                 "finance": {
                     "data": {"members": [
-                        {"type": "user", "id": "analyst@example.com"},
+                        {"type": "user", "id": "test-user-uid"},
                         {"type": "api_key", "id": "test-key-id"},
                         {"type": "group", "id": "test-group-id"},
                     ]},

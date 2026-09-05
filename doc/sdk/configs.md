@@ -56,6 +56,8 @@ record's `usr_mtd.tags`. Fetching membership requires `acl.get`; writing it or
 changing `acl:` tags requires `acl.set`, alongside the existing resource permissions.
 The syncing identity must also hold each scope needed to read restricted contents.
 Do not use an `acl_restricted: true` redaction marker as replacement record data.
+Use the stable UID (not email) for a user member and the key name for an API-key
+member.
 See [CLI ACL sync](../cli/infrastructure.md#acl-scopes) for permission setup.
 
 ## See Also
