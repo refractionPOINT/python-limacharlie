@@ -136,6 +136,7 @@ PROFILES = {
             "mailsec rule validate", "mailsec rule backtest",
             "mailsec connection test",
             "mailsec onboarding",
+            "mailsec tenant purge",
         ],
     },
 }

@@ -18,6 +18,7 @@
 | [Hive & Data Stores](cli/hive-data.md) | hive, secret, lookup, playbook, note, sop, adapter, cloud-sensor, extension |
 | [Infrastructure](cli/infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security](cli/cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, fleet, exports) |
+| [Email Security](cli/email-security.md) | mailsec (triage queue, EML, remediation, campaigns, reports, hunts, rules, tenant purge) |
 | [Other Commands](cli/other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover |
 
 ## SDK Reference

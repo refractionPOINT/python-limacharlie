@@ -4,8 +4,8 @@ Commands for the ``/mailsec`` API surface: the coverage screen, the message
 index and its drawer, the justified raw-EML download, bulk remediation across a
 selection you name, campaigns and campaign-wide sweeps, sender profiles, the
 action audit trail, the abuse-mailbox report queue, standalone EML analysis,
-retro-hunts, custom-rule validation and backtest, the connection preflight, and
-the served onboarding guide.
+retro-hunts, custom-rule validation and backtest, the connection preflight, the
+served onboarding guide, and the irreversible tenant purge.
 
 Four permissions rather than the usual get/set pair, because mailsec asks to be
 trusted with four different things:
@@ -16,6 +16,10 @@ trusted with four different things:
   mailsec.act      remediate live mail at the provider
   mailsec.get.eml  take the original bytes of somebody's mail out of the
                    building; requires a logged justification
+
+``mailsec tenant purge`` is the exception: it is Owner-level rather than
+analyst-level, and wants mailsec.act AND billing.ctrl AND user.ctrl — the same
+trio ``org delete`` asks for.
 
 Every command requires the org to be subscribed to the ``ext-email-security``
 extension:
@@ -466,6 +470,47 @@ Examples:
   limacharlie mailsec onboarding --provider m365
 """
 
+_EXPLAIN_TENANT_PURGE = """\
+Permanently delete everything Email Security holds for this org.
+
+THIS IS IRREVERSIBLE. It removes the message index and the long-term
+evidence lane, campaigns, sender profiles, the remediation audit trail,
+user reports, the stored raw messages and their parsed copies, the
+link-detonation results, and the org's Email Security connection and
+policy configuration. It also stops the mail connections at Microsoft
+or Google, so the provider stops sending notifications about mail there
+is no longer anywhere to put.
+
+TWO STEPS, like `org delete`:
+
+  omit --confirm         prints the warning and mints a token; nothing
+                         is deleted
+  --confirm <token>      goes through with it
+
+The token is SINGLE USE and expires after 5 minutes, so mint it
+immediately before you execute rather than early in a script.
+
+Owner-level authority, not analyst-level: mailsec.act AND billing.ctrl
+AND user.ctrl — the same trio `org delete` asks for. --reason is
+optional, at most 1024 characters, and is written to the org audit log
+next to your identity.
+
+RE-RUNNABLE. A partial purge returns complete=false and counts what did
+not land (objects_failed, subscriptions_failed, connections_unreachable,
+rows_remained) beside what did. Run it again with a fresh token and it
+picks up what remains; this command exits non-zero on complete=false so
+a script cannot mistake a half-purged tenant for a finished one.
+
+You may not need this at all. The same data is deleted automatically 30
+days after the org unsubscribes from Email Security -- resubscribing
+inside that window cancels it -- and immediately if the org itself is
+deleted.
+
+Examples:
+  limacharlie mailsec tenant purge
+  limacharlie mailsec tenant purge --confirm 3c514e... --reason "customer offboarded"
+"""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -786,6 +831,8 @@ def group() -> None:
       rule ...            Custom rule validation and backtest
       connection test     Provider connection preflight
       onboarding          Provider setup guide, with your values filled in
+      tenant purge        Permanently delete all of this org's Email Security
+                          data (two-step, irreversible, Owner-level)
     """
 
 
@@ -828,6 +875,11 @@ def rule_group() -> None:
 @group.group("connection")
 def connection_group() -> None:
     """Provider connections."""
+
+
+@group.group("tenant")
+def tenant_group() -> None:
+    """This org's Email Security tenancy as a whole."""
 
 
 # ---------------------------------------------------------------------------
@@ -1484,6 +1536,69 @@ def connection_test(ctx, record, include_watch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tenant
+# ---------------------------------------------------------------------------
+
+@tenant_group.command("purge")
+@click.option("--confirm", default=None,
+              help="Pass the token from the preview call to EXECUTE. Omit to preview.")
+@click.option("--reason", default=None,
+              help="Recorded in the org audit log with your identity (max 1024 chars).")
+@pass_context
+def tenant_purge(ctx, confirm, reason) -> None:
+    """Permanently delete all Email Security data for this org.
+
+    \b
+    Previews unless --confirm is given. IRREVERSIBLE.
+
+    \b
+    Example:
+      limacharlie mailsec tenant purge
+      limacharlie mailsec tenant purge --confirm <token> --reason "offboarding"
+    """
+    ms = _get_mailsec(ctx)
+
+    if confirm is None:
+        if reason is not None:
+            note(ctx, "note: --reason is only recorded by the executing call; "
+                      "pass it again alongside --confirm.")
+        prepared = ms.prepare_tenant_purge()
+        warning = prepared.get("warning")
+        if warning:
+            note(ctx, str(warning))
+            note(ctx, "")
+        token = prepared.get("confirmation")
+        if token:
+            expires = prepared.get("expires_in_seconds")
+            note(ctx, f"confirm:       {token}")
+            if expires is not None:
+                note(ctx, f"expires in:    {expires}s (single use)")
+            note(ctx, "")
+            note(ctx, "Nothing has been deleted. To go through with it:")
+            note(ctx, f"  limacharlie mailsec tenant purge --confirm {token}")
+        _output(ctx, prepared)
+        return
+
+    try:
+        result = ms.purge_tenant(confirm, reason=reason)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--reason" if reason else "--confirm")
+
+    _output(ctx, result)
+
+    # An incomplete purge is the outcome this verb most needs to report loudly.
+    # It is not an error — the call did what it could and says so — but a script
+    # that treats it as success leaves a half-purged tenant behind, so it is
+    # narrated on stderr and carried in the exit code as well as in `complete`.
+    if not result.get("complete"):
+        note(ctx, "")
+        note(ctx, "PURGE INCOMPLETE (complete=false). Some of the data is still there.")
+        note(ctx, "Re-run it: the purge is re-runnable and picks up what remains. "
+                  "Mint a fresh token first — tokens are single use.")
+        ctx.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Explain registration
 # ---------------------------------------------------------------------------
 
@@ -1514,3 +1629,4 @@ register_explain("mailsec.hunt.remediate", _EXPLAIN_HUNT_REMEDIATE)
 register_explain("mailsec.rule.validate", _EXPLAIN_RULE_VALIDATE)
 register_explain("mailsec.rule.backtest", _EXPLAIN_RULE_BACKTEST)
 register_explain("mailsec.connection.test", _EXPLAIN_CONNECTION_TEST)
+register_explain("mailsec.tenant.purge", _EXPLAIN_TENANT_PURGE)

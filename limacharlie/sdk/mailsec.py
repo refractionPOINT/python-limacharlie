@@ -6,7 +6,7 @@ download, analyst verdict revision and its history, bulk remediation across a
 caller-supplied selection, campaigns, sender profiles, the action audit trail,
 the abuse-mailbox report queue and its reopen, standalone EML analysis,
 retro-hunts, custom-rule validation and backtest, the provider connection
-preflight, and the served onboarding guide.
+preflight, the served onboarding guide, and the irreversible tenant purge.
 
 Permissions, which are four rather than the usual get/set pair because mailsec
 asks to be trusted with four different things:
@@ -17,6 +17,12 @@ asks to be trusted with four different things:
 - ``mailsec.act``     remediate live mail at the provider
 - ``mailsec.get.eml`` take the original bytes of somebody's mail out of the
                       building; requires a logged justification
+
+The one exception is the tenant purge (:meth:`Mailsec.prepare_tenant_purge`
+and :meth:`Mailsec.purge_tenant`), which is Owner-level rather than mailsec
+-level: it wants ``mailsec.act`` AND ``billing.ctrl`` AND ``user.ctrl``, the
+same trio org deletion asks for, because destroying a product's entire record
+for a tenant is an ownership decision rather than an analyst one.
 
 Every route additionally requires the org to be subscribed to the
 ``ext-email-security`` extension (403 otherwise)::
@@ -58,6 +64,13 @@ if TYPE_CHECKING:
 # ten, each no longer than 280 characters.
 _MAX_RATIONALE_LINES = 10
 _MAX_RATIONALE_LEN = 280
+
+
+# The audited reason on a tenant purge, bounded the same way and for the same
+# reason, with one extra: the confirmation token a purge spends is single-use
+# and lives five minutes, so learning about an over-long reason from the server
+# costs a re-mint. Checking here costs nothing.
+_MAX_PURGE_REASON_LEN = 1024
 
 
 # The bulk remediation vocabulary, for documentation and for building help text.
@@ -219,6 +232,20 @@ class Mailsec:
             query_params=query_params or None,
             raw_body=json.dumps(body).encode(),
             content_type="application/json",
+            raw_response=raw_response,
+        )
+
+    def _delete(
+        self,
+        path: str,
+        query_params: list[tuple[str, str]] | None = None,
+        *,
+        raw_response: bool = False,
+    ) -> Any:
+        return self._org.client.request(
+            "DELETE",
+            f"mailsec/{self.oid}/{path}",
+            query_params=query_params or None,
             raw_response=raw_response,
         )
 
@@ -1085,3 +1112,86 @@ class Mailsec:
         pairs: list[tuple[str, str]] = []
         _add_scalar(pairs, "provider", provider)
         return self._get("onboarding", pairs)
+
+    # ------------------------------------------------------------------
+    # Tenant purge
+    # ------------------------------------------------------------------
+
+    def prepare_tenant_purge(self) -> dict[str, Any]:
+        """Mint the single-use confirmation token a tenant purge requires.
+
+        Changes nothing. This is the read half of the same two-step shape org
+        deletion uses: it returns the warning describing what a purge would
+        destroy, plus a token that :meth:`purge_tenant` will not act without.
+        Showing a human that warning before anything is destroyed is the whole
+        reason the destructive verb cannot be reached in one call.
+
+        Requires Owner-level authority — ``mailsec.act`` AND ``billing.ctrl``
+        AND ``user.ctrl``, the same trio org deletion asks for, because there
+        is no separate "owner" permission to ask for instead.
+
+        Returns:
+            The mint, with ``confirmation`` (the token), ``expires_in_seconds``
+            (300) and ``warning`` (the human-readable statement of what is
+            about to be destroyed). The token is SINGLE-USE and expires in five
+            minutes: a purge that has to be re-run needs a fresh one, so mint
+            immediately before executing rather than early in a script.
+        """
+        return self._get("tenant")
+
+    def purge_tenant(self, confirmation: str, reason: str | None = None) -> dict[str, Any]:
+        """Permanently delete everything Email Security holds for this org.
+
+        IRREVERSIBLE, and wider than it may look: the message index and the
+        long-term evidence lane, campaigns, sender profiles, the remediation
+        audit trail, user reports, stored raw messages and their parsed copies,
+        link-detonation results, and the org's Email Security connection and
+        policy configuration. It also stops the mail connections at the
+        provider, so Microsoft or Google stops sending notifications about mail
+        this org no longer has anywhere to put.
+
+        RE-RUNNABLE, and that is the intended way to finish a partial one.
+        ``complete`` is ``False`` when some portion did not land — a provider
+        that was unreachable, an object store that refused a delete — and the
+        same call repeated picks up what remains. Nothing is double-deleted by
+        running it again. A fresh ``confirmation`` is needed for each attempt
+        because the token is single-use.
+
+        Args:
+            confirmation: The token from :meth:`prepare_tenant_purge`.
+            reason: Optional free text, at most 1024 characters, recorded in
+                the org's audit log next to the caller's identity.
+
+        Returns:
+            The outcome, whose most important field is ``complete``. The rest
+            are counts of what was removed and — deliberately alongside them —
+            what was not: ``objects_deleted``, ``mdms_deleted``,
+            ``detonation_results_deleted``, ``detonation_results_skipped``,
+            ``objects_failed``, ``tables_purged``, ``subscriptions_stopped``,
+            ``subscriptions_failed``, ``mailboxes_walked``,
+            ``provider_records_deleted``, ``policy_records_deleted``,
+            ``connections_unreachable``, ``rows_remained``. A caller that reads
+            only the successes will believe a partial purge finished.
+
+        Raises:
+            ValueError: If ``confirmation`` is empty, or ``reason`` exceeds
+                1024 characters. Both are checked here rather than left to the
+                server because a rejected request still costs the token, and
+                re-minting is a second round trip to learn something the client
+                already knew.
+        """
+        token = (confirmation or "").strip()
+        if not token:
+            raise ValueError(
+                "purge_tenant needs the confirmation token from "
+                "prepare_tenant_purge(); there is no unconfirmed form of this call"
+            )
+        pairs: list[tuple[str, str]] = [("confirmation", token)]
+        if reason is not None:
+            if len(reason) > _MAX_PURGE_REASON_LEN:
+                raise ValueError(
+                    f"reason is {len(reason)} characters; the audit log records at "
+                    f"most {_MAX_PURGE_REASON_LEN}"
+                )
+            pairs.append(("reason", reason))
+        return self._delete("tenant", pairs)
