@@ -248,7 +248,7 @@ def format_table(data: Any) -> str:
         return "No data"
 
     if isinstance(data, str):
-        return data
+        return escape_control_chars(data)
 
     if isinstance(data, dict):
         if _is_list_of_dicts(data):
@@ -267,7 +267,7 @@ def format_table(data: Any) -> str:
             rows = [[k, _table_value(v)] for k, v in data.items()]
             if tabulate is not None:
                 return tabulate(rows, headers=["Field", "Value"], tablefmt="simple")
-            return "\n".join(f"{k}: {v}" for k, v in rows)
+            return "\n".join(f"{escape_control_chars(str(k))}: {v}" for k, v in rows)
 
     if isinstance(data, list):
         if not data:
@@ -287,7 +287,7 @@ def format_table(data: Any) -> str:
             if tabulate is not None:
                 tbl = tabulate(rows, headers=selected_keys, tablefmt="simple")
             else:
-                header = "  ".join(str(k) for k in selected_keys)
+                header = "  ".join(escape_control_chars(str(k)) for k in selected_keys)
                 lines = [header]
                 for row in rows:
                     lines.append("  ".join(str(v) for v in row))
@@ -296,10 +296,12 @@ def format_table(data: Any) -> str:
                 tbl += f"\n({dropped} more field{'s' if dropped != 1 else ''} hidden, use -W to show all or --output json for full data)"
             return tbl
 
-        # List of primitives
-        return "\n".join(str(item) for item in data)
+        # List of primitives.  This is the sharpest of the table paths: `--filter
+        # 'messages[].subject'` puts one attacker-chosen string on each line with no
+        # column, no truncation and nothing between it and the terminal.
+        return "\n".join(escape_control_chars(str(item)) for item in data)
 
-    return str(data)
+    return escape_control_chars(str(data))
 
 
 def format_jsonl(data: Any) -> str:
@@ -320,9 +322,16 @@ def _select_fields(item: Any, fields: list[str]) -> Any:
 
 
 def _csv_value(v: Any) -> Any:
-    """Convert a value for CSV output."""
+    """Convert a value for CSV output.
+
+    A CSV written to a terminal is read by a terminal, so the same control-character
+    rule applies as for the table.  Dicts and lists go through JSON, which escapes
+    them already.
+    """
     if isinstance(v, (dict, list)):
         return _json_dumps(v)
+    if isinstance(v, str):
+        return escape_control_chars(v)
     return v
 
 
@@ -402,6 +411,44 @@ def _fit_columns(
     return selected, rows
 
 
+_CONTROL_CHARS = {
+    c: "\\x{:02x}".format(c)
+    for c in range(0x20)
+    if c not in (0x09,)  # TAB is the one C0 character a table legitimately contains.
+}
+_CONTROL_CHARS[0x7F] = "\\x7f"  # DEL
+# C1 (0x80-0x9F). These are what a terminal decodes as 8-bit CSI/OSC introducers, so
+# stripping only ESC would leave the same capability behind in a different encoding.
+_CONTROL_CHARS.update({c: "\\x{:02x}".format(c) for c in range(0x80, 0xA0)})
+
+_CONTROL_TRANSLATION = str.maketrans(_CONTROL_CHARS)
+
+
+def escape_control_chars(s: str) -> str:
+    """Render terminal control characters visibly instead of executing them.
+
+    The CLI prints values it did not author.  ``limacharlie mailsec message list``
+    renders email subjects, sender display names, attachment filenames and URLs --
+    every one of them chosen by whoever sent the mail -- and ``limacharlie search``
+    renders event fields the same way.  A terminal treats ESC-[ sequences in that
+    text as commands, not data, which lets a sender repaint the screen, erase the
+    lines above their row, or hide text behind a colour change.  Carriage return is
+    enough on its own: a subject ending in ``\r`` plus a fabricated row overwrites
+    the line the real values were on.
+
+    JSON and YAML output already escape these (``json.dumps`` emits ``\u001b``,
+    PyYAML emits ``\e``), so this is what brings the table and CSV renderers up to
+    the same standard rather than a new policy.
+
+    Tab survives because a table legitimately contains one.  Newline does not: a
+    single cell that spans lines breaks the row alignment that makes the table
+    readable, which is the same reason it is worth neutralising.
+    """
+    if not isinstance(s, str):
+        return s
+    return s.translate(_CONTROL_TRANSLATION)
+
+
 def _truncate(s: str, width: int) -> str:
     """Truncate a string to *width* characters, adding '...' if needed."""
     if len(s) <= width:
@@ -417,14 +464,16 @@ def _table_value(v: Any, width: int | None = None) -> str:
         width: Max character width for this cell.  When None, falls back
                to the terminal-based default from _max_value_width().
     """
+    # _json_dumps output is already control-character-safe (JSON escapes them as
+    # \uXXXX); everything reached through str() is not.
     if _wide_mode:
         if isinstance(v, dict):
             return _json_dumps(v)
         if isinstance(v, list):
-            return ", ".join(str(x) for x in v)
+            return escape_control_chars(", ".join(str(x) for x in v))
         if v is None:
             return ""
-        return str(v)
+        return escape_control_chars(str(v))
     if width is None:
         width = _max_value_width()
     if isinstance(v, dict):
@@ -434,13 +483,13 @@ def _table_value(v: Any, width: int | None = None) -> str:
         return f"{{{len(v)} keys}}"
     if isinstance(v, list):
         if len(v) <= 3:
-            s = ", ".join(str(x) for x in v)
+            s = escape_control_chars(", ".join(str(x) for x in v))
             if len(s) <= width:
                 return s
         return f"[{len(v)} items]"
     if v is None:
         return ""
-    return _truncate(str(v), width)
+    return _truncate(escape_control_chars(str(v)), width)
 
 
 def _is_list_of_dicts(data: Any) -> bool:

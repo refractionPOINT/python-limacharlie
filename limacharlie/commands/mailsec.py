@@ -1038,13 +1038,17 @@ def message_get(ctx, msg_uuid) -> None:
               help="Write the raw bytes to this path instead of to stdout. Deliberately NOT "
                    "--output: that is the global format option, and a command-level --output "
                    "would shadow it so that `--output yaml` silently wrote a file named 'yaml'.")
+@click.option("--to-terminal", is_flag=True, default=False,
+              help="Write the raw message to the terminal anyway. The bytes are the sender's, "
+                   "unmodified and unescaped, so a hostile message can repaint your screen.")
 @pass_context
-def message_eml(ctx, msg_uuid, justification, out_path) -> None:
+def message_eml(ctx, msg_uuid, justification, out_path, to_terminal) -> None:
     """Download the original bytes of a message (audited).
 
     \b
     Example:
       limacharlie mailsec message eml 0057db2b-... --justification "INC-4471"
+      limacharlie mailsec message eml 0057db2b-... --justification "INC-4471" --out-file m.eml
     """
     ms = _get_mailsec(ctx)
     data = ms.get_message_eml(msg_uuid, justification)
@@ -1054,7 +1058,20 @@ def message_eml(ctx, msg_uuid, justification, out_path) -> None:
         if not ctx.obj.quiet:
             click.echo(f"wrote {len(data)} bytes to {out_path}")
         return
-    click.get_binary_stream("stdout").write(data)
+    stdout = click.get_binary_stream("stdout")
+    # These bytes are the SENDER'S, verbatim: this is the one command in the group that
+    # emits the attacker's own message rather than the product's view of it.  A terminal
+    # executes the escape sequences in them, so a phish carrying an ANSI payload repaints
+    # the analyst's screen the moment they look at it.  Piped or redirected, that cannot
+    # happen and nothing changes -- the refusal applies only when stdout really is a
+    # terminal, which is the same line curl draws for binary output.
+    if not to_terminal and stdout.isatty():
+        raise click.UsageError(
+            "refusing to write a raw message to the terminal: these are the sender's own "
+            "bytes and a hostile message can repaint your screen. Use --out-file PATH, pipe "
+            "the command, or pass --to-terminal to write it anyway."
+        )
+    stdout.write(data)
 
 
 @message_group.command("similar")
