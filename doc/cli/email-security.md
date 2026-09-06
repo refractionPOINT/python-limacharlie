@@ -58,9 +58,11 @@ An unknown message id returns a null message rather than an error: the index has
 
 A different privilege from opening the drawer, because it takes a person's actual mail out of the building. `--justification` is required and is written to the access audit with your identity.
 
+These are the sender's own bytes, unmodified, so the command **refuses to write them to a terminal**: a hostile message carrying ANSI escape sequences would repaint your screen. Give it `--out-file`, or pipe it. Redirects and pipes are unaffected; `--to-terminal` overrides the refusal if you really want the bytes on screen. The check happens before the download, so a refusal records no access.
+
 ```bash
-limacharlie mailsec message eml <MSG_UUID> --justification "INC-4471 credential harvest"
 limacharlie mailsec message eml <MSG_UUID> --justification "..." --out-file suspect.eml
+limacharlie mailsec message eml <MSG_UUID> --justification "..." | less
 ```
 
 ## Triage & remediation

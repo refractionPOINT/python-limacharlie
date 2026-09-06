@@ -1040,7 +1040,8 @@ def message_get(ctx, msg_uuid) -> None:
                    "would shadow it so that `--output yaml` silently wrote a file named 'yaml'.")
 @click.option("--to-terminal", is_flag=True, default=False,
               help="Write the raw message to the terminal anyway. The bytes are the sender's, "
-                   "unmodified and unescaped, so a hostile message can repaint your screen.")
+                   "unmodified and unescaped, so a hostile message can repaint your screen. "
+                   "Ignored when --out-file is given, which is already not a terminal.")
 @pass_context
 def message_eml(ctx, msg_uuid, justification, out_path, to_terminal) -> None:
     """Download the original bytes of a message (audited).
@@ -1050,6 +1051,24 @@ def message_eml(ctx, msg_uuid, justification, out_path, to_terminal) -> None:
       limacharlie mailsec message eml 0057db2b-... --justification "INC-4471"
       limacharlie mailsec message eml 0057db2b-... --justification "INC-4471" --out-file m.eml
     """
+    stdout = click.get_binary_stream("stdout")
+    # Checked BEFORE the download, not after.  These bytes are the SENDER'S, verbatim: this is
+    # the one command in the group that emits the attacker's own message rather than the
+    # product's view of it, and a terminal executes the escape sequences in them.  But the
+    # download is AUDITED -- it writes an ms_actions row and emits an EMAIL_ACTION event
+    # against the caller's identity -- so refusing after the fetch would record an access that
+    # was then thrown away, and force a second one to get the bytes: two audit rows for one
+    # act, on the surface whose whole point is an honest access trail.
+    #
+    # Piped or redirected, isatty() is false and nothing changes.  Same line curl draws for
+    # binary output.
+    if not out_path and not to_terminal and stdout.isatty():
+        raise click.UsageError(
+            "refusing to write a raw message to the terminal: these are the sender's own "
+            "bytes and a hostile message can repaint your screen. Use --out-file PATH, pipe "
+            "the command, or pass --to-terminal to write it anyway. Nothing was downloaded, "
+            "so no access has been recorded."
+        )
     ms = _get_mailsec(ctx)
     data = ms.get_message_eml(msg_uuid, justification)
     if out_path:
@@ -1058,19 +1077,6 @@ def message_eml(ctx, msg_uuid, justification, out_path, to_terminal) -> None:
         if not ctx.obj.quiet:
             click.echo(f"wrote {len(data)} bytes to {out_path}")
         return
-    stdout = click.get_binary_stream("stdout")
-    # These bytes are the SENDER'S, verbatim: this is the one command in the group that
-    # emits the attacker's own message rather than the product's view of it.  A terminal
-    # executes the escape sequences in them, so a phish carrying an ANSI payload repaints
-    # the analyst's screen the moment they look at it.  Piped or redirected, that cannot
-    # happen and nothing changes -- the refusal applies only when stdout really is a
-    # terminal, which is the same line curl draws for binary output.
-    if not to_terminal and stdout.isatty():
-        raise click.UsageError(
-            "refusing to write a raw message to the terminal: these are the sender's own "
-            "bytes and a hostile message can repaint your screen. Use --out-file PATH, pipe "
-            "the command, or pass --to-terminal to write it anyway."
-        )
     stdout.write(data)
 
 

@@ -74,6 +74,49 @@ def test_tab_survives_but_newline_does_not():
     assert "\n" not in escape_control_chars("a\nb")
 
 
+ESC = chr(27)
+C1_CSI = chr(0x9B)
+
+
+def test_column_names_are_escaped_too():
+    """The header is a row. For a `limacharlie search` result the column names are the keys of
+    an adapter-ingested event body, which the sender chose."""
+    out = format_table([{"su" + ESC + "[2Jbject": "v", "ok": "w"}])
+    assert ESC not in out
+    out = format_table({"fi" + ESC + "[2Jeld": "v"})
+    assert ESC not in out
+
+
+def test_csv_header_row_is_escaped():
+    out = format_csv([{"he" + ESC + "[2Jad": "v"}])
+    assert ESC not in out
+    # The row still lines up with its (escaped) header.
+    header, row = out.split("\r\n")[:2]
+    assert row == "v"
+    assert "\\x1b" in header
+
+
+def test_csv_of_a_bare_string_is_escaped():
+    """Reached by `--filter 'messages[0].subject' --output csv`."""
+    assert ESC not in format_csv(ESC + "[2JPWNED")
+
+
+def test_c1_survives_json_encoding_so_dict_cells_need_escaping_too():
+    """orjson and the stdlib both emit C1 verbatim; JSON only escapes C0.
+
+    A dict or list cell goes through the JSON encoder, so without a second pass it would be
+    the documented bypass of the C1 escaping this module adds.
+    """
+    out = format_table([{"payload": {"x": "p" + C1_CSI + "2Jq"}}])
+    assert C1_CSI not in out
+    set_wide_mode(True)
+    try:
+        assert C1_CSI not in format_table([{"payload": {"x": "p" + C1_CSI + "2Jq"}}])
+    finally:
+        set_wide_mode(False)
+    assert C1_CSI not in format_csv([{"payload": {"x": "p" + C1_CSI + "2Jq"}}])
+
+
 def test_json_output_is_unchanged():
     """The escaping is a TABLE/CSV rendering concern; machine output must not gain it."""
     out = format_json([{"subject": HOSTILE_SUBJECT}])
