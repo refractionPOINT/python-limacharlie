@@ -208,6 +208,13 @@ def format_toon(data: Any) -> str:
     """
     if _toon_format is None:
         raise ImportError(_MISSING_TOON_MESSAGE)
+    # NOT control-character escaped, and that is a documented limitation rather than an
+    # oversight.  toon is a machine format reached only by an explicit `--output toon` (the
+    # TTY default is `table`), and unlike json and yaml it has no escape mechanism of its own:
+    # its structure is carried by newlines, so escaping the encoded document corrupts it and
+    # escaping the values before encoding would silently change the data a consumer parses
+    # back.  A caller who asks for toon and renders it in a terminal gets the sender's
+    # characters.  Use json, yaml or the default table if that matters.
     return _toon_format.encode(data)
 
 
@@ -220,7 +227,7 @@ def format_csv(data: Any) -> str:
         data = [data]
 
     if not isinstance(data, list):
-        return str(data)
+        return escape_control_chars(str(data))
 
     # Collect all keys for headers
     all_keys = []
@@ -231,14 +238,18 @@ def format_csv(data: Any) -> str:
                     all_keys.append(k)
 
     if not all_keys:
-        return str(data)
+        return escape_control_chars(str(data))
 
+    # The header row is data too -- see the column-name note in format_table. The map keeps
+    # the ORIGINAL key for row lookup while the file gets the escaped name.
+    safe_keys = {k: escape_control_chars(str(k)) for k in all_keys}
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=all_keys, extrasaction="ignore")
+    writer = csv.DictWriter(output, fieldnames=[safe_keys[k] for k in all_keys], extrasaction="ignore")
     writer.writeheader()
     for item in data:
         if isinstance(item, dict):
-            writer.writerow({k: _csv_value(v) for k, v in item.items()})
+            writer.writerow({safe_keys.get(k, escape_control_chars(str(k))): _csv_value(v)
+                             for k, v in item.items()})
     return output.getvalue().rstrip()
 
 
@@ -248,7 +259,7 @@ def format_table(data: Any) -> str:
         return "No data"
 
     if isinstance(data, str):
-        return data
+        return escape_control_chars(data)
 
     if isinstance(data, dict):
         if _is_list_of_dicts(data):
@@ -264,10 +275,12 @@ def format_table(data: Any) -> str:
             # Fall through to list-of-dicts handling below
         else:
             # Single record - show as key/value pairs
-            rows = [[k, _table_value(v)] for k, v in data.items()]
+            # Keys are escaped too: for a dict-of-fields the key column IS data (an
+            # email header name, an event field name from an adapter-ingested body).
+            rows = [[escape_control_chars(str(k)), _table_value(v)] for k, v in data.items()]
             if tabulate is not None:
                 return tabulate(rows, headers=["Field", "Value"], tablefmt="simple")
-            return "\n".join(f"{k}: {v}" for k, v in rows)
+            return "\n".join(f"{escape_control_chars(str(k))}: {v}" for k, v in rows)
 
     if isinstance(data, list):
         if not data:
@@ -284,6 +297,11 @@ def format_table(data: Any) -> str:
             selected_keys, rows = _fit_columns(all_keys, data)
             dropped = len(all_keys) - len(selected_keys)
 
+            # Column NAMES are data too. For a mailsec message they are our schema, but for a
+            # `limacharlie search` row they are the keys of an adapter-ingested event body,
+            # which the sender chose. Escaping only the cells would leave the header as the
+            # one unescaped row on the screen.
+            selected_keys = [escape_control_chars(str(k)) for k in selected_keys]
             if tabulate is not None:
                 tbl = tabulate(rows, headers=selected_keys, tablefmt="simple")
             else:
@@ -296,10 +314,12 @@ def format_table(data: Any) -> str:
                 tbl += f"\n({dropped} more field{'s' if dropped != 1 else ''} hidden, use -W to show all or --output json for full data)"
             return tbl
 
-        # List of primitives
-        return "\n".join(str(item) for item in data)
+        # List of primitives.  This is the sharpest of the table paths: `--filter
+        # 'messages[].subject'` puts one attacker-chosen string on each line with no
+        # column, no truncation and nothing between it and the terminal.
+        return "\n".join(escape_control_chars(str(item)) for item in data)
 
-    return str(data)
+    return escape_control_chars(str(data))
 
 
 def format_jsonl(data: Any) -> str:
@@ -320,9 +340,16 @@ def _select_fields(item: Any, fields: list[str]) -> Any:
 
 
 def _csv_value(v: Any) -> Any:
-    """Convert a value for CSV output."""
+    """Convert a value for CSV output.
+
+    A CSV written to a terminal is read by a terminal, so the same control-character
+    rule applies as for the table.  Dicts and lists go through JSON, which escapes
+    them already.
+    """
     if isinstance(v, (dict, list)):
-        return _json_dumps(v)
+        return _safe_json(v)
+    if isinstance(v, str):
+        return escape_control_chars(v)
     return v
 
 
@@ -402,6 +429,59 @@ def _fit_columns(
     return selected, rows
 
 
+_CONTROL_CHARS = {
+    c: "\\x{:02x}".format(c)
+    for c in range(0x20)
+    if c not in (0x09,)  # TAB is the one C0 character a table legitimately contains.
+}
+_CONTROL_CHARS[0x7F] = "\\x7f"  # DEL
+# C1 (0x80-0x9F). These are what a terminal decodes as 8-bit CSI/OSC introducers, so
+# stripping only ESC would leave the same capability behind in a different encoding.
+_CONTROL_CHARS.update({c: "\\x{:02x}".format(c) for c in range(0x80, 0xA0)})
+
+_CONTROL_TRANSLATION = str.maketrans(_CONTROL_CHARS)
+
+
+def escape_control_chars(s: str) -> str:
+    """Render terminal control characters visibly instead of executing them.
+
+    The CLI prints values it did not author.  ``limacharlie mailsec message list``
+    renders email subjects, sender display names, attachment filenames and URLs --
+    every one of them chosen by whoever sent the mail -- and ``limacharlie search``
+    renders event fields the same way.  A terminal treats ESC-[ sequences in that
+    text as commands, not data, which lets a sender repaint the screen, erase the
+    lines above their row, or hide text behind a colour change.  Carriage return is
+    enough on its own: a subject ending in ``\r`` plus a fabricated row overwrites
+    the line the real values were on.
+
+    JSON and YAML output already escape these (``json.dumps`` emits ``\u001b``,
+    PyYAML emits ``\e``), so this is what brings the table and CSV renderers up to
+    the same standard rather than a new policy.
+
+    Tab survives because a table legitimately contains one.  Newline does not: a
+    single cell that spans lines breaks the row alignment that makes the table
+    readable, which is the same reason it is worth neutralising.
+    """
+    if not isinstance(s, str):
+        return s
+    return s.translate(_CONTROL_TRANSLATION)
+
+
+def _safe_json(v: Any) -> str:
+    r"""JSON-encode a value for a TERMINAL cell.
+
+    ``_json_dumps`` is not sufficient on its own.  JSON escapes C0 as ``\uXXXX``,
+    but neither orjson nor the stdlib escapes **C1** (U+0080-U+009F): both emit
+    them verbatim as UTF-8, and a terminal decodes 0x9B as an 8-bit CSI
+    introducer.  That is the same capability ``escape_control_chars`` covers C1
+    for in the first place, so a dict or list cell that skipped this step would
+    be the documented bypass of the documented fix.
+
+    JSON's own ``\uXXXX`` escapes are plain ASCII and pass through untouched.
+    """
+    return escape_control_chars(_json_dumps(v))
+
+
 def _truncate(s: str, width: int) -> str:
     """Truncate a string to *width* characters, adding '...' if needed."""
     if len(s) <= width:
@@ -419,28 +499,28 @@ def _table_value(v: Any, width: int | None = None) -> str:
     """
     if _wide_mode:
         if isinstance(v, dict):
-            return _json_dumps(v)
+            return _safe_json(v)
         if isinstance(v, list):
-            return ", ".join(str(x) for x in v)
+            return escape_control_chars(", ".join(str(x) for x in v))
         if v is None:
             return ""
-        return str(v)
+        return escape_control_chars(str(v))
     if width is None:
         width = _max_value_width()
     if isinstance(v, dict):
-        s = _json_dumps(v)
+        s = _safe_json(v)
         if len(s) <= width:
             return s
         return f"{{{len(v)} keys}}"
     if isinstance(v, list):
         if len(v) <= 3:
-            s = ", ".join(str(x) for x in v)
+            s = escape_control_chars(", ".join(str(x) for x in v))
             if len(s) <= width:
                 return s
         return f"[{len(v)} items]"
     if v is None:
         return ""
-    return _truncate(str(v), width)
+    return _truncate(escape_control_chars(str(v)), width)
 
 
 def _is_list_of_dicts(data: Any) -> bool:

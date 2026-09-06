@@ -43,7 +43,7 @@ from ..config import get_config_value
 from ..sdk.organization import Organization
 from ..sdk.search import Search
 from ..sdk.hive import Hive, HiveRecord
-from ..output import format_output, format_table, detect_output_format
+from ..output import format_output, format_table, detect_output_format, escape_control_chars
 from ..discovery import register_explain
 from ._time_validation import validate_epoch_seconds
 
@@ -469,7 +469,9 @@ def _format_expanded_event_block(row: dict[str, Any]) -> str:
         if etype:
             header_parts.append(etype)
 
-    header = " | ".join(header_parts) if header_parts else "event"
+    # `stream` and the event type come off the record, so they are escaped like any other
+    # rendered field. The body goes through the JSON pretty-printer, which escapes C0 itself.
+    header = " | ".join(escape_control_chars(str(p)) for p in header_parts) if header_parts else "event"
     body = _fast_dumps_pretty(data)
     return f"--- {header} ---\n{body}"
 
@@ -756,8 +758,11 @@ def _stream_table_events(results_iter: Any, wide: bool = False) -> None:
             parts.append(val.ljust(w))
         return "  ".join(parts)
 
-    # Print header.
-    header_vals = [col.ljust(col_widths[col]) for col in columns]
+    # Print header. The column NAMES are the event body's own keys, which for a USP- or
+    # adapter-ingested event are chosen by whoever produced the record -- so they get the same
+    # control-character escaping as the cells below, or the header is the one unescaped row on
+    # the screen. Escaped first, then padded, so the width still matches what is printed.
+    header_vals = [escape_control_chars(str(col)).ljust(col_widths[col]) for col in columns]
     click.echo("  ".join(header_vals))
     separator = "  ".join("-" * col_widths[col] for col in columns)
     click.echo(separator)
@@ -888,8 +893,9 @@ def _stream_table_from_file(checkpoint_path: str, wide: bool = False) -> None:
             parts.append(val.ljust(w))
         return "  ".join(parts)
 
-    # Print header.
-    header_vals = [col.ljust(col_widths.get(col, len(col))) for col in columns]
+    # Print header. Same reasoning as the streaming renderer above: the column names are the
+    # record's own keys.
+    header_vals = [escape_control_chars(str(col)).ljust(col_widths.get(col, len(col))) for col in columns]
     click.echo("  ".join(header_vals))
     click.echo("  ".join("-" * col_widths.get(col, len(col)) for col in columns))
 
