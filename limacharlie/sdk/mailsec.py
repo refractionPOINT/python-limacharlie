@@ -45,6 +45,7 @@ import base64
 import binascii
 import json
 import time
+import warnings
 from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as _quote
 
@@ -175,6 +176,33 @@ def _add_scalar(pairs: list[tuple[str, str]], key: str, value: Any) -> None:
         pairs.append((key, "true" if value else "false"))
     else:
         pairs.append((key, str(value)))
+
+
+def _warn_banner_is_ignored(banner: str | None) -> None:
+    """Warn once per call that a caller-supplied banner goes nowhere.
+
+    The banner used to travel on the request and was spliced into the
+    recipient's mailbox verbatim, so any caller holding ``mailsec.act`` chose
+    HTML that ran in someone else's mail client. It is now rendered by the
+    server from the organization's ``mailsec_policy`` record of type
+    ``banners``, escaped into a fixed template.
+
+    The argument is kept and IGNORED rather than rejected, for one release: an
+    existing script keeps working and simply gets the organization's configured
+    banner, which is what it wanted. The warning is what stops that from being a
+    silent change — a field that quietly stops meaning anything is worse than
+    one that says so.
+    """
+    if banner is None:
+        return
+    warnings.warn(
+        "mailsec: the `banner` argument is deprecated and ignored. The warning banner is "
+        "rendered by the server from the organization's mailsec_policy record of type "
+        "'banners' (its `text`), so that no caller can inject markup into a user's mailbox. "
+        "Set the wording there instead; this argument will be removed.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 class Mailsec:
@@ -402,7 +430,12 @@ class Mailsec:
                 ``restore_message``, ``banner_message``, ``unbanner_message``.
             reason: Free-text justification recorded on the audit row.
             attempt: Caller-supplied idempotency token.
-            banner: Banner HTML, for the banner actions.
+            banner: DEPRECATED and ignored. The warning banner used to be
+                chosen by the caller and was spliced into the mailbox verbatim;
+                it is now rendered by the server from the organization's
+                ``mailsec_policy`` record of type ``banners`` into a fixed,
+                escaped template, so no caller can put markup in a user's mail.
+                Passing it warns and sends nothing; set the wording in policy.
 
         Returns:
             The action record, including ``result`` — note ``alert_only``,
@@ -411,8 +444,9 @@ class Mailsec:
             failure, and it is reported as its own result rather than as
             ``ok``.
         """
+        _warn_banner_is_ignored(banner)
         body: dict[str, Any] = {"action": action}
-        for key, val in (("reason", reason), ("attempt", attempt), ("banner_html", banner)):
+        for key, val in (("reason", reason), ("attempt", attempt)):
             if val is not None:
                 body[key] = val
         return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
@@ -607,9 +641,10 @@ class Mailsec:
                 enough; passing a different set is refused rather than acted on.
             confirm: The token from :meth:`bulk_action_preview`.
             attempt: The same attempt the preview used, when one was used.
-            banner: Banner HTML for ``banner_message``, supplied once for the
-                whole batch — it carries the org's text, which is a property of
-                the org rather than of any one message.
+            banner: DEPRECATED and ignored — see :meth:`act_on_message`. Every
+                member's banner is rendered by the server from the
+                organization's ``banners`` policy record, so the batch carries
+                no banner at all.
             reason: Free-text justification, recorded on the job's audit row AND
                 on every message's, exactly as :meth:`act_on_message` records it
                 for one. It is deliberately NOT part of the confirmation, so
@@ -625,8 +660,8 @@ class Mailsec:
 
         Note:
             ``reason`` requires a backend that reads it. Older deployments
-            forwarded only ``action``, ``msg_uuids``, ``confirm``, ``attempt``
-            and the banner on this route and dropped a reason in transit; against
+            forwarded only ``action``, ``msg_uuids``, ``confirm`` and ``attempt``
+            on this route and dropped a reason in transit; against
             those, a justification sent here never reaches the audit trail. It is
             an ordinary optional argument rather than a version probe, because a
             client cannot tell the two apart from the response — the execute
@@ -637,7 +672,8 @@ class Mailsec:
             "msg_uuids": normalize_bulk_selection(msg_uuids),
             "confirm": confirm,
         }
-        for key, val in (("attempt", attempt), ("banner", banner), ("reason", reason)):
+        _warn_banner_is_ignored(banner)
+        for key, val in (("attempt", attempt), ("reason", reason)):
             if val is not None:
                 body[key] = val
         return self._post("actions/bulk/execute", body)
