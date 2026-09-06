@@ -136,6 +136,8 @@ limacharlie schema dr create
 | [Platform Administration](platform-admin.md) | org, user, group, api-key, ingestion-key, billing, audit |
 | [Hive & Data Stores](hive-data.md) | hive, secret, lookup, playbook, note, sop, adapter, cloud-sensor, extension |
 | [Infrastructure](infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
+| [Cloud Security](cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, fleet, exports) |
+| [Email Security](email-security.md) | mailsec (triage queue, EML, remediation, campaigns, reports, hunts, rules, tenant purge) |
 | [Other Commands](other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover, case |
 
 ## See Also

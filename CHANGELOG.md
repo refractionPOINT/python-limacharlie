@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Email Security
+
+- **Tenant purge**: `limacharlie mailsec tenant purge` /
+  `Mailsec.prepare_tenant_purge()` and `Mailsec.purge_tenant()` permanently
+  delete everything Email Security holds for an organization — the message
+  index and the long-term evidence lane, campaigns, sender profiles, the
+  remediation audit trail, user reports, the stored raw messages and their
+  parsed copies, the link-detonation results, and the organization's Email
+  Security connection and policy configuration — and stop the mail connections
+  at Microsoft or Google so the provider stops sending notifications. Two-step
+  like `org delete`: without `--confirm` the command prints the warning and
+  mints a token and deletes nothing, and the token is single-use and expires
+  after five minutes. Owner-level authority (`mailsec.act` **and**
+  `billing.ctrl` **and** `user.ctrl`), and the optional `--reason` (max 1024
+  characters) is recorded in the organization's audit log next to the caller's
+  identity. The purge is re-runnable: a partial one returns `complete: false`
+  and counts what did NOT land beside what did, and the CLI exits non-zero in
+  that case so a script cannot mistake a half-purged tenant for a finished one.
+  Most organizations will never need it — the same data is deleted
+  automatically 30 days after an organization unsubscribes from Email Security
+  (a resubscribe inside that window cancels it) and immediately if the
+  organization itself is deleted.
+- The mailsec SDK gained a `_delete` helper alongside `_get`/`_post`; it had no
+  DELETE route until now.
+
+### Documentation
+
+- **`doc/cli/email-security.md`**: the mailsec command surface had no page in
+  the CLI reference at all. Added one, and linked it — plus the Cloud Security
+  page, which existed but was missing from `doc/cli/README.md`'s index — from
+  both command-reference tables.
+
 ## 5.6.1 - July 30, 2026
 
 ### Dependencies & Python support
