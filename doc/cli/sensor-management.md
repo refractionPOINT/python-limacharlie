@@ -46,7 +46,7 @@ limacharlie endpoint-policy unseal --sid SENSOR_ID
 ## task
 
 ```bash
-limacharlie task send --sid SENSOR_ID --command os_processes
+limacharlie task send --sid SENSOR_ID --task os_processes
 limacharlie task request --sid SENSOR_ID --command os_processes  # Wait for response
 limacharlie task reliable-send --sid SENSOR_ID --command os_processes
 limacharlie task reliable-list --sid SENSOR_ID

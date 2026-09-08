@@ -715,8 +715,9 @@ limacharlie tag add --sid <sid> --tag incident-2024-01
 # Send investigative tasks
 limacharlie task send --sid <sid> --task os_processes
 limacharlie task send --sid <sid> --task os_services
-limacharlie task send --sid <sid> --task dir_list --args '{"rootDir":"C:\\\\Users"}'
-limacharlie task send --sid <sid> --task file_hash --args '{"filePath":"C:\\\\suspect.exe"}'
+limacharlie task send --sid <sid> --task 'dir_list "C:\\\\Users" "*.exe"'
+limacharlie task send --sid <sid> --task 'file_hash "C:\\\\suspect.exe"'
+limacharlie task send --sid <sid> --task 'file_grep "C:\\\\Users" -p "<literal>" --no-content'
 
 # Search for IOCs
 limacharlie ioc search --type file_hash --value <sha256>
