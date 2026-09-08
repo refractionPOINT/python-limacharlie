@@ -237,18 +237,13 @@ action row rather than being acted on twice.
 exit code above and `mailsec message bulk-status <bulk_id>` are how you
 read the result.
 
-There is no --reason: the execute route does not carry one, and a
-justification that never reaches the audit trail would be worse than an
-absent one. Use `mailsec message action --reason` per message when the
-reason matters.
-
 Examples:
   limacharlie mailsec message bulk-action --action trash_message --msg-uuids 0057db2b-3a06-5aab-b3be-c1e6c15dcf10
   limacharlie mailsec message bulk-action --action quarantine_message --input-file uuids.txt
   limacharlie mailsec message list --verdict malicious --output json \\
     | jq -r '.messages[].msg_uuid' \\
     | limacharlie mailsec message bulk-action --action quarantine_message --input-file -
-  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids 0057db2b-... --confirm 3f31ed...
+  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids 0057db2b-... --confirm 3f31ed... --reason "INC-4471"
 """
 
 _EXPLAIN_MESSAGE_BULK_STATUS = """\
@@ -296,9 +291,38 @@ PREVIEWS BY DEFAULT. Copy the preview's member-bound `confirm` token into
 --confirm to execute exactly the reviewed member set. A campaign id is not
 a confirmation token and is refused by the server.
 
+--reason is your justification for moving mail in every mailbox the
+campaign reached. It is recorded on the sweep's own record AND stamped
+onto every member's audit row, so an analyst reading one message's
+timeline sees why it was acted on without having to discover that the row
+belongs to a sweep. Bounded at 1024 characters, refused rather than
+truncated — on the PREVIEW as well as the execute, so an over-long one is
+reported before the confirmation is minted rather than after.
+
+--attempt asks for a SECOND, SEPARATELY RECORDED run. Re-running a sweep
+is idempotent by default: the per-member key is the campaign itself, so a
+double click — or a retry of a request whose response was lost — collapses
+onto the audit row each member already has instead of claiming a move that
+happened once as two. A new --attempt composes with the campaign, which
+mints a new action id per member and a new sweep record, so a re-run after
+a provider outage is recorded BESIDE the run that failed instead of over
+it. Repeating the SAME value collapses again, which is what makes a lost
+response safe to re-send.
+
+It is an opaque handle you mint, not prose: bounded at 128 characters —
+much shorter than the reason, because it is written verbatim onto every
+member's row — and refused rather than truncated, since a clipped
+idempotency key is a DIFFERENT key that would act again instead of
+collapsing.
+
+Neither field is part of the confirmation token, which is derived from the
+member set alone: adding a reason or an attempt between previewing and
+executing does not invalidate a token you already hold.
+
 Examples:
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message
-  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e...
+  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --reason "confirmed credential harvest"
+  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --attempt after-the-outage
 """
 
 _EXPLAIN_SENDER_GET = """\
@@ -1332,20 +1356,33 @@ def campaign_get(ctx, campaign_id) -> None:
 @click.option("--action", "action_name", required=True, help="The typed action to sweep.")
 @click.option("--confirm", default=None,
               help="Pass the member-bound token returned by the preview to EXECUTE. Omit to preview.")
-@click.option("--reason", default=None, help="Recorded on every resulting audit row.")
+@click.option("--reason", default=None,
+              help="Why you are sweeping. Recorded on the sweep's own record and stamped onto "
+                   "every member's audit row. Not part of the confirmation, so adding it does "
+                   "not invalidate a token the preview already minted.")
+@click.option("--attempt", default=None,
+              help="Ask for a SECOND, separately recorded run. A sweep is idempotent per member "
+                   "by default, so a repeat collapses onto the rows it already wrote; a new "
+                   "attempt records the re-run beside what failed instead of over it. An opaque "
+                   "handle, not prose: at most 128 characters, refused rather than truncated.")
 @pass_context
-def campaign_action(ctx, campaign_id, action_name, confirm, reason) -> None:
+def campaign_action(ctx, campaign_id, action_name, confirm, reason, attempt) -> None:
     """Sweep an action across a whole campaign (mailsec.act).
 
     \b
-    Previews unless --confirm is given.
+    Previews unless --confirm is given. Repeating a sweep is idempotent
+    per member; --attempt is how you ask for a deliberate second run that
+    is recorded beside the first rather than over it.
 
     \b
     Example:
       limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e...
+      limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --attempt after-the-outage
     """
     ms = _get_mailsec(ctx)
-    _output(ctx, ms.act_on_campaign(campaign_id, action_name, confirm=confirm, reason=reason))
+    _output(ctx, ms.act_on_campaign(
+        campaign_id, action_name, confirm=confirm, reason=reason, attempt=attempt,
+    ))
 
 
 # ---------------------------------------------------------------------------

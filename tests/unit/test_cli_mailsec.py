@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import click
 from click.testing import CliRunner
 
 from limacharlie.cli import cli
@@ -75,4 +76,83 @@ def test_campaign_action_forwards_the_preview_token_unchanged():
         "quarantine_message",
         confirm="member-bound-token",
         reason="reviewed current set",
+        attempt=None,
     )
+
+
+def test_campaign_action_forwards_a_deliberate_second_run():
+    """--attempt is the only way to ask for a sweep that is recorded BESIDE the
+    one it retries. A sweep is idempotent per member by default — the per-member
+    key is the campaign itself — so without the flag reaching the SDK an operator
+    re-running after a provider outage silently overwrites the rows recording
+    what failed, which is the evidence they were retrying because of."""
+    result, mailsec = invoke_campaign_action(
+        "--action", "quarantine_message",
+        "--confirm", "member-bound-token",
+        "--reason", "re-running after the provider outage",
+        "--attempt", "after-the-outage",
+    )
+    assert result.exit_code == 0, result.output
+    mailsec.act_on_campaign.assert_called_once_with(
+        "campaign-1",
+        "quarantine_message",
+        confirm="member-bound-token",
+        reason="re-running after the provider outage",
+        attempt="after-the-outage",
+    )
+
+
+def test_campaign_action_sends_no_attempt_when_none_is_asked_for():
+    """The control for the test above, and the important half of the contract:
+    omitting the flag must reach the server as an ABSENCE. An empty string is a
+    non-empty attempt token as far as nothing, but a defaulted one — say the
+    campaign id — would change every member's action id on every sweep and turn
+    the ordinary double click back into two rows claiming two moves."""
+    result, mailsec = invoke_campaign_action(
+        "--action", "quarantine_message",
+        "--confirm", "member-bound-token",
+    )
+    assert result.exit_code == 0, result.output
+    _, kwargs = mailsec.act_on_campaign.call_args
+    assert kwargs["attempt"] is None
+
+
+def test_no_mailsec_ai_help_denies_a_flag_the_command_really_has():
+    """The defect this pins is help that CONTRADICTS the command it documents.
+
+    `message bulk-action` grew a --reason, and its --ai-help went on telling
+    operators "There is no --reason ... use `message action --reason` per
+    message when the reason matters" — advice that costs a 500-message
+    quarantine its justification, from the one surface an operator is most
+    likely to read before acting at that scale. The check is over the whole
+    mailsec surface rather than that one string, because the failure mode is
+    generic: prose that outlives the code it describes.
+    """
+    from limacharlie.commands import mailsec as mailsec_cmd
+    from limacharlie.discovery import get_explain
+
+    def walk(cmd, path, checked):
+        if isinstance(cmd, click.Group):
+            for name, sub in cmd.commands.items():
+                walk(sub, path + [name], checked)
+            return
+        explain = get_explain(".".join(path))
+        if not explain:
+            return
+        checked.append(" ".join(path))
+        for param in cmd.params:
+            for opt in getattr(param, "opts", []):
+                if not opt.startswith("--"):
+                    continue
+                denial = "There is no %s" % opt
+                assert denial.lower() not in explain.lower(), (
+                    f"`{' '.join(path)}` accepts {opt} but its --ai-help says "
+                    f"{denial!r}"
+                )
+
+    checked: list[str] = []
+    walk(mailsec_cmd.group, ["mailsec"], checked)
+    # The walk is only worth anything if it actually reached the explain texts:
+    # an empty registry would pass every assertion above by never running one.
+    assert "mailsec message bulk-action" in checked
+    assert "mailsec campaign action" in checked
