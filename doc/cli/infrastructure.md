@@ -23,10 +23,33 @@ limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
 limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-run
 ```
 
-Available hive flags: `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
+Available hive flags: `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
 `--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
 `--hive-ai-agent`, `--hive-external-adapter`.
+
+### ACL scopes
+
+Use `--hive-acl` to sync scope membership; `--all` includes it too:
+
+```bash
+limacharlie sync pull --config-file acl.yaml --hive-acl --hive-secret
+limacharlie sync push --config-file acl.yaml --hive-acl --hive-secret --dry-run
+```
+
+Scope records are stored under `hives.acl`. Sync preserves `acl:` tags in other
+records' `usr_mtd.tags`; it does not add classification tags automatically.
+The syncing identity needs `acl.get` to fetch membership and `acl.set` to write
+membership or add/remove `acl:` tags, in addition to the usual resource permissions.
+It also needs the relevant scope membership to read restricted record contents;
+`acl.set` does not itself grant that read access. Do not push redacted content
+containing `acl_restricted: true` as a replacement for the original record.
+Permission failures are reported by push and produce a nonzero exit status.
+User members must use their stable UID, not an email address; API-key members
+use the key name.
+
+Existing Owner/Administrator assignments may need to be reapplied, or the new
+permissions granted explicitly, before an existing automation identity can sync ACLs.
 
 ## output
 

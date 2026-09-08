@@ -53,6 +53,7 @@ _SYNC_FLAGS = [
     click.option("--installation-keys", is_flag=True, default=False, help="Sync installation keys."),
     click.option("--yara", is_flag=True, default=False, help="Sync YARA rules and sources."),
     # Hive flags
+    click.option("--hive-acl", is_flag=True, default=False, help="Sync ACL scope membership (hive)."),
     click.option("--hive-dr-general", is_flag=True, default=False, help="Sync D&R rules (general hive)."),
     click.option("--hive-dr-managed", is_flag=True, default=False, help="Sync D&R rules (managed hive)."),
     click.option("--hive-dr-service", is_flag=True, default=False, help="Sync D&R rules (service hive)."),
@@ -72,6 +73,7 @@ _SYNC_FLAGS = [
 
 # Maps CLI flag name -> hive name sent to the backend
 _HIVE_FLAG_MAP = {
+    "hive_acl": "acl",
     "hive_dr_general": "dr-general",
     "hive_dr_managed": "dr-managed",
     "hive_dr_service": "dr-service",
@@ -193,6 +195,7 @@ Resource type flags:
   --yara                 YARA rules and sources
 
 Hive flags (for syncing hive-based resources):
+  --hive-acl             ACL scope membership
   --hive-dr-general      D&R rules (general namespace)
   --hive-dr-managed      D&R rules (managed namespace)
   --hive-dr-service      D&R rules (service namespace)
@@ -231,11 +234,12 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
-         hive_external_adapter) -> None:
+         hive_external_adapter, hive_acl) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
+        hive_acl=hive_acl,
         hive_dr_general=hive_dr_general,
         hive_dr_managed=hive_dr_managed,
         hive_dr_service=hive_dr_service,
@@ -300,6 +304,10 @@ shows which resources would be added, modified, or removed.
 Use --force to remove cloud resources not present in the local file.
 Without --force, push only adds or updates; it never removes.
 
+Use --hive-acl to sync ACL scope membership. Writing scope membership or
+adding/removing acl: tags requires acl.set on the syncing identity, in
+addition to the usual resource permissions.
+
 Examples:
   limacharlie sync push --config-file org.yaml --all
   limacharlie sync push --config-file org.yaml --all --dry-run
@@ -324,11 +332,12 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
-         hive_external_adapter) -> None:
+         hive_external_adapter, hive_acl) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
+        hive_acl=hive_acl,
         hive_dr_general=hive_dr_general,
         hive_dr_managed=hive_dr_managed,
         hive_dr_service=hive_dr_service,
