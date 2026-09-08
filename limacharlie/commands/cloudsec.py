@@ -1667,10 +1667,17 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
     package that already has an AutoFix pull request open; and a connection
     at its daily AutoFix limit.
 
-    For npm and go the LOCKFILE IS NOT REGENERATED — the scanning sandbox
-    has no package-registry access by design — and the pull request says so
-    prominently and names the command to run. pip (requirements.txt) and
-    maven have no lockfile, so those changes are complete.
+    Lockfiles: for npm the package-lock.json IS rewritten by default. One
+    read-only registry metadata document supplies the new version's resolved
+    URL and integrity digest; it is left stale only where the code_scanning
+    policy sets 'autofix_registry_access: false', where the lock is a
+    yarn.lock or pnpm-lock.yaml, or where the entry could not be rewritten
+    safely. For go the go.sum is NOT regenerated — it hashes a module zip
+    nobody downloaded — and only matters where the tree has one. pip
+    (requirements.txt) and maven have no lockfile, so those changes are
+    complete. Wherever a lock is left stale the pull request says so
+    prominently and names the command to run; trust the pull request over
+    this summary.
 
     \b
     Examples:
