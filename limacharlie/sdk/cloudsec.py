@@ -1529,11 +1529,18 @@ class CloudSec:
         and zero results, and treating that as a clean pass would resolve
         real vulnerabilities.
 
-        Trivy and Gitleaks do not write ``invocations``, so a document
-        straight from either never closes anything. Add the field yourself
-        when your scan step exited 0 — the CLI's
-        ``code ingest --scanner-succeeded`` does it for you — or push the
-        scanner's own ``report/v1``, which states its coverage directly.
+        Trivy does not write ``invocations``, so a document straight from it
+        never closes anything. Add the field yourself when your scan step
+        exited 0 — the CLI's ``code ingest --scanner-succeeded`` does it for
+        you — or push the scanner's own ``report/v1``, which states its
+        coverage directly. A document that says its run FAILED is also
+        additive, and says so with ``sarif_execution_unsuccessful``.
+
+        None of this applies to a secret scanner. Credential findings are
+        never ingested from a pushed document in any format
+        (``secrets_not_ingestable``), so a gitleaks SARIF creates nothing to
+        close whatever its ``invocations`` say; that class comes from the
+        hosted scan.
         """
         body: dict[str, Any] = {"repo": repo, "source": source}
         if isinstance(document, (bytes, bytearray)):

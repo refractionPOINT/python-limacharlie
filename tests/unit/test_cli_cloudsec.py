@@ -1640,6 +1640,74 @@ class TestCloudSecCode:
             assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": False}]
             assert "already states its own execution result" in result.output
 
+    def test_an_invocation_that_states_nothing_is_still_stamped(self, tmp_path):
+        """'invocations':[{}] is a run that has an invocation object and says NOTHING in
+        it. The server reads a missing executionSuccessful as unsuccessful, so such a
+        document closes nothing — declining to stamp it because the key is present would
+        refuse at exactly the moment stamping was needed, and tell the operator the flag
+        was unnecessary."""
+        doc = tmp_path / "scan.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"invocations":[{}],"tool":{}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+
+    def test_a_document_with_no_runs_says_so_rather_than_claiming_the_tool_spoke(self, tmp_path):
+        """'every run already states its own result' is reassurance, and it is the wrong
+        reassurance for a document that has no runs at all."""
+        doc = tmp_path / "empty.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            assert "has no runs" in result.output
+            assert "already states" not in result.output
+
+    def test_non_ascii_text_is_not_escape_inflated(self, tmp_path):
+        """json.dumps defaults to ensure_ascii=True, which turns every non-ASCII character
+        into \\uXXXX and can nearly double a document whose messages are not Latin. The
+        size cap is applied to the STAMPED bytes, so that inflation could refuse a file
+        that is well under the limit on disk."""
+        doc = tmp_path / "cjk.sarif"
+        body = {"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "trivy"}},
+                "results": [{"message": {"text": "\u5371\u967a\u306a\u4f9d\u5b58\u95a2\u4fc2" * 200}}]}]}
+        raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        doc.write_bytes(raw)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            sent = inst.ingest_code_results.call_args[0][2]
+            # Compaction may shrink it; escape-inflation would grow it by ~2x.
+            assert len(sent) < len(raw) * 1.2, "the document was escape-inflated"
+            assert json.loads(sent)["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+
+    def test_a_corrupt_gzip_names_the_file_and_the_problem(self, tmp_path):
+        """gzip raises BadGzipFile/EOFError, neither a ValueError, so without an explicit
+        guard the failure escapes to the CLI's catch-all and prints a bare zlib message
+        with no filename and no hint that the compression is the problem."""
+        doc = tmp_path / "truncated.sarif.gz"
+        import gzip as _gzip
+        doc.write_bytes(_gzip.compress(b'{"version":"2.1.0","runs":[]}')[:12])
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "not a readable gzip stream" in result.output
+            inst.ingest_code_results.assert_not_called()
+
     def test_a_gzipped_sarif_is_stamped_and_stays_gzipped(self, tmp_path):
         """CI jobs gzip large SARIF files. Stamping must not silently hand the API a
         document in a different encoding than the one it was given."""
