@@ -686,13 +686,14 @@ class Mailsec:
             not a failure.
 
         Note:
-            ``reason`` requires a backend that reads it. Older deployments
-            forwarded only ``action``, ``msg_uuids``, ``confirm`` and ``attempt``
-            on this route and dropped a reason in transit; against
-            those, a justification sent here never reaches the audit trail. It is
-            an ordinary optional argument rather than a version probe, because a
-            client cannot tell the two apart from the response — the execute
-            answers 200 either way.
+            ``reason`` requires a backend that reads it. Deployments older than
+            the fix forwarded only ``action``, ``msg_uuids``, ``confirm`` and
+            ``attempt`` on this route and dropped a reason in transit; against
+            those, a justification sent here never reaches the audit trail.
+            Current deployments forward and record it. It is an ordinary
+            optional argument rather than a version probe, because a client
+            cannot tell the two apart from the response — the execute answers
+            200 either way.
         """
         body: dict[str, Any] = {
             "action": action,
@@ -826,6 +827,7 @@ class Mailsec:
         *,
         confirm: str | None = None,
         reason: str | None = None,
+        attempt: str | None = None,
         actor: str | None = None,
     ) -> dict[str, Any]:
         """Sweep an action across every member of a campaign.
@@ -837,18 +839,46 @@ class Mailsec:
         default for an operation whose blast radius is "every mailbox that got
         this attack".
 
+        Re-running a sweep is idempotent per member: the default per-member
+        attempt key is the campaign itself, so a double-click — or a retry of a
+        request whose response was lost — collapses onto the audit row each
+        member already has rather than claiming a second move. ``attempt`` is
+        the escape hatch when the second run is a DELIBERATE one.
+
         Args:
             campaign_id: The campaign to sweep.
             action: The typed action, as for :meth:`act_on_message`.
             confirm: Pass the member-bound token returned by the preview to
                 execute. Omit to preview.
-            reason: Recorded on every resulting audit row.
+            reason: The operator's justification. Recorded on the sweep's own
+                record and stamped onto every member's audit row, so an analyst
+                reading one message's timeline sees why it was acted on without
+                having to find the sweep. Bounded server-side at 1024
+                characters and refused rather than truncated.
+            attempt: An opaque idempotency handle the caller mints. Omit for the
+                normal case. A NEW value composes with the campaign to make a
+                new action id for every member and a new sweep record, so a
+                re-run after a provider outage is recorded BESIDE what failed
+                instead of over it; the same value twice collapses onto the same
+                rows. Bounded server-side at 128 characters — shorter than the
+                reason because it is written verbatim onto every member's row —
+                and refused rather than truncated, since a clipped idempotency
+                key is a different key. Validated on the preview leg as well as
+                the execute, and surrounding whitespace is trimmed before the
+                bound is applied.
             actor: Ignored if supplied — the gateway stamps the acting
                 identity from the authenticated claims, so an audit trail's
                 subject can never be chosen by its subject.
+
+        Note:
+            Neither ``reason`` nor ``attempt`` is part of the confirmation
+            token, which is derived from the member set alone. Adding either one
+            between previewing and executing therefore does not invalidate a
+            token you already hold.
         """
         body: dict[str, Any] = {"action": action}
-        for key, val in (("confirm", confirm), ("reason", reason), ("actor", actor)):
+        for key, val in (("confirm", confirm), ("reason", reason),
+                         ("attempt", attempt), ("actor", actor)):
             if val is not None:
                 body[key] = val
         return self._post(f"campaigns/{_seg(campaign_id)}/actions", body)

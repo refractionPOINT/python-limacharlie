@@ -176,6 +176,31 @@ class TestActions:
         _, body = _post_call(mock_org)
         assert body["confirm"] == "member-bound-token"
 
+    def test_campaign_action_carries_a_deliberate_second_run(self, ms, mock_org):
+        """A sweep composes the operator's attempt with the campaign to key
+        every member's audit row, so a NEW attempt records a retry beside the
+        run that failed instead of over it. The field has to reach the wire for
+        that to be reachable at all: the route reads it off the body, and a
+        client that never sends it can only ever overwrite."""
+        ms.act_on_campaign(
+            "cmp-1", "quarantine_message",
+            confirm="member-bound-token",
+            reason="re-running after the provider outage",
+            attempt="after-the-outage",
+        )
+        _, body = _post_call(mock_org)
+        assert body["attempt"] == "after-the-outage"
+        assert body["reason"] == "re-running after the provider outage"
+
+    def test_campaign_action_sends_no_attempt_by_default(self, ms, mock_org):
+        """The control, and the ordinary case. Absence means "keep the
+        campaign's own key", which is what makes a double click — or a retry of
+        a request whose response was lost — one audit row per member rather than
+        two claiming two moves that only happened once."""
+        ms.act_on_campaign("cmp-1", "quarantine_message", confirm="member-bound-token")
+        _, body = _post_call(mock_org)
+        assert "attempt" not in body
+
 
 class TestConnectionDiagnostics:
     def test_watch_probe_is_absent_by_default(self, ms, mock_org):

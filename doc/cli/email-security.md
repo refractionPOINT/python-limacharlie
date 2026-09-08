@@ -79,9 +79,11 @@ Bulk remediation is two-step: without `--confirm` it previews, and the preview's
 
 ```bash
 limacharlie mailsec message bulk-action --action quarantine_message --input-file ids.json
-limacharlie mailsec message bulk-action --action quarantine_message --input-file ids.json --confirm <TOKEN>
+limacharlie mailsec message bulk-action --action quarantine_message --input-file ids.json --confirm <TOKEN> --reason "INC-4471"
 limacharlie mailsec message bulk-status <BULK_ID>
 ```
+
+`--reason` belongs to the execute and is recorded on the job's audit row *and* on every message's. It is deliberately not part of the confirmation token, so rewording it between previewing and executing neither invalidates a token you hold nor starts a second job over the same messages.
 
 ## Campaigns, senders & the audit trail
 
@@ -89,10 +91,13 @@ limacharlie mailsec message bulk-status <BULK_ID>
 limacharlie mailsec campaign list --state active --min-members 5
 limacharlie mailsec campaign get <CAMPAIGN_ID>
 limacharlie mailsec campaign action <CAMPAIGN_ID> --action quarantine_message              # preview
-limacharlie mailsec campaign action <CAMPAIGN_ID> --action quarantine_message --confirm <TOKEN>
+limacharlie mailsec campaign action <CAMPAIGN_ID> --action quarantine_message --confirm <TOKEN> --reason "confirmed credential harvest"
+limacharlie mailsec campaign action <CAMPAIGN_ID> --action quarantine_message --confirm <TOKEN> --attempt after-the-outage
 limacharlie mailsec sender get sender@corp.example
 limacharlie mailsec action get <ACTION_ID>
 ```
+
+A sweep's `--reason` lands on the sweep's own record and on every member's audit row. Repeating a sweep is idempotent per member, so a double run collapses onto the rows it already wrote; `--attempt` is how you ask for a deliberate second run — a retry after a provider outage recorded *beside* what failed rather than over it. It is an opaque handle, at most 128 characters, refused rather than truncated. Neither field is part of the confirmation token, so adding either one after previewing does not invalidate it.
 
 ## Reports, analysis, hunts & rules
 
