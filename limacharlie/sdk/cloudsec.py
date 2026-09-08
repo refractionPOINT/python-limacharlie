@@ -1447,11 +1447,19 @@ class CloudSec:
             free-tier quota; a package that already has an AutoFix pull
             request open; and a connection at its daily AutoFix limit.
 
-            For **npm** and **go** the lockfile is not regenerated — the
-            scanning sandbox has no package-registry access by design — and
-            the pull request says so prominently and names the command to
-            run. For **pip** (``requirements.txt``) and **maven** there is no
-            lockfile, so the change is complete.
+            For **npm** the ``package-lock.json`` *is* rewritten by
+            default: one read-only registry metadata document supplies the
+            new version's resolved URL and integrity digest. It is left
+            stale only where the ``code_scanning`` policy sets
+            ``autofix_registry_access: false``, where the lock is a
+            ``yarn.lock``/``pnpm-lock.yaml``, or where the entry could not
+            be rewritten safely. For **go** the ``go.sum`` is *not*
+            regenerated — it hashes a module zip nobody downloaded — and
+            only where the tree has one. For **pip**
+            (``requirements.txt``) and **maven** there is no lockfile, so
+            the change is complete. Wherever a lock is left stale the pull
+            request says so prominently and names the command to run; trust
+            the pull request over this summary.
         """
         body: dict[str, Any] = {"finding_id": finding_id}
         if repo:
