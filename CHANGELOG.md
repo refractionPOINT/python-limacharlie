@@ -4,6 +4,20 @@
 
 ### Email Security
 
+- **Campaign sweeps take an `attempt`**: `limacharlie mailsec campaign action
+  --attempt <token>` / `Mailsec.act_on_campaign(attempt=...)` ask for a
+  DELIBERATE second run. A sweep is idempotent per member — the per-member
+  audit key is the campaign itself, so a double click or a retried request
+  collapses onto the row each member already has — which meant a re-run after a
+  provider outage overwrote the rows recording what failed. A new `attempt`
+  composes with the campaign, minting a new action id per member and a new
+  sweep record, so the retry is recorded *beside* the failure; repeating the
+  same value collapses again. It is an opaque handle, bounded server-side at
+  128 characters and refused rather than truncated, and it is not part of the
+  confirmation token, so adding one after previewing does not invalidate it.
+- `mailsec message bulk-action --ai-help` no longer ends with a stale paragraph
+  claiming there is no `--reason`. The flag exists, and the justification it
+  carries is recorded on the job's audit row and on every message's.
 - **Tenant purge**: `limacharlie mailsec tenant purge` /
   `Mailsec.prepare_tenant_purge()` and `Mailsec.purge_tenant()` permanently
   delete everything Email Security holds for an organization — the message
