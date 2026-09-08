@@ -1,8 +1,7 @@
 """Tests for the mailsec CLI's public lifecycle probe."""
 
-from unittest.mock import MagicMock, patch
-
 import re
+from unittest.mock import MagicMock, patch
 
 import click
 from click.testing import CliRunner
