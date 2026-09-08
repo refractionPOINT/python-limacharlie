@@ -686,13 +686,14 @@ class Mailsec:
             not a failure.
 
         Note:
-            ``reason`` requires a backend that reads it. Older deployments
-            forwarded only ``action``, ``msg_uuids``, ``confirm`` and ``attempt``
-            on this route and dropped a reason in transit; against
-            those, a justification sent here never reaches the audit trail. It is
-            an ordinary optional argument rather than a version probe, because a
-            client cannot tell the two apart from the response — the execute
-            answers 200 either way.
+            ``reason`` requires a backend that reads it. Deployments older than
+            the fix forwarded only ``action``, ``msg_uuids``, ``confirm`` and
+            ``attempt`` on this route and dropped a reason in transit; against
+            those, a justification sent here never reaches the audit trail.
+            Current deployments forward and record it. It is an ordinary
+            optional argument rather than a version probe, because a client
+            cannot tell the two apart from the response — the execute answers
+            200 either way.
         """
         body: dict[str, Any] = {
             "action": action,
@@ -862,7 +863,9 @@ class Mailsec:
                 rows. Bounded server-side at 128 characters — shorter than the
                 reason because it is written verbatim onto every member's row —
                 and refused rather than truncated, since a clipped idempotency
-                key is a different key.
+                key is a different key. Validated on the preview leg as well as
+                the execute, and surrounding whitespace is trimmed before the
+                bound is applied.
             actor: Ignored if supplied — the gateway stamps the acting
                 identity from the authenticated claims, so an audit trail's
                 subject can never be chosen by its subject.
