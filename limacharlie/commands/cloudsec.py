@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import zlib
 import os
 import subprocess
 import tempfile
@@ -130,10 +131,13 @@ def _stamp_sarif_execution(document: bytes, succeeded: bool) -> tuple[bytes, int
     if was_gzipped:
         try:
             raw = gzip.decompress(document)
-        except (OSError, EOFError) as e:
-            # gzip raises BadGzipFile/EOFError, neither of which is a ValueError, so without
-            # this the failure escapes to the CLI's catch-all and prints a bare zlib message
-            # with no filename and no hint that the compression is the problem.
+        except (OSError, EOFError, zlib.error) as e:
+            # THREE exception types, because gzip corruption raises three and none of them
+            # is a ValueError. A truncated stream is EOFError; a bad header or a failed CRC
+            # is BadGzipFile (an OSError); and corruption INSIDE the deflate stream is
+            # zlib.error, which subclasses neither. Missing that third one left the guard
+            # blind to the shape it was written for — the CLI's catch-all would print a bare
+            # "Error -3 while decompressing data" with no filename and no mention of gzip.
             raise click.ClickException(
                 "--scanner-succeeded/--scanner-failed has to read the document to record "
                 "the result in it, and this one is not a readable gzip stream: %s" % (e,))
@@ -165,7 +169,22 @@ def _stamp_sarif_execution(document: bytes, succeeded: bool) -> tuple[bytes, int
     # 1.1 MB CJK sample). Since the size cap below is applied to the stamped bytes, that
     # inflation could refuse a file that is comfortably under the limit on disk, with an
     # error quoting a byte count matching nothing the operator can see.
-    out = json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    #
+    # allow_nan=False: Python parses a JSON number too large for a float (1e400) into `inf`
+    # and, by default, writes it back out as the bare token `Infinity` — which is NOT valid
+    # JSON, and which Go's encoding/json on the server rejects outright. Re-serializing is
+    # the only reason that can happen: without this flag the original bytes are forwarded
+    # untouched and the server never sees it. Refusing here, naming the document, beats
+    # turning a document the server could read into one it cannot.
+    try:
+        out = json.dumps(doc, separators=(",", ":"), ensure_ascii=False,
+                         allow_nan=False).encode("utf-8")
+    except ValueError as e:
+        raise click.ClickException(
+            "--scanner-succeeded/--scanner-failed has to rewrite the document to record the "
+            "result in it, and this one holds a number JSON cannot represent (%s). Push it "
+            "without the flag and add \"invocations\":[{\"executionSuccessful\":true}] to "
+            "each run yourself." % (e,))
     return (gzip.compress(out) if was_gzipped else out), stamped, len(runs)
 
 

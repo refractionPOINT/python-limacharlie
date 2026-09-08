@@ -1708,6 +1708,59 @@ class TestCloudSecCode:
             assert "not a readable gzip stream" in result.output
             inst.ingest_code_results.assert_not_called()
 
+    def test_corruption_inside_the_deflate_stream_is_caught_too(self, tmp_path):
+        """Gzip corruption raises THREE exception types and none is a ValueError: EOFError
+        for a truncated stream, BadGzipFile (an OSError) for a bad header or CRC, and
+        zlib.error — which subclasses neither — for corruption inside the deflate stream.
+        A guard that catches only the first two is blind to the shape it was written for."""
+        import gzip as _gzip
+        body = json.dumps({"version": "2.1.0",
+                           "runs": [{"tool": {"driver": {"name": "t"}}}] * 500}).encode()
+        blob = bytearray(_gzip.compress(body))
+        for i in range(30, 60):
+            blob[i] ^= 0xFF
+        doc = tmp_path / "corrupt.sarif.gz"
+        doc.write_bytes(bytes(blob))
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "not a readable gzip stream" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_a_number_json_cannot_represent_is_refused_not_emitted_as_Infinity(self, tmp_path):
+        """Python parses 1e400 as inf and writes it back as the bare token `Infinity`,
+        which is not valid JSON and which the Go server rejects outright. Re-serializing is
+        the ONLY way that can happen — without the flag the original bytes go through
+        untouched — so this must refuse rather than turn a readable document into an
+        unreadable one."""
+        doc = tmp_path / "huge.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"tool":{},"properties":{"n":1e400}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "cannot represent" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_the_same_document_is_pushed_untouched_without_the_flag(self, tmp_path):
+        """The control for both refusals above: neither shape is a problem the CLI creates
+        for a caller who did not ask it to rewrite the document."""
+        raw = b'{"version":"2.1.0","runs":[{"tool":{},"properties":{"n":1e400}}]}'
+        doc = tmp_path / "huge.sarif"
+        doc.write_bytes(raw)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc)],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            assert inst.ingest_code_results.call_args[0][2] == raw
+
     def test_a_gzipped_sarif_is_stamped_and_stays_gzipped(self, tmp_path):
         """CI jobs gzip large SARIF files. Stamping must not silently hand the API a
         document in a different encoding than the one it was given."""
