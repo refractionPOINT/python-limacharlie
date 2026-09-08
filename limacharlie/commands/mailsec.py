@@ -313,8 +313,9 @@ It is an opaque handle you mint, not prose: bounded at 128 characters —
 much shorter than the reason, because it is written verbatim onto every
 member's row — and refused rather than truncated, since a clipped
 idempotency key is a DIFFERENT key that would act again instead of
-collapsing. Checked on the preview leg too, for the reason the reason's
-bound is.
+collapsing. Like the justification's bound, it is checked on the preview
+leg as well, so an over-long token is reported before the dialog asks you
+to confirm rather than after.
 
 Neither field is part of the confirmation token, which is derived from the
 member set alone: adding a reason or an attempt between previewing and
