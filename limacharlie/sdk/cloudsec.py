@@ -1517,6 +1517,23 @@ class CloudSec:
 
         A pushed document can only ever close findings IT previously
         reported. It can never close what the hosted scanner found.
+
+        AND IT CLOSES NOTHING AT ALL UNLESS IT PROVES ITS SCAN RAN. A SARIF
+        is read as an authoritative enumeration — one whose absent findings
+        mean "fixed" rather than "not looked for" — only when it carries
+        ``run.invocations[].executionSuccessful: true``, which SARIF 2.1.0
+        defines for exactly this purpose. Without it the push is ADDITIVE:
+        the findings land, nothing closes, and ``notes`` carries
+        ``sarif_no_invocation_evidence``. The rule exists because a scan step
+        with a broken ``--config`` still emits the tool's full rule catalogue
+        and zero results, and treating that as a clean pass would resolve
+        real vulnerabilities.
+
+        Trivy and Gitleaks do not write ``invocations``, so a document
+        straight from either never closes anything. Add the field yourself
+        when your scan step exited 0 — the CLI's
+        ``code ingest --scanner-succeeded`` does it for you — or push the
+        scanner's own ``report/v1``, which states its coverage directly.
         """
         body: dict[str, Any] = {"repo": repo, "source": source}
         if isinstance(document, (bytes, bytearray)):

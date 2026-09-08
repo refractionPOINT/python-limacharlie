@@ -1590,6 +1590,102 @@ class TestCloudSecCode:
             assert args[2] == b'{"version":"2.1.0","runs":[]}'
             assert kwargs["commit"] == "c0ffee"
 
+    def test_scanner_succeeded_records_the_evidence_that_lets_a_sarif_close(self, tmp_path):
+        """A SARIF closes findings it previously reported only if it proves its run
+        succeeded (SARIF's own invocations[].executionSuccessful). Trivy and Gitleaks
+        never write that field, so without this flag their pushes are additive forever
+        and the customer sees findings that never resolve."""
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy"}}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+            # The rest of the document is untouched.
+            assert pushed["runs"][0]["tool"]["driver"]["name"] == "trivy"
+
+    def test_scanner_failed_records_the_failure_rather_than_omitting_it(self, tmp_path):
+        """The flag is not a way to say 'always true'. A job whose scan step failed
+        records THAT, which keeps the document additive instead of letting a broken
+        scan look like a clean one."""
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy"}}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-failed"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": False}]
+
+    def test_a_tools_own_execution_claim_is_never_overwritten(self, tmp_path):
+        """The tool knows whether it ran; the caller only knows whether the command
+        exited 0. Overwriting a tool's executionSuccessful:false with true would
+        manufacture exactly the authority this rule exists to withhold."""
+        doc = tmp_path / "scan.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"invocations":'
+                        b'[{"executionSuccessful":false}],"tool":{"driver":{"name":"x"}}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": False}]
+            assert "already states its own execution result" in result.output
+
+    def test_a_gzipped_sarif_is_stamped_and_stays_gzipped(self, tmp_path):
+        """CI jobs gzip large SARIF files. Stamping must not silently hand the API a
+        document in a different encoding than the one it was given."""
+        import gzip as _gzip
+        doc = tmp_path / "trivy.sarif.gz"
+        doc.write_bytes(_gzip.compress(b'{"version":"2.1.0","runs":[{"tool":{}}]}'))
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            sent = inst.ingest_code_results.call_args[0][2]
+            assert sent[:2] == b"\x1f\x8b", "the document must still be gzipped"
+            pushed = json.loads(_gzip.decompress(sent))
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+
+    def test_the_flag_is_refused_for_sources_that_state_their_own_coverage(self, tmp_path):
+        """report/v1 states its coverage directly and CycloneDX makes no claim about a
+        scan having run, so silently accepting the flag there would imply it did
+        something."""
+        doc = tmp_path / "report.json"
+        doc.write_bytes(b'{"schema":"lc-code-report/v1"}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "report", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "--source sarif only" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_without_the_flag_the_document_is_pushed_byte_for_byte(self, tmp_path):
+        """The control: the CLI must not start rewriting documents on its own. Stamping
+        happens only when the caller asks for it."""
+        raw = b'{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy"}}}]}'
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(raw)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc)],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            assert inst.ingest_code_results.call_args[0][2] == raw
+
     def test_code_scan_refuses_to_do_nothing(self, tmp_path):
         """Without --ingest and without -o the report would be written into a
         temporary directory and deleted — a command that appears to succeed and

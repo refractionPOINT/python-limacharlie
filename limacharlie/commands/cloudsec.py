@@ -27,6 +27,7 @@ the one provider command here is the pre-save credential preflight
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import subprocess
@@ -77,6 +78,58 @@ UNAVAILABLE_LOCAL_SCANNERS = ("secrets", "secrets_history")
 # maxCodeIngestBytes on the collection host, mirrored so an over-cap document is refused
 # here — with the size in the message — instead of arriving as a gateway 400 about a body.
 MAX_CODE_INGEST_BYTES = 20 * 1024 * 1024
+
+
+def _stamp_sarif_execution(document: bytes, succeeded: bool) -> tuple[bytes, int]:
+    """Record, in a SARIF document, whether the scanner that produced it ran to completion.
+
+    WHY THIS EXISTS. A pushed SARIF closes a finding it previously reported only when the
+    document proves the tool actually RAN — SARIF 2.1.0 says so itself, with
+    ``run.invocations[].executionSuccessful``. Without that proof the push is additive: its
+    findings land and nothing closes. The rule is there because a scan step with a broken
+    ``--config`` still emits the tool's full rule catalogue and zero results, and reading
+    that as "the repository is clean now" resolves somebody's real vulnerabilities.
+
+    The trouble is that the two most common scanners — Trivy and Gitleaks — do not emit
+    ``invocations`` at all, so their documents can never close anything on their own. The
+    fact they omit is one the CI job HAS: it knows whether the command exited 0. This
+    function is how the job says so, and the assertion is the caller's, attributable to the
+    key that pushed it — not an inference we made from a catalogue.
+
+    A run that already carries ``invocations`` is left ALONE, in either direction. The tool's
+    own claim about its own execution outranks the caller's, and a wrapper that overwrote a
+    tool's ``executionSuccessful: false`` with ``true`` would manufacture exactly the
+    authority this whole rule exists to withhold.
+
+    Returns the document (gzipped again if it arrived gzipped) and how many runs were
+    stamped, so the caller can say what it did rather than changing the file silently.
+    """
+    was_gzipped = document[:2] == b"\x1f\x8b"
+    raw = gzip.decompress(document) if was_gzipped else document
+    try:
+        doc = json.loads(raw)
+    except ValueError as e:
+        raise click.ClickException(
+            "--scanner-succeeded/--scanner-failed has to read the document to record the "
+            "result in it, and this one is not valid JSON: %s" % (e,))
+    if not isinstance(doc, dict) or not isinstance(doc.get("runs"), list):
+        raise click.ClickException(
+            "--scanner-succeeded/--scanner-failed expects a SARIF document with a 'runs' "
+            "array; this one has none.")
+
+    stamped = 0
+    for run in doc["runs"]:
+        if not isinstance(run, dict):
+            continue
+        if run.get("invocations"):
+            continue  # the tool stated its own result; never overwrite it.
+        run["invocations"] = [{"executionSuccessful": bool(succeeded)}]
+        stamped += 1
+    if stamped == 0:
+        return document, 0
+
+    out = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    return (gzip.compress(out) if was_gzipped else out), stamped
 
 
 # ---------------------------------------------------------------------------
@@ -1699,8 +1752,16 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
                    "state it there.")
 @click.option("--provider", default=None,
               help="Source-control provider the key belongs to (default github).")
+@click.option("--scanner-succeeded/--scanner-failed", "scanner_succeeded", default=None,
+              help="SARIF only: record in the document whether the scanner that produced "
+                   "it ran to completion. A SARIF closes findings it previously reported "
+                   "ONLY if it says its run succeeded, and Trivy and Gitleaks do not write "
+                   "that field at all — so without this their pushes never close anything. "
+                   "Pass --scanner-succeeded when your scan step exited 0. A run that "
+                   "already states its own result is left alone.")
 @pass_context
-def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provider) -> None:
+def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provider,
+                scanner_succeeded) -> None:
     """Push scan results your own pipeline produced for one repository.
 
     Findings are deduplicated against the hosted scan by IDENTITY, so
@@ -1724,14 +1785,37 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provi
     previously reported and no longer does; a pushed document can never
     close what the hosted scanner found.
 
+    WHEN A SARIF CLOSES NOTHING, THIS IS USUALLY WHY. A pushed SARIF is
+    treated as an authoritative enumeration — one whose missing findings mean
+    "fixed" rather than "not looked for" — only when the document says its
+    run succeeded, in SARIF's own 'invocations[].executionSuccessful'. A scan
+    step with a broken config still emits the tool's whole rule catalogue and
+    zero results, and believing that would resolve real vulnerabilities. Trivy
+    and Gitleaks do not write the field at all, so pass --scanner-succeeded
+    when your scan step exited 0 and the CLI will record it for you; you will
+    see 'sarif_no_invocation_evidence' in 'notes' when it is missing. The
+    'report' source states its coverage directly and needs none of this.
+
     \b
     Examples:
-      limacharlie cloudsec code ingest --repo acme/api --source sarif -f trivy.sarif
+      limacharlie cloudsec code ingest --repo acme/api --source sarif -f trivy.sarif \\
+          --scanner-succeeded
       limacharlie cloudsec code ingest --repo acme/api --source report -f report.json.gz \\
           --commit "$GITHUB_SHA"
     """
     with open(file_path, "rb") as f:
         document = f.read()
+    if scanner_succeeded is not None:
+        if source != "sarif":
+            raise click.ClickException(
+                "--scanner-succeeded/--scanner-failed applies to --source sarif only. A "
+                "'report' document states its own coverage, and a CycloneDX bill of "
+                "materials makes no claim about a scan having run.")
+        document, stamped = _stamp_sarif_execution(document, scanner_succeeded)
+        if stamped == 0:
+            click.echo(
+                "note: every run in %s already states its own execution result; "
+                "the flag changed nothing." % (file_path,), err=True)
     if len(document) > MAX_CODE_INGEST_BYTES:
         # Refused here, with the size, rather than as a gateway error about a request body.
         raise click.ClickException(
