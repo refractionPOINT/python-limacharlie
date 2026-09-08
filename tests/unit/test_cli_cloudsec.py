@@ -1590,6 +1590,223 @@ class TestCloudSecCode:
             assert args[2] == b'{"version":"2.1.0","runs":[]}'
             assert kwargs["commit"] == "c0ffee"
 
+    def test_scanner_succeeded_records_the_evidence_that_lets_a_sarif_close(self, tmp_path):
+        """A SARIF closes findings it previously reported only if it proves its run
+        succeeded (SARIF's own invocations[].executionSuccessful). Trivy and Gitleaks
+        never write that field, so without this flag their pushes are additive forever
+        and the customer sees findings that never resolve."""
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy"}}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+            # The rest of the document is untouched.
+            assert pushed["runs"][0]["tool"]["driver"]["name"] == "trivy"
+
+    def test_scanner_failed_records_the_failure_rather_than_omitting_it(self, tmp_path):
+        """The flag is not a way to say 'always true'. A job whose scan step failed
+        records THAT, which keeps the document additive instead of letting a broken
+        scan look like a clean one."""
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy"}}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-failed"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": False}]
+
+    def test_a_tools_own_execution_claim_is_never_overwritten(self, tmp_path):
+        """The tool knows whether it ran; the caller only knows whether the command
+        exited 0. Overwriting a tool's executionSuccessful:false with true would
+        manufacture exactly the authority this rule exists to withhold."""
+        doc = tmp_path / "scan.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"invocations":'
+                        b'[{"executionSuccessful":false}],"tool":{"driver":{"name":"x"}}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": False}]
+            assert "already states its own execution result" in result.output
+
+    def test_an_invocation_that_states_nothing_is_still_stamped(self, tmp_path):
+        """'invocations':[{}] is a run that has an invocation object and says NOTHING in
+        it. The server reads a missing executionSuccessful as unsuccessful, so such a
+        document closes nothing — declining to stamp it because the key is present would
+        refuse at exactly the moment stamping was needed, and tell the operator the flag
+        was unnecessary."""
+        doc = tmp_path / "scan.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"invocations":[{}],"tool":{}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            pushed = json.loads(inst.ingest_code_results.call_args[0][2])
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+
+    def test_a_document_with_no_runs_says_so_rather_than_claiming_the_tool_spoke(self, tmp_path):
+        """'every run already states its own result' is reassurance, and it is the wrong
+        reassurance for a document that has no runs at all."""
+        doc = tmp_path / "empty.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            assert "has no runs" in result.output
+            assert "already states" not in result.output
+
+    def test_non_ascii_text_is_not_escape_inflated(self, tmp_path):
+        """json.dumps defaults to ensure_ascii=True, which turns every non-ASCII character
+        into \\uXXXX and can nearly double a document whose messages are not Latin. The
+        size cap is applied to the STAMPED bytes, so that inflation could refuse a file
+        that is well under the limit on disk."""
+        doc = tmp_path / "cjk.sarif"
+        body = {"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "trivy"}},
+                "results": [{"message": {"text": "\u5371\u967a\u306a\u4f9d\u5b58\u95a2\u4fc2" * 200}}]}]}
+        raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        doc.write_bytes(raw)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            sent = inst.ingest_code_results.call_args[0][2]
+            # Compaction may shrink it; escape-inflation would grow it by ~2x.
+            assert len(sent) < len(raw) * 1.2, "the document was escape-inflated"
+            assert json.loads(sent)["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+
+    def test_a_corrupt_gzip_names_the_file_and_the_problem(self, tmp_path):
+        """gzip raises BadGzipFile/EOFError, neither a ValueError, so without an explicit
+        guard the failure escapes to the CLI's catch-all and prints a bare zlib message
+        with no filename and no hint that the compression is the problem."""
+        doc = tmp_path / "truncated.sarif.gz"
+        import gzip as _gzip
+        doc.write_bytes(_gzip.compress(b'{"version":"2.1.0","runs":[]}')[:12])
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "not a readable gzip stream" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_corruption_inside_the_deflate_stream_is_caught_too(self, tmp_path):
+        """Gzip corruption raises THREE exception types and none is a ValueError: EOFError
+        for a truncated stream, BadGzipFile (an OSError) for a bad header or CRC, and
+        zlib.error — which subclasses neither — for corruption inside the deflate stream.
+        A guard that catches only the first two is blind to the shape it was written for."""
+        import gzip as _gzip
+        body = json.dumps({"version": "2.1.0",
+                           "runs": [{"tool": {"driver": {"name": "t"}}}] * 500}).encode()
+        blob = bytearray(_gzip.compress(body))
+        for i in range(30, 60):
+            blob[i] ^= 0xFF
+        doc = tmp_path / "corrupt.sarif.gz"
+        doc.write_bytes(bytes(blob))
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "not a readable gzip stream" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_a_number_json_cannot_represent_is_refused_not_emitted_as_Infinity(self, tmp_path):
+        """Python parses 1e400 as inf and writes it back as the bare token `Infinity`,
+        which is not valid JSON and which the Go server rejects outright. Re-serializing is
+        the ONLY way that can happen — without the flag the original bytes go through
+        untouched — so this must refuse rather than turn a readable document into an
+        unreadable one."""
+        doc = tmp_path / "huge.sarif"
+        doc.write_bytes(b'{"version":"2.1.0","runs":[{"tool":{},"properties":{"n":1e400}}]}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "cannot represent" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_the_same_document_is_pushed_untouched_without_the_flag(self, tmp_path):
+        """The control for both refusals above: neither shape is a problem the CLI creates
+        for a caller who did not ask it to rewrite the document."""
+        raw = b'{"version":"2.1.0","runs":[{"tool":{},"properties":{"n":1e400}}]}'
+        doc = tmp_path / "huge.sarif"
+        doc.write_bytes(raw)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc)],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            assert inst.ingest_code_results.call_args[0][2] == raw
+
+    def test_a_gzipped_sarif_is_stamped_and_stays_gzipped(self, tmp_path):
+        """CI jobs gzip large SARIF files. Stamping must not silently hand the API a
+        document in a different encoding than the one it was given."""
+        import gzip as _gzip
+        doc = tmp_path / "trivy.sarif.gz"
+        doc.write_bytes(_gzip.compress(b'{"version":"2.1.0","runs":[{"tool":{}}]}'))
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            sent = inst.ingest_code_results.call_args[0][2]
+            assert sent[:2] == b"\x1f\x8b", "the document must still be gzipped"
+            pushed = json.loads(_gzip.decompress(sent))
+            assert pushed["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+
+    def test_the_flag_is_refused_for_sources_that_state_their_own_coverage(self, tmp_path):
+        """report/v1 states its coverage directly and CycloneDX makes no claim about a
+        scan having run, so silently accepting the flag there would imply it did
+        something."""
+        doc = tmp_path / "report.json"
+        doc.write_bytes(b'{"schema":"lc-code-report/v1"}')
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "report", "-f", str(doc), "--scanner-succeeded"],
+                cs_cls, {"result": {}})
+            assert result.exit_code != 0
+            assert "--source sarif only" in result.output
+            inst.ingest_code_results.assert_not_called()
+
+    def test_without_the_flag_the_document_is_pushed_byte_for_byte(self, tmp_path):
+        """The control: the CLI must not start rewriting documents on its own. Stamping
+        happens only when the caller asks for it."""
+        raw = b'{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy"}}}]}'
+        doc = tmp_path / "trivy.sarif"
+        doc.write_bytes(raw)
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "ingest", "--repo", "acme/api",
+                 "--source", "sarif", "-f", str(doc)],
+                cs_cls, {"result": {}})
+            assert result.exit_code == 0, result.output
+            assert inst.ingest_code_results.call_args[0][2] == raw
+
     def test_code_scan_refuses_to_do_nothing(self, tmp_path):
         """Without --ingest and without -o the report would be written into a
         temporary directory and deleted — a command that appears to succeed and

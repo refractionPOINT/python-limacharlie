@@ -27,7 +27,9 @@ the one provider command here is the pre-save credential preflight
 
 from __future__ import annotations
 
+import gzip
 import json
+import zlib
 import os
 import subprocess
 import tempfile
@@ -77,6 +79,113 @@ UNAVAILABLE_LOCAL_SCANNERS = ("secrets", "secrets_history")
 # maxCodeIngestBytes on the collection host, mirrored so an over-cap document is refused
 # here — with the size in the message — instead of arriving as a gateway 400 about a body.
 MAX_CODE_INGEST_BYTES = 20 * 1024 * 1024
+
+
+def _run_states_its_execution(run: dict) -> bool:
+    """Whether a SARIF run already says, itself, whether its tool ran to completion.
+
+    The test is for the FIELD, not for the array. `"invocations": [{}]` is a run with an
+    invocation that states nothing: the server reads a missing `executionSuccessful` as
+    unsuccessful, so such a document closes nothing, and treating it as "the tool already
+    spoke" would decline to stamp at the one moment stamping was needed.
+    """
+    for inv in run.get("invocations") or []:
+        if isinstance(inv, dict) and "executionSuccessful" in inv:
+            return True
+    return False
+
+
+def _stamp_sarif_execution(document: bytes, succeeded: bool) -> tuple[bytes, int, int]:
+    """Record, in a SARIF document, whether the scanner that produced it ran to completion.
+
+    WHY THIS EXISTS. A pushed SARIF closes a finding it previously reported only when the
+    document proves the tool actually RAN — SARIF 2.1.0 says so itself, with
+    ``run.invocations[].executionSuccessful``. Without that proof the push is additive: its
+    findings land and nothing closes. The rule is there because a scan step with a broken
+    ``--config`` still emits the tool's full rule catalogue and zero results, and reading
+    that as "the repository is clean now" resolves somebody's real vulnerabilities.
+
+    The trouble is that Trivy — whose output is the common case for this command — does not
+    emit ``invocations`` at all, so its documents can never close anything on their own. The
+    fact it omits is one the CI job HAS: it knows whether the command exited 0. This is how
+    the job says so.
+
+    WHAT THIS IS NOT. The stamped object is byte-identical to one the tool could have
+    written, and the server reads ``invocations`` as the TOOL's record. Nothing downstream
+    can distinguish "Trivy said it succeeded" from "a CI job asserted it did" — the
+    provenance stored on the finding is the document's driver name, not the pushing key. So
+    do not describe this as an attributable assertion; it is the caller filling in a field
+    the tool left blank, and it is only as good as the caller's care.
+
+    A run that already STATES its execution result is left alone, in either direction. The
+    tool's claim about its own execution outranks the caller's, and a wrapper that overwrote
+    a tool's ``executionSuccessful: false`` with ``true`` would manufacture exactly the
+    authority this whole rule exists to withhold.
+
+    Returns the document (gzipped again if it arrived gzipped), how many runs were stamped,
+    and how many runs the document holds — so the caller can tell "nothing to do because the
+    tool already spoke" apart from "nothing to do because there are no runs", which are very
+    different things to report.
+    """
+    was_gzipped = document[:2] == b"\x1f\x8b"
+    if was_gzipped:
+        try:
+            raw = gzip.decompress(document)
+        except (OSError, EOFError, zlib.error) as e:
+            # THREE exception types, because gzip corruption raises three and none of them
+            # is a ValueError. A truncated stream is EOFError; a bad header or a failed CRC
+            # is BadGzipFile (an OSError); and corruption INSIDE the deflate stream is
+            # zlib.error, which subclasses neither. Missing that third one left the guard
+            # blind to the shape it was written for — the CLI's catch-all would print a bare
+            # "Error -3 while decompressing data" with no filename and no mention of gzip.
+            raise click.ClickException(
+                "--scanner-succeeded/--scanner-failed has to read the document to record "
+                "the result in it, and this one is not a readable gzip stream: %s" % (e,))
+    else:
+        raw = document
+    try:
+        doc = json.loads(raw)
+    except ValueError as e:
+        raise click.ClickException(
+            "--scanner-succeeded/--scanner-failed has to read the document to record the "
+            "result in it, and this one is not valid JSON: %s" % (e,))
+    if not isinstance(doc, dict) or not isinstance(doc.get("runs"), list):
+        raise click.ClickException(
+            "--scanner-succeeded/--scanner-failed expects a SARIF document with a 'runs' "
+            "array; this one has none.")
+
+    runs = [r for r in doc["runs"] if isinstance(r, dict)]
+    stamped = 0
+    for run in runs:
+        if _run_states_its_execution(run):
+            continue
+        run["invocations"] = [{"executionSuccessful": bool(succeeded)}]
+        stamped += 1
+    if stamped == 0:
+        return document, 0, len(runs)
+
+    # ensure_ascii=False: the default escapes every non-ASCII character to \uXXXX, which on a
+    # document whose messages carry non-Latin text nearly DOUBLES it (measured 1.94x on a
+    # 1.1 MB CJK sample). Since the size cap below is applied to the stamped bytes, that
+    # inflation could refuse a file that is comfortably under the limit on disk, with an
+    # error quoting a byte count matching nothing the operator can see.
+    #
+    # allow_nan=False: Python parses a JSON number too large for a float (1e400) into `inf`
+    # and, by default, writes it back out as the bare token `Infinity` — which is NOT valid
+    # JSON, and which Go's encoding/json on the server rejects outright. Re-serializing is
+    # the only reason that can happen: without this flag the original bytes are forwarded
+    # untouched and the server never sees it. Refusing here, naming the document, beats
+    # turning a document the server could read into one it cannot.
+    try:
+        out = json.dumps(doc, separators=(",", ":"), ensure_ascii=False,
+                         allow_nan=False).encode("utf-8")
+    except ValueError as e:
+        raise click.ClickException(
+            "--scanner-succeeded/--scanner-failed has to rewrite the document to record the "
+            "result in it, and this one holds a number JSON cannot represent (%s). Push it "
+            "without the flag and add \"invocations\":[{\"executionSuccessful\":true}] to "
+            "each run yourself." % (e,))
+    return (gzip.compress(out) if was_gzipped else out), stamped, len(runs)
 
 
 # ---------------------------------------------------------------------------
@@ -1706,8 +1815,17 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
                    "state it there.")
 @click.option("--provider", default=None,
               help="Source-control provider the key belongs to (default github).")
+@click.option("--scanner-succeeded/--scanner-failed", "scanner_succeeded", default=None,
+              help="SARIF only: record in the document whether the scanner that produced "
+                   "it ran to completion. A SARIF closes findings it previously reported "
+                   "ONLY if it says its run succeeded, and Trivy does not write that field "
+                   "at all — so without this a Trivy push never closes anything. Pass "
+                   "--scanner-succeeded when your scan step exited 0. A run that already "
+                   "states its own result is left alone. It does not help a secret scanner: "
+                   "credential findings are never ingested from any pushed document.")
 @pass_context
-def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provider) -> None:
+def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provider,
+                scanner_succeeded) -> None:
     """Push scan results your own pipeline produced for one repository.
 
     Findings are deduplicated against the hosted scan by IDENTITY, so
@@ -1731,19 +1849,65 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provi
     previously reported and no longer does; a pushed document can never
     close what the hosted scanner found.
 
+    WHEN A SARIF CLOSES NOTHING, THIS IS USUALLY WHY. A pushed SARIF is
+    treated as an authoritative enumeration — one whose missing findings mean
+    "fixed" rather than "not looked for" — only when the document says its
+    run succeeded, in SARIF's own 'invocations[].executionSuccessful'. A scan
+    step with a broken config still emits the tool's whole rule catalogue and
+    zero results, and believing that would resolve real vulnerabilities. Trivy
+    does not write the field at all, so pass --scanner-succeeded when your
+    scan step exited 0 and the CLI records it for you. You will see
+    'sarif_no_invocation_evidence' in 'notes' when it is missing, and
+    'sarif_execution_unsuccessful' when the document says the run failed. The
+    'report' source states its coverage directly and needs none of this.
+
+    THE FLAG DOES NOT HELP A SECRET SCANNER. Credential findings are never
+    ingested from a pushed document in any format — 'secrets_not_ingestable'
+    in 'notes' — because the format cannot carry the keyed digest a secret is
+    identified by and the matched value is never accepted. A gitleaks SARIF
+    therefore creates no findings to close, with or without this flag; use
+    the hosted scan's secrets scanner for that class.
+
     \b
     Examples:
-      limacharlie cloudsec code ingest --repo acme/api --source sarif -f trivy.sarif
+      limacharlie cloudsec code ingest --repo acme/api --source sarif -f trivy.sarif \\
+          --scanner-succeeded
       limacharlie cloudsec code ingest --repo acme/api --source report -f report.json.gz \\
           --commit "$GITHUB_SHA"
     """
     with open(file_path, "rb") as f:
         document = f.read()
+    on_disk = len(document)
+    if scanner_succeeded is not None:
+        if source != "sarif":
+            raise click.ClickException(
+                "--scanner-succeeded/--scanner-failed applies to --source sarif only. A "
+                "'report' document states its own coverage, and a CycloneDX bill of "
+                "materials makes no claim about a scan having run.")
+        document, stamped, runs = _stamp_sarif_execution(document, scanner_succeeded)
+        if stamped == 0:
+            # Three different nothings, and saying the wrong one sends the operator the
+            # wrong way — "already stated" reads as reassurance, and it is the wrong
+            # reassurance for a document that simply has no runs to stamp.
+            click.echo(
+                "note: %s has no runs, so there was nothing to record." % (file_path,)
+                if runs == 0 else
+                "note: every run in %s already states its own execution result; "
+                "the flag changed nothing." % (file_path,), err=True)
     if len(document) > MAX_CODE_INGEST_BYTES:
         # Refused here, with the size, rather than as a gateway error about a request body.
+        # When the stamp is what pushed it over, say THAT: telling somebody to narrow a scan
+        # that was under the limit before we rewrote it sends them after the wrong problem.
+        if on_disk <= MAX_CODE_INGEST_BYTES:
+            raise click.ClickException(
+                "%s is %d bytes on disk, under the %d limit, but recording the scanner "
+                "result re-serialized it to %d. Push it without "
+                "--scanner-succeeded/--scanner-failed and add "
+                "\"invocations\":[{\"executionSuccessful\":true}] to each run yourself, or "
+                "narrow the scan." % (file_path, on_disk, MAX_CODE_INGEST_BYTES, len(document)))
         raise click.ClickException(
             "%s is %d bytes; the ingest limit is %d. Narrow the scan, or push the "
-            "sections separately." % (file_path, len(document), MAX_CODE_INGEST_BYTES))
+            "sections separately." % (file_path, on_disk, MAX_CODE_INGEST_BYTES))
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.ingest_code_results(
         repo, source, document, commit=commit, ref=ref,
