@@ -1,13 +1,15 @@
 """Tests for limacharlie.sdk.mailsec module."""
 
-import warnings
 import json
-
+import warnings
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 
+from limacharlie.client import Client
 from limacharlie.sdk.mailsec import BULK_TERMINAL_STATES, Mailsec, normalize_bulk_selection
+from limacharlie.sdk.organization import Organization
 
 
 OID = "11111111-2222-3333-4444-555555555555"
@@ -94,6 +96,34 @@ class TestRepeatableFilters:
         assert ("mailbox", "cfo@corp.example") in qp
         assert ("link_domain", "evil.example") in qp
         assert ("limit", "50") in qp
+
+    @patch("limacharlie.client.urlopen")
+    def test_sender_domain_reaches_the_gateway_wire_key(self, mock_urlopen):
+        """Drive the real client transport, not only Mailsec's query-pair seam.
+
+        The gateway ignores unknown selectors, so a misspelled key still returns
+        a successful, unfiltered page. Pinning the encoded URL is what prevents
+        that dangerous success from looking like a working filter again.
+        """
+        response = MagicMock()
+        response.read.return_value = json.dumps({
+            "messages": [{"msg_uuid": "filtered-message"}],
+            "next_cursor": "",
+        }).encode()
+        response.getheaders.return_value = []
+        response.close = MagicMock()
+        mock_urlopen.return_value = response
+
+        client = Client(oid=OID, jwt="test-jwt")
+        result = Mailsec(Organization(client)).list_messages(
+            sender_domain="evil.example",
+        )
+
+        sent = mock_urlopen.call_args.args[0]
+        assert parse_qsl(urlsplit(sent.full_url).query) == [
+            ("sender_root_domain", "evil.example"),
+        ]
+        assert result["messages"] == [{"msg_uuid": "filtered-message"}]
 
 
 class TestEMLRequiresJustification:
