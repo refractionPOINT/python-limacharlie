@@ -46,10 +46,38 @@ def invoke_campaign_action(*args: str):
         return result, mailsec
 
 
+def invoke_message_list(*args: str):
+    with (
+        patch("limacharlie.commands.mailsec.Client"),
+        patch("limacharlie.commands.mailsec.Organization"),
+        patch("limacharlie.commands.mailsec.Mailsec") as mailsec_cls,
+    ):
+        mailsec = MagicMock()
+        mailsec.list_messages.return_value = {"messages": [], "next_cursor": ""}
+        mailsec_cls.return_value = mailsec
+        result = CliRunner().invoke(
+            cli,
+            [
+                "--oid", "11111111-2222-3333-4444-555555555555",
+                "--output", "json",
+                "mailsec", "message", "list",
+                *args,
+            ],
+        )
+        return result, mailsec
+
+
 def test_connection_diagnostic_is_read_only_by_default():
     result, mailsec = invoke_connection("workspace")
     assert result.exit_code == 0, result.output
     mailsec.test_connection.assert_called_once_with("workspace", include_watch=False)
+
+
+def test_sender_domain_cli_argument_reaches_the_sdk_unchanged():
+    result, mailsec = invoke_message_list("--sender-domain", "evil.example")
+    assert result.exit_code == 0, result.output
+    _, kwargs = mailsec.list_messages.call_args
+    assert kwargs["sender_domain"] == "evil.example"
 
 
 def test_include_watch_reaches_the_public_sdk_call():

@@ -331,7 +331,9 @@ class Mailsec:
                 ``unknown`` (repeatable).
             mailbox: Protected mailbox address (exact).
             sender_email: Envelope/header sender address (exact).
-            sender_domain: Sender registrable root domain.
+            sender_domain: Sender registrable root domain. Sent to the API as
+                ``sender_root_domain``; the Python name is retained for
+                compatibility with existing callers.
             campaign_id: Only members of one campaign.
             state: Message lifecycle state (repeatable).
             direction: ``inbound``, ``outbound``, ``internal`` (repeatable).
@@ -358,7 +360,7 @@ class Mailsec:
         for key, val in (
             ("mailbox", mailbox),
             ("sender_email", sender_email),
-            ("sender_domain", sender_domain),
+            ("sender_root_domain", sender_domain),
             ("campaign_id", campaign_id),
             ("min_score", min_score),
             ("link_domain", link_domain),
