@@ -126,15 +126,13 @@ def invoke(callback, args, kwargs):
         deliver(org, path, ctx.params)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    if path[:2] == ['dr', 'deploy']:
-        return callback(*args, **kwargs)  # Has a resource-specific reconciliation receipt.
     receipt_id = uuid.uuid4().hex
     receipt = {'id': receipt_id, 'org_id': oid, 'command': path, 'status': 'started'}
     with state.database() as db:
         state.save(db, receipt_id, receipt)
         click.echo(json.dumps({'receipt_id': receipt_id}), err=True)
         try:
-            result = callback(*args, **kwargs)
+            result = bounded_output(callback, args, kwargs, receipt_id, receipt)
         except BaseException:
             receipt['status'] = 'failed_or_unknown'
             state.save(db, receipt_id, receipt)
@@ -186,3 +184,47 @@ def permission_aliases(command):
     if normalized[:2] == ['dr', 'deploy']:
         aliases.append(shlex.join(['limacharlie', 'dr', 'set', *normalized[2:]]))
     return aliases
+
+
+
+def bounded_output(callback, args, kwargs, receipt_id, receipt):
+    """Spool command output on disk and return a bounded artifact reference."""
+    import contextlib
+    import sys
+    directory = state.directory() / 'artifacts'
+    directory.mkdir(mode=0o700, exist_ok=True)
+    path = directory / (receipt_id + '.stdout')
+    class LimitedWriter:
+        def __init__(self, handle):
+            self.handle, self.count = handle, 0
+        def write(self, text):
+            raw = text.encode('utf-8')
+            self.count += len(raw)
+            if self.count > 32 * 1024 * 1024:
+                raise ValueError('Command output exceeds 32 MiB; narrow the query and reconcile any side effects')
+            return self.handle.write(text)
+        def flush(self):
+            self.handle.flush()
+        def isatty(self):
+            return False
+        @property
+        def encoding(self):
+            return 'utf-8'
+    with path.open('w', encoding='utf-8') as handle:
+        writer = LimitedWriter(handle)
+        try:
+            with contextlib.redirect_stdout(writer):
+                result = callback(*args, **kwargs)
+        finally:
+            writer.flush()
+            receipt['stdout_artifact'] = str(path.resolve())
+            size = path.stat().st_size
+            with path.open(encoding='utf-8') as source:
+                preview = source.read(16000)
+            if size <= 16000:
+                click.echo(preview, nl=False)
+            else:
+                click.echo(json.dumps({'status': 'output_saved', 'bytes': size,
+                    'artifact_path': str(path.resolve()), 'preview': preview,
+                    'next': 'Read or query the saved artifact; the preview is incomplete.'}))
+    return result

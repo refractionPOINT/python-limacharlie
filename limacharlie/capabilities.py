@@ -36,6 +36,7 @@ Use direct CLI operations with explicit --oid UUID and --output json. Never use 
 Agent mode rechecks ai_agent.operate on every operation and delivers procedures before first use.
 When it returns procedure_required, read the supplied instructions and rerun the command.
 Use `help receipt ID` to inspect durable operation evidence after an interruption.
+Large outputs return status output_saved and an artifact_path; inspect that file rather than treating the preview as complete.
 Read `sop list --brief` and `ai-skill list --brief`, then retrieve relevant enabled instructions.
 Catalog entries describe platform capabilities, not this organization's subscriptions or integrations.
 Distinguish permission errors, unavailable subscriptions, and empty results. Do not infer unqueried inventory.

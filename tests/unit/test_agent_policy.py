@@ -75,3 +75,14 @@ def test_help_is_offline_in_agent_mode(agent):
         assert result.exit_code == 0, result.output
     agent.who_am_i.assert_not_called()
 
+
+
+def test_large_output_is_durably_saved_without_unbounded_tool_result(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv('LC_AGENT_STATE_DIR', str(tmp_path))
+    receipt = {}
+    policy.bounded_output(lambda: click.echo('x' * 20000), (), {}, 'receipt', receipt)
+    response = json.loads(capsys.readouterr().out)
+    assert response['status'] == 'output_saved'
+    assert len(response['preview']) == 16000
+    from pathlib import Path
+    assert Path(response['artifact_path']).read_text() == 'x' * 20000 + '\n'
