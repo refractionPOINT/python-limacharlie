@@ -29,3 +29,12 @@ When the lint reports a `PROFILES` entry that no longer resolves, find the
 command's current spelling before touching the entry — most rotted entries were
 renamed or moved, not removed. Drop an entry only when the command is genuinely
 gone or has become a flag on another command.
+
+## Agent capability harness
+
+The CLI is the source of truth for agent capability procedures and workflow
+policy. Changes to command behavior or new platform capabilities should update
+`limacharlie/capability_data/catalog.json` and the relevant procedure/references
+in the same PR. `capabilities.validate_package()` checks complete command-root
+coverage and packaged references. AI Sessions pins a CLI commit; it does not
+carry a separate domain MCP server or LC skills bundle.

@@ -26,7 +26,7 @@ PROFILES = {
     "detection_engineering": {
         "description": "D&R rule creation, testing, deployment, and false positives",
         "commands": [
-            "dr list", "dr get", "dr set", "dr delete", "dr deploy", "help capability",
+            "dr list", "dr get", "dr set", "dr delete", "dr deploy", "dr reconcile", "help receipt", "help capability",
             "dr test", "dr replay", "dr validate", "dr export", "dr import",
             "dr convert-rules",
             "fp list", "fp get", "fp set", "fp delete",

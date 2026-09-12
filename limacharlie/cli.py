@@ -235,6 +235,8 @@ class _LazyCommandGroup(click.Group):
             return
         self._ai_help_injected.add(cmd_name)
         inject_ai_help(cmd)
+        from .agent_policy import instrument
+        instrument(cmd)
 
     # -- Click Group overrides ------------------------------------------------
 

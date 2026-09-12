@@ -192,3 +192,16 @@ def cheatsheet(name) -> None:
         raise SystemExit(3)
 
     click.echo(content)
+
+
+@group.command('receipt')
+@click.argument('receipt_id')
+def receipt(receipt_id):
+    """Read local durable operation evidence; does not contact LimaCharlie."""
+    import json
+    from .. import agent_state as state
+    with state.database() as db:
+        value = state.read(db, receipt_id)
+    if value is None:
+        raise click.ClickException('Unknown receipt ID')
+    click.echo(json.dumps(value))

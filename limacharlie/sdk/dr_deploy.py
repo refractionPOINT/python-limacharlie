@@ -1,4 +1,4 @@
-"""Experimental all-in-one D&R deployment; no MCP or agent-backend dependency."""
+"""Validated D&R deployment with typed metadata and durable reconciliation."""
 import hashlib
 import json
 from pathlib import Path
@@ -8,6 +8,8 @@ import yaml
 
 from ..errors import ApiError, NotFoundError
 from .replay import Replay
+from .. import agent_state as state
+from ..agent_policy import check_permission
 
 
 def evidence(data, expected=None):
@@ -25,72 +27,163 @@ def evidence(data, expected=None):
     return {"processed": stats["n_proc"], "matched": data["did_match"]}
 
 
-def deploy(org, key, candidate_path, positive_path, negative_path, namespace="general", dry_run=False):
-    if namespace not in ("general", "managed", "service") or not key:
-        raise ValueError("A resource key and valid namespace are required")
-    paths = [Path(p) for p in (candidate_path, positive_path, negative_path)]
-    raw = [p.read_bytes() for p in paths]
-    if any(len(x) > 2 * 1024 * 1024 for x in raw):
-        raise ValueError("Candidate and fixtures must each fit within 2 MiB")
-    candidate = yaml.safe_load(raw[0])
-    if not isinstance(candidate, dict) or not isinstance(candidate.get("data"), dict):
-        raise ValueError("Use a full Hive envelope with data and explicit usr_mtd.enabled")
-    rule, metadata = candidate["data"], candidate.get("usr_mtd", {})
-    if (not isinstance(rule.get("detect"), dict) or not isinstance(rule.get("respond"), list)
-            or not isinstance(metadata, dict) or type(metadata.get("enabled")) is not bool):
-        raise ValueError("Require detect/respond and explicit boolean usr_mtd.enabled")
-    fixtures = [json.loads(x) for x in raw[1:]]
-    if any(not isinstance(x, list) or not x or not all(isinstance(e, dict) for e in x) for x in fixtures):
-        raise ValueError("Fixtures must be nonempty JSON arrays of event objects")
-    identity = org.who_am_i()
-    perms = list(identity.get("perms", []))
-    for p in identity.get("user_perms", {}).values():
-        if isinstance(p, list): perms.extend(p)
-    if "ai_agent.operate" not in perms:
-        raise ValueError("Identity lacks ai_agent.operate in this organization")
-    endpoint = f"hive/dr-{namespace}/{org.oid}/{quote(key, safe='')}"
+
+def _current(org, key, namespace):
+    endpoint = f"hive/dr-{namespace}/{org.oid}/{quote(key, safe='')}/data"
     try:
-        current = org.client.request("GET", endpoint + "/data")
+        return org.client.request("GET", endpoint)
     except NotFoundError:
-        current = None
+        return None
     except ApiError as exc:
         expected = f"lc_error_code:RECORD_NOT_FOUND - record name 'dr-{namespace}:{org.oid}:{key}'"
         body = exc.response_body
-        if not (exc.status_code == 400 and isinstance(body, dict)
-                and body.get("error") == expected and body.get("data") == {}
-                and body.get("retry") is False):
+        if (exc.status_code == 400 and isinstance(body, dict) and body.get("error") == expected
+                and body.get("data") == {} and body.get("retry") is False):
+            return None
+        raise
+
+
+def _matches(observed, candidate):
+    return (isinstance(observed, dict) and observed.get('data') == candidate['data']
+            and isinstance(observed.get('usr_mtd'), dict)
+            and all(observed['usr_mtd'].get(k) == v for k, v in candidate['usr_mtd'].items()))
+
+
+def reconcile(org, key, namespace="general", accept_current=False):
+    """Read an interrupted deployment; explicitly acknowledge divergent current state.
+
+    This never writes remote data. accept_current releases the local recovery
+    fence so a freshly read, reconciled candidate can be deployed separately.
+    """
+    check_permission(org)
+    resource = state.identifier('dr', org.oid, namespace, key)
+    with state.resource_lock(resource), state.database() as db:
+        pending = state.read(db, resource)
+        observed = _current(org, key, namespace)
+        if not pending:
+            return {'status': 'no_pending_write', 'observed': observed}
+        receipt = state.read(db, pending['receipt_id'])
+        if _matches(observed, receipt['candidate']):
+            receipt.update(status='verified', observed=observed)
+        elif accept_current:
+            receipt.update(status='reconciled_current', observed=observed)
+        else:
+            return {'status': 'unknown_outcome', 'receipt_id': pending['receipt_id'], 'observed': observed,
+                    'next': 'Inspect remote state; --accept-current acknowledges it without retrying the write.'}
+        state.save(db, pending['receipt_id'], receipt)
+        db.execute('DELETE FROM records WHERE id=?', (resource,)); db.commit()
+        return receipt
+
+
+def deploy(org, key, candidate_path, positive_path, negative_path, namespace="general", dry_run=False,
+           *, enabled=None, tags=None, comment=None, etag=None):
+    """Compile/test a rule, preserve metadata, conditionally write once and verify.
+
+    Inputs may be a bare rule or Hive envelope. CLI metadata options override
+    envelope metadata. Existing fields omitted by the caller are preserved.
+    Updates require an explicitly supplied current etag. Evidence survives a
+    crash and subsequent invocations reconcile instead of replaying a write.
+    """
+    if namespace not in ("general", "managed", "service") or not key:
+        raise ValueError("A resource key and valid namespace are required")
+    paths = [Path(p) for p in (candidate_path, positive_path, negative_path)]
+    raw = []
+    for path in paths:
+        with path.open('rb') as handle:
+            value = handle.read(2 * 1024 * 1024 + 1)
+        if len(value) > 2 * 1024 * 1024:
+            raise ValueError('Candidate and fixtures must each fit within 2 MiB')
+        raw.append(value)
+    artifact = yaml.safe_load(raw[0])
+    if not isinstance(artifact, dict):
+        raise ValueError('Require a rule object or Hive envelope')
+    rule = artifact.get('data', artifact)
+    metadata = dict(artifact.get('usr_mtd', {})) if isinstance(artifact.get('usr_mtd', {}), dict) else None
+    if not isinstance(rule, dict) or not isinstance(rule.get('detect'), dict) or not isinstance(rule.get('respond'), list):
+        raise ValueError('Require detect and respond in rule data')
+    misplaced = set(rule) & {'tags', 'comment', 'enabled', 'expiry', 'usr_mtd', 'sys_mtd', 'etag'}
+    if misplaced:
+        raise ValueError('Metadata does not belong in rule data: ' + ', '.join(sorted(misplaced)) +
+                         '; use --tag, --comment, --enabled/--disabled or usr_mtd')
+    if metadata is None:
+        raise ValueError('usr_mtd must be an object')
+    for name, value in [('enabled', enabled), ('tags', tags), ('comment', comment)]:
+        if value is not None:
+            metadata[name] = value
+    if 'enabled' in metadata and type(metadata['enabled']) is not bool:
+        raise ValueError('enabled must be a boolean')
+    if 'tags' in metadata and (not isinstance(metadata['tags'], list) or not all(isinstance(t, str) for t in metadata['tags'])):
+        raise ValueError('tags must be an array of strings')
+    if 'comment' in metadata and not isinstance(metadata['comment'], str):
+        raise ValueError('comment must be a string')
+    etag = etag if etag is not None else artifact.get('etag')
+    fixtures = [json.loads(x) for x in raw[1:]]
+    if any(not isinstance(x, list) or not x or not all(isinstance(e, dict) for e in x) for x in fixtures):
+        raise ValueError('Fixtures must be nonempty JSON arrays of event objects')
+    check_permission(org)
+    resource = state.identifier('dr', org.oid, namespace, key)
+    receipt_id = state.identifier(resource, [hashlib.sha256(x).hexdigest() for x in raw], metadata, etag)
+    with state.resource_lock(resource), state.database() as db:
+        current = _current(org, key, namespace)
+        pending = state.read(db, resource)
+        if pending:
+            previous = state.read(db, pending['receipt_id'])
+            if _matches(current, previous['candidate']):
+                previous.update(status='verified', observed=current)
+                state.save(db, pending['receipt_id'], previous)
+                db.execute('DELETE FROM records WHERE id=?', (resource,)); db.commit()
+                if pending['receipt_id'] == receipt_id:
+                    return previous
+            else:
+                raise ValueError('Unresolved write ' + pending['receipt_id'] + '; use dr reconcile before another deployment')
+        previous = state.read(db, receipt_id)
+        if previous and previous['status'] == 'verified':
+            if _matches(current, previous['candidate']):
+                return dict(previous, observed=current)
+            raise ValueError('Previously verified candidate has drifted; read current state and reconcile a fresh candidate')
+        if current is not None:
+            if not isinstance(current, dict) or not isinstance(current.get('usr_mtd'), dict):
+                raise ValueError('Unrecognized current record; cannot safely update')
+            current_etag = current.get('sys_mtd', {}).get('etag')
+            if not current_etag or etag != current_etag:
+                raise ValueError('Stale or missing etag; re-read and reconcile the current record')
+            metadata = {**current['usr_mtd'], **metadata}
+        elif etag is not None:
+            raise ValueError('Expected existing record is absent; reconcile before creating')
+        if type(metadata.get('enabled')) is not bool:
+            raise ValueError('New rule requires explicit --enabled/--disabled or usr_mtd.enabled')
+        candidate = {'data': rule, 'usr_mtd': metadata}
+        replay = Replay(org)
+        stream = {'detection': 'detect', 'audit': 'audit'}.get(rule['detect'].get('target'), 'event')
+        positive = evidence(replay.scan_events(fixtures[0], rule_content=rule, stream=stream), True)
+        negative = evidence(replay.scan_events(fixtures[1], rule_content=rule, stream=stream), False)
+        if any(p.read_bytes() != original for p, original in zip(paths, raw)):
+            raise ValueError('Input changed during validation; nothing was written')
+        result = {'status': 'previewed', 'receipt_id': receipt_id, 'org_id': org.oid, 'key': key, 'namespace': namespace,
+                  'candidate_sha256': state.identifier(candidate), 'candidate': candidate, 'before': current,
+                  'checks': {'compiled': True, 'positive': positive, 'negative': negative, 'metadata_and_etag': True}}
+        if dry_run:
+            return result
+        # Check again after potentially long Replay tests, immediately before mutation.
+        check_permission(org)
+        result['status'] = 'write_started'
+        state.save(db, receipt_id, result)
+        state.save(db, resource, {'receipt_id': receipt_id})
+        params = {'data': json.dumps(rule), 'usr_mtd': json.dumps(metadata)}
+        if current is not None:
+            params['etag'] = etag
+        endpoint = f"hive/dr-{namespace}/{org.oid}/{quote(key, safe='')}/data"
+        try:
+            # Client max_retries counts attempts: one prevents implicit 504 retries.
+            org.client.request('POST', endpoint, params=params, max_retries=1)
+            observed = _current(org, key, namespace)
+            if not _matches(observed, candidate):
+                raise ValueError('Write accepted but read-back differs; outcome unverified, use dr reconcile')
+        except BaseException:
+            result['status'] = 'unknown_outcome'
+            state.save(db, receipt_id, result)
             raise
-        current = None
-    if current is not None:
-        if not isinstance(current, dict) or not isinstance(current.get("usr_mtd"), dict):
-            raise ValueError("Unrecognized current record; cannot safely update")
-        missing = set(current["usr_mtd"]) - set(metadata)
-        if missing:
-            raise ValueError("Preserve or explicitly change current metadata: " + ", ".join(sorted(missing)))
-        etag = current.get("sys_mtd", {}).get("etag")
-        if not etag or candidate.get("etag") != etag:
-            raise ValueError("Stale or missing etag; re-read and reconcile the current record")
-    replay = Replay(org)
-    stream = {"detection": "detect", "audit": "audit"}.get(rule["detect"].get("target"), "event")
-    # The positive fixture proves compilation on the actual target layout too.
-    # Replay dry_run is estimation, not the inline fixture evaluation used by dr test.
-    positive = evidence(replay.scan_events(fixtures[0], rule_content=rule, stream=stream), True)
-    negative = evidence(replay.scan_events(fixtures[1], rule_content=rule, stream=stream), False)
-    if any(p.read_bytes() != original for p, original in zip(paths, raw)):
-        raise ValueError("Input changed during validation; nothing was written")
-    result = {"status": "previewed", "org_id": org.oid, "key": key, "namespace": namespace,
-              "candidate_sha256": hashlib.sha256(raw[0]).hexdigest(),
-              "checks": {"compiled": True, "positive": positive, "negative": negative,
-                         "metadata_and_etag": True}, "before": current, "candidate": candidate}
-    if dry_run:
+        result.update(status='verified', observed=observed)
+        state.save(db, receipt_id, result)
+        db.execute('DELETE FROM records WHERE id=?', (resource,)); db.commit()
         return result
-    params = {"data": json.dumps(rule), "usr_mtd": json.dumps(metadata)}
-    if current is not None: params["etag"] = candidate["etag"]
-    # Do not retry ambiguous writes here. The caller must reconcile remote state.
-    org.client.request("POST", endpoint + "/data", params=params)
-    observed = org.client.request("GET", endpoint + "/data")
-    if (observed.get("data") != rule or
-            any(observed.get("usr_mtd", {}).get(k) != v for k, v in metadata.items())):
-        raise ValueError("Write accepted but read-back differs; outcome unverified, inspect remote state")
-    result.update(status="verified", observed=observed)
-    return result

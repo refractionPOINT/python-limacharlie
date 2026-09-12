@@ -10,6 +10,7 @@ from limacharlie.sdk.dr_deploy import deploy
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
+    monkeypatch.setenv("LC_AGENT_STATE_DIR", str(tmp_path / "state"))
     candidate = {"data": {"detect": {"event": "NEW_PROCESS", "op": "exists", "path": "event/FILE_PATH"},
                           "respond": [{"action": "report", "name": "test"}]},
                  "usr_mtd": {"enabled": False, "tags": ["preserve"]}}
@@ -35,13 +36,13 @@ def test_create_verified(setup):
     assert all(not c.kwargs.get("dry_run", False) for c in replay.scan_events.call_args_list)
 
 
-@pytest.mark.parametrize("fault", ["missing_enabled", "stale_etag", "metadata_loss", "permission", "partial",
+@pytest.mark.parametrize("fault", ["missing_enabled", "stale_etag", "permission", "partial",
                                   "positive_miss", "negative_match", "changed_file", "api_denial"])
 def test_preconditions_never_write(setup, fault):
     org, paths, candidate, replay = setup
     if fault == "missing_enabled":
         candidate["usr_mtd"].pop("enabled"); paths[0].write_text(json.dumps(candidate))
-    elif fault in ("stale_etag", "metadata_loss"):
+    elif fault in ("stale_etag"):
         current = dict(candidate, sys_mtd={"etag": "current"})
         if fault == "metadata_loss": current["usr_mtd"] = dict(candidate["usr_mtd"], comment="keep")
         org.client.request.side_effect = [current]
@@ -89,3 +90,58 @@ def test_dry_run_never_writes(setup):
     org, paths, _, _ = setup
     assert deploy(org, "test", *paths, dry_run=True)["status"] == "previewed"
     assert org.client.request.call_count == 1
+
+
+@pytest.mark.parametrize("field,value", [("tags", ["architecture-eval"]), ("comment", "updated"), ("enabled", False)])
+def test_metadata_under_data_is_rejected_before_any_api(setup, field, value):
+    org, paths, candidate, _ = setup
+    candidate['data'][field] = value
+    paths[0].write_text(json.dumps(candidate))
+    with pytest.raises(ValueError, match="Metadata does not belong"):
+        deploy(org, "test", *paths)
+    org.client.request.assert_not_called()
+
+
+def test_typed_metadata_preserves_unrelated_fields(setup):
+    org, paths, candidate, _ = setup
+    current = dict(candidate, usr_mtd={'enabled': False, 'tags': ['keep'], 'comment': 'initial', 'expiry': 123},
+                   sys_mtd={'etag': 'current'})
+    paths[0].write_text(json.dumps(candidate['data']))
+    observed = dict(current, usr_mtd=dict(current['usr_mtd'], comment='updated'))
+    org.client.request.side_effect = [current, {}, observed]
+    result = deploy(org, "test", *paths, etag='current', comment='updated')
+    assert result['observed']['usr_mtd'] == observed['usr_mtd']
+    assert org.client.request.call_args_list[1].kwargs['max_retries'] == 1
+
+
+def test_repeated_ambiguous_write_reconciles_without_reposting(setup):
+    org, paths, candidate, replay = setup
+    org.client.request.side_effect = [NotFoundError('missing'), TimeoutError('lost reply')]
+    with pytest.raises(TimeoutError):
+        deploy(org, 'test', *paths)
+    org.client.request.reset_mock()
+    org.client.request.side_effect = [candidate]
+    assert deploy(org, 'test', *paths)['status'] == 'verified'
+    assert org.client.request.call_count == 1
+    assert replay.scan_events.call_count == 2
+
+
+def test_divergent_unknown_write_blocks_new_candidate_until_reconciled(setup):
+    from limacharlie.sdk.dr_deploy import reconcile
+    org, paths, candidate, _ = setup
+    org.client.request.side_effect = [NotFoundError('missing'), TimeoutError('lost reply')]
+    with pytest.raises(TimeoutError):
+        deploy(org, 'test', *paths)
+    org.client.request.side_effect = [NotFoundError('missing')]
+    with pytest.raises(ValueError, match='Unresolved write'):
+        deploy(org, 'test', *paths)
+    org.client.request.side_effect = [NotFoundError('missing')]
+    assert reconcile(org, 'test', accept_current=True)['status'] == 'reconciled_current'
+
+
+def test_permission_revoked_after_tests_never_writes(setup):
+    org, paths, _, _ = setup
+    org.who_am_i.side_effect = [{'perms': ['ai_agent.operate']}, {'perms': []}]
+    with pytest.raises(ValueError, match='ai_agent.operate'):
+        deploy(org, 'test', *paths)
+    assert not any(c.args[0] == 'POST' for c in org.client.request.call_args_list)
