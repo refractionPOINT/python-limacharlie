@@ -30,7 +30,7 @@ def evidence(data: dict, expected: bool | None = None) -> dict:
     stats = data.get("stats", {})
     if (not isinstance(stats, dict) or type(stats.get("n_proc")) is not int
             or stats["n_proc"] <= 0 or stats.get("results_partial")
-            or data.get("cursor") or data.get("retryable_partial")
+            or data.get("cursor") or data.get("retryable_partial") or data.get("is_dry_run") is True
             or not isinstance(data.get("results"), list)
             or type(data.get("did_match")) is not bool):
         raise ValueError("Replay evidence is partial, empty or unrecognized")
@@ -80,6 +80,8 @@ def reconcile(org, key, namespace="general", accept_current=False):
         ValueError: Agent permission is absent.
         ApiError: Remote state cannot be read.
     """
+    if namespace not in ('general', 'managed', 'service') or not key:
+        raise ValueError('A resource key and valid namespace are required')
     check_permission(org)
     resource = state.identifier('dr', org.oid, namespace, key)
     with state.resource_lock(resource), state.database() as db:
@@ -202,8 +204,10 @@ def deploy(org, key, candidate_path, positive_path, negative_path, namespace="ge
         stream = {'detection': 'detect', 'audit': 'audit'}.get(rule['detect'].get('target'), 'event')
         positive = evidence(replay.scan_events(fixtures[0], rule_content=rule, stream=stream), True)
         negative = evidence(replay.scan_events(fixtures[1], rule_content=rule, stream=stream), False)
-        if any(p.read_bytes() != original for p, original in zip(paths, raw)):
-            raise ValueError('Input changed during validation; nothing was written')
+        for path, original in zip(paths, raw):
+            with path.open('rb') as handle:
+                if handle.read(2 * 1024 * 1024 + 1) != original:
+                    raise ValueError('Input changed during validation; nothing was written')
         result = {'status': 'previewed', 'receipt_id': receipt_id, 'org_id': org.oid, 'key': key, 'namespace': namespace,
                   'candidate_sha256': state.identifier(candidate), 'candidate': candidate, 'before': current,
                   'checks': {'compiled': True, 'positive': positive, 'negative': negative, 'metadata_and_etag': True}}

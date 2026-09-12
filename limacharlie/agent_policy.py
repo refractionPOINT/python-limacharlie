@@ -62,7 +62,8 @@ def relevant(path, params):
     # Shared administration commands have a primary procedure; load product
     # procedures only when the parsed operation actually targets that product.
     defaults = {'extension': {'extensions'}, 'hive': {'hive-data'},
-                'cloudsec': {'cloud-security'}}
+                'cloudsec': {'cloud-security'}, 'org': {'organization-access'},
+                'job': {'endpoint-services'}, 'download': {'sensors-tasking'}}
     if path[0] in defaults:
         result = set(defaults[path[0]])
     if path[:2] == ['cloudsec', 'code']:
@@ -105,7 +106,9 @@ def deliver(org, path, params):
                     response['organization_instructions'][hive_name] = {
                         name: {'description': str(rec.data.get('description', ''))[:200] if isinstance(rec.data, dict) else '',
                                'enabled': rec.enabled} for name, rec in list(records.items())[:20]}
-                    if len(records) > 20:
+                    while len(json.dumps(response['organization_instructions'][hive_name])) > 6000:
+                        response['organization_instructions'][hive_name].popitem()
+                    if len(records) > len(response['organization_instructions'][hive_name]):
                         response['organization_instructions'][hive_name + '_truncated'] = {
                             'total': len(records), 'next': 'Use list --brief to inspect the remaining instruction index.'}
                 except Exception:

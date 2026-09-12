@@ -93,3 +93,21 @@ def test_shared_roots_only_load_relevant_product_guidance():
     assert policy.relevant(['hive', 'list'], {}) == ['hive-data']
     assert policy.relevant(['cloudsec', 'code', 'list'], {}) == ['cloud-security', 'code-security']
     assert policy.relevant(['hive', 'get'], {'hive_name': 'dr-mail'}) == ['email-security', 'hive-data']
+
+
+@pytest.mark.parametrize('root,expected', [('org', 'organization-access'), ('job', 'endpoint-services'), ('download', 'sensors-tasking')])
+def test_generic_administration_does_not_load_unrelated_guides(root, expected):
+    assert policy.relevant([root, 'list'], {}) == [expected]
+
+
+def test_long_instruction_indexes_remain_bounded(agent, monkeypatch):
+    records = {'x' * 500 + str(i): SimpleNamespace(data={'description': 'long ' * 100}, enabled=True) for i in range(100)}
+    monkeypatch.setattr('limacharlie.sdk.hive.Hive', lambda *args: SimpleNamespace(list=lambda: records))
+    from contextlib import redirect_stderr
+    from io import StringIO
+    output = StringIO()
+    with redirect_stderr(output), pytest.raises(click.ClickException):
+        policy.deliver(agent, ['extension', 'list'], {})
+    response = json.loads(output.getvalue())
+    assert len(output.getvalue()) < 30000
+    assert response['organization_instructions']['sop_truncated']['total'] == 100
