@@ -210,15 +210,28 @@ def bounded_output(callback, args, kwargs, receipt_id, receipt):
     directory = state.directory() / 'artifacts'
     directory.mkdir(mode=0o700, exist_ok=True)
     path = directory / (receipt_id + '.stdout')
+    class BinaryWriter:
+        def __init__(self, owner):
+            self.owner = owner
+        def write(self, raw):
+            self.owner.binary = True
+            return self.owner.write_bytes(raw)
+        def flush(self):
+            self.owner.flush()
+        def isatty(self):
+            return False
     class LimitedWriter:
         def __init__(self, handle):
-            self.handle, self.count = handle, 0
-        def write(self, text):
-            raw = text.encode('utf-8')
+            self.handle, self.count, self.binary = handle, 0, False
+            self.buffer = BinaryWriter(self)
+        def write_bytes(self, raw):
             self.count += len(raw)
             if self.count > 32 * 1024 * 1024:
-                raise ValueError('Command output exceeds 32 MiB; narrow the query and reconcile any side effects')
-            return self.handle.write(text)
+                raise ValueError('Command output exceeds 32 MiB; use an output file or narrow the query and reconcile side effects')
+            return self.handle.write(raw)
+        def write(self, text):
+            self.write_bytes(text.encode('utf-8'))
+            return len(text)
         def flush(self):
             self.handle.flush()
         def isatty(self):
@@ -226,7 +239,7 @@ def bounded_output(callback, args, kwargs, receipt_id, receipt):
         @property
         def encoding(self):
             return 'utf-8'
-    with path.open('w', encoding='utf-8') as handle:
+    with path.open('wb') as handle:
         writer = LimitedWriter(handle)
         try:
             with contextlib.redirect_stdout(writer):
@@ -235,12 +248,13 @@ def bounded_output(callback, args, kwargs, receipt_id, receipt):
             writer.flush()
             receipt['stdout_artifact'] = str(path.resolve())
             size = path.stat().st_size
-            with path.open(encoding='utf-8') as source:
-                preview = source.read(16000)
-            if size <= 16000:
+            with path.open('rb') as source:
+                preview = source.read(16000).decode('utf-8', errors='replace')
+            if size <= 16000 and not writer.binary:
                 click.echo(preview, nl=False)
             else:
                 click.echo(json.dumps({'status': 'output_saved', 'bytes': size,
-                    'artifact_path': str(path.resolve()), 'preview': preview,
+                    'artifact_path': str(path.resolve()), 'binary': writer.binary,
+                    'preview': None if writer.binary else preview,
                     'next': 'Read or query the saved artifact; the preview is incomplete.'}))
     return result

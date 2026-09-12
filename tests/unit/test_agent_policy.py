@@ -111,3 +111,18 @@ def test_long_instruction_indexes_remain_bounded(agent, monkeypatch):
     response = json.loads(output.getvalue())
     assert len(output.getvalue()) < 30000
     assert response['organization_instructions']['sop_truncated']['total'] == 100
+
+
+@pytest.mark.parametrize('writer', ['buffer', 'click'])
+def test_binary_command_output_preserves_exact_artifact(tmp_path, monkeypatch, capsys, writer):
+    import sys
+    from pathlib import Path
+    monkeypatch.setenv('LC_AGENT_STATE_DIR', str(tmp_path))
+    raw = b'\x00\xff\x80payload'
+    def callback():
+        target = sys.stdout.buffer if writer == 'buffer' else click.get_binary_stream('stdout')
+        target.write(raw)
+    policy.bounded_output(callback, (), {}, 'binary', {})
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'output_saved' and result['binary']
+    assert Path(result['artifact_path']).read_bytes() == raw
