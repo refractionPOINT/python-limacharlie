@@ -79,6 +79,43 @@ def group() -> None:
     """
 
 
+@group.command("deploy")
+@click.option("--key", required=True)
+@click.option("--input-file", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--positive", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--negative", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--namespace", type=_NS_CHOICES, default="general")
+@click.option("--dry-run", is_flag=True, help="Validate, test and preview without writing.")
+@click.option("--enabled/--disabled", default=None, help="Explicit enabled state; preserved on updates if omitted.")
+@click.option("--tag", "tags", multiple=True, help="Replace metadata tags (repeatable).")
+@click.option("--clear-tags", is_flag=True, help="Explicitly remove all metadata tags.")
+@click.option("--comment", default=None, help="Set the metadata comment.")
+@click.option("--etag", default=None, help="Current sys_mtd.etag, required for conditional updates.")
+@pass_context
+def deploy_cmd(ctx, key, input_file, positive, negative, namespace, dry_run, enabled, tags, clear_tags, comment, etag):
+    """Validate/test a full Hive candidate, conditionally apply it, and verify read-back."""
+    from ..sdk.dr_deploy import deploy
+    try:
+        if tags and clear_tags:
+            raise ValueError("--tag and --clear-tags are mutually exclusive")
+        result = deploy(_get_org(ctx), key, input_file, positive, negative, namespace, dry_run,
+                        enabled=enabled, tags=list(tags) if tags or clear_tags else None, comment=comment, etag=etag)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _output(ctx, result)
+
+
+@group.command("reconcile")
+@click.option("--key", required=True)
+@click.option("--namespace", type=_NS_CHOICES, default="general")
+@click.option("--accept-current", is_flag=True, help="Acknowledge divergent current state without retrying the write.")
+@pass_context
+def reconcile_cmd(ctx, key, namespace, accept_current):
+    """Inspect an interrupted deployment and resolve its durable receipt."""
+    from ..sdk.dr_deploy import reconcile
+    _output(ctx, reconcile(_get_org(ctx), key, namespace, accept_current))
+
+
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
