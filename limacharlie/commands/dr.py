@@ -79,6 +79,24 @@ def group() -> None:
     """
 
 
+@group.command("deploy")
+@click.option("--key", required=True)
+@click.option("--input-file", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--positive", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--negative", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--namespace", type=_NS_CHOICES, default="general")
+@click.option("--dry-run", is_flag=True, help="Validate, test and preview without writing.")
+@pass_context
+def deploy_cmd(ctx, key, input_file, positive, negative, namespace, dry_run):
+    """Validate/test a full Hive candidate, conditionally apply it, and verify read-back."""
+    from ..sdk.dr_deploy import deploy
+    try:
+        result = deploy(_get_org(ctx), key, input_file, positive, negative, namespace, dry_run)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _output(ctx, result)
+
+
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------

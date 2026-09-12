@@ -13,6 +13,20 @@ from ..help_topics import get_help_topic, list_help_topics, get_cheatsheet, list
 from ..discovery import format_discovery, register_explain
 
 
+@click.command("capability")
+@click.argument("capability_id", default="")
+@click.option("--reference", default="", help="Exact packaged reference path declared by the capability.")
+@click.option("--prompt", is_flag=True, help="Print the CLI-owned compact agent instructions and catalog.")
+def capability(capability_id, reference, prompt):
+    """Discover packaged platform capabilities and their operating procedures."""
+    import json
+    from ..capabilities import discover, agent_prompt
+    try:
+        click.echo(agent_prompt() if prompt else json.dumps(discover(capability_id, reference)))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -65,6 +79,9 @@ def group(ctx) -> None:
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
+
+
+group.add_command(capability)
 
 
 # ---------------------------------------------------------------------------
