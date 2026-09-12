@@ -12,7 +12,19 @@ from .. import agent_state as state
 from ..agent_policy import check_permission
 
 
-def evidence(data, expected=None):
+def evidence(data: dict, expected: bool | None = None) -> dict:
+    """Check that Replay returned complete, nonempty fixture evidence.
+
+    Args:
+        data: Replay response.
+        expected: Required match outcome, if specified.
+
+    Returns:
+        dict: Processed event count and match outcome.
+
+    Raises:
+        ValueError: Evidence is empty, partial, malformed or disagrees with expected.
+    """
     if not isinstance(data, dict) or data.get("error") or data.get("errors"):
         raise ValueError("Replay returned errors or no recognizable evidence")
     stats = data.get("stats", {})
@@ -54,6 +66,19 @@ def reconcile(org, key, namespace="general", accept_current=False):
 
     This never writes remote data. accept_current releases the local recovery
     fence so a freshly read, reconciled candidate can be deployed separately.
+
+    Args:
+        org: Authenticated organization.
+        key: Rule record key.
+        namespace: Ordinary D&R namespace.
+        accept_current: Acknowledge divergent current state without retrying.
+
+    Returns:
+        dict: Receipt status and independently observed remote record.
+
+    Raises:
+        ValueError: Agent permission is absent.
+        ApiError: Remote state cannot be read.
     """
     check_permission(org)
     resource = state.identifier('dr', org.oid, namespace, key)
@@ -83,6 +108,26 @@ def deploy(org, key, candidate_path, positive_path, negative_path, namespace="ge
     envelope metadata. Existing fields omitted by the caller are preserved.
     Updates require an explicitly supplied current etag. Evidence survives a
     crash and subsequent invocations reconcile instead of replaying a write.
+
+    Args:
+        org: Authenticated organization.
+        key: Rule record key.
+        candidate_path: JSON or YAML rule or Hive envelope file.
+        positive_path: JSON event sequence that must match.
+        negative_path: JSON event sequence that must not match.
+        namespace: Ordinary D&R namespace.
+        dry_run: Validate and preview without writing.
+        enabled: Explicit metadata enabled state; None preserves existing state.
+        tags: Replacement metadata tags; None preserves existing tags.
+        comment: Replacement metadata comment; None preserves existing comment.
+        etag: Expected current record etag for conditional updates.
+
+    Returns:
+        dict: Candidate, observed state, checks and durable receipt ID/status.
+
+    Raises:
+        ValueError: Input, permission, fixture, concurrency or verification checks fail.
+        ApiError: An API operation fails; reconcile an uncertain write before retrying.
     """
     if namespace not in ("general", "managed", "service") or not key:
         raise ValueError("A resource key and valid namespace are required")
