@@ -15,9 +15,17 @@ limacharlie dr create --name my-rule \
   --respond '[{"action":"report","name":"my-detection"}]'
 limacharlie dr update --name my-rule --detect '...' --respond '[...]'
 limacharlie dr delete --name my-rule
-limacharlie dr test --detect '...' --respond '[...]' --events '[{...}]'
+limacharlie dr test --input-file rule.yaml --events events.json
+limacharlie dr test --name audit-rule --events audit-events.json --stream audit
 limacharlie dr validate --detect '...' --respond '[...]'
 ```
+
+`dr test` infers the Replay event layout from an inline rule's `detect.target`:
+`detection` selects `detect` (event name in `cat`), `audit` selects `audit`
+(event name in `etype`), and other targets select `event` (event name in
+`routing.event_type`). `--stream event|detect|audit` overrides this choice;
+specify it for non-EDR rules tested by name. Fixtures must preserve the real
+target's event structure rather than wrapping audit or detection data as EDR.
 
 ## fp
 

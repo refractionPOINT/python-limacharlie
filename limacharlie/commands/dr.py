@@ -540,6 +540,12 @@ Events should match the structure LimaCharlie uses internally:
 Use --trace for a detailed step-by-step evaluation trace showing
 which operators matched or failed, useful for debugging rules.
 
+For an inline rule, the Replay stream is inferred from detect.target:
+detection uses detect, audit uses audit, and other targets use event.
+Use --stream to select a stream explicitly, including when testing an
+existing rule by --name. Detection events use cat for their event name;
+audit events use etype and do not need an EDR routing wrapper.
+
 The response includes num_evals, eval_time, num_events, responses
 (list of actions that would fire), and errors.
 
@@ -556,12 +562,14 @@ register_explain("dr.test", _EXPLAIN_TEST)
 @click.option("--events", "events_path", required=True, type=click.Path(exists=True), help="Path to JSON file with events.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to rule file (JSON or YAML with 'detect' and 'respond' keys).")
 @click.option("--trace", is_flag=True, default=False, help="Include detailed evaluation trace in output.")
+@click.option("--stream", default=None, type=click.Choice(["event", "detect", "audit"]),
+              help="Replay event layout. Inferred from an inline rule's target; otherwise event.")
 @click.option(
     "--namespace", default=None, type=_NS_CHOICES,
     help="Rule namespace (when using --name).",
 )
 @pass_context
-def test(ctx, name, events_path, input_file, trace, namespace) -> None:
+def test(ctx, name, events_path, input_file, trace, stream, namespace) -> None:
     rule_content = None
 
     if name is None:
@@ -580,6 +588,11 @@ def test(ctx, name, events_path, input_file, trace, namespace) -> None:
 
     events = _load_events(events_path)
 
+    if stream is None:
+        detect = rule_content.get("detect", {}) if isinstance(rule_content, dict) else {}
+        target = detect.get("target", "edr") if isinstance(detect, dict) else "edr"
+        stream = {"detection": "detect", "audit": "audit"}.get(target, "event")
+
     org = _get_org(ctx)
     replay = ReplaySDK(org)
     data = replay.scan_events(
@@ -588,6 +601,7 @@ def test(ctx, name, events_path, input_file, trace, namespace) -> None:
         namespace=namespace,
         rule_content=rule_content,
         trace=trace,
+        stream=stream,
     )
     _output(ctx, data)
 
