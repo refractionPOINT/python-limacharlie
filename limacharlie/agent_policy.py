@@ -59,8 +59,20 @@ def relevant(path, params):
     from .capabilities import discover
     caps = discover()['capabilities']
     result = {c['id'] for c in caps if any(path[:len(r.split())] == r.split() for r in c['cli_roots'])}
+    # Shared administration commands have a primary procedure; load product
+    # procedures only when the parsed operation actually targets that product.
+    defaults = {'extension': {'extensions'}, 'hive': {'hive-data'},
+                'cloudsec': {'cloud-security'}}
+    if path[0] in defaults:
+        result = set(defaults[path[0]])
     if path[:2] == ['cloudsec', 'code']:
         result.add('code-security')
+    if path[0] == 'extension':
+        name = params.get('name') or params.get('extension_name') or ''
+        if name in {'cloudsec', 'ext-cloudsec'}:
+            result.add('cloud-security')
+        if name in {'mailsec', 'ext-mailsec'}:
+            result.add('email-security')
     if path[0] == 'api':
         result.add('outputs')
     if path[0] == 'hive':
@@ -91,10 +103,11 @@ def deliver(org, path, params):
                 try:
                     records = Hive(org, hive_name).list()
                     response['organization_instructions'][hive_name] = {
-                        name: {'description': str(rec.data.get('description', ''))[:500] if isinstance(rec.data, dict) else '',
-                               'enabled': rec.enabled} for name, rec in list(records.items())[:100]}
-                    if len(records) > 100:
-                        response['organization_instructions'][hive_name + '_truncated'] = True
+                        name: {'description': str(rec.data.get('description', ''))[:200] if isinstance(rec.data, dict) else '',
+                               'enabled': rec.enabled} for name, rec in list(records.items())[:20]}
+                    if len(records) > 20:
+                        response['organization_instructions'][hive_name + '_truncated'] = {
+                            'total': len(records), 'next': 'Use list --brief to inspect the remaining instruction index.'}
                 except Exception:
                     response['organization_instructions'][hive_name] = {'status': 'unavailable',
                         'next': 'Use the corresponding list --brief command to diagnose; do not assume an empty index.'}

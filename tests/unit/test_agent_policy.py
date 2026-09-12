@@ -86,3 +86,10 @@ def test_large_output_is_durably_saved_without_unbounded_tool_result(tmp_path, m
     assert len(response['preview']) == 16000
     from pathlib import Path
     assert Path(response['artifact_path']).read_text() == 'x' * 20000 + '\n'
+
+
+def test_shared_roots_only_load_relevant_product_guidance():
+    assert policy.relevant(['extension', 'list'], {}) == ['extensions']
+    assert policy.relevant(['hive', 'list'], {}) == ['hive-data']
+    assert policy.relevant(['cloudsec', 'code', 'list'], {}) == ['cloud-security', 'code-security']
+    assert policy.relevant(['hive', 'get'], {'hive_name': 'dr-mail'}) == ['email-security', 'hive-data']
