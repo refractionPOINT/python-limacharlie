@@ -17,12 +17,12 @@ from .sdk.sensor import Sensor
 MAX_BYTES = 2 * 1024 * 1024
 
 
-def load(path):
+def load(path, *, json_only=False):
     with Path(path).open('rb') as f:
         raw = f.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
         raise ValueError('Draft inputs must each fit within 2 MiB')
-    return yaml.safe_load(raw)
+    return json.loads(raw) if json_only else yaml.safe_load(raw)
 
 
 def digest(value):
@@ -233,9 +233,11 @@ def check(org, directory, *, candidate='candidate.json', positive='positive.json
         if not path.is_relative_to(root):
             raise ValueError('Candidate and fixtures must reside in the workspace')
         paths.append(path)
-    artifacts = [load(p) for p in paths]
+    artifacts = [load(p, json_only=index > 0) for index, p in enumerate(paths)]
     rule = artifacts[0]
     errors, warnings = diagnose(rule, samples)
+    if not samples:
+        errors.append("No captured evidence; prepare a workspace with representative events before checking a grounded draft")
     fixtures = artifacts[1:]
     def scenario(value):
         return [value] if isinstance(value, dict) else value

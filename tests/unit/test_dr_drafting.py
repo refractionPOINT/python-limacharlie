@@ -188,3 +188,22 @@ def test_empty_runner_uid_does_not_turn_org_key_into_user_key(monkeypatch):
     assert creds['uid'] is None and creds['api_key'] == 'org-key'
     assert resolve_credentials(uid='')['uid'] is None
     assert resolve_credentials(uid='real-user')['uid'] == 'real-user'
+
+
+def test_yaml_fixtures_cannot_pass_check_then_fail_json_deployment(workspace):
+    org, root, _, replay, _ = workspace
+    (root / 'positive.json').write_text('- event:\n    FILE_PATH: /tmp/java\n')
+    with pytest.raises(ValueError): draft.check(org, root)
+    replay.scan_events.assert_not_called()
+    assert not (root / 'check.json').exists()
+
+
+def test_empty_capture_cannot_be_replaced_with_self_authored_evidence(workspace):
+    org, root, _, replay, _ = workspace
+    (root / 'evidence.json').write_text('[]')
+    manifest = draft.load(root / 'manifest.json');manifest['evidence_sha256'] = draft.digest([])
+    (root / 'manifest.json').write_text(json.dumps(manifest))
+    result = draft.check(org, root)
+    assert result['status'] == 'invalid'
+    assert any('No captured evidence' in e for e in result['errors'])
+    replay.scan_events.assert_not_called()
