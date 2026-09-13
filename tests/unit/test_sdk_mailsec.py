@@ -126,6 +126,53 @@ class TestRepeatableFilters:
         assert result["messages"] == [{"msg_uuid": "filtered-message"}]
 
 
+class TestMessageTextSearch:
+    def test_q_reaches_the_gateway_with_a_scalar_bound(self, ms, mock_org):
+        ms.list_messages(q="  invoice overdue  ", mailbox="inbox@example.invalid")
+        _, qp = _get_call(mock_org)
+        assert ("q", "invoice overdue") in qp
+
+    @pytest.mark.parametrize("bound", [
+        {"since": "2026-08-01"},
+        {"mailbox": "inbox@example.invalid"},
+        {"sender_email": "sender@example.invalid"},
+        {"campaign_id": "campaign-1"},
+        {"link_domain": "example.invalid"},
+        {"attachment_sha256": "a" * 64},
+        {"verdict": ["suspicious"]},
+    ])
+    def test_q_accepts_each_bounded_walk(self, ms, mock_org, bound):
+        ms.list_messages(q="needle", **bound)
+        _, qp = _get_call(mock_org)
+        assert ("q", "needle") in qp
+
+    @pytest.mark.parametrize("kwargs", [
+        {},
+        {"verdict": ["suspicious", "malicious"]},
+    ])
+    def test_q_refuses_an_unbounded_walk(self, ms, kwargs):
+        with pytest.raises(ValueError, match="q requires"):
+            ms.list_messages(q="needle", **kwargs)
+
+    def test_q_refuses_more_than_512_trimmed_code_points(self, ms):
+        with pytest.raises(ValueError, match="512 code points"):
+            ms.list_messages(q="é" * 513, since="2026-08-01")
+
+    def test_q_accepts_512_code_points_surrounded_by_whitespace(self, ms, mock_org):
+        ms.list_messages(q="  " + "é" * 512 + "\t", since="2026-08-01")
+        _, qp = _get_call(mock_org)
+        assert ("q", "é" * 512) in qp
+
+    def test_blank_q_is_treated_as_absent(self, ms, mock_org):
+        ms.list_messages(q=" \t ")
+        _, qp = _get_call(mock_org)
+        assert qp is None
+
+    def test_q_refuses_an_empty_single_verdict(self, ms):
+        with pytest.raises(ValueError, match="q requires"):
+            ms.list_messages(q="needle", verdict=[""])
+
+
 class TestEMLRequiresJustification:
     """The EML download is a separate privilege because it takes a person's
     actual mail out of the building, and the justification is what makes the

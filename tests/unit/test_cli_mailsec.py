@@ -80,6 +80,36 @@ def test_sender_domain_cli_argument_reaches_the_sdk_unchanged():
     assert kwargs["sender_domain"] == "evil.example"
 
 
+def test_message_search_cli_argument_reaches_the_sdk_unchanged():
+    result, mailsec = invoke_message_list("--search", "invoice overdue", "--since", "2026-08-01")
+    assert result.exit_code == 0, result.output
+    _, kwargs = mailsec.list_messages.call_args
+    assert kwargs["q"] == "invoice overdue"
+    assert kwargs["since"] == "2026-08-01"
+
+
+def test_message_q_alias_reaches_the_sdk():
+    result, mailsec = invoke_message_list("--q", "needle", "--verdict", "suspicious")
+    assert result.exit_code == 0, result.output
+    _, kwargs = mailsec.list_messages.call_args
+    assert kwargs["q"] == "needle"
+
+
+def test_invalid_message_search_prints_an_actionable_cli_error():
+    with (
+        patch("limacharlie.commands.mailsec.Client"),
+        patch("limacharlie.commands.mailsec.Organization"),
+        patch("limacharlie.commands.mailsec.Mailsec") as mailsec_cls,
+    ):
+        mailsec_cls.return_value.list_messages.side_effect = ValueError("q requires since")
+        result = CliRunner().invoke(
+            cli,
+            ["--oid", "11111111-2222-3333-4444-555555555555", "mailsec", "message", "list", "--q", "needle"],
+        )
+    assert result.exit_code == 2
+    assert "Invalid value for --search/--q: q requires since" in result.output
+
+
 def test_include_watch_reaches_the_public_sdk_call():
     result, mailsec = invoke_connection("workspace", "--include-watch")
     assert result.exit_code == 0, result.output
