@@ -95,8 +95,16 @@ limacharlie job get --id JOB_ID
 ## schema
 
 ```bash
-limacharlie schema dr create                   # JSON schema for a command
+limacharlie schema list                        # Learned schema keys in this org
+limacharlie schema get --name evt:NEW_PROCESS   # Observed event fields and types
+limacharlie schema get --name NEW_PROCESS       # Shorthand for evt:NEW_PROCESS
+limacharlie schema get --name det:report-name   # Preserve the detection surface
 ```
+
+These schemas are learned from ingested data, not a complete platform event
+catalog. Use exact keys returned by `schema list`. An empty list or schema means
+there is no observed schema to validate against; it does not justify inventing
+field names or resetting the cache.
 
 ## completion
 

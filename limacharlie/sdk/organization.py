@@ -136,14 +136,18 @@ class Organization:
         return self._client.request("GET", f"orgs/{self.oid}/schema", query_params=qp or None)
 
     def get_schema(self, name: str) -> dict[str, Any]:
-        """Get a specific event schema.
+        """Get a learned schema for a specific event or other evaluation surface.
 
         Args:
-            name: Schema/event type name.
+            name: Exact prefixed key from get_schemas (e.g., evt:NEW_PROCESS
+                or det:report-name). A bare event name defaults to the evt prefix.
 
         Returns:
-            dict: Schema definition.
+            dict: Observed schema definition; an empty schema does not establish
+                the fields supported by a sensor or event type.
         """
+        if ":" not in name:
+            name = "evt:" + name
         return self._client.request("GET", f"orgs/{self.oid}/schema/{urlescape(name, safe='')}")
 
     def reset_schemas(self) -> dict[str, Any]:

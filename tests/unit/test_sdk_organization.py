@@ -100,7 +100,16 @@ class TestOrganizationSchemas:
 
     def test_get_schema(self, org, mock_client):
         org.get_schema("NEW_PROCESS")
-        mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/schema/NEW_PROCESS")
+        mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/schema/evt%3ANEW_PROCESS")
+
+    @pytest.mark.parametrize("name,encoded", [
+        ("evt:NEW_PROCESS", "evt%3ANEW_PROCESS"),
+        ("det:Java/callback", "det%3AJava%2Fcallback"),
+        ("sched:daily", "sched%3Adaily"),
+    ])
+    def test_get_schema_preserves_explicit_surface(self, org, mock_client, name, encoded):
+        org.get_schema(name)
+        mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/schema/" + encoded)
 
     def test_reset_schemas(self, org, mock_client):
         org.reset_schemas()
