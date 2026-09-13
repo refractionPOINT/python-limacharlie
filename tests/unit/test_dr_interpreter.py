@@ -183,6 +183,7 @@ def test_custom_source_can_request_observations_before_inventing_fields(
         calls.append(1)
         return selection(
             status="needs_schema" if len(calls) == 1 else "ready",
+            name=None if len(calls) == 1 else "ot-rule",
             source="custom_json",
             event_type="OT_LOG",
             package=None,

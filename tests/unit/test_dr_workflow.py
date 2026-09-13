@@ -272,3 +272,11 @@ def test_irrelevant_case_default_does_not_require_another_model_turn():
     rule["condition"]["case_sensitive"] = "false"
     with pytest.raises(ValueError):
         wf.compile_rule(rule)
+
+
+def test_sensor_label_cannot_promote_custom_fields_into_versioned_contract():
+    sample = {"routing": {"event_type": "DNS_REQUEST"}, "event": {"customer_extra": 1}}
+    i = intent(eq(["event", "customer_extra"], 1), "DNS_REQUEST")
+    with pytest.raises(wf.NeedsEvidence, match="outside"):
+        wf.schema_context(i, [sample], "lc_sensor")
+    assert wf.schema_context(i, [sample], "custom_json")["kind"] == "observed_json"

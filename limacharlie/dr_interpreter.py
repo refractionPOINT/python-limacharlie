@@ -243,6 +243,13 @@ async def draft(request, interpret, *, directory, org_hint="", budget_seconds=28
                         or "The observed examples do not establish the requested fields"
                     )[:500]
                 )
+            if (
+                selection.get("status") == "needs_schema"
+                and selection.get("name") is None
+            ):
+                # A schema request has no rule yet. Require its report name
+                # only after observation/refinement, when compiling a draft.
+                selection = dict(selection, name="")
             required = {
                 "status",
                 "reason",

@@ -436,6 +436,10 @@ def schema_context(intent, samples, source):
             fields.setdefault(path, set()).update(kinds)
     if source == "lc_sensor":
         contract = CONTRACTS.get(intent["event_type"], {})
+        if not contract or any("/".join(path) not in contract for path, _ in leaves):
+            raise NeedsEvidence(
+                "Requested fields are outside the reviewed LC sensor contracts; use observed custom_json evidence"
+            )
         for path, kind in contract.items():
             fields.setdefault(path, set()).add(kind)
     elif source != "custom_json":
