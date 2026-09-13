@@ -14,6 +14,8 @@ response unchanged.
 
 from __future__ import annotations
 
+from ._search_summary import output_summary as _output_summary
+
 import json
 import os
 import shlex
@@ -152,6 +154,10 @@ def _output_checkpoint_results(
         return
 
     fmt = ctx.obj.output_format or detect_output_format()
+    if ctx.meta.get('search_summary'):
+        outcome = ctx.meta.get('search_execution') or {'complete': False, 'stop_reason': 'unknown'}
+        _output_summary(ctx, CheckpointReader.iter_results(checkpoint_path), outcome)
+        return
 
     # Table (non-raw, non-expand): use two-pass streaming from file.
     # This gives exact column widths (not sampled) with O(columns) memory.
@@ -1278,10 +1284,11 @@ Checkpoint/Resume:
   The --query, --start, --end, and --stream flags are incompatible
   with --resume (query parameters are loaded from the checkpoint).
 
-IMPORTANT: Do not write LCQL queries from scratch. Use
-'limacharlie ai generate-query --prompt "<description>"' to generate
-a query from a natural language description, then pass the result to
-this command.
+Use IOC search first for known executable names, paths, hashes, domains or IPs.
+For LCQL, use documented syntax; 'ai generate-query' is an optional drafting helper.
+Validate the query before execution. --limit counts matching rows at page boundaries;
+--max-pages bounds work even when there are no matches. --summary returns compact
+JSON with explicit completion and coverage. Partial results never establish absence.
 """
 register_explain("search.run", _EXPLAIN_RUN)
 
@@ -1291,7 +1298,7 @@ register_explain("search.run", _EXPLAIN_RUN)
 @click.option("--start", default=None, type=int, help="Start time (unix seconds).")
 @click.option("--end", default=None, type=int, help="End time (unix seconds).")
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
-@click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option("--limit", default=None, type=click.IntRange(min=1), help="Matching-row threshold; stop at a completed page (may exceed threshold).")
 @click.option(
     "--token-expiry", default=None, type=float,
     help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
@@ -1303,14 +1310,19 @@ register_explain("search.run", _EXPLAIN_RUN)
               help="Write results incrementally to JSONL file at this path.")
 @click.option("--resume", is_flag=True, default=False,
               help="Resume from existing checkpoint (requires --checkpoint).")
+@click.option("--max-pages", type=click.IntRange(min=1), default=None, help="Stop after this many completed pages, even with zero matches.")
+@click.option("--summary", is_flag=True, help="Return compact JSON rows, coverage and completion; default for agent JSON output.")
 @click.option("--force", is_flag=True, default=False,
               help="Overwrite existing checkpoint data file (use with --checkpoint).")
 @pass_context
 def run(ctx: click.Context, query: str | None, start: int | None, end: int | None,
         stream: str | None, limit: int | None, token_expiry: float | None,
         raw: bool, expand: bool, checkpoint_path: str | None, resume: bool,
-        force: bool) -> None:
+        force: bool, max_pages: int | None = None, summary: bool = False) -> None:
     """Execute an LCQL query against historical telemetry."""
+    from ..agent_policy import enabled
+    ctx.meta['search_summary'] = summary or (enabled() and not raw and not expand and ctx.obj.output_format == 'json')
+    ctx.meta['search_max_pages'] = max_pages
     # --- Validate flag combinations ---
     if resume:
         if not checkpoint_path:
@@ -1411,7 +1423,10 @@ def _run_normal(
     search = Search(org)
     progress_fn = _make_progress_fn(ctx)
     try:
-        gen = search.execute(query, start, end, stream=stream, limit=limit, progress_fn=progress_fn)
+        gen = search.execute(query, start, end, stream=stream, limit=limit, progress_fn=progress_fn, max_pages=ctx.meta.get("search_max_pages"))
+        if ctx.meta.get('search_summary'):
+            _output_summary(ctx, gen, search.execution)
+            return
         # Try streaming output first (JSONL, JSON, expand). If the format
         # requires buffering (table, CSV, YAML), fall back to list().
         if _stream_search_output(ctx, gen, raw=raw, expand=expand):
@@ -1516,7 +1531,7 @@ def _run_with_checkpoint(
     try:
         with writer:
             for item in search.execute(query, start, end, stream=stream,
-                                       limit=limit, progress_fn=progress_fn):
+                                       limit=limit, progress_fn=progress_fn, max_pages=ctx.meta.get("search_max_pages")):
                 writer.write_result(item)
                 count += 1
                 # Track token, page, events, and timestamps.
@@ -1534,7 +1549,7 @@ def _run_with_checkpoint(
                                        last_token=last_token,
                                        total_events=total_events,
                                        last_event_ts=last_event_ts)
-            writer.update_progress(page, count, completed=True,
+            writer.update_progress(page, count, completed=search.execution.get("complete", False) is True,
                                    last_token=last_token,
                                    total_events=total_events,
                                    last_event_ts=last_event_ts)
@@ -1554,6 +1569,7 @@ def _run_with_checkpoint(
     # Read results back from the checkpoint file for output.
     # For JSONL this streams lazily; for table/JSON it loads into memory
     # but that is inherent to those formats.
+    ctx.meta["search_execution"] = search.execution
     _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)
 
 
@@ -1647,6 +1663,7 @@ def _run_resume(
                 limit=effective_limit, progress_fn=progress_fn,
                 start_token=last_token,
                 start_page=resume_page,
+                max_pages=ctx.meta.get("search_max_pages"),
             )
 
             if last_token:
@@ -1701,7 +1718,7 @@ def _run_resume(
                                             total_events=total_events,
                                             last_event_ts=last_event_ts)
 
-            resumer.update_progress(page, count, completed=True,
+            resumer.update_progress(page, count, completed=search.execution.get("complete", False) is True,
                                     last_token=last_token_new,
                                     total_events=total_events,
                                     last_event_ts=last_event_ts)
@@ -1738,6 +1755,7 @@ def _run_resume(
         new_count = count - existing_count
         progress_fn(f"Resume complete: {new_count} new results ({count} total) saved to {checkpoint_path}")
 
+    ctx.meta["search_execution"] = search.execution
     # Output results from the checkpoint file (existing + new).
     # Streams for JSONL; loads for table/JSON (inherent to those formats).
     _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)
@@ -2151,7 +2169,7 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 
 @group.command("saved-run")
 @click.option("--name", required=True, help="Name of the saved query to execute.")
-@click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option("--limit", default=None, type=click.IntRange(min=1), help="Matching-row threshold; stop at a completed page (may exceed threshold).")
 @click.option(
     "--token-expiry", default=None, type=float,
     help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
@@ -2202,7 +2220,11 @@ def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: fl
     search = Search(org)
     progress_fn = _make_progress_fn(ctx)
     try:
-        gen = search.execute(query_str, start_time, end_time, stream=stream, limit=limit, progress_fn=progress_fn)
+        gen = search.execute(query_str, start_time, end_time, stream=stream, limit=limit, progress_fn=progress_fn, max_pages=ctx.meta.get("search_max_pages"))
+        from ..agent_policy import enabled
+        if enabled() and not raw and not expand and ctx.obj.output_format == 'json':
+            _output_summary(ctx, gen, search.execution)
+            return
         if _stream_search_output(ctx, gen, raw=raw, expand=expand):
             return
         results = list(gen)
