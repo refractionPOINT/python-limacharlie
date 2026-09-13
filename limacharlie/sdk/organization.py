@@ -300,6 +300,8 @@ class Organization:
 
         When neither *offset* nor *limit* is provided the method
         auto-paginates and returns **all** accessible organizations.
+        Organization-scoped API keys return only their configured organization,
+        applying the same filter and pagination options without user discovery.
         When either is set explicitly a single page is returned so
         callers can paginate manually.
 
@@ -311,6 +313,20 @@ class Organization:
         Returns:
             dict: Organization list with 'orgs' and 'names' keys.
         """
+        if (isinstance(self._client._api_key, str) and self._client._api_key
+                and not self._client._uid and self._client._oauth_creds is None):
+            # Organization keys cannot mint a UID-only token or call user/orgs.
+            # Their discoverable scope is exactly the configured organization.
+            if not self.oid or self.oid == '-':
+                from ..errors import AuthenticationError
+                raise AuthenticationError('Organization-scoped API keys require --oid for discovery')
+            info = self.get_info()
+            name = info.get('name', '')
+            included = (not filter_text or filter_text.casefold() in name.casefold())
+            included = included and (offset is None or offset == 0) and (limit is None or limit > 0)
+            return {'orgs': [self.oid] if included else [],
+                    'names': {self.oid: name} if included else {}}
+
         auto_paginate = offset is None and limit is None
 
         qp: dict[str, str] = {}

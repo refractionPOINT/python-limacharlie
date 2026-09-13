@@ -17,12 +17,12 @@ from .sdk.sensor import Sensor
 MAX_BYTES = 2 * 1024 * 1024
 
 
-def load(path):
+def load(path, *, json_only=False):
     with Path(path).open('rb') as f:
         raw = f.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
         raise ValueError('Draft inputs must each fit within 2 MiB')
-    return yaml.safe_load(raw)
+    return json.loads(raw) if json_only else yaml.safe_load(raw)
 
 
 def digest(value):
@@ -103,8 +103,8 @@ Return the exact tested candidate and its limitations. Deployment requires a sep
 def prepare(org, directory, *, sid=None, hostname=None, last='24h', event_type=None, limit=200):
     """Read a bounded sample and return a focused drafting context."""
     root = Path(directory).resolve()
-    if root.exists():
-        raise ValueError('Workspace already exists; use a new directory to preserve prior evidence')
+    if root.exists() and (not root.is_dir() or any(root.iterdir())):
+        raise ValueError('Workspace contains files; use an empty directory to preserve prior evidence')
     if bool(sid) == bool(hostname):
         raise ValueError('Provide exactly one of --sid or --hostname')
     if not 1 <= limit <= 1000:
@@ -128,9 +128,12 @@ def prepare(org, directory, *, sid=None, hostname=None, last='24h', event_type=N
     info = sensor.get_info()
     if info.get('oid') and info['oid'] != org.oid:
         raise ValueError('Sensor belongs to a different organization')
-    events = list(sensor.get_events(start, end, limit=limit, event_type=event_type, is_forward=False))
-    if len(json.dumps(events).encode()) > MAX_BYTES:
-        raise ValueError('Sample exceeds 2 MiB; reduce --limit or select --event-type')
+    events, size = [], 2
+    for event in sensor.get_events(start, end, limit=limit, event_type=event_type, is_forward=False):
+        size += len(json.dumps(event).encode()) + 2
+        if size > MAX_BYTES:
+            raise ValueError('Sample exceeds 2 MiB; reduce --limit or select --event-type')
+        events.append(event)
     schemas = {}
     for event in events:
         name = event.get('routing', {}).get('event_type', 'unknown')
@@ -140,12 +143,14 @@ def prepare(org, directory, *, sid=None, hostname=None, last='24h', event_type=N
                 'sample_count': len(events), 'sample_limit': limit,
                 'event_counts': dict(Counter(e.get('routing', {}).get('event_type', 'unknown') for e in events)),
                 'coverage': 'Representative sample only; not an exhaustive schema or absence proof.'}
-    root.mkdir(mode=0o700, parents=True)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root.chmod(0o700)
     save(root / 'evidence.json', events)
     save(root / 'manifest.json', manifest)
     save(root / 'observed-paths.json', schemas)
     guide = root / 'GUIDANCE.md'
-    guide.write_text(GUIDANCE); guide.chmod(0o600)
+    with guide.open('x') as f:
+        guide.chmod(0o600); f.write(GUIDANCE)
     return {'status': 'prepared' if events else 'needs_evidence', 'workspace': str(root),
             **manifest, 'observed_paths': {k: dict(list(v.items())[:100]) for k, v in list(schemas.items())[:8]},
             'paths_note': 'Preview limited to eight event types and 100 paths each; full paths in observed-paths.json.', 'guidance': GUIDANCE,
@@ -233,9 +238,11 @@ def check(org, directory, *, candidate='candidate.json', positive='positive.json
         if not path.is_relative_to(root):
             raise ValueError('Candidate and fixtures must reside in the workspace')
         paths.append(path)
-    artifacts = [load(p) for p in paths]
+    artifacts = [load(p, json_only=index > 0) for index, p in enumerate(paths)]
     rule = artifacts[0]
     errors, warnings = diagnose(rule, samples)
+    if not samples:
+        errors.append("No captured evidence; prepare a workspace with representative events before checking a grounded draft")
     fixtures = artifacts[1:]
     def scenario(value):
         return [value] if isinstance(value, dict) else value
@@ -285,6 +292,8 @@ def check(org, directory, *, candidate='candidate.json', positive='positive.json
 def require_tested(directory, org_id, paths):
     """Require the exact locally checked candidate and fixtures before deployment."""
     root = Path(directory).resolve()
+    if not (root / 'check.json').is_file():
+        raise ValueError('Run dr check successfully before deploying this workspace')
     report = load(root / 'check.json')
     if report.get('status') != 'tested' or report.get('org_id') != org_id:
         raise ValueError('Run dr check successfully in this organization before deploying')

@@ -75,7 +75,7 @@ limacharlie dr prepare --hostname lab-host --last 24h --workspace draft --oid OI
 limacharlie dr check --workspace draft --oid OID --output json
 ```
 
-Preparation accepts either an exact hostname or a SID, optional event type, and a 1–1000 event sample limit (default 200). Relative windows accept minutes, hours or days, up to 31 days. It refuses to overwrite an existing workspace. Evidence and full observed paths are saved privately; the response includes a bounded path preview and focused operator guidance. Samples do not establish exhaustive coverage.
+Preparation accepts either an exact hostname or a SID, optional event type, and a 1–1000 event sample limit (default 200). Relative windows accept minutes, hours or days, up to 31 days. It accepts a new or empty directory and refuses to overwrite a workspace containing files. Evidence and full observed paths are saved privately; the response includes a bounded path preview and focused operator guidance. Samples do not establish exhaustive coverage.
 
 Checking performs structural diagnostics before server replay, tests each event in each fixture array independently, and exits nonzero on failure. For stateful/correlated rules, supply arrays of event sequences (nested arrays); each sequence is one independently checked scenario. The report distinguishes captured from modified/synthetic fixtures and sample grounding from unknown fields. It never deploys. Changes require a new check; hashes in check.json identify the tested files. Deploy the exact tested files with `dr deploy` after authorization.
 

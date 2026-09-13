@@ -80,7 +80,7 @@ def group() -> None:
 
 
 @group.command("prepare")
-@click.option("--workspace", required=True, type=click.Path(file_okay=False), help="New local drafting directory.")
+@click.option("--workspace", required=True, type=click.Path(file_okay=False), help="New or empty local drafting directory.")
 @click.option("--sid", help="Exact sensor ID; mutually exclusive with --hostname.")
 @click.option("--hostname", help="Exact hostname; ambiguous matches require --sid.")
 @click.option("--last", default="24h", show_default=True, help="Recent sample window, e.g. 30m, 24h or 7d (maximum 31d).")
