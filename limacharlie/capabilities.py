@@ -47,7 +47,9 @@ After selecting an organization, read sop list --brief and ai-skill list --brief
 D&R: before drafting, run limacharlie help capability detection-rules and load its relevant references.
 Inspect actual event schemas and documented operators/actions; use dr deploy --dry-run with positive
 and negative fixtures to test without saving. Empty learned schemas are not a platform schema reference.
-If required fields remain unknown, report the detection intent and missing evidence; do not invent YAML.
+If required event types or fields remain unknown, report the detection intent and missing evidence;
+do not author a rule or fixtures using assumed paths. Passing self-authored fixtures does not validate
+those assumptions against real telemetry.
 Use dr deploy to test and verify authorized writes.
 Draft files are unvalidated until tests pass. Namespace is general/managed/service; target belongs inside detect.
 Preserve metadata. Honor existing authorization and session permissions; do not disable agent mode.
