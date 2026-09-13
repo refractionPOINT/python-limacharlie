@@ -28,26 +28,35 @@ def test_packaged_first_level_capabilities_resolve():
     assert validate_package() == {'capabilities': 15, 'command_roots': 55}
 
 
-def test_first_operation_delivers_procedure_then_executes_and_rechecks_permission(agent):
-    command = click.Command('list', callback=Mock(return_value=None))
+def test_read_executes_first_time_without_receipts_and_rechecks_permission(agent, tmp_path):
+    command = click.Command('list', callback=Mock(side_effect=lambda: click.echo('{"sensors": []}')))
     callback = command.callback
     policy.instrument(command)
-    group = click.Group('sensor', commands={'list': command})
-    root = click.Group('test', commands={'sensor': group})
-    result = CliRunner().invoke(root, ['sensor', 'list'], obj=LimaCharlieContext())
-    assert result.exit_code != 0
-    assert 'procedure_required' in result.output
-    assert 'Sensors and endpoint tasking' in result.output
-    callback.assert_not_called()
-    result = CliRunner().invoke(root, ['sensor', 'list'], obj=LimaCharlieContext())
-    assert result.exit_code == 0, result.output
-    callback.assert_called_once()
+    root = click.Group('test', commands={'sensor': click.Group('sensor', commands={'list': command})})
+    for _ in range(2):
+        result = CliRunner().invoke(root, ['sensor', 'list'], obj=LimaCharlieContext())
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == {'sensors': []}
+    assert callback.call_count == 2
     assert agent.who_am_i.call_count == 2
+    assert list(tmp_path.iterdir()) == []
     agent.who_am_i.return_value = {'perms': []}
     result = CliRunner().invoke(root, ['sensor', 'list'], obj=LimaCharlieContext())
-    assert result.exit_code != 0
-    assert 'ai_agent.operate' in result.output
+    assert result.exit_code != 0 and 'ai_agent.operate' in result.output
+    assert callback.call_count == 2
+
+
+@pytest.mark.parametrize('path', [('org', 'list'), ('auth', 'list-orgs'), ('auth', 'whoami')])
+def test_identity_discovery_without_oid(agent, monkeypatch, path):
+    monkeypatch.delenv('LC_OID')
+    callback = Mock(side_effect=lambda: click.echo('{"identity": "user"}'))
+    command = click.Command(path[1], callback=callback)
+    policy.instrument(command)
+    root = click.Group('test', commands={path[0]: click.Group(path[0], commands={path[1]: command})})
+    result = CliRunner().invoke(root, list(path), obj=LimaCharlieContext())
+    assert result.exit_code == 0, result.output
     callback.assert_called_once()
+    agent.who_am_i.assert_not_called()
 
 
 @pytest.mark.parametrize('path,params', [
@@ -77,52 +86,20 @@ def test_help_is_offline_in_agent_mode(agent):
 
 
 
-def test_large_output_is_durably_saved_without_unbounded_tool_result(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv('LC_AGENT_STATE_DIR', str(tmp_path))
-    receipt = {}
-    policy.bounded_output(lambda: click.echo('x' * 20000), (), {}, 'receipt', receipt)
-    response = json.loads(capsys.readouterr().out)
-    assert response['status'] == 'output_saved'
-    assert len(response['preview']) == 16000
-    from pathlib import Path
-    assert Path(response['artifact_path']).read_text() == 'x' * 20000 + '\n'
+@pytest.mark.parametrize('command', [['dr', 'deploy'], ['org', 'list']])
+def test_ai_help_preserves_choices_and_negative_flags(agent, command):
+    result = CliRunner().invoke(cli, command + ['--ai-help'])
+    assert result.exit_code == 0, result.output
+    if command == ['dr', 'deploy']:
+        assert '--disabled' in result.output
+        assert 'general, managed, service' in result.output
 
 
-def test_shared_roots_only_load_relevant_product_guidance():
-    assert policy.relevant(['extension', 'list'], {}) == ['extensions']
-    assert policy.relevant(['hive', 'list'], {}) == ['hive-data']
-    assert policy.relevant(['cloudsec', 'code', 'list'], {}) == ['cloud-security', 'code-security']
-    assert policy.relevant(['hive', 'get'], {'hive_name': 'dr-mail'}) == ['email-security', 'hive-data']
-
-
-@pytest.mark.parametrize('root,expected', [('org', 'organization-access'), ('job', 'endpoint-services'), ('download', 'sensors-tasking')])
-def test_generic_administration_does_not_load_unrelated_guides(root, expected):
-    assert policy.relevant([root, 'list'], {}) == [expected]
-
-
-def test_long_instruction_indexes_remain_bounded(agent, monkeypatch):
-    records = {'x' * 500 + str(i): SimpleNamespace(data={'description': 'long ' * 100}, enabled=True) for i in range(100)}
-    monkeypatch.setattr('limacharlie.sdk.hive.Hive', lambda *args: SimpleNamespace(list=lambda: records))
-    from contextlib import redirect_stderr
-    from io import StringIO
-    output = StringIO()
-    with redirect_stderr(output), pytest.raises(click.ClickException):
-        policy.deliver(agent, ['extension', 'list'], {})
-    response = json.loads(output.getvalue())
-    assert len(output.getvalue()) < 30000
-    assert response['organization_instructions']['sop_truncated']['total'] == 100
-
-
-@pytest.mark.parametrize('writer', ['buffer', 'click'])
-def test_binary_command_output_preserves_exact_artifact(tmp_path, monkeypatch, capsys, writer):
+def test_binary_and_streaming_output_not_replaced(agent):
     import sys
-    from pathlib import Path
-    monkeypatch.setenv('LC_AGENT_STATE_DIR', str(tmp_path))
-    raw = b'\x00\xff\x80payload'
-    def callback():
-        target = sys.stdout.buffer if writer == 'buffer' else click.get_binary_stream('stdout')
-        target.write(raw)
-    policy.bounded_output(callback, (), {}, 'binary', {})
-    result = json.loads(capsys.readouterr().out)
-    assert result['status'] == 'output_saved' and result['binary']
-    assert Path(result['artifact_path']).read_bytes() == raw
+    command = click.Command('list', callback=lambda: sys.stdout.buffer.write(b'\x00\xffpayload'))
+    policy.instrument(command)
+    root = click.Group('test', commands={'sensor': click.Group('sensor', commands={'list': command})})
+    result = CliRunner().invoke(root, ['sensor', 'list'], obj=LimaCharlieContext())
+    assert result.exit_code == 0
+    assert result.stdout_bytes == b'\x00\xffpayload'

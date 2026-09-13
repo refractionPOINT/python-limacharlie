@@ -134,12 +134,16 @@ class TestSearchExecute:
     def test_execute_with_limit(self, search, mock_org):
         mock_org.client.request.side_effect = [
             {"queryId": "q-456"},
-            {"results": [{"a": 1}, {"a": 2}, {"a": 3}], "completed": False},
+            {"results": [{"type": "events", "rows": [{"a": 1}, {"a": 2}, {"a": 3}], "nextToken": "more"}], "completed": True},
             {},  # DELETE cleanup
         ]
 
         results = list(search.execute("event", 1000, 2000, limit=2))
-        assert len(results) == 2
+        assert len(results) == 1
+        assert len(results[0]['rows']) == 3  # preserve the whole page for safe continuation
+        assert search.execution['rows_returned'] == 3
+        assert search.execution['stop_reason'] == 'row_limit'
+        assert search.execution['complete'] is False
 
     @patch("limacharlie.sdk.search.time.sleep")
     def test_execute_polls_until_completed(self, mock_sleep, search, mock_org):
