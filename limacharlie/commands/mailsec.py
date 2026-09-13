@@ -1007,6 +1007,8 @@ def onboarding(ctx, provider) -> None:
 @click.option("--min-score", default=None, type=int, help="Only messages at or above this score.")
 @click.option("--link-domain", default=None, help="IOC pivot: who else got mail linking here.")
 @click.option("--attachment-sha256", default=None, help="IOC pivot: who else got this file.")
+@click.option("--search", "--q", "q", default=None,
+              help="Text search (requires a time, scalar, or single-verdict bound; max 512 code points).")
 @click.option("--since", default=None, help="Lower time bound (RFC3339 or unix seconds).")
 @click.option("--until", default=None, help="Upper time bound.")
 @click.option("--cursor", default=None, help="Keyset token from a previous page.")
@@ -1014,7 +1016,7 @@ def onboarding(ctx, provider) -> None:
 @pass_context
 def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, state,
                  direction, user_reported, no_user_reported, min_score, link_domain,
-                 attachment_sha256, since, until, cursor, limit) -> None:
+                 attachment_sha256, q, since, until, cursor, limit) -> None:
     """The message index — the triage queue.
 
     \b
@@ -1022,6 +1024,7 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
       limacharlie mailsec message list --verdict suspicious
       limacharlie mailsec message list --user-reported
       limacharlie mailsec message list --link-domain evil.example
+      limacharlie mailsec message list --search "invoice overdue" --since 2026-08-01
     """
     ms = _get_mailsec(ctx)
     _output(ctx, ms.list_messages(
@@ -1036,6 +1039,7 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
         min_score=min_score,
         link_domain=link_domain,
         attachment_sha256=attachment_sha256,
+        q=q,
         since=since,
         until=until,
         cursor=cursor,

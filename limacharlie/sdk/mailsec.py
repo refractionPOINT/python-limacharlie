@@ -317,6 +317,7 @@ class Mailsec:
         min_score: int | None = None,
         link_domain: str | None = None,
         attachment_sha256: str | None = None,
+        q: str | None = None,
         since: str | None = None,
         until: str | None = None,
         cursor: str | None = None,
@@ -344,6 +345,9 @@ class Mailsec:
             min_score: Only messages at or above this score.
             link_domain: IOC pivot — who else received mail linking here.
             attachment_sha256: IOC pivot — who else received this file.
+            q: Case-insensitive text search. At most 512 code points and must
+                be paired with ``since``, an exact scalar pivot, or exactly
+                one verdict so the index walk stays bounded.
             since: Lower time bound (RFC3339 or unix seconds).
             until: Upper time bound (RFC3339 or unix seconds).
             cursor: Opaque keyset token from a previous page.
@@ -352,7 +356,22 @@ class Mailsec:
         Returns:
             ``{"messages": [...], "next_cursor": str}``. An empty
             ``next_cursor`` means the last page.
+
+        Raises:
+            ValueError: If ``q`` is empty, too long, or lacks a bounded-walk
+                companion filter.
         """
+        if q is not None:
+            if not q.strip():
+                raise ValueError("q must not be empty or whitespace")
+            if len(q) > 512:
+                raise ValueError("q must be at most 512 code points")
+            bounded = any((since, mailbox, sender_email, campaign_id, link_domain, attachment_sha256))
+            if not bounded and (verdict is None or len(verdict) != 1):
+                raise ValueError(
+                    "q requires since, mailbox, sender_email, campaign_id, "
+                    "link_domain, attachment_sha256, or exactly one verdict"
+                )
         pairs: list[tuple[str, str]] = []
         _add_pairs(pairs, "verdict", verdict)
         _add_pairs(pairs, "state", state)
@@ -365,6 +384,7 @@ class Mailsec:
             ("min_score", min_score),
             ("link_domain", link_domain),
             ("attachment_sha256", attachment_sha256),
+            ("q", q),
             ("since", since),
             ("until", until),
             ("cursor", cursor),

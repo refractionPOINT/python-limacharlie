@@ -47,6 +47,7 @@ limacharlie mailsec message list --mailbox cfo@corp.example --since 2026-08-01
 limacharlie mailsec message list --user-reported
 limacharlie mailsec message list --link-domain evil.example         # IOC pivot
 limacharlie mailsec message list --attachment-sha256 <SHA256>
+limacharlie mailsec message list --search "invoice overdue" --since 2026-08-01
 limacharlie mailsec message get <MSG_UUID>                          # the drawer
 limacharlie mailsec message similar <MSG_UUID>                      # who else got this
 limacharlie mailsec message revisions <MSG_UUID>                    # verdict history
