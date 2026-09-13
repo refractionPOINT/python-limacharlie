@@ -358,16 +358,17 @@ class Mailsec:
             ``next_cursor`` means the last page.
 
         Raises:
-            ValueError: If ``q`` is empty, too long, or lacks a bounded-walk
+            ValueError: If non-empty ``q`` is too long or lacks a bounded-walk
                 companion filter.
         """
         if q is not None:
-            if not q.strip():
-                raise ValueError("q must not be empty or whitespace")
+            q = q.strip() or None
+        if q:
             if len(q) > 512:
                 raise ValueError("q must be at most 512 code points")
             bounded = any((since, mailbox, sender_email, campaign_id, link_domain, attachment_sha256))
-            if not bounded and (verdict is None or len(verdict) != 1):
+            single_verdict = verdict is not None and len(verdict) == 1 and bool(verdict[0].strip())
+            if not bounded and not single_verdict:
                 raise ValueError(
                     "q requires since, mailbox, sender_email, campaign_id, "
                     "link_domain, attachment_sha256, or exactly one verdict"

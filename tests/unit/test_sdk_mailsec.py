@@ -128,7 +128,7 @@ class TestRepeatableFilters:
 
 class TestMessageTextSearch:
     def test_q_reaches_the_gateway_with_a_scalar_bound(self, ms, mock_org):
-        ms.list_messages(q="invoice overdue", mailbox="inbox@example.invalid")
+        ms.list_messages(q="  invoice overdue  ", mailbox="inbox@example.invalid")
         _, qp = _get_call(mock_org)
         assert ("q", "invoice overdue") in qp
 
@@ -154,13 +154,23 @@ class TestMessageTextSearch:
         with pytest.raises(ValueError, match="q requires"):
             ms.list_messages(q="needle", **kwargs)
 
-    def test_q_refuses_more_than_512_code_points(self, ms):
+    def test_q_refuses_more_than_512_trimmed_code_points(self, ms):
         with pytest.raises(ValueError, match="512 code points"):
             ms.list_messages(q="é" * 513, since="2026-08-01")
 
-    def test_q_refuses_whitespace(self, ms):
-        with pytest.raises(ValueError, match="empty or whitespace"):
-            ms.list_messages(q=" \t ", since="2026-08-01")
+    def test_q_accepts_512_code_points_surrounded_by_whitespace(self, ms, mock_org):
+        ms.list_messages(q="  " + "é" * 512 + "\t", since="2026-08-01")
+        _, qp = _get_call(mock_org)
+        assert ("q", "é" * 512) in qp
+
+    def test_blank_q_is_treated_as_absent(self, ms, mock_org):
+        ms.list_messages(q=" \t ")
+        _, qp = _get_call(mock_org)
+        assert qp is None
+
+    def test_q_refuses_an_empty_single_verdict(self, ms):
+        with pytest.raises(ValueError, match="q requires"):
+            ms.list_messages(q="needle", verdict=[""])
 
 
 class TestEMLRequiresJustification:
