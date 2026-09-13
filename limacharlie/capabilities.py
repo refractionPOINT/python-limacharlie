@@ -33,14 +33,19 @@ Resolve organization names with org list --filter NAME before using --oid UUID o
 User-wide credentials can discover organizations without an OID. A missing OID is not missing credentials.
 Choose the smallest operation that answers the question:
 - Known executable name, file path, hash, domain or IP: use ioc search (or ioc batch-search for several).
-  For executable names use --type file_name; --info locations identifies sensors. For JVMs, start with
+  Example: limacharlie ioc search --type file_name --value java.exe --info locations --oid UUID.
+  For JVMs, start with
   java/java.exe/javaw/javaw.exe names, not a historical LCQL scan. IOC observations do not prove a
   process is running now, full historical absence, or absence of embedded/renamed JVMs.
 - Current state on a specific endpoint: inspect/task that endpoint.
 - Historical behavior, complex predicates or aggregation: use search (LCQL); validate syntax first.
 Read help capability ID for task-specific procedures and declared references before unfamiliar work.
 After selecting an organization, read sop list --brief and ai-skill list --brief; retrieve relevant enabled instructions.
-D&R: inspect actual event schema and operator/action references; use dr deploy to test and verify writes.
+D&R: before drafting, run limacharlie help capability detection-rules and load its relevant references.
+Inspect actual event schemas and documented operators/actions; use dr deploy --dry-run with positive
+and negative fixtures to test without saving. Empty learned schemas are not a platform schema reference.
+If required fields remain unknown, report the detection intent and missing evidence; do not invent YAML.
+Use dr deploy to test and verify authorized writes.
 Draft files are unvalidated until tests pass. Namespace is general/managed/service; target belongs inside detect.
 Preserve metadata. Honor existing authorization and session permissions; do not disable agent mode.
 Search completion and displayed-row truncation are separate. Report coverage/stop reason; partial or
