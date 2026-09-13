@@ -5,6 +5,8 @@ description: "Deploy and manage sensors, discover supported endpoint commands, t
 
 # Sensors and endpoint tasking
 
+Resolve names with `sensor list --hostname NAME --oid OID --output json`. Agent-mode JSON lists provide concise identities; use the returned `sid` for tasking and evidence queries. An `iid` from full details identifies the installation key, never the sensor. Use `--raw` or `sensor get --sid SID` when additional fields are needed. Read the ID/platform reference for unfamiliar platform codes instead of guessing an operating system from the number.
+
 Before tasking, identify real sensor IDs, platform, version, last-seen time, and supported command. An adapter sensor is not necessarily an EDR endpoint; do not send native endpoint commands to an unsupported platform. Read the endpoint command reference for command spelling, arguments, platform support and response event. The CLI is a transport; `task --ai-help` does not enumerate endpoint commands.
 
 Preview a selector with sensor listing and record selected count and IDs. Sensor selectors use bexpr, not LCQL. Avoid implicit `*`. For fleet work, use the platform's aggregate facility (`spotcheck run`) when it fits; otherwise bounded batches with a per-sensor outcome ledger. Group by supported platform and distinguish selected, eligible, offline and excluded targets. Never spawn one agent per sensor.
@@ -18,6 +20,7 @@ For isolation/sealing, inspect current and desired state and verify enforcement 
 Read the relevant bundled documentation before using unfamiliar schemas or operations. Paths are relative to the documentation docs root.
 
 - `8-reference/endpoint-commands.md`
+- `8-reference/id-schema.md`
 - `8-reference/sensor-selector-expressions.md`
 - `2-sensors-deployment/installation-keys.md`
 - `2-sensors-deployment/endpoint-agent/versioning-upgrades.md`

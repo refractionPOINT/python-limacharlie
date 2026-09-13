@@ -28,6 +28,35 @@ def test_packaged_first_level_capabilities_resolve():
     assert validate_package() == {'capabilities': 15, 'command_roots': 55}
 
 
+@pytest.mark.parametrize('agent_mode,flags,brief', [
+    (True, [], True), (True, ['--raw'], False), (True, ['--brief'], True),
+    (False, [], False), (False, ['--brief'], True),
+])
+def test_sensor_identity_keeps_sid_and_preserves_raw_opt_out(agent, monkeypatch, agent_mode, flags, brief):
+    from limacharlie.commands import sensor
+    record = {'sid': 'sensor-uuid', 'iid': 'installation-key-uuid', 'oid': 'tenant-a',
+              'hostname': 'lab', 'plat': 0x20000000, 'is_online': True}
+    agent.list_sensors.return_value = iter([record])
+    monkeypatch.setattr(sensor, '_get_org', lambda ctx: agent)
+    if not agent_mode:
+        monkeypatch.delenv('LC_AGENT_MODE')
+    result = CliRunner().invoke(cli, ['--output', 'json', 'sensor', 'list', *flags])
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+    assert rows[0]['sid'] == 'sensor-uuid'
+    if brief:
+        assert 'iid' not in rows[0] and 'oid' not in rows[0]
+        assert rows[0]['platform_name'] == 'linux'
+    else:
+        assert rows == [record]
+
+
+@pytest.mark.parametrize('code,name', [(0x90000000, 'json'), ('0x20000000', 'linux'), (0x21000000, 'unknown')])
+def test_sensor_platform_labels_do_not_guess_from_adapter_high_bits(code, name):
+    from limacharlie.commands.sensor import _sensor_identity
+    assert _sensor_identity({'sid': 's', 'plat': code})['platform_name'] == name
+
+
 def test_read_executes_first_time_without_receipts_and_rechecks_permission(agent, tmp_path):
     command = click.Command('list', callback=Mock(side_effect=lambda: click.echo('{"sensors": []}')))
     callback = command.callback

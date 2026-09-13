@@ -104,7 +104,8 @@
         "2-sensors-deployment/endpoint-agent/macos/installation.md",
         "2-sensors-deployment/endpoint-agent/windows/installation.md",
         "2-sensors-deployment/sensor-tags.md",
-        "2-sensors-deployment/connectivity.md"
+        "2-sensors-deployment/connectivity.md",
+        "8-reference/id-schema.md"
       ],
       "permissions": [
         "sensor.list",
