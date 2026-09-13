@@ -83,3 +83,34 @@ Checking performs structural diagnostics before server replay, tests each event 
 In AI agent mode, preparation activates a per-user-turn drafting guardrail that blocks endpoint tasking, historical scans and remote mutations. AI Sessions clears it on the next actual user request, not tool results. This policy does not sandbox arbitrary Python/HTTP or replace least-privilege credentials.
 
 Pass `--workspace draft` to `dr deploy` together with the candidate/fixture paths to require a successful check of those exact inputs. Modified files, wrong organization and failed checks are rejected. Deployment still repeats engine validation and preserves its existing metadata/etag guarantees. Both check and deploy accept nested fixture arrays for independent stateful scenarios.
+
+### Experimental typed drafting: `dr build`
+
+`dr build --workspace NEW_DIR --intent-file intent.json --source lc_sensor|custom_json
+[--evidence-file examples.json]` compiles a bounded, versioned intent into a report-only
+D&R draft and tests each constructed scenario against Replay. It never installs a rule.
+AI Sessions can supply the intent with a short interpretation call; the workflow,
+field grounding, fixture construction, validation and artifacts live in this package.
+
+Version 1 intent example:
+
+```json
+{"version":1,"event_type":"OT_APP","name":"high-pressure","condition":{"op":"gt","path":["event","pressure"],"value":80}}
+```
+
+Conditions support `eq`, `gt`, `lt`, `contains`, `basename`, `all`/`any` with `rules`,
+and `some` with an array `path` and a relative `where` condition. `some` preserves
+same-element conjunctions. String comparisons explicitly accept `case_sensitive`.
+Unsupported operators or ambiguous types require the general drafting workflow.
+
+`custom_json` accepts arbitrary observed JSON fields, supplied as an array of LC
+`{"routing":{"event_type":"OT_APP"},"event":{...}}` envelopes. This is not an
+EDR schema allowlist. Missing fields and mixed incompatible types require more
+evidence; they are never silently invented or coerced. Literal slash/wildcard keys,
+regex, temporal sequences and non-report responses are outside this proof's compiler.
+
+`lc_sensor` uses the specific DNS/process field contracts pinned to the sensor source
+revision in `dr_workflow.py`. These contracts describe LC EDR fields only. A successful
+fixture check says nothing about whether an organization collects those events, or
+whether the rule provides comprehensive detection coverage. `dr check --workspace`
+rechecks the artifacts; edited contract-backed candidates must be rebuilt from intent.

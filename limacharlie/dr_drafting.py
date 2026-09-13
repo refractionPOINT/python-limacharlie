@@ -271,7 +271,16 @@ def check(org, directory, *, candidate='candidate.json', positive='positive.json
     artifacts = [load(p, json_only=index > 0) for index, p in enumerate(paths)]
     rule = artifacts[0]
     errors, warnings = diagnose(rule, samples)
-    if not samples:
+    contract = None
+    if not samples and manifest.get('schema_source', {}).get('kind') == 'lc_sensor_contract':
+        # Re-establish the current package contract; a manifest label alone
+        # must never bless an arbitrary rule or invented field.
+        from .dr_workflow import schema_context, compile_rule
+        intent = load(root / 'intent.json', json_only=True)
+        contract = schema_context(intent, [], 'lc_sensor')
+        if compile_rule(intent) != rule:
+            errors.append('Candidate differs from the contract-backed intent; rebuild the draft')
+    elif not samples:
         errors.append("No captured evidence; prepare a workspace with representative events before checking a grounded draft")
     fixtures = artifacts[1:]
     def scenario(value):
@@ -284,7 +293,8 @@ def check(org, directory, *, candidate='candidate.json', positive='positive.json
               'workspace': str(root), 'org_id': org.oid,
               'inputs_sha256': {str(p.relative_to(root)): digest(a) for p, a in zip(paths, artifacts)},
               'evidence_sha256': manifest['evidence_sha256'],
-              'grounding': 'sample_backed' if samples and not warnings else 'needs_review',
+              'grounding': 'lc_sensor_contract' if contract else 'sample_backed' if samples and not warnings else 'needs_review',
+              'schema': contract,
               'deployed': False}
     if not errors:
         data = rule.get('data', rule)

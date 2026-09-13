@@ -12,7 +12,7 @@ READS = {
     ('sensor', 'list'), ('sensor', 'get'), ('sensor', 'info'),
     ('event', 'list'), ('event', 'get'), ('event', 'children'), ('event', 'types'), ('event', 'schema'),
     ('schema', 'list'), ('schema', 'get'), ('ioc', 'search'), ('ioc', 'batch-search'),
-    ('dr', 'prepare'), ('dr', 'check'), ('dr', 'validate'), ('dr', 'test'), ('dr', 'list'), ('dr', 'get'),
+    ('dr', 'prepare'), ('dr', 'build'), ('dr', 'check'), ('dr', 'validate'), ('dr', 'test'), ('dr', 'list'), ('dr', 'get'),
     ('sop', 'list'), ('sop', 'get'), ('ai-skill', 'list'), ('ai-skill', 'get'),
 }
 

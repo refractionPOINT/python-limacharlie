@@ -223,7 +223,7 @@
     {
       "id": "detection-rules",
       "name": "Detection and response rules",
-      "description": "Create, edit, validate, test and deploy D&R automation and false-positive rules with the correct event target.",
+      "description": "Create, edit, validate, test and deploy D&R rules; experimental typed drafts use LC EDR contracts or observed custom JSON.",
       "keywords": [
         "d&r",
         "dr",

@@ -158,7 +158,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     }),
     "detection": frozenset({"get", "list"}),
     "download": frozenset({"adapter", "list", "sensor"}),
-    "dr": frozenset({"prepare", "check",
+    "dr": frozenset({"build", "prepare", "check",
         "convert-rules", "delete", "deploy", "reconcile", "disable", "enable", "export", "get",
         "import", "list", "replay", "set", "test", "validate",
     }),

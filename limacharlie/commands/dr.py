@@ -97,6 +97,28 @@ def prepare_cmd(ctx, workspace, sid, hostname, last, event_type, limit):
         raise click.ClickException(str(exc)) from exc
 
 
+@group.command("build")
+@click.option("--workspace", required=True, type=click.Path(file_okay=False))
+@click.option("--intent-file", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--evidence-file", type=click.Path(exists=True, dir_okay=False), help="JSON array of LC event envelopes; custom JSON stays under event.")
+@click.option("--source", required=True, type=click.Choice(["lc_sensor", "custom_json"]))
+@pass_context
+def build_cmd(ctx, workspace, intent_file, evidence_file, source):
+    """Compile a typed rule intent and replay generated scenarios; never deploy or task."""
+    from ..dr_workflow import build, NeedsEvidence
+    from ..dr_drafting import load
+    try:
+        result = build(_get_org(ctx), workspace, load(intent_file, json_only=True),
+                       samples=load(evidence_file, json_only=True) if evidence_file else [], source=source)
+        _output(ctx, result)
+        if result["status"] != "tested": raise click.exceptions.Exit(1)
+    except NeedsEvidence as exc:
+        _output(ctx, {"status": "needs_evidence", "message": str(exc), "deployed": False})
+        raise click.exceptions.Exit(1)
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @group.command("check")
 @click.option("--workspace", required=True, type=click.Path(exists=True, file_okay=False))
 @click.option("--candidate", default="candidate.json", show_default=True)

@@ -41,3 +41,13 @@ Read the relevant bundled documentation before using unfamiliar schemas or opera
 - `8-reference/response-actions.md`
 - `3-detection-response/false-positives.md`
 - `8-reference/schedule-events.md`
+
+
+## Experimental typed workflow
+
+`dr build` compiles a version-1 intent and validates generated scenarios through
+Replay. Use only when an upstream workflow already provides a supported typed
+intent. It does not replace the general `dr prepare` workflow for free-form agents.
+Custom JSON uses observed fields; the small pinned LC sensor contracts apply only
+to LC EDR. Fixture success never establishes telemetry collection or full threat
+coverage. Inspect `limacharlie dr build --help` for the experimental entry point.
