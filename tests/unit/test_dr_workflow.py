@@ -181,8 +181,26 @@ def test_contract_recheck_reestablishes_schema_and_exact_intent(tmp_path, monkey
     candidate = drafting.load(root / "candidate.json")
     candidate["detect"]["path"] = "event/INVENTED"
     import json
+
     (root / "candidate.json").write_text(json.dumps(candidate))
     result = drafting.check(org, root)
     assert result["status"] == "invalid" and any(
         "intent" in e for e in result["errors"]
     )
+
+
+@pytest.mark.parametrize("values", [[81, "81"], ["81", 81]])
+def test_mixed_types_in_one_array_are_order_independent(values):
+    i = intent(
+        {
+            "op": "some",
+            "path": ["event", "readings"],
+            "where": {"op": "gt", "path": ["pressure"], "value": 80},
+        }
+    )
+    sample = {
+        "routing": {"event_type": "OT_APP"},
+        "event": {"readings": [{"pressure": v} for v in values]},
+    }
+    with pytest.raises(wf.NeedsEvidence, match="Mixed"):
+        wf.schema_context(i, [sample], "custom_json")

@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .dr_drafting import digest, load, observed_paths, save
+from .dr_drafting import digest, load, save
 from .sdk.dr_deploy import evidence as replay_evidence
 from .sdk.replay import Replay
 
@@ -408,14 +408,33 @@ def fixtures(intent, samples):
     ]
 
 
+def observed_types(value, prefix="", result=None, depth=0):
+    """Accumulate every type, including heterogeneous elements of one array."""
+    if depth > 30:
+        raise NeedsEvidence("Provide a shallower representative event")
+    if result is None:
+        result = {}
+    if prefix:
+        result.setdefault(prefix, set()).add(type(value).__name__)
+    if isinstance(value, dict):
+        for key, child in value.items():
+            observed_types(
+                child, prefix + "/" + key if prefix else key, result, depth + 1
+            )
+    elif isinstance(value, list):
+        for child in value:
+            observed_types(child, prefix + "/?", result, depth + 1)
+    return result
+
+
 def schema_context(intent, samples, source):
     leaves = validate(intent)
     fields = {}
     for event in samples:
         if event.get("routing", {}).get("event_type") != intent["event_type"]:
             raise NeedsEvidence("Evidence event type differs from the requested source")
-        for path, kind in observed_paths(event).items():
-            fields.setdefault(path, set()).add(kind)
+        for path, kinds in observed_types(event).items():
+            fields.setdefault(path, set()).update(kinds)
     if source == "lc_sensor":
         contract = CONTRACTS.get(intent["event_type"], {})
         for path, kind in contract.items():
@@ -463,7 +482,12 @@ def build(
     if (
         not isinstance(samples, list)
         or len(samples) > 100
-        or any(not isinstance(e, dict) for e in samples)
+        or any(
+            not isinstance(e, dict)
+            or not isinstance(e.get("routing"), dict)
+            or "event" not in e
+            for e in samples
+        )
     ):
         raise ValueError("Evidence must be at most 100 LC event envelopes")
     if len(json.dumps(samples).encode()) > 2 * 1024 * 1024:

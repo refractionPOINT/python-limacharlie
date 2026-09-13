@@ -139,3 +139,61 @@ def test_refinement_cannot_change_event_type(tmp_path, monkeypatch):
         di.draft("Draft OT_LOG x equals 1", interpret, directory=tmp_path)
     )
     assert result["status"] == "invalid" and "scope" in result["message"]
+
+
+def test_only_read_only_operations_retry_transport_timeouts(monkeypatch):
+    import time
+    import threading
+
+    calls = []
+
+    def request(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            raise TimeoutError("transient")
+        return {"ok": True}
+
+    monkeypatch.setattr(di.Client, "request", request)
+    client = object.__new__(di.BudgetClient)
+    client.deadline = time.monotonic() + 28
+    client.cancelled = threading.Event()
+    assert client.request("GET", "orgs/test")["ok"]
+    calls.clear()
+    with pytest.raises(TimeoutError):
+        client.request("POST", "query")
+    assert len(calls) == 1
+    calls.clear()
+    assert client.request("POST", "", alt_root="https://test.replay.limacharlie.io/")[
+        "ok"
+    ]
+
+
+def test_custom_source_can_request_observations_before_inventing_fields(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(di, "resolve_org", lambda *a: SimpleNamespace(oid="org"))
+    monkeypatch.setattr(
+        di,
+        "sample_custom",
+        lambda *a: ([{"routing": {"event_type": "OT_LOG"}, "event": {"x": 1}}], {}),
+    )
+    calls = []
+
+    async def interpret(*args):
+        calls.append(1)
+        return selection(
+            status="needs_schema" if len(calls) == 1 else "ready",
+            source="custom_json",
+            event_type="OT_LOG",
+            package=None,
+            parameters={},
+            condition=None
+            if len(calls) == 1
+            else {"op": "eq", "path": ["event", "x"], "value": 1},
+        ), {}
+
+    monkeypatch.setattr(di, "build", lambda *a, **k: {"status": "tested", "schema": {}})
+    result = asyncio.run(
+        di.draft("Draft OT_LOG x equals 1", interpret, directory=tmp_path)
+    )
+    assert result["status"] == "tested" and len(calls) == 2
