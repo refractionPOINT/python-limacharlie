@@ -197,3 +197,28 @@ def test_custom_source_can_request_observations_before_inventing_fields(
         di.draft("Draft OT_LOG x equals 1", interpret, directory=tmp_path)
     )
     assert result["status"] == "tested" and len(calls) == 2
+
+
+def test_unsatisfied_schema_request_is_an_abstention(tmp_path, monkeypatch):
+    def forbidden(*args):
+        raise AssertionError("Do not build without a schema")
+
+    monkeypatch.setattr(di, "build", forbidden)
+
+    async def interpret(*args):
+        return selection(
+            status="needs_schema",
+            source="custom_json",
+            package=None,
+            parameters={},
+            condition=None,
+            reason="Unknown safety_mode",
+        ), {}
+
+    request = (
+        "Match safety_mode\n```json\n"
+        + json.dumps({"routing": {"event_type": "OT_APP"}, "event": {"unrelated": 1}})
+        + "\n```"
+    )
+    result = asyncio.run(di.draft(request, interpret, directory=tmp_path))
+    assert result["status"] == "needs_evidence"

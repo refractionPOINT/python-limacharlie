@@ -184,6 +184,7 @@ def sample_custom(org, event_type):
 
 async def draft(request, interpret, *, directory, org_hint="", budget_seconds=28):
     """One interpretation, optional evidence-informed repair, deterministic execution."""
+    org_hint = "" if org_hint == "-" else org_hint
     start = time.monotonic()
     deadline = start + budget_seconds
     cancelled = threading.Event()
@@ -232,6 +233,15 @@ async def draft(request, interpret, *, directory, org_hint="", budget_seconds=28
                     str(selection.get("reason", "Request needs clarification"))[:500]
                     if isinstance(selection, dict)
                     else "Invalid interpreter response"
+                )
+            if selection.get("status") == "needs_schema" and context.get(
+                "observed_fields"
+            ):
+                raise NeedsEvidence(
+                    str(
+                        selection.get("reason")
+                        or "The observed examples do not establish the requested fields"
+                    )[:500]
                 )
             required = {
                 "status",

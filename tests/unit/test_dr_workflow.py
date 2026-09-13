@@ -140,7 +140,7 @@ def test_replay_disagreement_is_invalid_and_no_remote_write(tmp_path, monkeypatc
     i = wf.package_intent("dns-domain", {"domain": "example.com"}, "dns")
     report = wf.build(org, tmp_path / "draft", i, source="lc_sensor")
     assert report["status"] == "invalid" and not report["deployed"]
-    assert all(len(call.args[0]) == 1 for call in replay.scan_events.call_args_list)
+    assert replay.scan_events.call_count == 1
     assert (
         report["schema"]["sample_count"] == 0
         and report["grounding"] == "lc_sensor_contract"
@@ -169,8 +169,16 @@ def test_contract_recheck_reestablishes_schema_and_exact_intent(tmp_path, monkey
     replay._get_replay_url.return_value = "replay.invalid"
 
     def scan(events, **kwargs):
-        matched = wf.matches(i["condition"], events[0])
-        return {"stats": {"n_proc": 1}, "results": [], "did_match": matched}
+        results = [
+            {"action": "report", "data": {"detect": e}}
+            for e in events
+            if wf.matches(i["condition"], e)
+        ]
+        return {
+            "stats": {"n_proc": len(events)},
+            "results": results,
+            "did_match": bool(results),
+        }
 
     replay.scan_events.side_effect = scan
     monkeypatch.setattr(wf, "Replay", lambda o: replay)
@@ -204,3 +212,47 @@ def test_mixed_types_in_one_array_are_order_independent(values):
     }
     with pytest.raises(wf.NeedsEvidence, match="Mixed"):
         wf.schema_context(i, [sample], "custom_json")
+
+
+def test_batch_checks_each_outcome_and_rejects_lost_identity(monkeypatch):
+    org = SimpleNamespace(oid="org")
+    cases = [
+        {
+            "label": str(i),
+            "event": {"routing": {"event_type": "DNS_REQUEST"}, "event": {}},
+            "expected": expected,
+        }
+        for i, expected in enumerate([True, True, False])
+    ]
+    replay = Mock()
+    monkeypatch.setattr(wf, "Replay", lambda o: replay)
+
+    def response(ids, n=3):
+        return {
+            "stats": {"n_proc": n},
+            "did_match": bool(ids),
+            "results": [
+                {
+                    "action": "report",
+                    "data": {"detect": {"routing": {"lc_draft_fixture_id": i}}},
+                }
+                for i in ids
+            ],
+        }
+
+    replay.scan_events.return_value = response([0])
+    checks = wf.replay_cases(org, {}, cases)
+    assert (
+        "error" not in checks[0] and "error" in checks[1] and "error" not in checks[2]
+    )
+    replay.scan_events.return_value = response([0, 1, 2])
+    assert "error" in wf.replay_cases(org, {}, cases)[2]
+    for bad in (
+        response([0, 0]),
+        response([True]),
+        response([10]),
+        response([0, 1], 2),
+    ):
+        replay.scan_events.return_value = bad
+        assert "error" in wf.replay_cases(org, {}, cases)[0]
+    assert all("lc_draft_fixture_id" not in c["event"]["routing"] for c in cases)

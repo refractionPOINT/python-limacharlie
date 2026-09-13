@@ -9,7 +9,6 @@ import json
 import math
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .dr_drafting import digest, load, save
@@ -466,6 +465,62 @@ def schema_context(intent, samples, source):
     }
 
 
+def replay_cases(org, candidate, cases, cancelled=None):
+    """Correlate every stateless fixture in one Replay request.
+
+    Only for this compiler's stateless, report-only event predicates. Markers
+    live in routing, outside its permitted condition paths. A matching positive
+    cannot conceal a failing positive or a matching negative.
+    """
+    if cancelled is not None and cancelled.is_set():
+        raise TimeoutError("Draft cancelled")
+    events = [copy.deepcopy(case["event"]) for case in cases]
+    for index, event in enumerate(events):
+        event.setdefault("routing", {})["lc_draft_fixture_id"] = index
+    try:
+        response = Replay(org).scan_events(
+            events, rule_content=candidate, stream="event"
+        )
+        proof = replay_evidence(response)
+        if proof["processed"] != len(cases):
+            raise ValueError("Replay did not process every fixture")
+        matched = set()
+        for result in response["results"]:
+            if not isinstance(result, dict) or result.get("action") != "report":
+                raise ValueError("Unexpected Replay result")
+            index = (
+                result.get("data", {})
+                .get("detect", {})
+                .get("routing", {})
+                .get("lc_draft_fixture_id")
+            )
+            if (
+                type(index) is not int
+                or not 0 <= index < len(cases)
+                or index in matched
+            ):
+                raise ValueError("Replay result lost or duplicated fixture identity")
+            matched.add(index)
+        if bool(matched) != proof["matched"]:
+            raise ValueError("Replay match summary disagrees with fixture results")
+        return [
+            {
+                "label": case["label"],
+                "expected": case["expected"],
+                "processed": 1,
+                "matched": index in matched,
+                **(
+                    {"error": "Fixture did not have its required outcome"}
+                    if (index in matched) != case["expected"]
+                    else {}
+                ),
+            }
+            for index, case in enumerate(cases)
+        ]
+    except (ValueError, AttributeError, TypeError) as exc:
+        return [{"error": str(exc)}]
+
+
 def build(
     org,
     directory,
@@ -532,28 +587,7 @@ def build(
         },
     }.items():
         save(root / name, value)
-    # Resolve URL/auth once; distinct Replay instances isolate each scenario.
-    replay_url = Replay(org)._get_replay_url()
-
-    def check(case):
-        if cancelled is not None and cancelled.is_set():
-            raise TimeoutError("Draft cancelled")
-        replay = Replay(org)
-        replay._replay_url = replay_url
-        try:
-            result = replay.scan_events(
-                [case["event"]], rule_content=candidate, stream="event"
-            )
-            return {
-                "label": case["label"],
-                "expected": case["expected"],
-                **replay_evidence(result, case["expected"]),
-            }
-        except ValueError as exc:
-            return {"label": case["label"], "error": str(exc)}
-
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        checks = list(pool.map(check, cases))
+    checks = replay_cases(org, candidate, cases, cancelled)
     errors = [c["error"] for c in checks if "error" in c]
     report = {
         "status": "invalid" if errors else "tested",
