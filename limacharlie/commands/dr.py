@@ -84,8 +84,8 @@ def group() -> None:
 @click.option("--sid", help="Exact sensor ID; mutually exclusive with --hostname.")
 @click.option("--hostname", help="Exact hostname; ambiguous matches require --sid.")
 @click.option("--last", default="24h", show_default=True, help="Recent sample window, e.g. 30m, 24h or 7d (maximum 31d).")
-@click.option("--event-type", help="Optional event type to sample.")
-@click.option("--limit", default=200, type=click.IntRange(1, 1000), show_default=True)
+@click.option("--event-type", help="Event type to sample; required for organization-wide sampling without --sid/--hostname.")
+@click.option("--limit", default=20, type=click.IntRange(1, 1000), show_default=True)
 @pass_context
 def prepare_cmd(ctx, workspace, sid, hostname, last, event_type, limit):
     """Prepare real event evidence, field paths and focused D&R guidance; never task or deploy."""

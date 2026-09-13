@@ -45,7 +45,7 @@ def test_prepare_resolves_identity_window_and_retains_array_shape(workspace):
     org, root, sensor, _, result = workspace
     assert result['sid'] == 's'
     assert result['window']['end'] - result['window']['start'] == 86400
-    assert sensor.get_events.call_args.kwargs == {'limit': 200, 'event_type': None, 'is_forward': False}
+    assert sensor.get_events.call_args.kwargs == {'limit': 20, 'event_type': None, 'is_forward': False}
     assert 'event/NETWORK_ACTIVITY/?/DESTINATION/PORT' in result['observed_paths']['NETWORK_CONNECTIONS']
     assert draft.load(root / 'evidence.json') == [EVENT]
     assert (root / 'evidence.json').stat().st_mode & 0o777 == 0o600
@@ -223,7 +223,7 @@ def test_capture_budget_stops_consuming_events(workspace, tmp_path, monkeypatch)
     org, _, sensor, _, _ = workspace
     monkeypatch.setattr(draft, 'MAX_BYTES', 64)
     def events():
-        yield {'large': 'x' * 65}
+        yield {'routing': {'event_type': 'DNS_REQUEST'}, 'event': {'large': 'x' * 65}}
         raise AssertionError('Read beyond byte budget')
     sensor.get_events.return_value = events()
     with pytest.raises(ValueError, match='exceeds 2 MiB'):
@@ -248,3 +248,55 @@ def test_regex_transforms_rejected_with_actionable_fix_before_replay(workspace, 
     replay.scan_events.assert_not_called()
     rule['detect']['rules'][0].pop(modifier)
     assert draft.diagnose(rule, [EVENT]) == ([], [])
+
+
+def test_organization_sample_finds_dns_without_choosing_a_sensor(tmp_path, monkeypatch):
+    org = SimpleNamespace(oid='o')
+    event = {'routing': {'oid': 'o', 'event_type': 'DNS_REQUEST', 'sid': 'other'},
+             'event': {'DOMAIN_NAME': 'example.com'}}
+    search = Mock(execution={'complete': False, 'stop_reason': 'row_limit', 'pages_completed': 1})
+    def results(*args, **kwargs):
+        yield {'type': 'events', 'rows': [{'data': copy.deepcopy(event)} for _ in range(25)]}
+    search.execute.side_effect = results
+    monkeypatch.setattr(draft, 'Search', lambda o: search)
+    monkeypatch.setattr(draft, 'Sensor', Mock(side_effect=AssertionError('must not pick a sensor')))
+    result = draft.prepare(org, tmp_path / 'org', event_type='DNS_REQUEST')
+    assert result['status'] == 'prepared' and result['sample_count'] == 20
+    assert result['sampling']['scope'] == 'organization'
+    assert result['sampling']['absence_proven'] is False
+    assert result['sampling']['execution']['stop_reason'] == 'row_limit'
+    assert search.execute.call_args.args[0] == '*|DNS_REQUEST|*'
+    assert search.execute.call_args.kwargs == {'stream': 'event', 'limit': 20, 'max_pages': 2}
+    assert draft.load(tmp_path / 'org' / 'evidence.json')[0] == event
+
+
+def test_empty_sensor_sample_stops_before_fixture_generation(workspace, tmp_path):
+    org, _, sensor, _, _ = workspace
+    sensor.get_events.return_value = []
+    result = draft.prepare(org, tmp_path / 'empty', sid='s', event_type='DNS_REQUEST')
+    assert result['status'] == 'needs_evidence'
+    assert result['sampling']['scope'] == 'sensor'
+    assert result['sampling']['event_type'] == 'DNS_REQUEST'
+    assert result['sampling']['absence_proven'] is False
+    assert 'STOP' in result['guidance'] and 'Do not write' in result['guidance']
+    assert 'organization-wide' in result['next']
+    assert 'Write candidate' not in result['next']
+
+
+def test_empty_organization_sample_retains_partial_search_status(tmp_path, monkeypatch):
+    search = Mock(execution={'complete': False, 'stop_reason': 'page_limit', 'pages_completed': 2})
+    # SDK execute is a generator, including for empty results.
+    def empty(*a, **kw):
+        yield from ()
+    search.execute.side_effect = empty
+    monkeypatch.setattr(draft, 'Search', lambda org: search)
+    result = draft.prepare(SimpleNamespace(oid='o'), tmp_path / 'empty', event_type='DNS_REQUEST')
+    assert result['status'] == 'needs_evidence'
+    assert result['sampling']['execution']['stop_reason'] == 'page_limit'
+    assert result['sampling']['absence_proven'] is False
+
+
+@pytest.mark.parametrize('event_type', [None, 'DNS_REQUEST|*', '*', 'DNS_REQUEST\n'])
+def test_org_sampling_requires_literal_event_type_before_api(tmp_path, event_type):
+    with pytest.raises(ValueError):
+        draft.prepare(SimpleNamespace(oid='o'), tmp_path / 'invalid', event_type=event_type)

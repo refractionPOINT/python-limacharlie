@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 
 from .sdk.sensor import Sensor
+from .sdk.search import Search
 
 MAX_BYTES = 2 * 1024 * 1024
 
@@ -71,25 +72,14 @@ D&R paths use slashes (event/FILE_PATH), not event.FILE_PATH.
 For exact basenames use op: is with value: and file name: true; use or for multiple names.
 Regex matches uses re: against the raw path; do not combine it with file name/sub domain transforms.
 For multiple conditions on ONE array element use scope; its singular rule resets event/ to that element.
-Keep parent process conditions outside the scope. Example for NETWORK_CONNECTIONS:
-  op: and
-  rules:
-    - op: is
-      path: event/FILE_PATH
-      value: java
-      file name: true
-    - op: scope
-      path: event/NETWORK_ACTIVITY/
-      rule:
-        op: and
-        rules:
-          - op: is
-            path: event/IS_OUTGOING
-            value: 1
-          - op: is
-            path: event/DESTINATION/PORT
-            value: 389
-This is an operator example, not a proposed detection; use only fields supported by your evidence/reference.
+Keep parent process conditions outside the scope. Scope shape:
+  op: scope
+  path: event/ARRAY/
+  rule:
+    op: and
+    rules: [condition_on_element_field, another_condition_on_same_element]
+Replace placeholders with observed paths and documented operators; this is not a detection template.
+Use a short local Python script to deepcopy captured evidence and change only scenario fields; do not retype whole telemetry envelopes. Preserve an unchanged captured control when appropriate.
 Write candidate.json, positive.json and negative.json. Fixtures are nonempty JSON arrays of events; for stateful rules, use arrays of event sequences.
 Map every requested behavior to a positive fixture; do not silently narrow the request to one example.
 Use captured positives where applicable; add explicitly modified fixtures for unobserved requested variants.
@@ -104,13 +94,17 @@ Return the exact tested candidate and its limitations. Deployment requires a sep
 '''
 
 
-def prepare(org, directory, *, sid=None, hostname=None, last='24h', event_type=None, limit=200):
+def prepare(org, directory, *, sid=None, hostname=None, last='24h', event_type=None, limit=20):
     """Read a bounded sample and return a focused drafting context."""
     root = Path(directory).resolve()
     if root.exists() and (not root.is_dir() or any(root.iterdir())):
         raise ValueError('Workspace contains files; use an empty directory to preserve prior evidence')
-    if bool(sid) == bool(hostname):
-        raise ValueError('Provide exactly one of --sid or --hostname')
+    if sid and hostname:
+        raise ValueError('Provide at most one of --sid or --hostname')
+    if not sid and not hostname and not event_type:
+        raise ValueError('Organization sampling requires --event-type; use --sid or --hostname only for a specific endpoint')
+    if not sid and not hostname and event_type and not re.fullmatch(r'[A-Za-z0-9_]+', event_type):
+        raise ValueError('--event-type must be a literal event name, not a query expression')
     if not 1 <= limit <= 1000:
         raise ValueError('Sample limit must be between 1 and 1000')
     start, end = relative_window(last)
@@ -128,23 +122,51 @@ def prepare(org, directory, *, sid=None, hostname=None, last='24h', event_type=N
     if enabled():
         from .draft_guard import activate
         activate(org.oid, root)
-    sensor = Sensor(org, sid)
-    info = sensor.get_info()
-    if info.get('oid') and info['oid'] != org.oid:
-        raise ValueError('Sensor belongs to a different organization')
+    info = {}
+    sampling = {'scope': 'sensor' if sid else 'organization', 'event_type': event_type,
+                'absence_proven': False}
     events, size = [], 2
-    for event in sensor.get_events(start, end, limit=limit, event_type=event_type, is_forward=False):
+    def capture(event):
+        nonlocal size
+        if not isinstance(event, dict) or not isinstance(event.get('routing'), dict) or not isinstance(event.get('event'), dict):
+            raise ValueError('Sample response lacks a telemetry event envelope')
+        if event.get('routing', {}).get('oid') not in (None, org.oid):
+            raise ValueError('Sample belongs to a different organization')
         size += len(json.dumps(event).encode()) + 2
         if size > MAX_BYTES:
             raise ValueError('Sample exceeds 2 MiB; reduce --limit or select --event-type')
         events.append(event)
+    if sid:
+        sensor = Sensor(org, sid)
+        info = sensor.get_info()
+        if info.get('oid') and info['oid'] != org.oid:
+            raise ValueError('Sensor belongs to a different organization')
+        for event in sensor.get_events(start, end, limit=limit, event_type=event_type, is_forward=False):
+            capture(event)
+    else:
+        # Event-type-only sampling avoids selecting an arbitrary endpoint for an
+        # organization-wide rule. Cap pages even when there are no matching rows.
+        search = Search(org)
+        query = f'*|{event_type}|*'
+        sampling.update(query=query, max_pages=2)
+        results = search.execute(query, start, end, stream='event', limit=limit, max_pages=2)
+        try:
+            for result in results:
+                if result.get('type') == 'events':
+                    for row in result.get('rows') or []:
+                        if len(events) < limit:
+                            capture(row.get('data', row))
+        finally:
+            results.close()
+        sampling['execution'] = {k: v for k, v in search.execution.items() if k != 'continuation'}
+    sampling['sample_limit_reached'] = len(events) >= limit
     schemas = {}
     for event in events:
         name = event.get('routing', {}).get('event_type', 'unknown')
         schemas.setdefault(name, {}).update(observed_paths(event))
     manifest = {'version': 1, 'org_id': org.oid, 'sid': sid, 'hostname': info.get('hostname'),
                 'window': {'start': start, 'end': end}, 'evidence_sha256': digest(events),
-                'sample_count': len(events), 'sample_limit': limit,
+                'sample_count': len(events), 'sample_limit': limit, 'sampling': sampling,
                 'event_counts': dict(Counter(e.get('routing', {}).get('event_type', 'unknown') for e in events)),
                 'coverage': 'Representative sample only; not an exhaustive schema or absence proof.'}
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -157,8 +179,10 @@ def prepare(org, directory, *, sid=None, hostname=None, last='24h', event_type=N
         guide.chmod(0o600); f.write(GUIDANCE)
     return {'status': 'prepared' if events else 'needs_evidence', 'workspace': str(root),
             **manifest, 'observed_paths': {k: dict(list(v.items())[:100]) for k, v in list(schemas.items())[:8]},
-            'paths_note': 'Preview limited to eight event types and 100 paths each; full paths in observed-paths.json.', 'guidance': GUIDANCE,
-            'next': f'Write candidate.json and fixtures, then limacharlie dr check --workspace {root} --oid {org.oid}'}
+            'paths_note': 'Preview limited to eight event types and 100 paths each; full paths in observed-paths.json.',
+            'guidance': GUIDANCE if events else 'STOP: no representative evidence was captured. Do not write candidate or fixtures yet. This sample cannot establish that telemetry is absent from the organization or time window.',
+            'next': (f'Generate fixtures from evidence.json with a short local script, then limacharlie dr check --workspace {root} --oid {org.oid}' if events else
+                     'Prepare a new empty workspace with organization-wide --event-type sampling (omit --sid/--hostname), or obtain representative evidence from another explicitly selected source. Do not change the requested detection merely to fit an unrelated sample.')}
 
 
 def diagnose(rule, samples):

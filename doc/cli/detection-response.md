@@ -70,12 +70,13 @@ limacharlie ai summarize-detection --id DETECT_ID
 ## Prepare and check a draft from telemetry
 
 ```bash
-limacharlie dr prepare --hostname lab-host --last 24h --workspace draft --oid OID --output json
-# Read draft/evidence.json and write candidate.json, positive.json, negative.json.
+limacharlie dr prepare --event-type DNS_REQUEST --last 24h --workspace draft --oid OID --output json
+# If status is prepared, derive fixtures from draft/evidence.json using a short local script.
+# Write candidate.json, positive.json, negative.json; do not retype full event envelopes.
 limacharlie dr check --workspace draft --oid OID --output json
 ```
 
-Preparation accepts either an exact hostname or a SID, optional event type, and a 1–1000 event sample limit (default 200). Relative windows accept minutes, hours or days, up to 31 days. It accepts a new or empty directory and refuses to overwrite a workspace containing files. Evidence and full observed paths are saved privately; the response includes a bounded path preview and focused operator guidance. Samples do not establish exhaustive coverage.
+Preparation samples a literal event type across the organization when no endpoint is specified. It uses the query `*|EVENT_TYPE|*`, stops after at most two completed search pages, and retains at most the requested sample limit (default 20, range 1–1000). For endpoint-specific requests, supply an exact hostname or SID and optionally an event type; this reads that sensor only. The response records sampling scope and search completion separately from sample size. An empty or partial sample never establishes organization-wide absence. When status is `needs_evidence`, obtain representative evidence before writing fixtures; checking an empty evidence workspace fails. Relative windows accept minutes, hours or days, up to 31 days. It accepts a new or empty directory and refuses to overwrite a workspace containing files. Evidence and full observed paths are saved privately; the response includes a bounded path preview and focused operator guidance. Samples do not establish exhaustive coverage.
 
 Checking performs structural diagnostics before server replay, tests each event in each fixture array independently, and exits nonzero on failure. For stateful/correlated rules, supply arrays of event sequences (nested arrays); each sequence is one independently checked scenario. The report distinguishes captured from modified/synthetic fixtures and sample grounding from unknown fields. It never deploys. Changes require a new check; hashes in check.json identify the tested files. Deploy the exact tested files with `dr deploy` after authorization.
 
