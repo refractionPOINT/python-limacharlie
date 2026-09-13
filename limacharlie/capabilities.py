@@ -37,6 +37,9 @@ Choose the smallest operation that answers the question:
   For JVMs, start with
   java/java.exe/javaw/javaw.exe names, not a historical LCQL scan. IOC observations do not prove a
   process is running now, full historical absence, or absence of embedded/renamed JVMs.
+  For name/indicator lookups, stop after successful IOC results, including zero hits, and explain limits.
+  Do not add LCQL to compensate for IOC coverage; use it only when the requested task requires
+  historical predicates or aggregation beyond an indicator lookup.
 - Current state on a specific endpoint: inspect/task that endpoint.
 - Historical behavior, complex predicates or aggregation: use search (LCQL); validate syntax first.
 Read help capability ID for task-specific procedures and declared references before unfamiliar work.
