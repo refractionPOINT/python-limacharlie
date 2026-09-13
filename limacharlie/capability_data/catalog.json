@@ -266,6 +266,7 @@
         "job.get"
       ],
       "operations": [
+        "prepare a sampled drafting workspace and check every fixture",
         "discover",
         "validate",
         "test-positive",

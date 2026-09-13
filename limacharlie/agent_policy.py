@@ -29,6 +29,8 @@ def check_permission(org):
 
 def validate(path, params, options):
     """Validate parsed values, including short flags and --option=value syntax."""
+    from .draft_guard import validate as validate_draft
+    validate_draft(path, params, options.oid or os.environ.get('LC_OID'))
     root, verb = path[0], path[1] if len(path) > 1 else ''
     if options.profile or options.environment or options.debug or options.debug_full or options.debug_curl or options.quiet:
         raise ValueError('Agent credentials and diagnostic output are managed by the session; omit profile/env/debug/quiet')
