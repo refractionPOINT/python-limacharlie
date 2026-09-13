@@ -177,3 +177,14 @@ def test_deployment_requires_exact_successfully_checked_files(workspace):
     paths[0].write_text(json.dumps(candidate))
     with pytest.raises(ValueError, match='differ from the tested'):
         draft.require_tested(root, org.oid, paths)
+
+
+def test_empty_runner_uid_does_not_turn_org_key_into_user_key(monkeypatch):
+    from limacharlie.config import resolve_credentials
+    monkeypatch.setenv('LC_API_KEY', 'org-key')
+    monkeypatch.setenv('LC_OID', 'org')
+    monkeypatch.setenv('LC_UID', '')
+    creds = resolve_credentials()
+    assert creds['uid'] is None and creds['api_key'] == 'org-key'
+    assert resolve_credentials(uid='')['uid'] is None
+    assert resolve_credentials(uid='real-user')['uid'] == 'real-user'
