@@ -115,8 +115,8 @@ def deploy(org, key, candidate_path, positive_path, negative_path, namespace="ge
         org: Authenticated organization.
         key: Rule record key.
         candidate_path: JSON or YAML rule or Hive envelope file.
-        positive_path: JSON event sequence that must match.
-        negative_path: JSON event sequence that must not match.
+        positive_path: JSON event sequence, or array of sequences, each of which must match.
+        negative_path: JSON event sequence, or array of sequences, none of which may match.
         namespace: Ordinary D&R namespace.
         dry_run: Validate and preview without writing.
         enabled: Explicit metadata enabled state; None preserves existing state.
@@ -165,8 +165,14 @@ def deploy(org, key, candidate_path, positive_path, negative_path, namespace="ge
         raise ValueError('comment must be a string')
     etag = etag if etag is not None else artifact.get('etag')
     fixtures = [json.loads(x) for x in raw[1:]]
-    if any(not isinstance(x, list) or not x or not all(isinstance(e, dict) for e in x) for x in fixtures):
-        raise ValueError('Fixtures must be nonempty JSON arrays of event objects')
+    def scenarios(value):
+        if isinstance(value, list) and value and all(isinstance(e, dict) for e in value):
+            return [value]  # Existing format: one ordered event sequence.
+        if (isinstance(value, list) and value and all(isinstance(s, list) and s
+                and all(isinstance(e, dict) for e in s) for s in value)):
+            return value
+        raise ValueError('Fixtures must be nonempty JSON arrays of event objects or event sequences')
+    fixture_scenarios = [scenarios(value) for value in fixtures]
     check_permission(org)
     resource = state.identifier('dr', org.oid, namespace, key)
     receipt_id = state.identifier(resource, [hashlib.sha256(x).hexdigest() for x in raw], metadata, etag)
@@ -202,8 +208,9 @@ def deploy(org, key, candidate_path, positive_path, negative_path, namespace="ge
         candidate = {'data': rule, 'usr_mtd': metadata}
         replay = Replay(org)
         stream = {'detection': 'detect', 'audit': 'audit'}.get(rule['detect'].get('target'), 'event')
-        positive = evidence(replay.scan_events(fixtures[0], rule_content=rule, stream=stream), True)
-        negative = evidence(replay.scan_events(fixtures[1], rule_content=rule, stream=stream), False)
+        proofs = [[evidence(replay.scan_events(events, rule_content=rule, stream=stream), expected)
+                   for events in cases] for cases, expected in zip(fixture_scenarios, (True, False))]
+        positive, negative = [items[0] if len(items) == 1 else {'scenarios': items} for items in proofs]
         for path, original in zip(paths, raw):
             with path.open('rb') as handle:
                 if handle.read(2 * 1024 * 1024 + 1) != original:

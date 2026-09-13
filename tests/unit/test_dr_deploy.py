@@ -145,3 +145,16 @@ def test_permission_revoked_after_tests_never_writes(setup):
     with pytest.raises(ValueError, match='ai_agent.operate'):
         deploy(org, 'test', *paths)
     assert not any(c.args[0] == 'POST' for c in org.client.request.call_args_list)
+
+
+def test_all_nested_fixture_scenarios_must_pass_before_write(setup):
+    org, paths, _, replay = setup
+    event = {'event': {'FILE_PATH': 'a'}}
+    paths[1].write_text(json.dumps([[event], [event, event]]))
+    replay.scan_events.side_effect = [
+        {'stats': {'n_proc': 1}, 'results': [{}], 'did_match': True},
+        {'stats': {'n_proc': 2}, 'results': [], 'did_match': False}]
+    with pytest.raises(ValueError, match='required outcome'):
+        deploy(org, 'test', *paths)
+    assert replay.scan_events.call_args_list[1].args == ([event, event],)
+    assert not any(c.args[0] == 'POST' for c in org.client.request.call_args_list)

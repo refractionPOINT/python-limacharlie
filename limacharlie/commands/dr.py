@@ -79,7 +79,44 @@ def group() -> None:
     """
 
 
+@group.command("prepare")
+@click.option("--workspace", required=True, type=click.Path(file_okay=False), help="New local drafting directory.")
+@click.option("--sid", help="Exact sensor ID; mutually exclusive with --hostname.")
+@click.option("--hostname", help="Exact hostname; ambiguous matches require --sid.")
+@click.option("--last", default="24h", show_default=True, help="Recent sample window, e.g. 30m, 24h or 7d (maximum 31d).")
+@click.option("--event-type", help="Optional event type to sample.")
+@click.option("--limit", default=200, type=click.IntRange(1, 1000), show_default=True)
+@pass_context
+def prepare_cmd(ctx, workspace, sid, hostname, last, event_type, limit):
+    """Prepare real event evidence, field paths and focused D&R guidance; never task or deploy."""
+    from ..dr_drafting import prepare
+    try:
+        _output(ctx, prepare(_get_org(ctx), workspace, sid=sid, hostname=hostname,
+                             last=last, event_type=event_type, limit=limit))
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@group.command("check")
+@click.option("--workspace", required=True, type=click.Path(exists=True, file_okay=False))
+@click.option("--candidate", default="candidate.json", show_default=True)
+@click.option("--positive", default="positive.json", show_default=True)
+@click.option("--negative", default="negative.json", show_default=True)
+@pass_context
+def check_cmd(ctx, workspace, candidate, positive, negative):
+    """Check paths and replay every fixture; never save a remote rule. Exit nonzero on failure."""
+    from ..dr_drafting import check
+    try:
+        result = check(_get_org(ctx), workspace, candidate=candidate, positive=positive, negative=negative)
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    _output(ctx, result)
+    if result['status'] != 'tested':
+        ctx.exit(1)
+
+
 @group.command("deploy")
+@click.option("--workspace", type=click.Path(exists=True, file_okay=False), help="Require candidate and fixtures to match this workspace’s successful dr check.")
 @click.option("--key", required=True)
 @click.option("--input-file", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--positive", required=True, type=click.Path(exists=True, dir_okay=False))
@@ -92,13 +129,17 @@ def group() -> None:
 @click.option("--comment", default=None, help="Set the metadata comment.")
 @click.option("--etag", default=None, help="Current sys_mtd.etag, required for conditional updates.")
 @pass_context
-def deploy_cmd(ctx, key, input_file, positive, negative, namespace, dry_run, enabled, tags, clear_tags, comment, etag):
+def deploy_cmd(ctx, key, input_file, positive, negative, namespace, dry_run, enabled, tags, clear_tags, comment, etag, workspace):
     """Validate/test a full Hive candidate, conditionally apply it, and verify read-back."""
     from ..sdk.dr_deploy import deploy
     try:
         if tags and clear_tags:
             raise ValueError("--tag and --clear-tags are mutually exclusive")
-        result = deploy(_get_org(ctx), key, input_file, positive, negative, namespace, dry_run,
+        org = _get_org(ctx)
+        if workspace:
+            from ..dr_drafting import require_tested
+            require_tested(workspace, org.oid, (input_file, positive, negative))
+        result = deploy(org, key, input_file, positive, negative, namespace, dry_run,
                         enabled=enabled, tags=list(tags) if tags or clear_tags else None, comment=comment, etag=etag)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
