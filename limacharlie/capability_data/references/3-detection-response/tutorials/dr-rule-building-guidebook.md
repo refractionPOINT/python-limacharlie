@@ -251,7 +251,7 @@ case sensitive: false
 
 **Note**: The `matches` operator defaults to **case-insensitive** matching unless `case sensitive: true` is explicitly set. This is the opposite of other operators like `is` and `contains`, which default to case-sensitive.
 
-Supports the `file name` and `sub domain` transforms.
+The current evaluator ignores `file name` and `sub domain` transforms on `matches`; the regex sees the raw value. Use `is` with `file name: true` for exact basenames (`or` for alternatives), or write a regex for the full path without transforms.
 
 ### Logical Operations
 
