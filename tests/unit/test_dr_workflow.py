@@ -256,3 +256,19 @@ def test_batch_checks_each_outcome_and_rejects_lost_identity(monkeypatch):
         replay.scan_events.return_value = bad
         assert "error" in wf.replay_cases(org, {}, cases)[0]
     assert all("lc_draft_fixture_id" not in c["event"]["routing"] for c in cases)
+
+
+def test_irrelevant_case_default_does_not_require_another_model_turn():
+    rule = intent(
+        {
+            "op": "eq",
+            "path": ["event", "enabled"],
+            "value": False,
+            "case_sensitive": False,
+        }
+    )
+    detect = wf.compile_rule(rule)["detect"]
+    assert detect["value"] is False and "case sensitive" not in detect
+    rule["condition"]["case_sensitive"] = "false"
+    with pytest.raises(ValueError):
+        wf.compile_rule(rule)

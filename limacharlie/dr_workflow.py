@@ -183,10 +183,10 @@ def validate(intent):
             raise ValueError("Numeric comparison requires a number")
         if op in ("contains", "basename") and (not isinstance(value, str) or not value):
             raise ValueError("String predicate requires a nonempty string")
-        if "case_sensitive" in node and (
-            type(node["case_sensitive"]) is not bool or not isinstance(value, str)
-        ):
-            raise ValueError("case_sensitive is a boolean for string predicates only")
+        if "case_sensitive" in node and type(node["case_sensitive"]) is not bool:
+            raise ValueError("case_sensitive must be a boolean")
+        # Non-string values have no case. The interpreter can include this
+        # harmless default; compile_rule omits it from non-string predicates.
         leaves.append((prefix + tuple(path), node))
 
     walk(intent["condition"])
