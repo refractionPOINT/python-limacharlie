@@ -960,3 +960,15 @@ class TestJobs:
         qp = mock_client.request.call_args[1]["query_params"]
         assert qp["limit"] == "5"
         assert qp["sid"] == "sid-1"
+
+
+@pytest.mark.parametrize('filter_text,offset,limit,expected', [
+    (None,None,None,True), ('ORG',0,1,True), ('missing',None,None,False),
+    (None,1,1,False), (None,0,0,False)])
+def test_org_key_discovery_never_uses_user_endpoint(org,mock_client,filter_text,offset,limit,expected):
+    mock_client._api_key='org-key';mock_client._uid=None;mock_client._oauth_creds=None
+    mock_client.request.return_value={'name':'Test Org'}
+    result=org.list_accessible_orgs(filter_text=filter_text,offset=offset,limit=limit)
+    assert result['orgs']==(['test-oid-123'] if expected else [])
+    mock_client.refresh_jwt.assert_not_called()
+    mock_client.request.assert_called_once_with('GET','orgs/test-oid-123')

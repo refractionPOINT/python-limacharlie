@@ -207,3 +207,30 @@ def test_empty_capture_cannot_be_replaced_with_self_authored_evidence(workspace)
     assert result['status'] == 'invalid'
     assert any('No captured evidence' in e for e in result['errors'])
     replay.scan_events.assert_not_called()
+
+
+def test_prepare_accepts_mkdir_created_empty_workspace(workspace, tmp_path):
+    org, _, _, _, _ = workspace
+    root = tmp_path / 'already-created';root.mkdir()
+    assert draft.prepare(org, root, sid='s')['status'] == 'prepared'
+    original = (root / 'evidence.json').read_bytes()
+    with pytest.raises(ValueError, match='contains files'):
+        draft.prepare(org, root, sid='s')
+    assert (root / 'evidence.json').read_bytes() == original
+
+
+def test_capture_budget_stops_consuming_events(workspace, tmp_path, monkeypatch):
+    org, _, sensor, _, _ = workspace
+    monkeypatch.setattr(draft, 'MAX_BYTES', 64)
+    def events():
+        yield {'large': 'x' * 65}
+        raise AssertionError('Read beyond byte budget')
+    sensor.get_events.return_value = events()
+    with pytest.raises(ValueError, match='exceeds 2 MiB'):
+        draft.prepare(org, tmp_path / 'bounded', sid='s')
+
+
+def test_missing_check_explains_required_next_step(workspace):
+    org, root, _, _, _ = workspace
+    with pytest.raises(ValueError, match='Run dr check'):
+        draft.require_tested(root, org.oid, [])
