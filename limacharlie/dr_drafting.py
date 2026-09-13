@@ -68,7 +68,8 @@ Use a single rule: {"detect": {"event": "EVENT_TYPE", "op": "..."},
 "respond": [{"action": "report", "name": "descriptive-detection-name"}]}.
 Do not nest a rule name under detect. Metadata is outside rule data.
 D&R paths use slashes (event/FILE_PATH), not event.FILE_PATH.
-Use op: matches with re:, op: is with value:, and file name: true for basename matching.
+For exact basenames use op: is with value: and file name: true; use or for multiple names.
+Regex matches uses re: against the raw path; do not combine it with file name/sub domain transforms.
 For multiple conditions on ONE array element use scope; its singular rule resets event/ to that element.
 Keep parent process conditions outside the scope. Example for NETWORK_CONNECTIONS:
   op: and
@@ -90,7 +91,10 @@ Keep parent process conditions outside the scope. Example for NETWORK_CONNECTION
             value: 389
 This is an operator example, not a proposed detection; use only fields supported by your evidence/reference.
 Write candidate.json, positive.json and negative.json. Fixtures are nonempty JSON arrays of events; for stateful rules, use arrays of event sequences.
-Derive a positive from a captured event; if modified, label it synthetic and explain the changes.
+Map every requested behavior to a positive fixture; do not silently narrow the request to one example.
+Use captured positives where applicable; add explicitly modified fixtures for unobserved requested variants.
+Label modifications and distinguish tested matching logic from evidence of actual activity.
+An observed example of the requested behavior is not a negative control merely because you omitted it from the rule.
 Include negative controls for each important predicate, including conditions split across different array elements.
 Run dr check --workspace DIRECTORY --oid OID; repair reported errors and rerun until status is tested.
 Unknown paths are warnings, not proof of invalid fields: establish them with documented references or more samples.
@@ -206,6 +210,8 @@ def diagnose(rule, samples):
                         warnings.append(f'{path}: absent from captured samples; establish with documentation or additional evidence')
         if node.get('op') == 'matches' and ('re' not in node or 'value' in node):
             errors.append('matches requires re, not value')
+        if node.get('op') == 'matches' and (node.get('file name') or node.get('sub domain')):
+            errors.append('matches evaluates the raw path; file name/sub domain transforms are ignored by the current engine. Use is with file name for exact basenames (or multiple is rules), or write a regex for the full raw value without transforms')
         if node.get('op') == 'scope':
             if not isinstance(node.get('rule'), dict):
                 errors.append('scope requires one singular rule object')

@@ -111,7 +111,7 @@ The `matches` op compares the value at `path` with a regular expression supplied
 
 **Note**: Unlike other operators, `matches` defaults to **case-insensitive** matching unless `case sensitive: true` is explicitly set.
 
-Supports the [file name](#file-name) and [sub domain](#sub-domain) transforms.
+The current evaluator ignores `file name` and `sub domain` transforms on `matches`: the regex sees the raw value. For exact basename matching, use `is` with `file name: true` (and `or` for alternatives), or write a regex for the full path without transforms.
 
 Example:
 

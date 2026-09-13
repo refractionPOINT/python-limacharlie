@@ -234,3 +234,17 @@ def test_missing_check_explains_required_next_step(workspace):
     org, root, _, _, _ = workspace
     with pytest.raises(ValueError, match='Run dr check'):
         draft.require_tested(root, org.oid, [])
+
+
+@pytest.mark.parametrize('modifier', ['file name', 'sub domain'])
+def test_regex_transforms_rejected_with_actionable_fix_before_replay(workspace, modifier):
+    org, root, _, replay, _ = workspace
+    rule = copy.deepcopy(RULE)
+    rule['detect']['rules'][0] = {'op': 'matches', 'path': 'event/FILE_PATH', 're': '^java$', modifier: True}
+    (root / 'candidate.json').write_text(json.dumps(rule))
+    result = draft.check(org, root)
+    assert result['status'] == 'invalid'
+    assert any('raw path' in e and 'Use is' in e for e in result['errors'])
+    replay.scan_events.assert_not_called()
+    rule['detect']['rules'][0].pop(modifier)
+    assert draft.diagnose(rule, [EVENT]) == ([], [])
