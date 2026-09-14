@@ -29,6 +29,17 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
+def _output_generated(ctx: click.Context, data: Any) -> None:
+    if not isinstance(data, dict) or "response" not in data or data["response"] is None:
+        raise click.ClickException("AI generation returned no result. The request did not produce a usable response; do not deploy it.")
+    value = data["response"]
+    if isinstance(value, str) and not value.strip():
+        raise click.ClickException("AI generation returned an empty result; do not deploy it.")
+    if isinstance(value, dict) and (not value or "resource_link" in value):
+        raise click.ClickException("AI generation returned an empty or unresolved result; do not deploy it.")
+    _output(ctx, data)
+
+
 def _get_org(ctx: click.Context) -> Organization:
     client = Client(oid=ctx.obj.oid, environment=ctx.obj.environment, print_debug_fn=ctx.obj.debug_fn, debug_full_response=ctx.obj.debug_full, debug_curl=ctx.obj.debug_curl, debug_verbose=ctx.obj.debug_verbose)
     return Organization(client)
@@ -56,20 +67,9 @@ Generate a complete D&R rule (detection + response) from a natural
 language description.  The AI will produce both the detection
 component and the response actions.
 
-The output is a YAML structure ready for use with 'limacharlie dr set':
-
-    detect:
-      op: ends with
-      event: NEW_PROCESS
-      path: event/FILE_PATH
-      value: powershell.exe
-      rules:
-        - op: contains
-          path: event/COMMAND_LINE
-          value: downloadstring
-    respond:
-      - action: report
-        name: powershell-download-detected
+The JSON/YAML output wraps the generated rule in a 'response' field.
+Save that field's content, not the outer envelope, as the rule file for
+'limacharlie dr set'. The rule contains 'detect' and 'respond' components.
 
 The generated rule should be reviewed before deployment.
 
@@ -81,13 +81,13 @@ register_explain("ai.generate-rule", _EXPLAIN_GENERATE_RULE)
 
 
 @group.command("generate-rule")
-@click.option("--prompt", required=True, help="Natural language description of the detection.")
+@click.option("--prompt", "--description", "prompt", required=True, help="Natural language description of the detection.")
 @pass_context
 def generate_rule(ctx, prompt) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_dr_rule(prompt)
-    _output(ctx, data)
+    _output_generated(ctx, data)
 
 
 # ---------------------------------------------------------------------------
@@ -99,11 +99,10 @@ Generate an LCQL (LimaCharlie Query Language) query from a natural
 language description.  The AI will produce a query that can be used
 with 'limacharlie search run'.
 
-LCQL queries follow a SQL-like syntax for searching telemetry:
-
-    event_type = DNS_REQUEST
-    AND event/DOMAIN_NAME ends with ".ru"
-    AND timestamp >= now() - 24h
+LCQL uses pipe-separated components for the timeframe, sensors, events,
+filter, and optional projection. Generate against the organization's schema
+and validate the resulting query with 'limacharlie search validate' before
+running it. The generated query is in the output's 'response' field.
 
 Example:
   limacharlie ai generate-query \\
@@ -113,13 +112,13 @@ register_explain("ai.generate-query", _EXPLAIN_GENERATE_QUERY)
 
 
 @group.command("generate-query")
-@click.option("--prompt", required=True, help="Natural language description of the query.")
+@click.option("--prompt", "--description", "prompt", required=True, help="Natural language description of the query.")
 @pass_context
 def generate_query(ctx, prompt) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_lcql(prompt)
-    _output(ctx, data)
+    _output_generated(ctx, data)
 
 
 # ---------------------------------------------------------------------------
@@ -139,13 +138,13 @@ register_explain("ai.generate-detection", _EXPLAIN_GENERATE_DETECTION)
 
 
 @group.command("generate-detection")
-@click.option("--description", required=True, help="Natural language description of the detection.")
+@click.option("--description", "--prompt", "description", required=True, help="Natural language description of the detection.")
 @pass_context
 def generate_detection(ctx, description) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_detection(description)
-    _output(ctx, data)
+    _output_generated(ctx, data)
 
 
 # ---------------------------------------------------------------------------
@@ -165,13 +164,13 @@ register_explain("ai.generate-response", _EXPLAIN_GENERATE_RESPONSE)
 
 
 @group.command("generate-response")
-@click.option("--description", required=True, help="Natural language description of the response actions.")
+@click.option("--description", "--prompt", "description", required=True, help="Natural language description of the response actions.")
 @pass_context
 def generate_response(ctx, description) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_response(description)
-    _output(ctx, data)
+    _output_generated(ctx, data)
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +182,8 @@ Generate a sensor selector expression (bexpr) from a natural language
 description.  Sensor selectors target specific groups of sensors for
 D&R rules, tasks, and queries.
 
-Selector syntax examples:
-  plat == `windows`
-  `production` in tags
-  plat == `linux` AND `web-server` in tags
+The generated selector is in the output's 'response' field. Use that
+value with commands accepting sensor selectors; do not pass the envelope.
 
 Example:
   limacharlie ai generate-selector \\
@@ -196,13 +193,13 @@ register_explain("ai.generate-selector", _EXPLAIN_GENERATE_SELECTOR)
 
 
 @group.command("generate-selector")
-@click.option("--description", required=True, help="Natural language description of the sensor selector.")
+@click.option("--description", "--prompt", "description", required=True, help="Natural language description of the sensor selector.")
 @pass_context
 def generate_selector(ctx, description) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_sensor_selector(description)
-    _output(ctx, data)
+    _output_generated(ctx, data)
 
 
 # ---------------------------------------------------------------------------
@@ -222,13 +219,13 @@ register_explain("ai.generate-playbook", _EXPLAIN_GENERATE_PLAYBOOK)
 
 
 @group.command("generate-playbook")
-@click.option("--description", required=True, help="Natural language description of the playbook.")
+@click.option("--description", "--prompt", "description", required=True, help="Natural language description of the playbook.")
 @pass_context
 def generate_playbook(ctx, description) -> None:
     org = _get_org(ctx)
     sdk = AISDK(org)
     data = sdk.generate_playbook(description)
-    _output(ctx, data)
+    _output_generated(ctx, data)
 
 
 # ---------------------------------------------------------------------------
