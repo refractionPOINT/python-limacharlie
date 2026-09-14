@@ -79,106 +79,6 @@ def group() -> None:
     """
 
 
-@group.command("prepare")
-@click.option("--workspace", required=True, type=click.Path(file_okay=False), help="New or empty local drafting directory.")
-@click.option("--sid", help="Exact sensor ID; mutually exclusive with --hostname.")
-@click.option("--hostname", help="Exact hostname; ambiguous matches require --sid.")
-@click.option("--last", default="24h", show_default=True, help="Recent sample window, e.g. 30m, 24h or 7d (maximum 31d).")
-@click.option("--event-type", help="Event type to sample; required for organization-wide sampling without --sid/--hostname.")
-@click.option("--limit", default=20, type=click.IntRange(1, 1000), show_default=True)
-@pass_context
-def prepare_cmd(ctx, workspace, sid, hostname, last, event_type, limit):
-    """Prepare real event evidence, field paths and focused D&R guidance; never task or deploy."""
-    from ..dr_drafting import prepare
-    try:
-        _output(ctx, prepare(_get_org(ctx), workspace, sid=sid, hostname=hostname,
-                             last=last, event_type=event_type, limit=limit))
-    except (ValueError, OSError) as exc:
-        raise click.ClickException(str(exc)) from exc
-
-
-@group.command("build")
-@click.option("--workspace", required=True, type=click.Path(file_okay=False))
-@click.option("--intent-file", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--evidence-file", type=click.Path(exists=True, dir_okay=False), help="JSON array of LC event envelopes; custom JSON stays under event.")
-@click.option("--source", required=True, type=click.Choice(["lc_sensor", "custom_json"]))
-@pass_context
-def build_cmd(ctx, workspace, intent_file, evidence_file, source):
-    """Compile a typed rule intent and replay generated scenarios; never deploy or task."""
-    from ..dr_workflow import build, NeedsEvidence
-    from ..dr_drafting import load
-    try:
-        result = build(_get_org(ctx), workspace, load(intent_file, json_only=True),
-                       samples=load(evidence_file, json_only=True) if evidence_file else [], source=source)
-        _output(ctx, result)
-        if result["status"] != "tested": raise click.exceptions.Exit(1)
-    except NeedsEvidence as exc:
-        _output(ctx, {"status": "needs_evidence", "message": str(exc), "deployed": False})
-        raise click.exceptions.Exit(1)
-    except (ValueError, OSError) as exc:
-        raise click.ClickException(str(exc)) from exc
-
-
-@group.command("check")
-@click.option("--workspace", required=True, type=click.Path(exists=True, file_okay=False))
-@click.option("--candidate", default="candidate.json", show_default=True)
-@click.option("--positive", default="positive.json", show_default=True)
-@click.option("--negative", default="negative.json", show_default=True)
-@pass_context
-def check_cmd(ctx, workspace, candidate, positive, negative):
-    """Check paths and replay every fixture; never save a remote rule. Exit nonzero on failure."""
-    from ..dr_drafting import check
-    try:
-        result = check(_get_org(ctx), workspace, candidate=candidate, positive=positive, negative=negative)
-    except (ValueError, OSError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    _output(ctx, result)
-    if result['status'] != 'tested':
-        ctx.exit(1)
-
-
-@group.command("deploy")
-@click.option("--workspace", type=click.Path(exists=True, file_okay=False), help="Require candidate and fixtures to match this workspace’s successful dr check.")
-@click.option("--key", required=True)
-@click.option("--input-file", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--positive", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--negative", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--namespace", type=_NS_CHOICES, default="general")
-@click.option("--dry-run", is_flag=True, help="Validate, test and preview without writing.")
-@click.option("--enabled/--disabled", default=None, help="Explicit enabled state; preserved on updates if omitted.")
-@click.option("--tag", "tags", multiple=True, help="Replace metadata tags (repeatable).")
-@click.option("--clear-tags", is_flag=True, help="Explicitly remove all metadata tags.")
-@click.option("--comment", default=None, help="Set the metadata comment.")
-@click.option("--etag", default=None, help="Current sys_mtd.etag, required for conditional updates.")
-@pass_context
-def deploy_cmd(ctx, key, input_file, positive, negative, namespace, dry_run, enabled, tags, clear_tags, comment, etag, workspace):
-    """Validate/test a full Hive candidate, conditionally apply it, and verify read-back."""
-    from ..sdk.dr_deploy import deploy
-    try:
-        if tags and clear_tags:
-            raise ValueError("--tag and --clear-tags are mutually exclusive")
-        org = _get_org(ctx)
-        if workspace:
-            from ..dr_drafting import require_tested
-            require_tested(workspace, org.oid, (input_file, positive, negative))
-        result = deploy(org, key, input_file, positive, negative, namespace, dry_run,
-                        enabled=enabled, tags=list(tags) if tags or clear_tags else None, comment=comment, etag=etag)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
-    _output(ctx, result)
-
-
-@group.command("reconcile")
-@click.option("--key", required=True)
-@click.option("--namespace", type=_NS_CHOICES, default="general")
-@click.option("--accept-current", is_flag=True, help="Acknowledge divergent current state without retrying the write.")
-@pass_context
-def reconcile_cmd(ctx, key, namespace, accept_current):
-    """Inspect an interrupted deployment and resolve its durable receipt."""
-    from ..sdk.dr_deploy import reconcile
-    _output(ctx, reconcile(_get_org(ctx), key, namespace, accept_current))
-
-
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
@@ -640,12 +540,6 @@ Events should match the structure LimaCharlie uses internally:
 Use --trace for a detailed step-by-step evaluation trace showing
 which operators matched or failed, useful for debugging rules.
 
-For an inline rule, the Replay stream is inferred from detect.target:
-detection uses detect, audit uses audit, and other targets use event.
-Use --stream to select a stream explicitly, including when testing an
-existing rule by --name. Detection events use cat for their event name;
-audit events use etype and do not need an EDR routing wrapper.
-
 The response includes num_evals, eval_time, num_events, responses
 (list of actions that would fire), and errors.
 
@@ -662,14 +556,12 @@ register_explain("dr.test", _EXPLAIN_TEST)
 @click.option("--events", "events_path", required=True, type=click.Path(exists=True), help="Path to JSON file with events.")
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to rule file (JSON or YAML with 'detect' and 'respond' keys).")
 @click.option("--trace", is_flag=True, default=False, help="Include detailed evaluation trace in output.")
-@click.option("--stream", default=None, type=click.Choice(["event", "detect", "audit"]),
-              help="Replay event layout. Inferred from an inline rule's target; otherwise event.")
 @click.option(
     "--namespace", default=None, type=_NS_CHOICES,
     help="Rule namespace (when using --name).",
 )
 @pass_context
-def test(ctx, name, events_path, input_file, trace, stream, namespace) -> None:
+def test(ctx, name, events_path, input_file, trace, namespace) -> None:
     rule_content = None
 
     if name is None:
@@ -688,11 +580,6 @@ def test(ctx, name, events_path, input_file, trace, stream, namespace) -> None:
 
     events = _load_events(events_path)
 
-    if stream is None:
-        detect = rule_content.get("detect", {}) if isinstance(rule_content, dict) else {}
-        target = detect.get("target", "edr") if isinstance(detect, dict) else "edr"
-        stream = {"detection": "detect", "audit": "audit"}.get(target, "event")
-
     org = _get_org(ctx)
     replay = ReplaySDK(org)
     data = replay.scan_events(
@@ -701,7 +588,6 @@ def test(ctx, name, events_path, input_file, trace, stream, namespace) -> None:
         namespace=namespace,
         rule_content=rule_content,
         trace=trace,
-        stream=stream,
     )
     _output(ctx, data)
 

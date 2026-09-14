@@ -311,11 +311,8 @@ def types(ctx: click.Context, platform: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_SCHEMA = """\
-Get the learned schema for an event type. Bare names such as NEW_PROCESS
-are sent as evt:NEW_PROCESS. Exact prefixed keys are preserved.
-The result contains fields/types observed in this organization; it does not
-describe every supported field. No learned fields means no observed schema,
-not an authoritative platform definition. Use schema list to discover keys.
+Get the schema definition for a specific event type.  The schema
+describes every field in the event payload, its type, and meaning.
 
 For example, the NEW_PROCESS schema documents fields like FILE_PATH,
 COMMAND_LINE, PROCESS_ID, USER_NAME, PARENT (nested object with its

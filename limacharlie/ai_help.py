@@ -320,10 +320,8 @@ def _format_options(cmd: click.BaseCommand) -> list[str]:
             continue
         if p.hidden or p.name == "ai_help":
             continue
-        flag = ", ".join(p.opts + p.secondary_opts)
+        flag = ", ".join(p.opts)
         help_text = p.help or ""
-        if isinstance(p.type, click.Choice):
-            help_text += " Choices: " + ", ".join(str(c) for c in p.type.choices) + "."
         required = " (required)" if p.required else ""
         result.append(f"{flag:30s} {help_text}{required}")
     return result

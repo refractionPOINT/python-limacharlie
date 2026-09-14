@@ -52,13 +52,9 @@ def group() -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_LIST = """\
-List learned schemas in the organization. These reflect fields and types
-observed in ingested telemetry, not the full platform event catalog.
-An empty list means no learned schemas are available; it is not a reason
-to reset schemas or invent field names.
-
-Use exact prefixed keys from this list with schema get, such as
-evt:NEW_PROCESS or det:report-name. Bare names default to evt:.
+List all available event schemas in the organization.  Schemas
+define the structure (fields, types, descriptions) of each event
+type produced by sensors.
 
 Common event types include:
   NEW_PROCESS, TERMINATE_PROCESS, NEW_TCP4_CONNECTION,
@@ -86,24 +82,22 @@ def list_schemas(ctx) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_GET = """\
-Get the learned fields and types for a schema. Use an exact key from
-schema list, including its prefix (evt:, det:, art:, sched:, etc.).
-Bare event names are accepted as shorthand for evt:NAME.
-No learned fields means there is no observed schema to validate against.
+Get the full schema definition for a specific event type.  Returns
+the field names, data types, descriptions, and any enumeration values.
 
-The schema is used by D&R rules to reference event fields via slash
+The schema is used by D&R rules to reference event fields via dot
 paths (e.g., event/FILE_PATH, event/COMMAND_LINE).
 
 Examples:
   limacharlie schema get --name NEW_PROCESS
-  limacharlie schema get --name evt:DNS_REQUEST
+  limacharlie schema get --name DNS_REQUEST
   limacharlie schema get --name NEW_TCP4_CONNECTION
 """
 register_explain("schema.get", _EXPLAIN_GET)
 
 
 @group.command()
-@click.option("--name", required=True, help="Schema key (e.g., evt:NEW_PROCESS, det:report-name); bare names use evt:.")
+@click.option("--name", required=True, help="Event type / schema name (e.g., NEW_PROCESS).")
 @pass_context
 def get(ctx, name) -> None:
     org = _get_org(ctx)

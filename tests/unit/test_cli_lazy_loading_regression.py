@@ -158,8 +158,8 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     }),
     "detection": frozenset({"get", "list"}),
     "download": frozenset({"adapter", "list", "sensor"}),
-    "dr": frozenset({"build", "prepare", "check",
-        "convert-rules", "delete", "deploy", "reconcile", "disable", "enable", "export", "get",
+    "dr": frozenset({
+        "convert-rules", "delete", "disable", "enable", "export", "get",
         "import", "list", "replay", "set", "test", "validate",
     }),
     "endpoint-policy": frozenset({"isolate", "rejoin", "seal", "status", "unseal"}),
@@ -180,7 +180,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "member-add", "member-remove", "org-add", "org-remove",
         "owner-add", "owner-remove", "permissions-set",
     }),
-    "help": frozenset({"capability", "receipt", "cheatsheet", "discover", "topic"}),
+    "help": frozenset({"cheatsheet", "discover", "topic"}),
     "hive": frozenset({
         "delete", "disable", "enable", "export", "get", "import",
         "list", "list-types", "rename", "schema", "set", "validate",
