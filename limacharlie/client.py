@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import ssl
 import sys
 import time
@@ -148,7 +149,11 @@ class Client:
         self._oauth_creds = creds["oauth"]
         self._environment = environment
         self._debug_fn = print_debug_fn
+        # Session runners may supply a pre-minted, non-refreshable credential.
+        # An explicitly supplied API key takes precedence over ambient JWTs.
         self._jwt = jwt
+        if self._jwt is None and api_key is None:
+            self._jwt = os.environ.get("LC_JWT") or None
         if self._jwt is None:
             from .jwt_cache import get_cached_jwt, _get_cache_path, _decode_jwt_exp
 

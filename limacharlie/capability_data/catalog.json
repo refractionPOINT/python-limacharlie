@@ -223,7 +223,7 @@
     {
       "id": "detection-rules",
       "name": "Detection and response rules",
-      "description": "Create, edit, validate, test and deploy D&R rules; experimental typed drafts use LC EDR contracts or observed custom JSON.",
+      "description": "Create, edit, validate, test and deploy D&R rules; typed drafting workflows support General Bot routing, follow-up edits, LC EDR contracts and observed custom JSON.",
       "keywords": [
         "d&r",
         "dr",

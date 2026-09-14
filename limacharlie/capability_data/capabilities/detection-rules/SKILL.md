@@ -51,3 +51,16 @@ intent. It does not replace the general `dr prepare` workflow for free-form agen
 Custom JSON uses observed fields; the small pinned LC sensor contracts apply only
 to LC EDR. Fixture success never establishes telemetry collection or full threat
 coverage. Inspect `limacharlie dr build --help` for the experimental entry point.
+
+## Integrated session workflow
+
+AI Sessions can invoke the CLI-owned `agent_workflows.WorkflowSession` before its
+ordinary agent loop. It interprets one typed drafting intent, asks a focused
+clarification for broad threat names, and compiles/replays supported predicates.
+Follow-up edits reuse observed evidence without converting it to an EDR contract.
+Workspace organization context selects scope but never grants API permissions.
+Existing-draft deployment requests hand off with the exact tested workspace to
+the ordinary agent; `dr deploy` and its authorization checks still apply.
+Unknown constructions produce an explicit limitation. Non-drafting work uses the
+ordinary agent. Custom profile/policy and coordinated multi-agent contexts retain
+the native path until their workflow semantics are implemented.
