@@ -481,24 +481,21 @@ HELP_TOPICS["platform-codes"] = """\
 Platform Codes
 ==============
 
-LimaCharlie sensor records use 32-bit platform codes, displayed as decimal
-integers in API JSON. Common exact values are:
+LimaCharlie uses numeric platform codes to identify operating systems:
 
-  0x10000000 = 268435456  = Windows
-  0x20000000 = 536870912  = Linux
-  0x30000000 = 805306368  = macOS
-  0x40000000 = 1073741824 = iOS
-  0x50000000 = 1342177280 = Android
-  0x60000000 = 1610612736 = ChromeOS
-  0x80000000 = 2147483648 = Text external telemetry
-  0x90000000 = 2415919104 = JSON external telemetry
+  1 = Windows
+  2 = Linux
+  3 = macOS
+  4 = Chrome OS
 
-JSON/Text sensors, including extension-created sensors, are not native EDR
-endpoints. Other adapter/platform IDs also exist; do not infer an EDR OS from
-high bits alone. Read the complete ID table with:
-  limacharlie help capability sensors-tasking --reference 8-reference/id-schema.md
+These codes appear in sensor information, D&R rule filters, and various
+API responses.
 
-The SDK exposes native constants on Sensor, e.g. Sensor.PLATFORM_LINUX.
+In the SDK:
+  from limacharlie.sdk.sensor import (
+      PLATFORM_WINDOWS, PLATFORM_LINUX,
+      PLATFORM_MACOS, PLATFORM_CHROME
+  )
 
 Architecture codes:
   1 = x86

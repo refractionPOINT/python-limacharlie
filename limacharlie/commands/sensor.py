@@ -39,27 +39,6 @@ def _get_sensor(ctx: click.Context, sid: str) -> Sensor:
     return Sensor(org, sid)
 
 
-def _sensor_identity(info: dict[str, Any]) -> dict[str, Any]:
-    """Return tasking identity without unrelated organization/installation UUIDs."""
-    keys = ('sid', 'hostname', 'plat', 'arch', 'is_online', 'alive', 'sensor_ver',
-            'tags', 'is_isolated', 'sealed', 'is_kernel_available')
-    result = {key: info[key] for key in keys if key in info}
-    names = {0x10000000: 'windows', 0x20000000: 'linux', 0x30000000: 'macos',
-             0x40000000: 'ios', 0x50000000: 'android', 0x60000000: 'chrome',
-             0x70000000: 'vpn', 0x80000000: 'text', 0x90000000: 'json',
-             0xA0000000: 'gcp', 0xB0000000: 'aws', 0xC0000000: 'carbon_black',
-             0xD0000000: '1password', 0xE0000000: 'office365', 0xF0000000: 'sophos'}
-    plat = info.get('plat')
-    try:
-        code = int(plat, 16 if plat.lower().startswith('0x') else 10) if isinstance(plat, str) else int(plat)
-    except (TypeError, ValueError):
-        result['platform_name'] = 'unknown'
-    else:
-        # Match exact codes: newer adapter IDs share high bits with EDR platforms.
-        result['platform_name'] = names.get(code, 'unknown')
-    return result
-
-
 # ---------------------------------------------------------------------------
 # Group
 # ---------------------------------------------------------------------------
@@ -83,12 +62,6 @@ List sensors enrolled in the organization.  Results can be filtered
 server-side with --selector (bexpr expression), --online (only online
 sensors), --tag, --hostname, or --ip.  The --limit and --offset options
 control pagination; by default all sensors are returned.
-
-Use sid as the sensor identifier for --sid and LCQL sensor selectors.
-iid is an installation-key identifier, not a sensor identifier.
-Agent-mode JSON defaults to concise identity records with a readable
-platform_name. Use --raw for all fields, or sensor get for one sensor's details.
---brief selects concise records explicitly outside agent mode too.
 
 Each sensor record contains:
   sid          - Sensor ID (UUID), the primary identifier
@@ -136,8 +109,10 @@ Combine --selector with --online for online Windows sensors:
 Related: 'limacharlie tag find' to find sensors by a specific tag,
 'limacharlie sensor get --sid <SID>' for detailed info on one sensor.
 
-For simple lookups use --hostname, --tag or the documented selector syntax.
-AI selector generation is an optional helper for unfamiliar expressions.
+IMPORTANT: Do not write sensor selector expressions from scratch. Use
+'limacharlie ai generate-selector --description "<description>"' to
+generate a selector from a natural language description, then pass the
+result to --selector.
 """
 register_explain("sensor.list", _EXPLAIN_LIST)
 
@@ -150,9 +125,8 @@ register_explain("sensor.list", _EXPLAIN_LIST)
 @click.option("--ip", default=None, help="Filter by IP address.")
 @click.option("--limit", default=None, type=int, help="Maximum number of sensors to return.")
 @click.option("--offset", default=None, type=int, help="Pagination offset (not used directly; controls client-side skip).")
-@click.option("--brief/--raw", default=None, help="Concise tasking identities / full sensor records. Agent-mode JSON defaults to brief.")
 @pass_context
-def list_sensors(ctx: click.Context, selector: str | None, online_only: bool, tag: str | None, hostname: str | None, ip: str | None, limit: int | None, offset: int | None, brief: bool | None) -> None:
+def list_sensors(ctx: click.Context, selector: str | None, online_only: bool, tag: str | None, hostname: str | None, ip: str | None, limit: int | None, offset: int | None) -> None:
     org = _get_org(ctx)
 
     if tag:
@@ -186,10 +160,7 @@ def list_sensors(ctx: click.Context, selector: str | None, online_only: bool, ta
         if limit and len(sensors) >= limit:
             break
 
-    if brief is None:
-        from ..agent_policy import enabled
-        brief = enabled() and ctx.obj.output_format == 'json'
-    _output(ctx, [_sensor_identity(s) for s in sensors] if brief else sensors)
+    _output(ctx, sensors)
 
 
 # ---------------------------------------------------------------------------

@@ -113,7 +113,7 @@ class TestCheckpointEndToEnd:
                               "event", None, "test-oid") as writer:
             count = 0
             for item in search.execute("test query", 1000, 2000,
-                                       stream="event", limit=4):
+                                       stream="event", limit=2):
                 writer.write_result(item)
                 count += 1
                 writer.update_progress(1, count, completed=False)

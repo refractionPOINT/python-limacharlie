@@ -230,10 +230,6 @@ def resolve_credentials(
     if uid is not None:
         result["uid"] = uid
 
-    # Runner/container environments commonly declare LC_UID="" for org keys.
-    # Sending an empty uid makes the JWT service select user-key authentication.
-    if result['uid'] == '':
-        result['uid'] = None
     return result
 
 

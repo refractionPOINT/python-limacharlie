@@ -83,8 +83,5 @@ addopts = "--benchmark-disable"
 [tool.setuptools.packages.find]
 include = ["limacharlie*"]
 
-[tool.setuptools.package-data]
-limacharlie = ["capability_data/**/*.md", "capability_data/**/*.json", "capability_data/*.json"]
-
 [tool.setuptools_scm]
 version_file = "limacharlie/_version.py"
