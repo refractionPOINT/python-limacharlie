@@ -692,7 +692,7 @@ limacharlie fp create --name suppress-benign \\
   --data '{"op":"is","path":"detect/event/FILE_PATH","value":"benign.exe"}'
 
 # AI-assisted rule generation
-limacharlie ai generate-rule --description "Detect PowerShell downloading files"
+limacharlie ai generate-rule --prompt "Detect PowerShell downloading files"
 
 # Export/import rules for version control
 limacharlie sync pull --dir ./lc-config

@@ -336,6 +336,19 @@ def set_cmd(ctx, key, input_file, detect_path, respond_path, tags, namespace, en
         except Exception:
             data = json.loads(content)
 
+        if not isinstance(data, dict):
+            raise click.UsageError("Rule input must be an object with detect/respond or a data wrapper.")
+        if "data" not in data and any(k in data for k in ("usr_mtd", "sys_mtd", "etag")):
+            raise click.UsageError(
+                "Metadata cannot be mixed with bare detect/respond fields. "
+                "Wrap the rule in data with usr_mtd alongside it, or use --enabled/--disabled."
+            )
+        if "data" in data:
+            if not isinstance(data["data"], dict) or any(k in data["data"] for k in ("usr_mtd", "sys_mtd", "etag")):
+                raise click.UsageError("data must be a rule object; metadata belongs alongside data.")
+            if "detect" in data or "respond" in data:
+                raise click.UsageError("Use either a data wrapper or bare detect/respond, not both.")
+
         # Support the full hive record format (with "data" wrapper) or
         # a bare rule dict with detect/respond at the top level.
         if isinstance(data, dict) and "data" in data:
