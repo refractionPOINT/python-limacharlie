@@ -25,6 +25,33 @@ from .dr_workflow import (
 )
 from .dr_workflow import observed_types
 
+# The provider can enforce the wire format; semantic and evidence validation
+# below remain authoritative. Selection-only replies need just a status.
+INTERPRETATION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["status"],
+    "properties": {
+        "status": {
+            "enum": [
+                "ready",
+                "needs_schema",
+                "needs_clarification",
+                "not_applicable",
+                "deploy_existing",
+            ]
+        },
+        "reason": {"type": "string"},
+        "organization": {"type": "string"},
+        "source": {"enum": ["lc_sensor", "custom_json"]},
+        "event_type": {"type": "string"},
+        "name": {"type": "string"},
+        "package": {"enum": [None, *PACKAGES]},
+        "parameters": {"type": "object"},
+        "condition": {"type": ["object", "null"]},
+    },
+}
+
 INTERPRETER_PROMPT = """Translate a user's D&R drafting request into one JSON object, with no commentary.
 You have no tools. Return status=ready only for a sufficiently specified rule.
 Requests to deploy, task endpoints or perform unrelated work are unsupported here.
@@ -52,6 +79,8 @@ Return {"status":"ready|needs_schema|needs_clarification","reason":"...","organi
 For dns-domain parameters={"domain":"..."}. For java-child parameters={"children":["explicit basenames"]}.
 For custom composition package=null and parameters={}. Report names contain letters, digits, dot, underscore or hyphen.
 When selecting a package, set condition=null. The package supplies its predicates.
+source is exactly "lc_sensor" or "custom_json", never the schema evidence label
+"lc_sensor_contract" or "observed_json". A missing package is JSON null, not "null".
 """
 
 ROUTING_PROMPT = """
@@ -514,6 +543,7 @@ async def draft(
     finally:
         cancelled.set()
     result["elapsed_ms"] = round((time.monotonic() - start) * 1000)
+    metrics["provider_turns"] = sum(u.get("provider_turns", 1) for u in usage)
     result["metrics"] = metrics
     result["model_usage"] = usage
     return result

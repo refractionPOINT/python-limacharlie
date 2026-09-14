@@ -2,6 +2,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+import pytest
 
 from limacharlie import dr_interpreter as di
 from limacharlie.agent_workflows import WorkflowSession
@@ -227,3 +228,14 @@ def test_package_cannot_silently_ignore_extra_predicates(tmp_path, monkeypatch):
         )
     )
     assert result["status"] == "invalid" and "silently dropped" in result["response"]
+
+
+def test_wire_schema_rejects_source_evidence_labels_and_string_null():
+    import jsonschema
+
+    schema = WorkflowSession.interpretation_schema
+    jsonschema.validate(selection(), schema)
+    jsonschema.validate({"status": "not_applicable"}, schema)
+    for invalid in (selection(source="lc_sensor_contract"), selection(package="null")):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(invalid, schema)

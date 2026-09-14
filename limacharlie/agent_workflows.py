@@ -10,10 +10,12 @@ from pathlib import Path
 import uuid
 import hashlib
 
-from .dr_interpreter import draft, extract_examples, render
+from .dr_interpreter import INTERPRETATION_SCHEMA, draft, extract_examples, render
 
 
 class WorkflowSession:
+    interpretation_schema = INTERPRETATION_SCHEMA
+
     def __init__(self, directory, session_id=""):
         self.root = Path(directory)
         name = "workflows" + (
