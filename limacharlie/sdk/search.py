@@ -98,7 +98,6 @@ class Search:
     def __init__(self, org: Organization) -> None:
         self._org = org
         self._search_url: str | None = None
-        self.execution: dict[str, Any] = {}
 
     def _get_search_url(self) -> str:
         if self._search_url is None:
@@ -237,7 +236,6 @@ class Search:
         poll_max_retries: int = 3,
         start_token: str | None = None,
         start_page: int = 1,
-        max_pages: int | None = None,
     ) -> Generator[dict[str, Any], None, None]:
         """Execute an LCQL query and return results.
 
@@ -246,8 +244,7 @@ class Search:
             start_time: Start time (unix seconds).
             end_time: End time (unix seconds).
             stream: Stream type ('event', 'detect', 'audit').
-            limit: Matching-row threshold; stop at a completed page boundary.
-                A page can exceed this threshold. Metadata envelopes do not count.
+            limit: Max results.
             progress_fn: Optional callback for progress messages (e.g.,
                 "Running search...", "Fetching page 2...").  Called with
                 a human-readable status string.  Intended for CLI progress
@@ -264,27 +261,13 @@ class Search:
                 Used with start_token to show accurate page numbers when
                 resuming mid-search.
 
-            max_pages: Maximum completed pages for this invocation; bounds scans
-                even when no matching rows are found.
-
         Yields:
-            dict: Unmodified API result records. ``execution`` tracks complete,
-                stop_reason, rows_returned, pages_completed and continuation.
-                A row/page limit is partial unless the final page exhausted the query.
+            dict: Result records.
 
         Raises:
             SearchError: On search failure. Includes query_id, region, and oid
                 for troubleshooting.
         """
-        if limit is not None and limit <= 0:
-            raise ValidationError('limit must be positive')
-        if max_pages is not None and max_pages <= 0:
-            raise ValidationError('max_pages must be positive')
-        self.execution.clear()
-        self.execution.update({'complete': False, 'stop_reason': 'running',
-                          'rows_returned': 0, 'pages_completed': 0,
-                          'continuation': start_token, 'query': query,
-                          'start': start_time, 'end': end_time})
         search_url = self._get_search_url()
         oid = self._org.oid
         region = self._extract_region()
@@ -335,7 +318,6 @@ class Search:
                 query=query,
             )
 
-        self.execution["query_id"] = query_id
         if progress_fn:
             progress_fn(f"Running search... query_id: {query_id}")
 
@@ -380,21 +362,12 @@ class Search:
                         next_token = item["nextToken"]
                     if item.get("type") == "events":
                         total_events += len(item.get("rows") or [])
-                        self.execution["rows_returned"] = total_events
                     yield item
                     count += 1
+                    if limit and count >= limit:
+                        return
 
                 if poll.get("completed", False):
-                    self.execution['pages_completed'] += 1
-                    self.execution['continuation'] = next_token
-                    if not next_token:
-                        self.execution.update(complete=True, stop_reason='exhausted')
-                    elif ((limit is not None and total_events >= limit) or
-                          (max_pages is not None and self.execution['pages_completed'] >= max_pages)):
-                        self.execution['stop_reason'] = 'row_limit' if limit is not None and total_events >= limit else 'page_limit'
-                        if progress_fn:
-                            progress_fn('Partial search: ' + self.execution['stop_reason'] + '; more pages remain.')
-                        return
                     if next_token:
                         # More pages available - use the token to
                         # fetch the next page (may trigger a subquery).
@@ -436,8 +409,6 @@ class Search:
                 query=query,
             ) from exc
         finally:
-            if self.execution['stop_reason'] == 'running':
-                self.execution['stop_reason'] = 'interrupted' if _interrupted else 'error'
             # Cancel search on server to free resources.  Runs on
             # normal completion, errors, and Ctrl+C (KeyboardInterrupt).
             self._cancel_query(query_id, search_url, progress_fn if _interrupted else None)

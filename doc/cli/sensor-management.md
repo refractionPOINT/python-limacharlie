@@ -12,8 +12,6 @@ limacharlie sensor list --online --selector 'plat == windows'
 limacharlie sensor list --selector '"prod" in tags' --limit 50
 limacharlie sensor list --tag production --limit 50
 limacharlie sensor list --hostname web-server
-limacharlie sensor list --hostname web-server --brief --output json
-limacharlie sensor list --raw --output json # Full records, including installation IDs
 limacharlie sensor get --sid SENSOR_ID
 limacharlie sensor wait-online --sid SENSOR_ID --timeout 120
 limacharlie sensor delete --sid SENSOR_ID --confirm
@@ -23,12 +21,6 @@ limacharlie sensor set-version --version 4.29.0
 limacharlie sensor dump --sid SENSOR_ID --confirm  # Memory dump
 limacharlie sensor sweep --sid SENSOR_ID --config '{"os_processes": true}'
 ```
-
-Agent-mode JSON sensor lists default to concise tasking identities: `sid`,
-hostname, readable platform name/code, online status and available lifecycle
-metadata. Use `sid` for `--sid`; `iid` in a full record is an installation-key
-identifier. `--raw` restores full records, and human CLI defaults are unchanged.
-Unknown platform codes remain unknown rather than being guessed as an EDR OS.
 
 ## tag
 
