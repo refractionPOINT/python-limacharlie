@@ -19,7 +19,9 @@ limacharlie dr validate --detect detect.yaml --respond respond.yaml
 limacharlie dr delete --key my-rule --confirm
 ```
 
-`--detect`, `--respond`, and `--events` take file paths. A bare rule contains
+`dr set` and `dr validate` use `--detect` and `--respond` file paths;
+`dr test --events` also takes a file path. `dr test --input-file` requires
+a bare rule: extract `data` first if using an exported full Hive record. A bare rule contains
 `detect` and `respond`. For metadata, use a full Hive record with the rule inside
 `data` and `usr_mtd` alongside it. Mixing metadata into a bare rule is rejected;
 `data.usr_mtd.enabled` is not the record's enabled state. `--enabled` overrides
@@ -32,16 +34,16 @@ and historical replay where available, before enabling a rule.
 
 ```bash
 limacharlie fp list
-limacharlie fp get --name my-fp
-limacharlie fp create --name my-fp --rule '{"op":"is","cat":"my-detection"}'
-limacharlie fp delete --name my-fp
+limacharlie fp get --key my-fp
+limacharlie fp set --key my-fp --input-file fp.yaml --enabled
+limacharlie fp delete --key my-fp --confirm
 ```
 
 ## replay
 
 ```bash
-limacharlie replay run --rule-name my-rule --start 1704067200 --end 1704153600
-limacharlie replay run --detect '{"op":"is"}' --respond '[{"action":"report"}]' --start 1704067200 --end 1704153600
+limacharlie replay run --name my-rule --start 1704067200 --end 1704153600
+limacharlie replay run --detect-file detect.yaml --respond-file respond.yaml --start 1704067200 --end 1704153600
 ```
 
 ## detection
@@ -55,6 +57,8 @@ limacharlie detection get --id DETECT_ID
 
 ```bash
 limacharlie ai generate-rule --prompt 'detect powershell downloading files'
+limacharlie ai generate-detection --description 'detect suspicious process execution'
+limacharlie ai generate-response --description 'report the detection'
 limacharlie ai generate-query --prompt 'find all DNS lookups to evil.com'
 limacharlie ai generate-selector --description 'all Windows servers'
 limacharlie ai generate-playbook --description 'respond to ransomware detection'

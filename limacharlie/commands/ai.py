@@ -67,20 +67,9 @@ Generate a complete D&R rule (detection + response) from a natural
 language description.  The AI will produce both the detection
 component and the response actions.
 
-The output is a YAML structure ready for use with 'limacharlie dr set':
-
-    detect:
-      op: ends with
-      event: NEW_PROCESS
-      path: event/FILE_PATH
-      value: powershell.exe
-      rules:
-        - op: contains
-          path: event/COMMAND_LINE
-          value: downloadstring
-    respond:
-      - action: report
-        name: powershell-download-detected
+The JSON/YAML output wraps the generated rule in a 'response' field.
+Save that field's content, not the outer envelope, as the rule file for
+'limacharlie dr set'. The rule contains 'detect' and 'respond' components.
 
 The generated rule should be reviewed before deployment.
 
@@ -110,11 +99,10 @@ Generate an LCQL (LimaCharlie Query Language) query from a natural
 language description.  The AI will produce a query that can be used
 with 'limacharlie search run'.
 
-LCQL queries follow a SQL-like syntax for searching telemetry:
-
-    event_type = DNS_REQUEST
-    AND event/DOMAIN_NAME ends with ".ru"
-    AND timestamp >= now() - 24h
+LCQL uses pipe-separated components for the timeframe, sensors, events,
+filter, and optional projection. Generate against the organization's schema
+and validate the resulting query with 'limacharlie search validate' before
+running it. The generated query is in the output's 'response' field.
 
 Example:
   limacharlie ai generate-query \\
@@ -194,10 +182,8 @@ Generate a sensor selector expression (bexpr) from a natural language
 description.  Sensor selectors target specific groups of sensors for
 D&R rules, tasks, and queries.
 
-Selector syntax examples:
-  plat == `windows`
-  `production` in tags
-  plat == `linux` AND `web-server` in tags
+The generated selector is in the output's 'response' field. Use that
+value with commands accepting sensor selectors; do not pass the envelope.
 
 Example:
   limacharlie ai generate-selector \\

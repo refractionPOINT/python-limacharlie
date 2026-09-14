@@ -669,34 +669,30 @@ Detection Engineering Cheatsheet
 =================================
 
 # List all rules
-limacharlie rule list
+limacharlie dr list
 
-# Create a detection rule
-limacharlie rule create --name proc-detect \\
-  --detect '{"op":"is","event":"NEW_PROCESS","path":"event/FILE_PATH","value":"suspicious.exe"}' \\
-  --respond '[{"action":"report","name":"suspicious-process"}]'
+# Create or update a reviewed rule from component files (new rules are disabled)
+limacharlie dr set --key proc-detect --detect detect.yaml --respond respond.yaml
 
-# Update existing rule
-limacharlie rule update --name proc-detect \\
-  --detect '{"op":"and","rules":[...]}' \\
-  --respond '[...]'
+# Validate syntax and test representative events before enabling
+limacharlie dr validate --detect detect.yaml --respond respond.yaml
+limacharlie dr test --input-file rule.yaml --events events.json
 
-# Test rule against historical data
-limacharlie replay run --rule-name proc-detect --start -7d --end now
+# Replay a fixed historical window; replace with your own epoch seconds
+limacharlie replay run --name proc-detect --start 1704067200 --end 1704153600
 
-# View recent detections
-limacharlie detection list --limit 20
+# View detections in that window
+limacharlie detection list --start 1704067200 --end 1704153600 --limit 20
 
-# Create false positive
-limacharlie fp create --name suppress-benign \\
-  --data '{"op":"is","path":"detect/event/FILE_PATH","value":"benign.exe"}'
+# Create an authorized false positive rule from a reviewed file
+limacharlie fp set --key suppress-benign --input-file fp.yaml --enabled
 
-# AI-assisted rule generation
+# AI-assisted rule generation (extract the response field before saving the rule)
 limacharlie ai generate-rule --prompt "Detect PowerShell downloading files"
 
 # Export/import rules for version control
-limacharlie sync pull --dir ./lc-config
-limacharlie sync push --dir ./lc-config --dry-run
+limacharlie sync pull --config-file dr.yaml --hive-dr-general
+limacharlie sync push --config-file dr.yaml --hive-dr-general --dry-run
 """
 
 CHEATSHEETS["incident-response"] = """\
