@@ -8,10 +8,27 @@ Hives are key-value stores for LimaCharlie configuration data. Several hive type
 
 ```bash
 # Generic hive access
-limacharlie hive list --category dr-general
-limacharlie hive get --category dr-general --key my-rule
-limacharlie hive set --category secret --key my-key --input-file data.json
-limacharlie hive delete --category secret --key my-key --confirm
+limacharlie hive list --hive-name dr-general
+limacharlie hive get --hive-name dr-general --key my-rule
+limacharlie hive set --hive-name secret --key my-key --input-file data.json
+limacharlie hive delete --hive-name secret --key my-key --confirm
+```
+
+The flag is `--hive-name`; `--category` does not exist and never has.
+
+### Expiry
+
+A record can expire. `usr_mtd.expiry` is a Unix epoch in **milliseconds** (`0` = never),
+which is how the hive stores and compares it.
+
+```bash
+# --expiry takes SECONDS, like every other timestamp flag in this CLI, and converts.
+limacharlie hive set --hive-name secret --key my-key --expiry 1789459200
+
+# A value written into the record is sent EXACTLY as given, so it must be milliseconds —
+# which is what makes `hive get ... | hive set ...` round-trip.
+limacharlie hive get --hive-name secret --key my-key | \
+  limacharlie hive set --hive-name secret --key my-key
 ```
 
 ## Shortcut Commands
