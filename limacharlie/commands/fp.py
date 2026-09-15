@@ -69,7 +69,9 @@ Combine conditions with boolean logic:
       value: known-good.exe
 
 You can set an expiry in usr_mtd to create temporary FP rules (e.g.,
-during a maintenance window).
+during a maintenance window). usr_mtd.expiry is a Unix epoch in
+MILLISECONDS (0 = never); `hive set --expiry` takes seconds and converts,
+but a value written into the record itself is sent exactly as given.
 
 Provide data via --input-file (YAML/JSON) or pipe through stdin.
 

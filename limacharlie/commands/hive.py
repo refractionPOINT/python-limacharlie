@@ -167,7 +167,8 @@ hold configuration data.  Common hive names include:
 
 Each record returned contains:
   data     - The record payload (structure varies by hive type)
-  usr_mtd  - User metadata: enabled (bool), expiry (epoch int, 0=never),
+  usr_mtd  - User metadata: enabled (bool), expiry (epoch MILLISECONDS, 0=never;
+             the --expiry flag takes seconds and converts),
              tags (list of strings), comment (string)
   sys_mtd  - System metadata: etag (concurrency token), guid, created/updated
              timestamps, author
@@ -199,7 +200,7 @@ including:
   data     - The record payload (structure varies by hive type)
   usr_mtd  - User-controlled metadata:
                enabled: true/false
-               expiry: unix epoch (0 = never expires)
+               expiry: unix epoch MILLISECONDS (0 = never expires)
                tags: [list, of, strings]
                comment: "free-text description"
   sys_mtd  - System metadata:
@@ -243,7 +244,9 @@ Full record format (YAML):
       key: value          # payload varies by hive type
     usr_mtd:
       enabled: true       # optional, default false on new records
-      expiry: 0           # optional, unix epoch (0 = never)
+      expiry: 0           # optional, unix epoch MILLISECONDS (0 = never).
+                          # NOT seconds — unlike the --expiry flag, a value written
+                          # here is sent exactly as given.
       tags:               # optional
         - my-tag
       comment: "note"     # optional
@@ -315,10 +318,19 @@ def _merge_tags(existing: list[str] | None, add: tuple[str, ...], rm: tuple[str,
 @click.option("--tag-add", "tag_add", multiple=True, help="Tag to add (repeatable, additive; keeps existing tags).")
 @click.option("--tag-rm", "tag_rm", multiple=True, help="Tag to remove (repeatable, additive; keeps other existing tags).")
 @click.option("--comment", default=None, help="Set usr_mtd.comment on the record.")
-@click.option("--expiry", default=None, type=int, help="Set usr_mtd.expiry (Unix epoch seconds, 0 = never).")
+@click.option("--expiry", default=None, type=int, help="Set usr_mtd.expiry from Unix epoch SECONDS (0 = never); converted to the milliseconds the hive stores.")
 @pass_context
 def set_record(ctx, hive_name, key, input_file, enabled, tag_add, tag_rm, comment, expiry) -> None:
     if expiry is not None:
+        # Both directions. The upper guard refuses a value that looks like milliseconds; a
+        # negative one is just as unsendable and was reaching the API as a multiplied-by-1000
+        # nonsense that came back as the same opaque INVALID_EXPIRY_TIME this flag's whole
+        # problem was.
+        if expiry < 0:
+            raise click.BadParameter(
+                f"Value {expiry} is negative. Use 0 for 'never expires', or a Unix epoch in seconds.",
+                param_hint="'--expiry'",
+            )
         validate_epoch_seconds(expiry, "expiry")
         expiry = _expiry_to_milliseconds(expiry)
 
@@ -364,6 +376,10 @@ def set_record(ctx, hive_name, key, input_file, enabled, tag_add, tag_rm, commen
     result = hive.set(record)
     if not ctx.obj.quiet:
         click.echo(f"Record '{key}' set in hive '{hive_name}'.")
+        if expiry:
+            # Otherwise `hive get` shows a number a thousand times the one that was typed,
+            # with nothing anywhere explaining it.
+            click.echo(f"Expiry set to {expiry} (epoch milliseconds, as the hive stores it).")
     _output(ctx, result)
 
 

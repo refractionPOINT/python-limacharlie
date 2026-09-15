@@ -553,10 +553,17 @@ LCQL queries support relative time ranges (e.g. -24h, -7d, -30m) as
 the first component of the query string itself, but the CLI --start/--end
 flags require integer timestamps.
 
-API responses use Unix epoch seconds (integers) almost everywhere. The
-documented exception is a hive record's usr_mtd.expiry, which is stored and
-compared in MILLISECONDS; `limacharlie help hive` says so, and the --expiry
-flag converts from seconds so the CLI's own convention still holds.
+Most API responses use Unix epoch seconds (integers). The MILLISECOND fields
+this CLI knows of are:
+
+  - a hive record's usr_mtd.expiry (the --expiry flag takes seconds and
+    converts; a value written into an input file is sent as given)
+  - `limacharlie audit list`'s time field
+  - `limacharlie event overview`'s timestamps
+  - `limacharlie search`'s mtd.ts
+
+Each command's own help states its unit; when the two disagree, believe the
+command.
 """
 
 HELP_TOPICS["bexpr"] = """\
