@@ -65,7 +65,11 @@ Each record contains:
   - data:    The record's payload (arbitrary JSON)
   - usr_mtd: User metadata including:
     - enabled:  Whether the record is active
-    - expiry:   Optional Unix timestamp for auto-expiry (0 = no expiry)
+    - expiry:   Optional auto-expiry, stored in Unix epoch MILLISECONDS
+                (0 = no expiry). The --expiry FLAG takes seconds, like every
+                other timestamp flag, and converts; a value supplied in an
+                input file is sent as written, so a record read back from the
+                API round-trips.
     - tags:     List of string tags for organization
     - comment:  Free-text description
   - sys_mtd: System metadata including:
@@ -549,7 +553,10 @@ LCQL queries support relative time ranges (e.g. -24h, -7d, -30m) as
 the first component of the query string itself, but the CLI --start/--end
 flags require integer timestamps.
 
-All timestamps in API responses are Unix epoch seconds (integers).
+API responses use Unix epoch seconds (integers) almost everywhere. The
+documented exception is a hive record's usr_mtd.expiry, which is stored and
+compared in MILLISECONDS; `limacharlie help hive` says so, and the --expiry
+flag converts from seconds so the CLI's own convention still holds.
 """
 
 HELP_TOPICS["bexpr"] = """\

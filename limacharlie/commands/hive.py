@@ -63,6 +63,25 @@ def _load_input(input_file: str | None) -> Any:
     return None
 
 
+def _expiry_to_milliseconds(expiry: int) -> int:
+    """Convert a --expiry value from the CLI's seconds to the API's milliseconds.
+
+    The flag takes SECONDS, which is what every other timestamp flag in this CLI takes and
+    what ``validate_epoch_seconds`` enforces. The hive API stores and compares expiry in
+    MILLISECONDS. Before this conversion no value satisfied both ends: anything the CLI
+    accepted was rejected by the API as already expired (``INVALID_EXPIRY_TIME``), and
+    anything the API accepted was refused by the CLI as looking like milliseconds.
+
+    Zero needs no special case — it scales to itself — and it keeps meaning "never expires"
+    rather than the epoch at both ends.
+
+    This converts the FLAG only. An ``usr_mtd.expiry`` supplied in an input file is passed
+    through untouched, so ``hive get ... | hive set ...`` still round-trips the value the API
+    itself returned.
+    """
+    return expiry * 1000
+
+
 def _record_from_input(key: str, data: Any) -> HiveRecord:
     """Build a HiveRecord from parsed input data."""
     if not isinstance(data, dict):
@@ -301,6 +320,7 @@ def _merge_tags(existing: list[str] | None, add: tuple[str, ...], rm: tuple[str,
 def set_record(ctx, hive_name, key, input_file, enabled, tag_add, tag_rm, comment, expiry) -> None:
     if expiry is not None:
         validate_epoch_seconds(expiry, "expiry")
+        expiry = _expiry_to_milliseconds(expiry)
 
     data = _load_input(input_file)
     has_metadata_flags = bool(tag_add or tag_rm or comment is not None or expiry is not None or enabled is not None)
