@@ -51,6 +51,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "list_code_repos", "get_code_status", "get_code_sbom",
             "rescan_code_repo", "autofix_code_finding",
             "ingest_code_results",
+            "get_code_capabilities", "get_code_fixes", "iter_code_fixes",
         ]
     })
     # CSV exports return raw text, not a JSON-renderable object.
@@ -777,6 +778,60 @@ class TestProvider:
             cli, ["cloudsec", "provider", "test", "--provider-json", "[1,2]"],
         )
         assert result.exit_code != 0
+
+    def test_test_with_a_gitlab_record(self):
+        """The gitlab_namespace/credentials shape flows through untouched —
+        this command is provider-agnostic, so a GitLab record needs no
+        special handling to already work."""
+        p1, p2, p3 = _patches()
+        provider = {
+            "provider_type": "gitlab",
+            "gitlab_namespace": "acme/platform",
+            "credentials": "hive://secret/gitlab-token",
+        }
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "provider", "test", "--provider-json", json.dumps(provider)],
+                cls, return_value={"supported": True, "report": {"ok": True}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.test_provider.assert_called_once_with(provider)
+
+    def test_test_with_a_bitbucket_record(self):
+        p1, p2, p3 = _patches()
+        provider = {
+            "provider_type": "bitbucket",
+            "bitbucket_workspace": "acme",
+            "credentials": "hive://secret/bitbucket-token",
+        }
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "provider", "test", "--provider-json", json.dumps(provider)],
+                cls, return_value={"supported": True, "report": {"ok": True}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.test_provider.assert_called_once_with(provider)
+
+    def test_explain_documents_gitlab_and_bitbucket_record_shapes(self):
+        """The ticket this parity work closes found gitlab/bitbucket
+        connections undiscoverable from the CLI: 'hive set --hive-name
+        cloudsec_provider' always worked for them, but nothing in the CLI's
+        own text said what fields to send or that GitLab additionally needs
+        group-level (not per-project) access. Pin that text so it cannot
+        silently rot back to undiscoverable, and pin the CURRENT rule
+        (a broad token is accepted; only a missing scope is refused) rather
+        than the reverted one."""
+        from limacharlie.discovery import get_explain
+
+        explain = get_explain("cloudsec.provider.test") or ""
+        assert "gitlab_namespace" in explain
+        assert "bitbucket_workspace" in explain
+        assert "Reporter" in explain, "the group-level membership requirement must be named"
+        assert "namespace_membership" in explain
+        assert "MISSING" in explain and "accepted" in explain, (
+            "must describe the CURRENT rule (broad token accepted, missing scope "
+            "refused) and not the reverted ceiling-refusal rule"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1902,6 +1957,29 @@ class TestCloudSecCode:
             with patch.object(cs_mod, "_git", return_value=url):
                 assert cs_mod._git_repo_key("/anywhere") == want, url
 
+    def test_git_repo_key_keeps_a_nested_gitlab_namespace_whole(self):
+        """A GitLab repository nested under a group/subgroup namespace
+        publishes that WHOLE path as its key (go-cloudsec
+        model.SplitRepoKey cuts a nested-owner provider's key on the LAST
+        '/'). Keeping only the last two segments would silently attribute
+        a local scan to a DIFFERENT repository than the one checked out —
+        one dropping the group, sharing the same subgroup/name."""
+        from limacharlie.commands import cloudsec as cs_mod
+
+        cases = {
+            "https://gitlab.com/acme/platform/backend.git": "acme/platform/backend",
+            "git@gitlab.com:acme/platform/backend.git": "acme/platform/backend",
+            "https://gitlab.com/acme/platform/infra/backend.git":
+                "acme/platform/infra/backend",
+            # A flat two-segment owner (GitHub, Bitbucket, or a top-level
+            # GitLab group) is unaffected — this is the no-op the fix must
+            # preserve.
+            "https://github.com/acme/api.git": "acme/api",
+        }
+        for url, want in cases.items():
+            with patch.object(cs_mod, "_git", return_value=url):
+                assert cs_mod._git_repo_key("/anywhere") == want, url
+
     def test_code_repos_all_walks_the_cursor(self):
         """--all must use the iterator, not a single page.
 
@@ -1922,6 +2000,53 @@ class TestCloudSecCode:
                                    {"code": [], "totals": {}})
             assert result.exit_code == 0
             inst.get_code_status.assert_called_once_with()
+
+    def test_code_capabilities(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "capabilities"], cs_cls, {"connections": []})
+            assert result.exit_code == 0, result.output
+            inst.get_code_capabilities.assert_called_once_with(repo=None)
+
+    def test_code_capabilities_with_nested_gitlab_repo(self):
+        """A nested GitLab namespace path is a valid --repo value here too;
+        the CLI must not truncate or reject it before it reaches the SDK."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "capabilities", "--repo", "acme/platform/backend"],
+                cs_cls, {"connections": []})
+            assert result.exit_code == 0, result.output
+            inst.get_code_capabilities.assert_called_once_with(repo="acme/platform/backend")
+
+    def test_code_fixes(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "fixes"], cs_cls, {"fixes": [], "distinct": 0})
+            assert result.exit_code == 0, result.output
+            inst.get_code_fixes.assert_called_once_with(cursor=None, limit=None)
+
+    def test_code_fixes_forwards_cursor_and_limit(self):
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "fixes", "--cursor", "abc", "--limit", "20"],
+                cs_cls, {"fixes": [], "distinct": 0})
+            assert result.exit_code == 0, result.output
+            inst.get_code_fixes.assert_called_once_with(cursor="abc", limit=20)
+
+    def test_code_fixes_all_walks_the_cursor(self):
+        """--all must use the iterator, not a single page — same rule as
+        'code repos --all', for the same reason: a page can be short
+        without being last."""
+        with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            inst = MagicMock()
+            inst.iter_code_fixes.return_value = iter([])
+            cs_cls.return_value = inst
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "cloudsec", "code", "fixes", "--all"])
+            assert result.exit_code == 0, result.output
+            inst.iter_code_fixes.assert_called_once()
+            inst.get_code_fixes.assert_not_called()
 
     def test_code_sbom_prints_the_link(self):
         with _patches()[0], _patches()[1], _patches()[2] as cs_cls:

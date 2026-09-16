@@ -810,6 +810,10 @@ stored) and probe every permission surface collection needs.
 report.ok is the overall verdict over the REQUIRED checks; a failed
 optional check flags a gracefully-degraded surface, not a failure.
 
+A token that carries MORE than a check needs is accepted — only a
+MISSING required scope fails a check, and a failed check reports that
+scope as uncovered rather than refusing the connection outright.
+
 The input is a cloudsec_provider hive record shape; 'credentials'
 may be inline plaintext or a hive://secret/<name> reference. Saved
 provider configs are managed via the hive:
@@ -817,11 +821,34 @@ provider configs are managed via the hive:
   limacharlie hive set --hive-name cloudsec_provider --key my-gcp \\
       --input-file provider.json --enabled
 
+GitLab and Bitbucket Cloud are both supported provider_type values.
+GitLab additionally requires the token's account to hold at least
+Reporter on the WHOLE group named by gitlab_namespace — a token
+scoped to a single project inside that group fails the
+namespace_membership check with an explanatory error, because a
+per-project scope cannot be trusted to see the whole namespace as
+collection sweeps it. There is deliberately no per-project
+alternative. A self-managed GitLab instance (gitlab_base_url) is
+inventoried and assessed like GitLab.com, but its repositories cannot
+be code-scanned — the scanning sandbox can only reach GitLab.com.
+Bitbucket has no self-managed (Data Center) support at all; there is
+no base-url field for it.
+
+  {"provider_type": "gitlab", "gitlab_namespace": "acme/platform",
+   "credentials": "hive://secret/gitlab-token"}
+  {"provider_type": "gitlab", "gitlab_namespace": "acme",
+   "gitlab_base_url": "https://gitlab.acme.internal",
+   "credentials": "hive://secret/gitlab-token"}
+  {"provider_type": "bitbucket", "bitbucket_workspace": "acme",
+   "credentials": "hive://secret/bitbucket-token"}
+
 The record can come from inline JSON, a JSON/YAML file, or stdin.
 
 Examples:
   limacharlie cloudsec provider test --input-file provider.yaml
   limacharlie cloudsec provider test --provider-json '{"provider_type":"gcp",...}'
+  limacharlie cloudsec provider test --provider-json \\
+      '{"provider_type":"gitlab","gitlab_namespace":"acme/platform","credentials":"hive://secret/gitlab-token"}'
 """
 
 _EXPLAIN_POLICY_VOCABULARY = """\
@@ -1216,7 +1243,9 @@ def _finding_filter_options(f):
     f = click.option(
         "--repo", "repos", multiple=True,
         help="Filter to findings about a source repository, keyed "
-             "'<owner>/<name>' as 'cloudsec code repos' returns it; "
+             "'<owner>/<name>' as 'cloudsec code repos' returns it (a "
+             "GitLab repository nested under a group/subgroup namespace "
+             "carries that whole path, e.g. 'group/subgroup/name'); "
              "repeatable (OR). This is the AppSec code lane's selector — "
              "cloud findings have no repository, so any --repo excludes "
              "them, and an unknown repository returns nothing rather than "
@@ -1585,13 +1614,15 @@ def free_tier(ctx) -> None:
 
 @group.group("code")
 def code_group() -> None:
-    """AppSec code lane: repositories, scan status, SBOM export.
+    """AppSec code lane: repositories, scan status, SBOM export, connection
+    capabilities, and the dependency-upgrade queue.
 
     The lane scans a connected source-control organization's repositories
     and emits findings into the same worklist the cloud collectors feed,
     so the findings themselves are read with 'cloudsec finding list
     --repo <owner>/<name>'. The commands here are the repository-shaped
-    views that worklist cannot give you.
+    views that worklist cannot give you: repos, status, capabilities,
+    fixes, sbom, scan, rescan, autofix, and ingest.
     """
 
 
@@ -1656,6 +1687,68 @@ def code_status(ctx) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.get_code_status())
+
+
+@code_group.command("capabilities")
+@click.option("--repo", default=None,
+              help="Narrow to the connection covering one repository "
+                   "('<owner>/<name>' as 'code repos' returns it). Omit "
+                   "to list every GitHub connection.")
+@pass_context
+def code_capabilities(ctx, repo) -> None:
+    """What each source-control connection may actually DO: scanning, PR
+    checks, PR comments, dependency AutoFix.
+
+    Covers GitHub connections only — a GitLab or Bitbucket connection scans
+    with its own read-only token and has no write plane to detect, so it
+    never appears here (not even as 'unknown'); 'cloudsec provider
+    manifest' is the coverage view for those.
+
+    A capability of 'available' means the control MAY be offered, not that
+    it fires on its own: 'pr_checks' reading 'available' says the
+    connection COULD publish a check run, not that anything is wired to
+    trigger one.
+
+    \b
+    Examples:
+      limacharlie cloudsec code capabilities
+      limacharlie cloudsec code capabilities --repo acme/api
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_code_capabilities(repo=repo))
+
+
+@code_group.command("fixes")
+@click.option("--all", "walk_all", is_flag=True, default=False,
+              help="Follow the cursor and return EVERY matching fix instead "
+                   "of one page.")
+@click.option("--cursor", default=None,
+              help="Keyset-pagination token (next_cursor from the previous page).")
+@click.option("--limit", default=None, type=int,
+              help="Page size (backend default 5, max 20 — a larger ask is "
+                   "reduced to that; NOT the 1000-row cap other paged "
+                   "cloudsec commands share).")
+@pass_context
+def code_fixes(ctx, walk_all, cursor, limit) -> None:
+    """The dependency-upgrade queue: open SCA findings grouped by the single
+    package upgrade that would close them, ranked by leverage.
+
+    Each entry names the package, the version that fixes it, how many
+    findings and repositories it closes, and a
+    'representative_finding_id' usable with 'cloudsec code autofix'.
+
+    \b
+    Examples:
+      limacharlie cloudsec code fixes
+      limacharlie cloudsec code fixes --limit 20
+      limacharlie cloudsec code fixes --all
+    """
+    cs = _get_cloudsec(ctx)
+    if walk_all:
+        fixes = list(cs.iter_code_fixes(limit=limit))
+        _output(ctx, {"fixes": fixes, "distinct": len(fixes), "next_cursor": ""})
+        return
+    _output(ctx, cs.get_code_fixes(cursor=cursor, limit=limit))
 
 
 @code_group.command("sbom")
@@ -2077,11 +2170,20 @@ def _git_head(root: str) -> str | None:
 
 
 def _git_repo_key(root: str) -> str | None:
-    """The '<owner>/<name>' key from the checkout's origin remote, or None.
+    """The repository key from the checkout's origin remote, or None.
 
     Read from the remote rather than from the directory name: the directory
     is whatever the person cloned it as, and the repository a finding belongs
-    to is an identity, not a label."""
+    to is an identity, not a label.
+
+    The key is the remote's FULL path (minus host and ``.git``), not just its
+    last two segments: a flat-owner remote (GitHub, Bitbucket) is already
+    exactly ``owner/name``, but a GitLab repository nested under a
+    group/subgroup namespace publishes that whole path as its key
+    (``acme/platform/backend``, not ``platform/backend``) — go-cloudsec's
+    ``model.SplitRepoKey`` reads a nested-owner provider's key by cutting on
+    the LAST '/', so dropping any leading segment here would report a
+    DIFFERENT repository under a key that happens to still look valid."""
     url = _git(root, "config", "--get", "remote.origin.url")
     if not url:
         return None
@@ -2111,7 +2213,7 @@ def _git_repo_key(root: str) -> str | None:
     parts = [p for p in tail.split("/") if p]
     if len(parts) < 2:
         return None
-    return "%s/%s" % (parts[-2], parts[-1])
+    return "/".join(parts)
 
 
 def _git(root: str, *args: str) -> str | None:

@@ -1115,3 +1115,48 @@ class TestCodeLane:
             assert url == f"cloudsec/{OID}/{path}"
             assert ("repo", "acme/api") in qp
             assert ("repo", "acme/web") in qp
+
+    def test_get_code_capabilities_omits_empty_repo(self, cs, mock_org):
+        mock_org.client.request.return_value = {"connections": []}
+        cs.get_code_capabilities()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/capabilities"
+        assert qp is None
+
+    def test_get_code_capabilities_forwards_repo(self, cs, mock_org):
+        """A GitLab repository nested under a group/subgroup namespace is a
+        valid key here too — this call does not split it, so the whole
+        string simply rides the query param."""
+        mock_org.client.request.return_value = {"connections": []}
+        cs.get_code_capabilities(repo="acme/platform/backend")
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/capabilities"
+        assert qp == [("repo", "acme/platform/backend")]
+
+    def test_get_code_fixes_defaults(self, cs, mock_org):
+        mock_org.client.request.return_value = {"fixes": [], "distinct": 0}
+        cs.get_code_fixes()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/fixes"
+        assert qp is None
+
+    def test_get_code_fixes_forwards_cursor_and_limit(self, cs, mock_org):
+        mock_org.client.request.return_value = {"fixes": [], "distinct": 0}
+        cs.get_code_fixes(cursor="abc", limit=20)
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/fixes"
+        assert ("cursor", "abc") in qp
+        assert ("limit", "20") in qp
+
+    def test_iter_code_fixes_follows_the_cursor(self, cs, mock_org):
+        """A short page is not necessarily the last one — the walk must
+        follow next_cursor until it is empty, the same rule
+        iter_code_repos already follows."""
+        pages = [
+            {"fixes": [{"key": "a"}], "next_cursor": "page2"},
+            {"fixes": [{"key": "b"}], "next_cursor": ""},
+        ]
+        mock_org.client.request.side_effect = pages
+        got = list(cs.iter_code_fixes())
+        assert got == [{"key": "a"}, {"key": "b"}]
+        assert mock_org.client.request.call_count == 2
