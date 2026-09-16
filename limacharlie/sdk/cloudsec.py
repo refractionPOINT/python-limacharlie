@@ -14,6 +14,11 @@ read surface, per-provider coverage manifests, the free-tier
 standing, and the multi-org fleet overview
 (``/cloudsec/fleet/overview``).
 
+The AppSec code lane additionally exposes what each connected
+source-control organization may actually DO
+(:meth:`CloudSec.get_code_capabilities` — GitHub connections only) and
+the dependency-upgrade queue (:meth:`CloudSec.get_code_fixes`).
+
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``; every route additionally requires the org to be
 subscribed to the ``ext-cloud-security`` extension (403 otherwise).
@@ -23,7 +28,18 @@ records (``cloudsec_provider``, ``cloudsec_policy``, ``cloudsec_query``
 hives) managed through the standard Hive API; the provider operations
 here are the pre-save credential preflight
 (:meth:`CloudSec.test_provider`) and the coverage manifests
-(:meth:`CloudSec.get_provider_manifests`).
+(:meth:`CloudSec.get_provider_manifests`). GitLab and Bitbucket Cloud
+are both supported ``provider_type`` values today (a ``gitlab_namespace``
++ optional ``gitlab_base_url`` for a self-managed instance, or a
+``bitbucket_workspace``, plus ``credentials`` on both — see
+``cloudsec provider test`` in the CLI for a worked example of each
+record). Creating the connection itself has no dedicated SDK method;
+it is a plain hive write, e.g.
+``Hive(org, "cloudsec_provider").set(HiveRecord(name="my-gitlab",
+data={"provider_type": "gitlab", "gitlab_namespace": "acme/platform",
+"credentials": "hive://secret/gitlab-token"}, enabled=True))``, or the
+equivalent ``limacharlie hive set --hive-name cloudsec_provider`` CLI
+command.
 """
 
 from __future__ import annotations
@@ -1570,6 +1586,89 @@ class CloudSec:
         if provider is not None:
             body["provider"] = provider
         return self._post("code/ingest", body)
+
+    def get_code_capabilities(self, *, repo: str | None = None) -> dict[str, Any]:
+        """What each connected source-control organization may actually DO
+        for the AppSec code lane: repository scanning, PR checks, PR
+        comments, and dependency AutoFix pull requests.
+
+        This only covers **GitHub** connections. A GitLab or Bitbucket
+        connection scans with its own read-only token and holds no write
+        plane to detect (no PR checks, no PR comments, no AutoFix pull
+        requests), so it never appears here — not even as an ``unknown``
+        entry. Use ``cloudsec provider manifest`` for what a GitLab or
+        Bitbucket connection actually collects.
+
+        A capability reading ``available`` means the control MAY be
+        offered, never that anything fires on its own: a ``pr_checks``
+        capability of ``available`` says the connection COULD publish a
+        check run, not that a webhook is wired to trigger one.
+
+        Args:
+            repo: Narrow to the one connection covering a single repository
+                (``"<owner>/<name>"`` as :meth:`list_code_repos` returns
+                it). Omit to list every GitHub connection.
+
+        Returns:
+            ``{"connections": [{"connection", "org", "provider", "mode",
+            "scan_app_id", "actions_app_id", "repository_selection",
+            "repository", "suspended", "verified_at", "capabilities":
+            [{"id", "state", "needs", "missing", "reason", "detail"}, ...]},
+            ...]}``. ``capabilities[].id`` is one of ``repo_scanning``,
+            ``pr_checks``, ``pr_comments``, ``fix_pull_requests``;
+            ``state`` is ``available`` | ``unavailable`` | ``unknown``
+            (``unknown`` means the installation could not be read, not that
+            it was denied). A connection whose read failed still appears,
+            every capability ``unknown`` and ``verified_at`` empty, rather
+            than being dropped from the list.
+        """
+        return self._get("code/capabilities", _query_pairs(repo=repo))
+
+    def get_code_fixes(
+        self, *, cursor: str | None = None, limit: int | None = None,
+    ) -> dict[str, Any]:
+        """The dependency-upgrade queue: open code (SCA) findings grouped by
+        the single package upgrade that would close them, ranked so the
+        highest-leverage fix leads.
+
+        Args:
+            cursor: Keyset-pagination token from a previous page.
+            limit: Page size (backend default 5, max 20).
+
+        Returns:
+            ``{"fixes": [{"key", "cause_key", "title", "ecosystem",
+            "package", "fixed_version", "finding_count",
+            "repository_count", "top_severity",
+            "representative_finding_id"}, ...], "distinct": int,
+            "next_cursor": str, "scope": str, "caveat": str}``.
+            ``representative_finding_id`` is usable with
+            :meth:`autofix_code_finding`. ``distinct`` is the total number
+            of fixes in scope, which may exceed the page returned; read
+            ``scope``/``caveat`` for exactly what population is counted
+            rather than assuming.
+        """
+        return self._get("code/fixes", _query_pairs(cursor=cursor, limit=limit))
+
+    def iter_code_fixes(self, **selectors: Any):
+        """Yield every fix in the dependency-upgrade queue, page by page.
+
+        Wraps :meth:`get_code_fixes` and follows ``next_cursor`` to the
+        end, which is the correct way to walk this endpoint: a page may be
+        short without being the last one.
+
+        Yields:
+            dict: One ``fixes`` entry per iteration, in the same shape
+            :meth:`get_code_fixes` documents.
+        """
+        selectors.pop("cursor", None)
+        cursor: str | None = None
+        while True:
+            page = self.get_code_fixes(cursor=cursor, **selectors)
+            for fix in page.get("fixes") or []:
+                yield fix
+            cursor = page.get("next_cursor") or None
+            if not cursor:
+                return
 
     # ------------------------------------------------------------------
     # Overview / trends / chokepoints
