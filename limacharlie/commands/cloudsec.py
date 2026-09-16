@@ -1722,7 +1722,12 @@ def code_capabilities(ctx, repo) -> None:
 @click.option("--all", "walk_all", is_flag=True, default=False,
               help="Follow the cursor and return EVERY matching fix instead "
                    "of one page.")
-@_paging_options
+@click.option("--cursor", default=None,
+              help="Keyset-pagination token (next_cursor from the previous page).")
+@click.option("--limit", default=None, type=int,
+              help="Page size (backend default 5, max 20 — a larger ask is "
+                   "reduced to that; NOT the 1000-row cap other paged "
+                   "cloudsec commands share).")
 @pass_context
 def code_fixes(ctx, walk_all, cursor, limit) -> None:
     """The dependency-upgrade queue: open SCA findings grouped by the single
