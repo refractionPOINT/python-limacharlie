@@ -33,6 +33,7 @@ import zlib
 import os
 import subprocess
 import tempfile
+import time
 import uuid
 from typing import Any
 
@@ -42,6 +43,7 @@ from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
 from ..sdk.cloudsec import CloudSec
+from ..sdk.hive import Hive
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 
@@ -52,7 +54,25 @@ from ..discovery import register_explain
 # which engines produced them: a moving tag would silently change what a local scan reports
 # between two runs of the same command on the same tree, and the report records the versions
 # it used precisely so that question has an answer.
-DEFAULT_CODE_SCANNER_IMAGE = "gcr.io/legion-212720/github.com/refractionpoint/lc-code-scanner:v0.4.0"
+#
+# From v0.16.0 the scanner carries no static-analysis rules of its own: a local `sast` pass runs
+# only the rule set it is handed, either `--default-rules` (LimaCharlie's shipped default set,
+# compiled into the binary) or `--rules-file` (a rule set document). Older scanners reject both
+# flags, which is why MIN_RULES_SCANNER_VERSION is named in the error a custom --image/--binary
+# gets when it does.
+DEFAULT_CODE_SCANNER_IMAGE = "gcr.io/legion-212720/github.com/refractionpoint/lc-code-scanner:v0.16.0"
+MIN_RULES_SCANNER_VERSION = "v0.16.0"
+
+# The hive an organization's static-analysis rules live in, one Opengrep rule file per record,
+# and the only version of the rule set document the scanner reads.
+CODE_RULE_HIVE = "cloudsec_code_rule"
+CODE_RULES_WIRE_VERSION = 1
+# The scanner refuses a rule set document larger than this.
+MAX_CODE_RULES_BYTES = 32 << 20
+
+# The scanner's exit code for a usage or configuration error (nothing ran). An older scanner
+# given a flag it does not know exits with it too.
+SCANNER_EXIT_USAGE = 2
 
 # Where a LOCAL scan gets its vulnerability data.
 #
@@ -997,6 +1017,10 @@ def _output(ctx: click.Context, data: Any) -> None:
 
 
 def _get_cloudsec(ctx: click.Context) -> CloudSec:
+    return CloudSec(_get_org(ctx))
+
+
+def _get_org(ctx: click.Context) -> Organization:
     client = Client(
         oid=ctx.obj.oid,
         environment=ctx.obj.environment,
@@ -1005,8 +1029,7 @@ def _get_cloudsec(ctx: click.Context) -> CloudSec:
         debug_curl=ctx.obj.debug_curl,
         debug_verbose=ctx.obj.debug_verbose,
     )
-    org = Organization(client)
-    return CloudSec(org)
+    return Organization(client)
 
 
 def _parse_json_opt(value: str | None, param_hint: str) -> Any:
@@ -2038,10 +2061,19 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provi
 @click.option("--ref", default=None, help="The branch or tag scanned, for context.")
 @click.option("--provider", default=None,
               help="Source-control provider the repository key belongs to (default github).")
+@click.option("--rules-file", "rules_file", default=None,
+              type=click.Path(exists=True, dir_okay=False),
+              help="Run the sast scanner with this rule set document "
+                   "({\"version\":1,\"records\":[...]}) instead of LimaCharlie's default "
+                   "rules. Needs sast in --scanners.")
+@click.option("--org-rules", "org_rules", is_flag=True, default=False,
+              help="Run the sast scanner with this org's enabled cloudsec_code_rule "
+                   "records (what a hosted scan runs) instead of LimaCharlie's default "
+                   "rules. Needs sast in --scanners.")
 @pass_context
 def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
               output_path, scanners, timeout_s, db_repo, java_db_repo,
-              checks_repo, ref, provider) -> None:
+              checks_repo, ref, provider, rules_file, org_rules) -> None:
     """Scan a local checkout with the LimaCharlie code scanner.
 
     Runs the scanner over PATH (default: the current directory) and writes a
@@ -2054,6 +2086,13 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
     installed scanner-agent instead. Nothing about the checkout leaves your
     machine except the report.
 
+    STATIC ANALYSIS RULES. The scanner has no rules of its own. When sast is
+    in --scanners it runs LimaCharlie's default rule set unless you pass
+    --rules-file PATH (a rule set document) or --org-rules (this org's
+    enabled cloudsec_code_rule records, the rules a hosted scan runs); give
+    at most one. A custom --image or --binary must be scanner v0.16.0 or
+    newer to run sast: older scanners reject the rule flags.
+
     SECRET SCANNING IS OFF BY DEFAULT and turning it on here is usually not
     what you want. A secret's identity in this pipeline is a digest keyed by
     a deployment-side salt this command does not have, so locally-found
@@ -2062,9 +2101,13 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
 
     \b
     Examples:
-      limacharlie cloudsec code scan
+      limacharlie cloudsec code scan -o report.json.gz
       limacharlie cloudsec code scan ~/src/api --repo acme/api --ingest \\
           --commit "$(git -C ~/src/api rev-parse HEAD)"
+      limacharlie cloudsec code scan --scanners sca,sast -o report.json.gz
+      limacharlie cloudsec code scan --scanners sast --org-rules -o report.json.gz
+      limacharlie cloudsec code scan --scanners sast --rules-file rules.json \\
+          -o report.json.gz
     """
     root = os.path.abspath(path)
     if commit is None:
@@ -2085,6 +2128,12 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
             "-o PATH to keep it")
 
     wanted = _resolve_local_scanners(scanners)
+    rules_mode = _resolve_rules_mode(wanted, rules_file, org_rules)
+    rules_document = None
+    if rules_mode == "file":
+        # Read and checked now rather than handed over unread: a document the scanner
+        # refuses would otherwise surface after the other engines have already run.
+        rules_document = _read_rules_file(rules_file)
     if ":" in root:
         # The checkout is bind-mounted as "<path>:/scan/src:ro", so a ':' in the path
         # mis-splits and docker answers with an opaque "invalid mode".
@@ -2099,6 +2148,10 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
                 pass
         except OSError as exc:
             raise click.ClickException("cannot write %s: %s" % (output_path, exc))
+    if rules_mode == "org":
+        # Fetched after every local check, so a typo in a flag costs no API call, and
+        # before the scan, so an org with no usable rules is reported in seconds.
+        rules_document = _org_rules_document(ctx)
 
     with tempfile.TemporaryDirectory(prefix="lc-code-scan-") as workdir:
         # The report is always produced inside this private directory and copied out
@@ -2121,7 +2174,8 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
         _run_code_scanner(spec, root, report_path, workdir,
                           image=image, binary=binary, timeout_s=timeout_s,
                           db_repo=db_repo, java_db_repo=java_db_repo,
-                          checks_repo=checks_repo)
+                          checks_repo=checks_repo, rules_mode=rules_mode,
+                          rules_document=rules_document)
         with open(report_path, "rb") as f:
             document = f.read()
 
@@ -2160,6 +2214,141 @@ def _resolve_local_scanners(scanners: str) -> list[str]:
             "unknown scanner(s) %s; available: %s"
             % (", ".join(unknown), ", ".join(LOCAL_SCANNERS)))
     return wanted
+
+
+def _resolve_rules_mode(wanted: list[str], rules_file: str | None,
+                        org_rules: bool) -> str | None:
+    """Which static-analysis rule set a local scan hands the scanner.
+
+    None when sast is not requested (the scanner is given no rule flag at all, so a
+    scan without sast still works on an older scanner); otherwise "default", "file"
+    or "org". A rule option without sast is refused rather than ignored: it asks
+    for a pass that would not run."""
+    if rules_file and org_rules:
+        raise click.ClickException(
+            "--rules-file and --org-rules name two different rule sets; give one")
+    if "sast" not in wanted:
+        if rules_file or org_rules:
+            raise click.ClickException(
+                "%s only applies to the sast scanner, which is not in --scanners; "
+                "add sast (e.g. --scanners sca,iac,licenses,sast)"
+                % ("--rules-file" if rules_file else "--org-rules"))
+        return None
+    if rules_file:
+        return "file"
+    if org_rules:
+        return "org"
+    return "default"
+
+
+def _read_rules_file(path: str) -> bytes:
+    """Read a rule set document and check it the way the scanner will.
+
+    The scanner reports a document it cannot read as a failed static-analysis
+    section and still exits 0, so a malformed file would look like a successful
+    scan that found nothing. The envelope is therefore checked here as strictly as
+    the scanner parses it: no unknown fields, an integer version, a unique
+    non-empty key and a rules object on every record, the size cap, and at least
+    one rule to run. What is inside a rule is left to the scanner, which reports
+    and skips a bad rule rather than the whole set."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(MAX_CODE_RULES_BYTES + 1)
+    except OSError as exc:
+        raise click.ClickException("cannot read %s: %s" % (path, exc))
+    if len(raw) > MAX_CODE_RULES_BYTES:
+        raise click.ClickException(
+            "%s is larger than the scanner's %d-byte rule set limit"
+            % (path, MAX_CODE_RULES_BYTES))
+    try:
+        doc = json.loads(raw)
+    except ValueError as exc:
+        raise click.ClickException("%s is not JSON: %s" % (path, exc))
+    shape = ("{\"version\":%d,\"records\":[{\"key\":...,\"rules\":{\"rules\":[...]}}]}"
+             % CODE_RULES_WIRE_VERSION)
+    if (not isinstance(doc, dict) or set(doc) - {"version", "records"}
+            or type(doc.get("version")) is not int
+            or doc.get("version") != CODE_RULES_WIRE_VERSION
+            or not isinstance(doc.get("records"), list)):
+        raise click.ClickException(
+            "%s is not a code rule set document: expected exactly %s" % (path, shape))
+    seen = set()
+    rules_total = 0
+    for i, rec in enumerate(doc["records"]):
+        if (not isinstance(rec, dict) or set(rec) - {"key", "rules"}
+                or not isinstance(rec.get("key"), str)
+                or not rec.get("key") or not isinstance(rec.get("rules"), dict)):
+            raise click.ClickException(
+                "%s: record %d must hold exactly a non-empty \"key\" and a \"rules\" "
+                "object ({\"rules\":[...]})" % (path, i))
+        if rec["key"] in seen:
+            raise click.ClickException(
+                "%s: duplicate record key %r" % (path, rec["key"]))
+        seen.add(rec["key"])
+        inner = rec["rules"].get("rules")
+        if isinstance(inner, list):
+            rules_total += len(inner)
+    if rules_total == 0:
+        raise click.ClickException(
+            "%s holds no rules, so the sast pass would run nothing" % path)
+    return raw
+
+
+def _org_rules_document(ctx: click.Context) -> bytes:
+    """Build the rule set document a hosted scan of this org runs.
+
+    The same composition the hosted code lane uses: ENABLED, unexpired
+    cloudsec_code_rule records, sorted by key, each contributing only its `rules`
+    array. A record with no rules is skipped with a warning (the hosted lane reports
+    it the same way), and an org with no usable rule is refused before the scan
+    rather than producing a sast pass that ran nothing."""
+    org = _get_org(ctx)
+    try:
+        records = Hive(org, CODE_RULE_HIVE).list()
+    except Exception as exc:
+        raise click.ClickException(
+            "cannot read this org's %s records: %s" % (CODE_RULE_HIVE, exc))
+    now_ms = int(time.time() * 1000)
+    out = []
+    skipped = []
+    for name in sorted(records):
+        rec = records[name]
+        if not rec.enabled:
+            continue
+        if rec.expiry and rec.expiry < now_ms:
+            continue
+        rules = (rec.data or {}).get("rules")
+        if not isinstance(rules, list) or not rules:
+            skipped.append(name)
+            continue
+        out.append({"key": name, "rules": {"rules": rules}})
+    for name in skipped:
+        click.echo("warning: %s record %r has no non-empty rules array; skipped"
+                   % (CODE_RULE_HIVE, name), err=True)
+    if not out:
+        raise click.ClickException(
+            "this org has no enabled %s record with rules, so --org-rules would run "
+            "no static analysis; drop --org-rules to use LimaCharlie's default rules"
+            % CODE_RULE_HIVE)
+    # Rendered in the hosted lane's layout (version first, then records; key, then rules;
+    # rule objects with sorted keys, compact, no HTML escaping) so the same records give
+    # the same bytes wherever that is achievable.
+    parts = ['{"key":%s,"rules":%s}' % (_canonical_json(r["key"]),
+                                        _canonical_json(r["rules"])) for r in out]
+    body = '{"version":%d,"records":[%s]}' % (CODE_RULES_WIRE_VERSION, ",".join(parts))
+    raw = body.encode("utf-8")
+    if len(raw) > MAX_CODE_RULES_BYTES:
+        raise click.ClickException(
+            "this org's enabled %s records are %d bytes as a rule set, over the "
+            "scanner's %d-byte limit" % (CODE_RULE_HIVE, len(raw), MAX_CODE_RULES_BYTES))
+    return raw
+
+
+def _canonical_json(v: Any) -> str:
+    """Compact JSON with sorted keys and no HTML escaping, escaping U+2028/U+2029 the
+    way Go's encoder does."""
+    return (json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
 
 
 def _git_head(root: str) -> str | None:
@@ -2230,7 +2419,8 @@ def _git(root: str, *args: str) -> str | None:
 def _run_code_scanner(spec: dict, root: str, report_path: str, workdir: str,
                       *, image: str | None, binary: str | None, timeout_s: int,
                       db_repo: str, java_db_repo: str,
-                      checks_repo: str | None) -> None:
+                      checks_repo: str | None, rules_mode: str | None = None,
+                      rules_document: bytes | None = None) -> None:
     """Run the scanner over a local checkout, writing report_path.
 
     Two backends, one contract: the agent reads a spec and writes a gzipped
@@ -2253,11 +2443,37 @@ def _run_code_scanner(spec: dict, root: str, report_path: str, workdir: str,
         # the alternative — refusing to scan infrastructure files — would be a silent gap.
         extra_args.append("--embedded-checks")
 
+    # The rule set document, when there is one, is written into the private working
+    # directory: that directory is the container's /scan, so the same file serves both
+    # backends without mounting anything the caller named.
+    rules_name = "rules.json"
+    if rules_mode in ("file", "org"):
+        if rules_document is None:
+            raise ValueError("rules_mode %r needs rules_document" % rules_mode)
+        with open(os.path.join(workdir, rules_name), "wb") as f:
+            f.write(rules_document)
+    elif rules_mode == "default":
+        extra_args.append("--default-rules")
+    elif rules_mode is not None:
+        raise ValueError("unknown rules_mode %r" % rules_mode)
+
+    # A scanner we did not pin may predate the rule flags. It fails as a usage error before
+    # anything runs, and "the scanner exited 2" alone would not say why.
+    usage_hint = None
+    if rules_mode and (binary or image):
+        usage_hint = (
+            "if the scanner reported an unknown flag (--default-rules / --rules-file), it "
+            "is older than %s: static analysis needs %s or newer. Use the default image, a "
+            "newer --image/--binary, or drop sast from --scanners"
+            % (MIN_RULES_SCANNER_VERSION, MIN_RULES_SCANNER_VERSION))
+
     if binary:
         with open(spec_path, "w") as f:
             json.dump(spec, f)
         cmd = [binary, "--spec", spec_path, "--out", report_path] + extra_args
-        _run(cmd, timeout_s, env=env)
+        if rules_mode in ("file", "org"):
+            cmd += ["--rules-file", os.path.join(workdir, rules_name)]
+        _run(cmd, timeout_s, env=env, usage_hint=usage_hint)
         return
 
     # In the container the checkout is mounted read-only at a fixed path, so the spec has to
@@ -2297,11 +2513,13 @@ def _run_code_scanner(spec: dict, root: str, report_path: str, workdir: str,
         "--spec", "/scan/spec.json",
         "--out", "/scan/%s" % os.path.basename(report_path),
     ] + extra_args
-    _run(cmd, timeout_s, container=container)
+    if rules_mode in ("file", "org"):
+        cmd += ["--rules-file", "/scan/%s" % rules_name]
+    _run(cmd, timeout_s, container=container, usage_hint=usage_hint)
 
 
 def _run(cmd: list[str], timeout_s: int, *, env: dict | None = None,
-         container: str | None = None) -> None:
+         container: str | None = None, usage_hint: str | None = None) -> None:
     try:
         proc = subprocess.run(cmd, timeout=timeout_s, check=False, env=env)
     except FileNotFoundError:
@@ -2324,9 +2542,11 @@ def _run(cmd: list[str], timeout_s: int, *, env: dict | None = None,
         # The agent's exit codes are a closed vocabulary and it prints a
         # machine-readable line before a fatal exit, so the caller is pointed at
         # that rather than told a number.
-        raise click.ClickException(
-            "the scanner exited %d; its last line names the reason "
-            "(error_code=...)" % proc.returncode)
+        msg = ("the scanner exited %d; its last line names the reason "
+               "(error_code=...)" % proc.returncode)
+        if usage_hint and proc.returncode == SCANNER_EXIT_USAGE:
+            msg += "; " + usage_hint
+        raise click.ClickException(msg)
 
 
 # ---------------------------------------------------------------------------

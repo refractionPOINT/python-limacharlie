@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Cloud Security (CNAPP) — local code scans
+
+- **`cloudsec code scan` runs static-analysis rules with the new scanner.** The
+  default scanner image is now v0.16.0 (was v0.4.0). That scanner runs only the
+  static-analysis rules it is given, so a `sast` pass needs a rule set. When
+  `sast` is in `--scanners`, the CLI now passes LimaCharlie's default rule set
+  (`--default-rules`). Without that, the pass would run no rules.
+- **`--rules-file PATH`** runs a rule set document
+  (`{"version":1,"records":[{"key":...,"rules":{"rules":[...]}}]}`) in place of
+  the default rules. Before the scan starts, the CLI refuses a document the
+  scanner would not accept (unknown fields, wrong version, missing or duplicate
+  keys, over 32 MiB) or one that holds no rules.
+- **`--org-rules`** runs the org's enabled, unexpired `cloudsec_code_rule`
+  records, the same rules a hosted scan runs. The CLI warns about enabled
+  records that have no rules, and refuses an org that has no usable rule.
+- `--rules-file` and `--org-rules` cannot be combined, and both are refused
+  when `sast` is not in `--scanners`. A scan without `sast` passes no rule-set
+  flag, so it keeps working with older scanners.
+- A custom `--image`/`--binary` that is older than v0.16.0 rejects the rule-set
+  flags with a usage error. The CLI's error message for that case now says that
+  `sast` needs scanner v0.16.0 or newer.
+
 ### Email Security
 
 - **Campaign sweeps take an `attempt`**: `limacharlie mailsec campaign action
