@@ -158,3 +158,40 @@ Saved provider configs live in the `cloudsec_provider` hive:
 ```bash
 limacharlie hive set --hive-name cloudsec_provider --key my-gcp --input-file provider.json --enabled
 ```
+
+## Code scanning: local scans
+
+`cloudsec code scan` runs the LimaCharlie code scanner over a local checkout, in a container by default or with an installed scanner binary (`--binary`), and writes a report you can keep (`-o`) or push to the org (`--ingest`).
+
+```bash
+limacharlie cloudsec code scan ~/src/api -o report.json.gz                   # sca,iac,licenses
+limacharlie cloudsec code scan ~/src/api --repo acme/api --ingest            # push the report
+limacharlie cloudsec code scan --scanners sca,sast -o report.json.gz         # sast: default rules
+limacharlie cloudsec code scan --scanners sast --org-rules -o report.json.gz # sast: this org's rules
+limacharlie cloudsec code scan --scanners sast --rules-file rules.json -o report.json.gz
+```
+
+The scanner runs only the static-analysis rules it is given. When `sast` is in `--scanners`, the CLI picks the rule set:
+
+| Option | Rules the `sast` pass runs |
+|---|---|
+| _(none)_ | LimaCharlie's default rule set, shipped with the scanner |
+| `--org-rules` | This org's enabled, unexpired `cloudsec_code_rule` records: the rules a hosted scan of the org runs. Needs read access to that hive. Refused if the org has no enabled record with rules |
+| `--rules-file PATH` | A rule set document from disk |
+
+Give at most one of `--org-rules` and `--rules-file`. Both are refused when `sast` is not in `--scanners`.
+
+A rule set document holds one entry per rule file, where each `rules` value is an Opengrep/Semgrep rule file in JSON form:
+
+```json
+{"version": 1, "records": [
+  {"key": "no-eval", "rules": {"rules": [
+    {"id": "no-eval", "languages": ["python"], "severity": "ERROR",
+     "message": "eval() on dynamic input", "pattern": "eval(...)"}
+  ]}}
+]}
+```
+
+The CLI checks the document's structure before the scan starts. The scanner checks each rule, then reports and skips any rule it cannot load.
+
+**Scanner version.** The default image is pinned to scanner v0.16.0. A `--image` or `--binary` running `sast` must be v0.16.0 or newer, because older scanners reject the rule-set flags. That failure is a usage error (exit 2), and the CLI's error message names the version you need. A scan without `sast` passes no rule-set flag, so it still runs on older scanners.

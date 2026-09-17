@@ -2,6 +2,9 @@
 
 import json
 import os
+import subprocess
+
+import pytest
 
 from unittest.mock import patch, MagicMock
 
@@ -1896,7 +1899,7 @@ class TestCloudSecCode:
 
         captured = {}
 
-        def fake_run(cmd, timeout_s, *, env=None, container=None):
+        def fake_run(cmd, timeout_s, *, env=None, container=None, usage_hint=None):
             captured["cmd"] = cmd
             captured["container"] = container
             # Stand in for the scanner: the caller reads this file next.
@@ -1940,6 +1943,232 @@ class TestCloudSecCode:
                     cs_cls, {"result": {}})
             assert result.exit_code != 0, bad
             assert expect in result.output, result.output
+
+    # -- static-analysis rule sets ---------------------------------------------------
+
+    @staticmethod
+    def _scan_capturing(monkeypatch, tmp_path, extra_args, *, fail_code=0, hive_records=None):
+        """Run `code scan` with the subprocess boundary replaced, capturing the argv and
+        the rule set document the scanner would have been handed."""
+        from limacharlie.commands import cloudsec as cs_mod
+
+        captured = {}
+
+        def fake_run(cmd, timeout_s, *, env=None, container=None, usage_hint=None):
+            captured["cmd"] = cmd
+            captured["usage_hint"] = usage_hint
+            if cmd[0] == "docker":
+                workdir = next(a for a in cmd if a.endswith(":/scan")).rsplit(":", 1)[0]
+                to_host = lambda p: os.path.join(workdir, os.path.relpath(p, "/scan"))
+            else:
+                to_host = lambda p: p
+            if "--rules-file" in cmd:
+                with open(to_host(cmd[cmd.index("--rules-file") + 1]), "rb") as f:
+                    captured["rules"] = f.read()
+            if fail_code:
+                # Exercise the real exit handling with the code the scanner returned.
+                real = subprocess.CompletedProcess(cmd, fail_code)
+                with patch("limacharlie.commands.cloudsec.subprocess.run", return_value=real):
+                    return orig_run(cmd, timeout_s, env=env, container=container,
+                                    usage_hint=usage_hint)
+            with open(to_host(cmd[cmd.index("--out") + 1]), "wb") as f:
+                f.write(b"REPORT")
+
+        orig_run = cs_mod._run
+        monkeypatch.setattr(cs_mod, "_run", fake_run)
+        hive = MagicMock()
+        hive.list.return_value = hive_records or {}
+        with patch("limacharlie.commands.cloudsec.Hive", return_value=hive) as hive_cls, \
+                _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, _ = _invoke(
+                ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api",
+                 "-o", str(tmp_path / "r.gz")] + extra_args,
+                cs_cls, {"result": {}})
+        captured["hive_cls"] = hive_cls
+        return result, captured
+
+    def test_code_scan_sast_runs_the_default_rules_by_default(self, tmp_path, monkeypatch):
+        """The scanner carries no rules: a sast scan with no rule option must ask for the
+        shipped default set, or it silently runs no static analysis at all."""
+        from limacharlie.commands import cloudsec as cs_mod
+        result, cap = self._scan_capturing(monkeypatch, tmp_path, ["--scanners", "sca,sast"])
+        assert result.exit_code == 0, result.output
+        cmd = cap["cmd"]
+        assert cmd[0] == "docker"
+        assert cs_mod.DEFAULT_CODE_SCANNER_IMAGE in cmd
+        assert cs_mod.DEFAULT_CODE_SCANNER_IMAGE.endswith(":v0.16.0")
+        assert "--default-rules" in cmd and "--rules-file" not in cmd
+        # The pinned image is known to take the flags, so no hint is attached.
+        assert cap["usage_hint"] is None
+
+    def test_code_scan_without_sast_passes_no_rule_flag(self, tmp_path, monkeypatch):
+        """Without sast there is nothing to give rules to, and passing a rule flag anyway
+        would break a scan against a scanner older than the flag."""
+        result, cap = self._scan_capturing(monkeypatch, tmp_path, [])
+        assert result.exit_code == 0, result.output
+        assert "--default-rules" not in cap["cmd"]
+        assert "--rules-file" not in cap["cmd"]
+
+    def test_code_scan_rules_file_replaces_the_default_rules(self, tmp_path, monkeypatch):
+        doc = {"version": 1, "records": [
+            {"key": "my-rule", "rules": {"rules": [{"id": "r1"}]}}]}
+        raw = json.dumps(doc).encode()
+        rules = tmp_path / "rules.json"
+        rules.write_bytes(raw)
+        result, cap = self._scan_capturing(
+            monkeypatch, tmp_path, ["--scanners", "sast", "--rules-file", str(rules)])
+        assert result.exit_code == 0, result.output
+        cmd = cap["cmd"]
+        assert "--default-rules" not in cmd
+        # Handed over inside the private scratch volume, byte for byte: the caller's own
+        # directory is never mounted into the container.
+        assert cmd[cmd.index("--rules-file") + 1] == "/scan/rules.json"
+        assert cap["rules"] == raw
+        assert cmd.count("-v") == 2
+
+    def test_code_scan_binary_gets_the_rules_file_on_the_host(self, tmp_path, monkeypatch):
+        rules = tmp_path / "rules.json"
+        rules.write_text('{"version":1,"records":[]}')
+        result, cap = self._scan_capturing(
+            monkeypatch, tmp_path, ["--scanners", "sast", "--binary", "/opt/scanner-agent",
+                                    "--rules-file", str(rules)])
+        assert result.exit_code == 0, result.output
+        cmd = cap["cmd"]
+        assert cmd[0] == "/opt/scanner-agent"
+        path = cmd[cmd.index("--rules-file") + 1]
+        assert os.path.isabs(path) and path.endswith("rules.json")
+        assert cap["rules"] == b'{"version":1,"records":[]}'
+        assert "--default-rules" not in cmd
+        # A binary we did not pin may predate the flag: its usage error gets the hint.
+        assert "v0.16.0" in cap["usage_hint"]
+
+    def test_code_scan_binary_default_rules(self, tmp_path, monkeypatch):
+        result, cap = self._scan_capturing(
+            monkeypatch, tmp_path, ["--scanners", "sast", "--binary", "/opt/scanner-agent"])
+        assert result.exit_code == 0, result.output
+        assert cap["cmd"][0] == "/opt/scanner-agent"
+        assert "--default-rules" in cap["cmd"]
+
+    def test_code_scan_rule_options_are_refused_where_they_cannot_apply(
+            self, tmp_path, monkeypatch):
+        rules = tmp_path / "rules.json"
+        rules.write_text('{"version":1,"records":[]}')
+        cases = [
+            (["--scanners", "sast", "--rules-file", str(rules), "--org-rules"],
+             "give one"),
+            (["--rules-file", str(rules)], "only applies to the sast scanner"),
+            (["--org-rules"], "only applies to the sast scanner"),
+        ]
+        for args, expect in cases:
+            result, cap = self._scan_capturing(monkeypatch, tmp_path, args)
+            assert result.exit_code != 0, args
+            assert expect in result.output, result.output
+            assert "cmd" not in cap, args
+            cap["hive_cls"].assert_not_called()
+
+    def test_code_scan_refuses_a_rules_file_that_is_not_a_rule_set(
+            self, tmp_path, monkeypatch):
+        cases = [
+            ("not json", "is not JSON"),
+            ('{"rules":[{"id":"x"}]}', "is not a code rule set document"),
+            ('{"version":2,"records":[]}', "is not a code rule set document"),
+            ('{"version":1,"records":[{"key":"","rules":{"rules":[]}}]}', "record 0"),
+            ('{"version":1,"records":[{"key":"k","rules":[]}]}', "record 0"),
+            ('{"version":1,"records":[{"key":"k","rules":{"rules":[]}},'
+             '{"key":"k","rules":{"rules":[]}}]}', "duplicate record key 'k'"),
+        ]
+        for body, expect in cases:
+            rules = tmp_path / "rules.json"
+            rules.write_text(body)
+            result, cap = self._scan_capturing(
+                monkeypatch, tmp_path, ["--scanners", "sast", "--rules-file", str(rules)])
+            assert result.exit_code != 0, body
+            assert expect in result.output, result.output
+            assert "cmd" not in cap, body
+
+    def test_code_scan_org_rules_builds_the_hosted_rule_set(self, tmp_path, monkeypatch):
+        """--org-rules composes what a hosted scan runs: enabled, unexpired records only,
+        sorted by key, each contributing just its rules array."""
+        import time as _time
+        from limacharlie.sdk.hive import HiveRecord
+
+        future = int(_time.time() * 1000) + 3_600_000
+        past = int(_time.time() * 1000) - 3_600_000
+        rule = lambda i: {"id": i, "languages": ["python"], "severity": "ERROR",
+                          "message": "m", "pattern": "eval(...)"}
+        records = {
+            "b-rule": HiveRecord(name="b-rule", enabled=True,
+                                 data={"rules": [rule("b")], "note": "ignored"}),
+            "a-rule": HiveRecord(name="a-rule", enabled=True, expiry=future,
+                                 data={"rules": [rule("a")]}),
+            "disabled": HiveRecord(name="disabled", enabled=False,
+                                   data={"rules": [rule("d")]}),
+            "expired": HiveRecord(name="expired", enabled=True, expiry=past,
+                                  data={"rules": [rule("e")]}),
+            "empty": HiveRecord(name="empty", enabled=True, data={"rules": []}),
+        }
+        result, cap = self._scan_capturing(
+            monkeypatch, tmp_path, ["--scanners", "sast", "--org-rules"],
+            hive_records=records)
+        assert result.exit_code == 0, result.output
+        assert cap["hive_cls"].call_args[0][1] == "cloudsec_code_rule"
+        cmd = cap["cmd"]
+        assert "--default-rules" not in cmd
+        assert cmd[cmd.index("--rules-file") + 1] == "/scan/rules.json"
+        doc = json.loads(cap["rules"])
+        assert doc == {"version": 1, "records": [
+            {"key": "a-rule", "rules": {"rules": [rule("a")]}},
+            {"key": "b-rule", "rules": {"rules": [rule("b")]}},
+        ]}
+        # The enabled record that holds nothing is named, not dropped silently.
+        assert "'empty'" in result.output
+
+    def test_code_scan_org_rules_refuses_an_org_with_no_rules(self, tmp_path, monkeypatch):
+        from limacharlie.sdk.hive import HiveRecord
+        records = {"off": HiveRecord(name="off", enabled=False, data={"rules": [{"id": "x"}]})}
+        result, cap = self._scan_capturing(
+            monkeypatch, tmp_path, ["--scanners", "sast", "--org-rules"],
+            hive_records=records)
+        assert result.exit_code != 0
+        assert "no enabled cloudsec_code_rule record" in result.output
+        assert "cmd" not in cap
+
+    def test_code_scan_org_rules_surfaces_a_hive_read_failure(self, tmp_path, monkeypatch):
+        from limacharlie.commands import cloudsec as cs_mod
+        monkeypatch.setattr(cs_mod, "_run", lambda *a, **k: pytest.fail("scan ran"))
+        hive = MagicMock()
+        hive.list.side_effect = RuntimeError("403 forbidden")
+        with patch("limacharlie.commands.cloudsec.Hive", return_value=hive), \
+                _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, _ = _invoke(
+                ["cloudsec", "code", "scan", str(tmp_path), "--repo", "acme/api",
+                 "-o", str(tmp_path / "r.gz"), "--scanners", "sast", "--org-rules"],
+                cs_cls, {"result": {}})
+        assert result.exit_code != 0
+        assert "cannot read this org's cloudsec_code_rule records" in result.output
+        assert "403 forbidden" in result.output
+
+    def test_code_scan_old_custom_scanner_usage_error_names_the_version(
+            self, tmp_path, monkeypatch):
+        """A pre-v0.16.0 --image rejects --default-rules with a usage exit. That must say
+        which version is needed, not just a bare exit code."""
+        result, cap = self._scan_capturing(
+            monkeypatch, tmp_path,
+            ["--scanners", "sast", "--image", "example.com/scanner:v0.4.0"], fail_code=2)
+        assert result.exit_code != 0
+        assert "example.com/scanner:v0.4.0" in cap["cmd"]
+        assert "--default-rules" in cap["cmd"]
+        assert "exited 2" in result.output
+        assert "v0.16.0 or newer" in result.output
+
+    def test_code_scan_other_failures_do_not_blame_the_scanner_version(
+            self, tmp_path, monkeypatch):
+        result, _ = self._scan_capturing(
+            monkeypatch, tmp_path,
+            ["--scanners", "sast", "--image", "example.com/scanner:v0.4.0"], fail_code=3)
+        assert result.exit_code != 0
+        assert "exited 3" in result.output
+        assert "v0.16.0" not in result.output
 
     def test_git_repo_key_refuses_a_remote_that_names_no_repository(self):
         """A local remote yields a plausible, wrong key — exactly the guess --ingest
