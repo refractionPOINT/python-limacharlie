@@ -279,6 +279,71 @@ class TestActions:
         assert "attempt" not in body
 
 
+class TestForce:
+    """`force` overrides an org's alert-only mode. Only a JSON boolean true
+    forces on the server, and absent must stay absent: every existing caller's
+    request body has to be byte-identical to what it sent before."""
+
+    def test_message_action_sends_force_only_when_asked(self, ms, mock_org):
+        ms.act_on_message("msg-1", "quarantine_message", force=True)
+        _, body = _post_call(mock_org)
+        assert body == {"action": "quarantine_message", "force": True}
+
+    def test_message_action_omits_force_by_default(self, ms, mock_org):
+        ms.act_on_message("msg-1", "quarantine_message")
+        _, body = _post_call(mock_org)
+        assert "force" not in body
+        ms.act_on_message("msg-1", "quarantine_message", force=False)
+        _, body = _post_call(mock_org)
+        assert "force" not in body
+
+    def test_campaign_execute_sends_force_only_when_asked(self, ms, mock_org):
+        ms.act_on_campaign("cmp-1", "quarantine_message", confirm="tok", force=True)
+        _, body = _post_call(mock_org)
+        assert body == {"action": "quarantine_message", "confirm": "tok", "force": True}
+
+    def test_campaign_execute_omits_force_by_default(self, ms, mock_org):
+        ms.act_on_campaign("cmp-1", "quarantine_message", confirm="tok")
+        _, body = _post_call(mock_org)
+        assert "force" not in body
+
+    def test_a_forced_campaign_preview_is_refused_before_the_wire(self, ms, mock_org):
+        with pytest.raises(ValueError, match="force applies to the execute"):
+            ms.act_on_campaign("cmp-1", "quarantine_message", force=True)
+        mock_org.client.request.assert_not_called()
+
+    def test_bulk_execute_sends_force_only_when_asked(self, ms, mock_org):
+        ms.bulk_action_execute("trash_message", ["a"], "tok", force=True)
+        _, body = _post_call(mock_org)
+        assert body == {"action": "trash_message", "msg_uuids": ["a"], "confirm": "tok", "force": True}
+
+    def test_a_forced_campaign_preview_with_an_empty_confirm_is_refused(self, ms, mock_org):
+        """The collector reads an empty confirm as a preview, so "" must be
+        refused exactly like an absent one rather than carrying force onto it."""
+        with pytest.raises(ValueError, match="force applies to the execute"):
+            ms.act_on_campaign("cmp-1", "quarantine_message", confirm="", force=True)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("value", [1, "true", None])
+    def test_a_non_bool_force_is_refused_before_the_wire(self, ms, mock_org, value):
+        """Only a JSON boolean true forces. A truthy stand-in would leave the
+        caller believing they forced while the server withheld the action."""
+        calls = (
+            lambda: ms.act_on_message("msg-1", "quarantine_message", force=value),
+            lambda: ms.act_on_campaign("cmp-1", "quarantine_message", confirm="tok", force=value),
+            lambda: ms.bulk_action_execute("trash_message", ["a"], "tok", force=value),
+        )
+        for call in calls:
+            with pytest.raises(TypeError, match="force must be a bool"):
+                call()
+        mock_org.client.request.assert_not_called()
+
+    def test_bulk_execute_omits_force_by_default(self, ms, mock_org):
+        ms.bulk_action_execute("trash_message", ["a"], "tok", force=False)
+        _, body = _post_call(mock_org)
+        assert "force" not in body
+
+
 class TestConnectionDiagnostics:
     def test_watch_probe_is_absent_by_default(self, ms, mock_org):
         ms.test_connection("workspace")

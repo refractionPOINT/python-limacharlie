@@ -68,11 +68,12 @@ limacharlie mailsec message eml <MSG_UUID> --justification "..." | less
 
 ## Triage & remediation
 
-`message revise` records a human disposition and appends to the verdict history; `message action` remediates at the provider. Watch for `result=alert_only` — the action was DECIDED and deliberately not performed because the org is not in enforce mode.
+`message revise` records a human disposition and appends to the verdict history; `message action` remediates at the provider. Watch for `result=alert_only` — the action was DECIDED and deliberately not performed because the org is not in enforce mode. The response then carries `force_required: true` and the command prints a note on stderr. `--force` performs the action even if the organization is in alert-only mode (no automation in enforce mode); the override is recorded in the audit trail. `bulk-action` and `campaign action` take `--force` on the execute (with `--confirm`) only — it is not part of the confirmation token, and a forced bulk execute runs as a new job.
 
 ```bash
 limacharlie mailsec message revise <MSG_UUID> --verdict malicious --rationale "confirmed credential harvest"
 limacharlie mailsec message action <MSG_UUID> --action quarantine_message --reason "confirmed phish"
+limacharlie mailsec message action <MSG_UUID> --action quarantine_message --reason "confirmed phish" --force
 limacharlie mailsec message action <MSG_UUID> --action restore_message
 ```
 
