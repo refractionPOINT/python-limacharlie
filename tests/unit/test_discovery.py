@@ -4,6 +4,7 @@ import click
 import pytest
 
 from limacharlie.discovery import (
+    MCP_USE_CASE_PROFILES,
     PROFILES,
     register_explain,
     get_explain,
@@ -16,9 +17,11 @@ from limacharlie.discovery import (
 class TestProfiles:
     def test_all_profiles_exist(self):
         expected = [
+            "core",
             "sensor_management", "detection_engineering", "historical_data",
             "live_investigation", "threat_response", "fleet_management",
-            "platform_admin", "ai_powered", "cases", "email_security",
+            "platform_admin", "ai_powered", "api_access", "cases",
+            "investigation_management", "cloud_security", "email_security",
         ]
         for name in expected:
             assert name in PROFILES, f"Missing profile: {name}"
@@ -28,6 +31,10 @@ class TestProfiles:
             assert "description" in profile, f"Profile {name} missing description"
             assert "commands" in profile, f"Profile {name} missing commands"
             assert len(profile["commands"]) > 0, f"Profile {name} has no commands"
+
+    def test_mcp_use_case_profiles_are_available(self):
+        """Keep CLI discovery aligned with the MCP server's use-case names."""
+        assert MCP_USE_CASE_PROFILES <= PROFILES.keys()
 
     def test_get_profile(self):
         profile = get_profile("sensor_management")
@@ -116,6 +123,28 @@ class TestProfileEntriesResolve:
                 + "\n".join(broken)
                 + "\n\n  Fix the spelling, or drop the entry, in "
                 "limacharlie/discovery.py."
+            )
+
+
+class TestCommandGroupCoverage:
+    """Every registered top-level CLI group must be discoverable."""
+
+    def test_every_registered_group_appears_in_a_profile(self):
+        from limacharlie.cli import _COMMAND_MODULE_MAP
+
+        profiled_groups = {
+            entry.split()[0]
+            for profile in PROFILES.values()
+            for entry in profile["commands"]
+        }
+        missing = set(_COMMAND_MODULE_MAP) - profiled_groups
+
+        if missing:
+            pytest.fail(
+                "registered command groups that no discovery profile lists:\n\n"
+                + "\n".join(f"    {name}" for name in sorted(missing))
+                + "\n\n  Add at least one runnable command from each group to "
+                "the appropriate profile in limacharlie/discovery.py."
             )
 
 

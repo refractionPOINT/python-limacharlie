@@ -8,8 +8,38 @@ from __future__ import annotations
 
 from typing import Any
 
+# Use-case profiles shared with lc-mcp-server. Its ``historical_data_readonly``
+# and ``cloud_security_readonly`` profiles are permission-restricted variants,
+# not distinct discovery use cases. The CLI also keeps its older
+# ``sensor_management`` and ``cases`` profiles; they are separate profiles whose
+# commands overlap ``fleet_management`` and ``investigation_management``.
+MCP_USE_CASE_PROFILES = frozenset({
+    "core",
+    "historical_data",
+    "live_investigation",
+    "threat_response",
+    "fleet_management",
+    "detection_engineering",
+    "platform_admin",
+    "ai_powered",
+    "api_access",
+    "investigation_management",
+    "cloud_security",
+})
+
 # Profile definitions mapping use-case profiles to their relevant command groups
 PROFILES = {
+    "core": {
+        "description": "Authentication, local configuration, shell completion, and built-in help",
+        "commands": [
+            "auth login", "auth logout", "auth whoami", "auth use-org",
+            "auth test", "auth use-env", "auth list-envs", "auth list-orgs",
+            "auth signup", "auth get-token",
+            "config show-paths", "config migrate",
+            "completion",
+            "help discover", "help topic", "help cheatsheet",
+        ],
+    },
     "sensor_management": {
         "description": "Sensor lifecycle, deployment, and monitoring commands",
         "commands": [
@@ -30,6 +60,11 @@ PROFILES = {
             "dr test", "dr replay", "dr validate", "dr export", "dr import",
             "dr convert-rules",
             "fp list", "fp get", "fp set", "fp delete",
+            "exfil list", "exfil create-watch", "exfil create-event", "exfil delete",
+            "integrity list", "integrity get", "integrity create", "integrity delete",
+            "logging list", "logging get", "logging create", "logging delete",
+            "schema list", "schema get", "schema reset",
+            "usp validate",
             "replay run",
             "ai generate-rule", "ai generate-detection", "ai generate-response",
         ],
@@ -52,6 +87,9 @@ PROFILES = {
             "stream events", "stream detections", "stream audit",
             "ioc search", "ioc batch-search", "ioc hosts", "ioc enrich", "ioc batch-enrich",
             "stream firehose",
+            "artifact list", "artifact upload", "artifact download",
+            "payload list", "payload upload", "payload download", "payload delete",
+            "spotcheck run",
         ],
     },
     "threat_response": {
@@ -80,7 +118,7 @@ PROFILES = {
         ],
     },
     "platform_admin": {
-        "description": "Users, groups, API keys, billing, outputs, and organization management",
+        "description": "Organization, users, groups, API and ingestion keys, billing, outputs, adapters, extensions, jobs, and hive records (apps, lookups, notes, playbooks, secrets, SOPs)",
         "commands": [
             "org info", "org list", "org create", "org delete", "org config-get",
             "org config-set", "org urls", "org stats", "org errors",
@@ -91,14 +129,55 @@ PROFILES = {
             "output list", "output create", "output delete",
             "audit list",
             "api",
+            "app list", "app get", "app set", "app delete",
+            "app enable", "app disable", "app tag set", "app tag add", "app tag rm",
+            "cloud-adapter list", "cloud-adapter get", "cloud-adapter set", "cloud-adapter delete",
+            "cloud-adapter enable", "cloud-adapter disable", "cloud-adapter tag set",
+            "cloud-adapter tag add", "cloud-adapter tag rm", "cloud-adapter list-types",
+            "cloud-adapter schema", "cloud-adapter sensors",
+            "external-adapter list", "external-adapter get", "external-adapter set", "external-adapter delete",
+            "external-adapter enable", "external-adapter disable", "external-adapter tag set",
+            "external-adapter tag add", "external-adapter tag rm", "external-adapter list-types",
+            "external-adapter schema", "external-adapter sensors",
+            "extension list", "extension subscribe", "extension unsubscribe", "extension list-available",
+            "extension rekey", "extension schema", "extension request",
+            "extension config-list", "extension config-get", "extension config-set", "extension config-delete",
+            "hive list", "hive get", "hive set", "hive delete", "hive enable", "hive disable",
+            "hive validate", "hive schema", "hive rename", "hive list-types", "hive export", "hive import",
+            "ingestion-key list", "ingestion-key create", "ingestion-key delete",
+            "job list", "job get", "job delete", "job wait",
+            "lookup list", "lookup get", "lookup set", "lookup delete",
+            "lookup enable", "lookup disable", "lookup tag set", "lookup tag add", "lookup tag rm",
+            "note list", "note get", "note set", "note delete",
+            "note enable", "note disable", "note tag set", "note tag add", "note tag rm",
+            "playbook list", "playbook get", "playbook set", "playbook delete",
+            "playbook enable", "playbook disable", "playbook tag set", "playbook tag add", "playbook tag rm",
+            "secret list", "secret get", "secret set", "secret delete",
+            "secret enable", "secret disable", "secret tag set", "secret tag add", "secret tag rm",
+            "sop list", "sop get", "sop set", "sop delete",
+            "sop enable", "sop disable", "sop tag set", "sop tag add", "sop tag rm",
         ],
     },
     "ai_powered": {
-        "description": "AI-powered generation of rules, queries, selectors, and playbooks",
+        "description": "AI-powered generation of rules, queries, selectors, and playbooks, plus AI cost models, memory, and skills",
         "commands": [
             "ai generate-rule", "ai generate-detection", "ai generate-response",
             "ai generate-query", "ai generate-selector", "ai generate-playbook",
             "ai summarize-detection",
+            "ai-cost-model list", "ai-cost-model get", "ai-cost-model set", "ai-cost-model delete",
+            "ai-cost-model enable", "ai-cost-model disable", "ai-cost-model tag set",
+            "ai-cost-model tag add", "ai-cost-model tag rm",
+            "ai-memory list-records", "ai-memory list", "ai-memory get",
+            "ai-memory set", "ai-memory delete", "ai-memory delete-record",
+            "ai-skill list", "ai-skill get", "ai-skill set", "ai-skill delete",
+            "ai-skill enable", "ai-skill disable", "ai-skill tag set", "ai-skill tag add", "ai-skill tag rm",
+        ],
+    },
+    "api_access": {
+        "description": "Direct API access and authentication for automation",
+        "commands": [
+            "api",
+            "auth get-token", "auth whoami", "auth test",
         ],
     },
     "cases": {
@@ -116,6 +195,53 @@ PROFILES = {
             "case report", "case dashboard",
             "case config-get", "case config-set",
             "case assignees",
+        ],
+    },
+    "investigation_management": {
+        "description": "Case workflows, analyst feedback, notes, and investigation artifacts",
+        "commands": [
+            "case list", "case get", "case update", "case add-note",
+            "case bulk-update", "case merge", "case report", "case dashboard",
+            "feedback request-approval", "feedback request-ack", "feedback request-question",
+            "feedback channel list", "feedback channel add", "feedback channel remove",
+            "note list", "note get", "note set", "note delete",
+            "artifact list", "artifact upload", "artifact download",
+        ],
+    },
+    "cloud_security": {
+        "description": "Cloud posture, identity, findings, attack paths, and vulnerability management",
+        "commands": [
+            "cloudsec overview", "cloudsec changes", "cloudsec risk-trend", "cloudsec scan-status",
+            "cloudsec topology", "cloudsec free-tier",
+            "cloudsec code repos", "cloudsec code status", "cloudsec code sbom",
+            "cloudsec code rescan", "cloudsec code autofix", "cloudsec code ingest", "cloudsec code scan",
+            "cloudsec fleet overview",
+            "cloudsec finding list", "cloudsec finding facets", "cloudsec finding causes",
+            "cloudsec finding classes", "cloudsec finding get", "cloudsec finding resolve",
+            "cloudsec finding bulk-resolve", "cloudsec finding set-owner", "cloudsec finding set-ticket",
+            "cloudsec attack-path list",
+            "cloudsec ciem public-access", "cloudsec ciem facets", "cloudsec ciem identities", "cloudsec ciem identity",
+            "cloudsec inventory list", "cloudsec inventory facets",
+            "cloudsec data-security facets", "cloudsec data-security stores",
+            "cloudsec resource get", "cloudsec graph neighbors",
+            "cloudsec query list", "cloudsec query run",
+            "cloudsec compliance report", "cloudsec compliance frameworks", "cloudsec compliance assignments",
+            "cloudsec chokepoint list", "cloudsec chokepoint dismiss", "cloudsec chokepoint restore",
+            "cloudsec resolve sensors", "cloudsec resolve assets",
+            "cloudsec caasm assets", "cloudsec caasm coverage", "cloudsec caasm policy get",
+            "cloudsec caasm policy set", "cloudsec caasm ingest",
+            "cloudsec provider manifest", "cloudsec provider test",
+            "cloudsec policy vocabulary", "cloudsec policy suggest",
+            "cloudsec simulate resources", "cloudsec simulate findings",
+            "cloudsec export findings", "cloudsec export inventory",
+            "cloudsec export compliance", "cloudsec export query",
+            "vulnerability scan", "vulnerability dashboard",
+            "vulnerability cve list", "vulnerability cve get", "vulnerability cve hosts",
+            "vulnerability cve packages", "vulnerability cve epss-history",
+            "vulnerability host list", "vulnerability host packages",
+            "vulnerability finding resolve", "vulnerability finding bulk-resolve",
+            "vulnerability finding list", "vulnerability finding reset",
+            "vulnerability snapshot list",
         ],
     },
     "email_security": {
@@ -137,6 +263,12 @@ PROFILES = {
             "mailsec connection test",
             "mailsec onboarding",
             "mailsec tenant purge",
+        ],
+    },
+    "data_access": {
+        "description": "Retrieve data through the Authenticated Resource Locator (ARL) resolver",
+        "commands": [
+            "arl get",
         ],
     },
 }
