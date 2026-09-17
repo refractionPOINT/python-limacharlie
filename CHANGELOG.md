@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Cases
+
+- `case create --detection` now encodes the detection for the extension's
+  `json` schema field, fixing HTTP 400 responses that reported the supplied
+  object was a map rather than JSON.
+
 ### Cloud Security (CNAPP) — local code scans
 
 - **`cloudsec code scan` runs static-analysis rules with the new scanner.** The
