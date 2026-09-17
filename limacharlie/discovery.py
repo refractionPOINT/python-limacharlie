@@ -10,8 +10,9 @@ from typing import Any
 
 # Use-case profiles shared with lc-mcp-server. Its ``historical_data_readonly``
 # and ``cloud_security_readonly`` profiles are permission-restricted variants,
-# not distinct discovery use cases. The CLI keeps the older
-# ``sensor_management`` and ``cases`` names as compatible aliases.
+# not distinct discovery use cases. The CLI also keeps its older
+# ``sensor_management`` and ``cases`` profiles; they are separate profiles whose
+# commands overlap ``fleet_management`` and ``investigation_management``.
 MCP_USE_CASE_PROFILES = frozenset({
     "core",
     "historical_data",
@@ -117,7 +118,7 @@ PROFILES = {
         ],
     },
     "platform_admin": {
-        "description": "Users, groups, API keys, billing, outputs, and organization management",
+        "description": "Organization, users, groups, API and ingestion keys, billing, outputs, adapters, extensions, jobs, and hive records (apps, lookups, notes, playbooks, secrets, SOPs)",
         "commands": [
             "org info", "org list", "org create", "org delete", "org config-get",
             "org config-set", "org urls", "org stats", "org errors",
@@ -158,7 +159,7 @@ PROFILES = {
         ],
     },
     "ai_powered": {
-        "description": "AI-powered generation of rules, queries, selectors, and playbooks",
+        "description": "AI-powered generation of rules, queries, selectors, and playbooks, plus AI cost models, memory, and skills",
         "commands": [
             "ai generate-rule", "ai generate-detection", "ai generate-response",
             "ai generate-query", "ai generate-selector", "ai generate-playbook",
