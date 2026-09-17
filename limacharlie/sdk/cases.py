@@ -84,11 +84,10 @@ class Cases:
         """
         data: dict[str, Any] = {}
         if detection is not None:
-            # Pass the detection dict directly — the gzdata encoding
-            # already JSON-serializes the full data dict, so json.dumps
-            # here would double-encode it into a string that the LC
-            # backend drops (schema type "json" expects an object).
-            data["detection"] = detection
+            # Extension fields with schema type "json" are JSON strings at
+            # the request-validation boundary.  The enclosing extension
+            # payload is serialized separately by Extensions.request().
+            data["detection"] = json.dumps(detection)
         if severity is not None:
             data["severity"] = severity
         if summary is not None:

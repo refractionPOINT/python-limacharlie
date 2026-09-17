@@ -1,5 +1,7 @@
 """Tests for limacharlie.sdk.cases module."""
 
+import base64
+import gzip
 import json
 from unittest.mock import MagicMock, patch, call
 import pytest
@@ -116,9 +118,23 @@ class TestCreateCase:
             MockExt.assert_called_once_with(mock_org)
             mock_ext.request.assert_called_once_with(
                 "ext-cases", "create_case",
-                data={"detection": self._SAMPLE_DETECTION},
+                data={"detection": json.dumps(self._SAMPLE_DETECTION)},
             )
             assert result["case_number"] == 1
+
+    def test_serializes_detection_as_json_string_on_wire(self, cases, mock_org):
+        """The extension schema validates JSON fields as nested strings."""
+        mock_org.client.request.return_value = {"created": 1, "case_number": 1}
+
+        cases.create_case(self._SAMPLE_DETECTION)
+
+        args, kwargs = mock_org.client.request.call_args
+        assert args == ("POST", "extension/request/ext-cases")
+        wire_data = json.loads(
+            gzip.decompress(base64.b64decode(kwargs["params"]["gzdata"]))
+        )
+        assert isinstance(wire_data["detection"], str)
+        assert json.loads(wire_data["detection"]) == self._SAMPLE_DETECTION
 
     def test_all_optional_fields(self, cases, mock_org):
         with patch("limacharlie.sdk.cases.Extensions") as MockExt:
@@ -132,7 +148,7 @@ class TestCreateCase:
             )
             call_data = mock_ext.request.call_args[1]["data"]
             assert call_data == {
-                "detection": self._SAMPLE_DETECTION,
+                "detection": json.dumps(self._SAMPLE_DETECTION),
                 "severity": "high",
                 "summary": "Test summary",
             }
@@ -176,7 +192,7 @@ class TestCreateCase:
             )
             call_data = mock_ext.request.call_args[1]["data"]
             assert call_data == {
-                "detection": self._SAMPLE_DETECTION,
+                "detection": json.dumps(self._SAMPLE_DETECTION),
                 "severity": "high",
                 "summary": "Lateral movement detected",
             }
