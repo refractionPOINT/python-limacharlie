@@ -11,7 +11,9 @@
   (`--default-rules`). Without that, the pass would run no rules.
 - **`--rules-file PATH`** runs a rule set document
   (`{"version":1,"records":[{"key":...,"rules":{"rules":[...]}}]}`) in place of
-  the default rules. The CLI checks the document's structure before the scan.
+  the default rules. Before the scan starts, the CLI refuses a document the
+  scanner would not accept (unknown fields, wrong version, missing or duplicate
+  keys, over 32 MiB) or one that holds no rules.
 - **`--org-rules`** runs the org's enabled, unexpired `cloudsec_code_rule`
   records, the same rules a hosted scan runs. The CLI warns about enabled
   records that have no rules, and refuses an org that has no usable rule.

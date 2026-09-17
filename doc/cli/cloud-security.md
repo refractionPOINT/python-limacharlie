@@ -192,6 +192,6 @@ A rule set document holds one entry per rule file, where each `rules` value is a
 ]}
 ```
 
-The CLI checks the document's structure before the scan starts. The scanner checks each rule, then reports and skips any rule it cannot load.
+Before the scan starts, the CLI refuses a document the scanner would not accept: unknown fields, a version other than 1, a record without a unique non-empty `key` or a `rules` object, more than 32 MiB, or no rules at all. The scanner checks each rule, then reports and skips any rule it cannot load.
 
 **Scanner version.** The default image is pinned to scanner v0.16.0. A `--image` or `--binary` running `sast` must be v0.16.0 or newer, because older scanners reject the rule-set flags. That failure is a usage error (exit 2), and the CLI's error message names the version you need. A scan without `sast` passes no rule-set flag, so it still runs on older scanners.

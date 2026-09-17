@@ -2027,8 +2027,9 @@ class TestCloudSecCode:
         assert cmd.count("-v") == 2
 
     def test_code_scan_binary_gets_the_rules_file_on_the_host(self, tmp_path, monkeypatch):
+        body = '{"version":1,"records":[{"key":"k","rules":{"rules":[{"id":"r"}]}}]}'
         rules = tmp_path / "rules.json"
-        rules.write_text('{"version":1,"records":[]}')
+        rules.write_text(body)
         result, cap = self._scan_capturing(
             monkeypatch, tmp_path, ["--scanners", "sast", "--binary", "/opt/scanner-agent",
                                     "--rules-file", str(rules)])
@@ -2037,7 +2038,7 @@ class TestCloudSecCode:
         assert cmd[0] == "/opt/scanner-agent"
         path = cmd[cmd.index("--rules-file") + 1]
         assert os.path.isabs(path) and path.endswith("rules.json")
-        assert cap["rules"] == b'{"version":1,"records":[]}'
+        assert cap["rules"] == body.encode()
         assert "--default-rules" not in cmd
         # A binary we did not pin may predate the flag: its usage error gets the hint.
         assert "v0.16.0" in cap["usage_hint"]
@@ -2074,8 +2075,17 @@ class TestCloudSecCode:
             ('{"version":2,"records":[]}', "is not a code rule set document"),
             ('{"version":1,"records":[{"key":"","rules":{"rules":[]}}]}', "record 0"),
             ('{"version":1,"records":[{"key":"k","rules":[]}]}', "record 0"),
-            ('{"version":1,"records":[{"key":"k","rules":{"rules":[]}},'
-             '{"key":"k","rules":{"rules":[]}}]}', "duplicate record key 'k'"),
+            ('{"version":1,"records":[{"key":"k","rules":{"rules":[{"id":"a"}]}},'
+             '{"key":"k","rules":{"rules":[{"id":"b"}]}}]}', "duplicate record key 'k'"),
+            # The scanner parses with unknown fields refused and reports a refused document
+            # as a section error while still exiting 0, so these must stop here.
+            ('{"version":1,"records":[],"comment":"x"}', "is not a code rule set document"),
+            ('{"version":true,"records":[]}', "is not a code rule set document"),
+            ('{"version":1,"records":[{"key":"k","enabled":true,"rules":{"rules":[{"id":"a"}]}}]}',
+             "record 0"),
+            # Nothing to run: a sast pass that ran no rule is not a clean scan.
+            ('{"version":1,"records":[]}', "holds no rules"),
+            ('{"version":1,"records":[{"key":"k","rules":{}}]}', "holds no rules"),
         ]
         for body, expect in cases:
             rules = tmp_path / "rules.json"
@@ -2115,6 +2125,8 @@ class TestCloudSecCode:
         cmd = cap["cmd"]
         assert "--default-rules" not in cmd
         assert cmd[cmd.index("--rules-file") + 1] == "/scan/rules.json"
+        # Laid out like the hosted lane's document: version first, then records.
+        assert cap["rules"].startswith(b'{"version":1,"records":[{"key":"a-rule","rules":')
         doc = json.loads(cap["rules"])
         assert doc == {"version": 1, "records": [
             {"key": "a-rule", "rules": {"rules": [rule("a")]}},
@@ -2122,6 +2134,23 @@ class TestCloudSecCode:
         ]}
         # The enabled record that holds nothing is named, not dropped silently.
         assert "'empty'" in result.output
+
+    def test_code_scan_org_rules_reads_nothing_when_a_local_check_fails(self, tmp_path,
+                                                                       monkeypatch):
+        """The org's rules are fetched only after every local check has passed."""
+        bad = tmp_path / "a:b"
+        bad.mkdir()
+        from limacharlie.commands import cloudsec as cs_mod
+        monkeypatch.setattr(cs_mod, "_run", lambda *a, **k: pytest.fail("scan ran"))
+        with patch("limacharlie.commands.cloudsec.Hive") as hive_cls, \
+                _patches()[0], _patches()[1], _patches()[2] as cs_cls:
+            result, _ = _invoke(
+                ["cloudsec", "code", "scan", str(bad), "--repo", "acme/api",
+                 "-o", str(tmp_path / "r.gz"), "--scanners", "sast", "--org-rules"],
+                cs_cls, {"result": {}})
+        assert result.exit_code != 0
+        assert "contains ':'" in result.output
+        hive_cls.assert_not_called()
 
     def test_code_scan_org_rules_refuses_an_org_with_no_rules(self, tmp_path, monkeypatch):
         from limacharlie.sdk.hive import HiveRecord

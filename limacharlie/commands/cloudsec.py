@@ -67,6 +67,8 @@ MIN_RULES_SCANNER_VERSION = "v0.16.0"
 # and the only version of the rule set document the scanner reads.
 CODE_RULE_HIVE = "cloudsec_code_rule"
 CODE_RULES_WIRE_VERSION = 1
+# The scanner refuses a rule set document larger than this.
+MAX_CODE_RULES_BYTES = 32 << 20
 
 # The scanner's exit code for a usage or configuration error (nothing ran). An older scanner
 # given a flag it does not know exits with it too.
@@ -2240,36 +2242,55 @@ def _resolve_rules_mode(wanted: list[str], rules_file: str | None,
 
 
 def _read_rules_file(path: str) -> bytes:
-    """Read a rule set document and check its envelope.
+    """Read a rule set document and check it the way the scanner will.
 
-    Only the envelope is checked — what is inside a rule is the scanner's to judge
-    rule by rule, reporting and skipping a bad one rather than the whole set."""
+    The scanner reports a document it cannot read as a failed static-analysis
+    section and still exits 0, so a malformed file would look like a successful
+    scan that found nothing. The envelope is therefore checked here as strictly as
+    the scanner parses it: no unknown fields, an integer version, a unique
+    non-empty key and a rules object on every record, the size cap, and at least
+    one rule to run. What is inside a rule is left to the scanner, which reports
+    and skips a bad rule rather than the whole set."""
     try:
         with open(path, "rb") as f:
-            raw = f.read()
+            raw = f.read(MAX_CODE_RULES_BYTES + 1)
     except OSError as exc:
         raise click.ClickException("cannot read %s: %s" % (path, exc))
+    if len(raw) > MAX_CODE_RULES_BYTES:
+        raise click.ClickException(
+            "%s is larger than the scanner's %d-byte rule set limit"
+            % (path, MAX_CODE_RULES_BYTES))
     try:
         doc = json.loads(raw)
     except ValueError as exc:
         raise click.ClickException("%s is not JSON: %s" % (path, exc))
-    if (not isinstance(doc, dict) or doc.get("version") != CODE_RULES_WIRE_VERSION
+    shape = ("{\"version\":%d,\"records\":[{\"key\":...,\"rules\":{\"rules\":[...]}}]}"
+             % CODE_RULES_WIRE_VERSION)
+    if (not isinstance(doc, dict) or set(doc) - {"version", "records"}
+            or type(doc.get("version")) is not int
+            or doc.get("version") != CODE_RULES_WIRE_VERSION
             or not isinstance(doc.get("records"), list)):
         raise click.ClickException(
-            "%s is not a code rule set document: expected "
-            "{\"version\":%d,\"records\":[{\"key\":...,\"rules\":{\"rules\":[...]}}]}"
-            % (path, CODE_RULES_WIRE_VERSION))
+            "%s is not a code rule set document: expected exactly %s" % (path, shape))
     seen = set()
+    rules_total = 0
     for i, rec in enumerate(doc["records"]):
-        if (not isinstance(rec, dict) or not isinstance(rec.get("key"), str)
+        if (not isinstance(rec, dict) or set(rec) - {"key", "rules"}
+                or not isinstance(rec.get("key"), str)
                 or not rec.get("key") or not isinstance(rec.get("rules"), dict)):
             raise click.ClickException(
-                "%s: record %d needs a non-empty \"key\" and a \"rules\" object "
-                "({\"rules\":[...]})" % (path, i))
+                "%s: record %d must hold exactly a non-empty \"key\" and a \"rules\" "
+                "object ({\"rules\":[...]})" % (path, i))
         if rec["key"] in seen:
             raise click.ClickException(
                 "%s: duplicate record key %r" % (path, rec["key"]))
         seen.add(rec["key"])
+        inner = rec["rules"].get("rules")
+        if isinstance(inner, list):
+            rules_total += len(inner)
+    if rules_total == 0:
+        raise click.ClickException(
+            "%s holds no rules, so the sast pass would run nothing" % path)
     return raw
 
 
@@ -2309,9 +2330,25 @@ def _org_rules_document(ctx: click.Context) -> bytes:
             "this org has no enabled %s record with rules, so --org-rules would run "
             "no static analysis; drop --org-rules to use LimaCharlie's default rules"
             % CODE_RULE_HIVE)
-    doc = {"version": CODE_RULES_WIRE_VERSION, "records": out}
-    return json.dumps(doc, sort_keys=True, separators=(",", ":"),
-                      ensure_ascii=False).encode("utf-8")
+    # Rendered in the hosted lane's layout (version first, then records; key, then rules;
+    # rule objects with sorted keys, compact, no HTML escaping) so the same records give
+    # the same bytes wherever that is achievable.
+    parts = ['{"key":%s,"rules":%s}' % (_canonical_json(r["key"]),
+                                        _canonical_json(r["rules"])) for r in out]
+    body = '{"version":%d,"records":[%s]}' % (CODE_RULES_WIRE_VERSION, ",".join(parts))
+    raw = body.encode("utf-8")
+    if len(raw) > MAX_CODE_RULES_BYTES:
+        raise click.ClickException(
+            "this org's enabled %s records are %d bytes as a rule set, over the "
+            "scanner's %d-byte limit" % (CODE_RULE_HIVE, len(raw), MAX_CODE_RULES_BYTES))
+    return raw
+
+
+def _canonical_json(v: Any) -> str:
+    """Compact JSON with sorted keys and no HTML escaping, escaping U+2028/U+2029 the
+    way Go's encoder does."""
+    return (json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
 
 
 def _git_head(root: str) -> str | None:
