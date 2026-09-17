@@ -131,10 +131,17 @@ Idempotent per (message, action).
 
 Watch for result=alert_only: it means the action was DECIDED and
 deliberately not performed because the org is not in enforce mode.
-That is a success reported honestly, not a failure.
+That is a success reported honestly, not a failure. The response then
+carries force_required:true, and the command says so on stderr.
+
+--force performs the action even if the organization is in alert-only
+mode (no automation in enforce mode). The override is recorded in the
+audit trail: the action gets its own action id, and the audit row and
+EMAIL_ACTION event say it was forced. Absent, nothing changes.
 
 Examples:
   limacharlie mailsec message action 0057db2b-... --action quarantine_message --reason "confirmed phish"
+  limacharlie mailsec message action 0057db2b-... --action quarantine_message --reason "confirmed phish" --force
   limacharlie mailsec message action 0057db2b-... --action restore_message
 """
 
@@ -233,6 +240,15 @@ gone. Re-send the same execute request with the same confirmation token
 to finish it — every message already acted on collapses onto its existing
 action row rather than being acted on twice.
 
+An org in alert-only mode (no automation in enforce mode) withholds
+every member: they settle as alert_only, the status carries
+force_required:true, and the command says so on stderr. --force on the
+execute performs the action anyway, and the override is recorded in the
+audit trail. It is not part of the confirmation, so the token you already
+hold works; a forced execute runs as a NEW job with its own bulk_id
+rather than adopting the unforced one. On a preview it does nothing, and
+the command says so.
+
 --quiet silences both streams, as everywhere in this CLI. With it, the
 exit code above and `mailsec message bulk-status <bulk_id>` are how you
 read the result.
@@ -244,6 +260,7 @@ Examples:
     | jq -r '.messages[].msg_uuid' \\
     | limacharlie mailsec message bulk-action --action quarantine_message --input-file -
   limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids 0057db2b-... --confirm 3f31ed... --reason "INC-4471"
+  limacharlie mailsec message bulk-action --action quarantine_message --msg-uuids 0057db2b-... --confirm 3f31ed... --reason "INC-4471" --force
 """
 
 _EXPLAIN_MESSAGE_BULK_STATUS = """\
@@ -321,8 +338,17 @@ Neither field is part of the confirmation token, which is derived from the
 member set alone: adding a reason or an attempt between previewing and
 executing does not invalidate a token you already hold.
 
+--force performs the sweep even if the organization is in alert-only mode
+(no automation in enforce mode); the override is recorded in the audit
+trail. Without it such an org withholds every member (counted as
+alert_only), the response carries force_required:true, and the command
+says so on stderr. It belongs to the execute: it is not part of the
+confirmation token either, and on a preview it does nothing, which the
+command says.
+
 Examples:
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message
+  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --reason "confirmed credential harvest" --force
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --reason "confirmed credential harvest"
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --attempt after-the-outage
 """
@@ -569,6 +595,27 @@ def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
+
+
+_FORCE_HELP = (
+    "Perform the action even if the organization is in alert-only mode (no "
+    "automation in enforce mode). The override is recorded in the audit trail."
+)
+
+_ALERT_ONLY_NOTE = (
+    "This organization is in alert-only mode, so the action was recorded but not performed."
+)
+
+
+def _note_force_required(ctx: click.Context, response: Any, rerun: str) -> None:
+    """Say on stderr that alert-only mode withheld the action, and how to force it.
+
+    The response document itself is passed through untouched: ``force_required``
+    is already in it for a script. This is the line a person at a terminal would
+    otherwise miss, because ``result: alert_only`` reads like a success.
+    """
+    if isinstance(response, dict) and response.get("force_required") is True:
+        note(ctx, f"{_ALERT_ONLY_NOTE} {rerun}")
 
 
 def _get_mailsec(ctx: click.Context) -> Mailsec:
@@ -1136,8 +1183,9 @@ def message_similar(ctx, msg_uuid, cursor, limit) -> None:
 @click.option("--reason", default=None, help="Recorded on the audit row.")
 @click.option("--attempt", default=None, help="Caller-supplied idempotency token.")
 @click.option("--banner", default=None, hidden=True, help=_DEPRECATED_BANNER_HELP)
+@click.option("--force", is_flag=True, default=False, help=_FORCE_HELP)
 @pass_context
-def message_action(ctx, msg_uuid, action_name, reason, attempt, banner) -> None:
+def message_action(ctx, msg_uuid, action_name, reason, attempt, banner, force) -> None:
     """Remediate one message at the provider (mailsec.act).
 
     \b
@@ -1146,9 +1194,11 @@ def message_action(ctx, msg_uuid, action_name, reason, attempt, banner) -> None:
     """
     _note_banner_is_ignored(ctx, banner)
     ms = _get_mailsec(ctx)
-    _output(ctx, ms.act_on_message(
-        msg_uuid, action_name, reason=reason, attempt=attempt,
-    ))
+    result = ms.act_on_message(
+        msg_uuid, action_name, reason=reason, attempt=attempt, force=force,
+    )
+    _output(ctx, result)
+    _note_force_required(ctx, result, "Re-run with --force to perform it.")
 
 
 @message_group.command("revise")
@@ -1211,6 +1261,9 @@ def message_revisions(ctx, msg_uuid) -> None:
               help="Pass the token the preview returned to EXECUTE. Omit to preview. The token is "
                    "derived from the action, the attempt and the member list, so the execute must "
                    "repeat the identical --action, --msg-uuids and --attempt.")
+@click.option("--force", is_flag=True, default=False,
+              help=_FORCE_HELP + " Applies to the execute (with --confirm) only; it is not "
+                   "part of the confirmation, and a forced execute runs as a new job.")
 @click.option("--wait/--no-wait", default=True,
               help="Poll until the job settles (default), or return as soon as it is accepted.")
 @click.option("--timeout", default=300, type=click.IntRange(min=5),
@@ -1219,7 +1272,7 @@ def message_revisions(ctx, msg_uuid) -> None:
               help="Seconds between polls (default: 3).")
 @pass_context
 def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner, reason, confirm,
-                        wait, timeout, poll_interval) -> None:
+                        force, wait, timeout, poll_interval) -> None:
     """Remediate a set of messages you name, in bulk (mailsec.act).
 
     \b
@@ -1253,13 +1306,17 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
             # could end up in the token, which would mean rewording a
             # justification invalidated a selection somebody already approved.
             note(ctx, "--reason applies to the execute, not the preview; pass it again with --confirm")
+        if force:
+            # Same shape as --reason: the preview endpoint takes no force, and
+            # the token it mints is valid for a forced execute as it is.
+            note(ctx, "--force applies to the execute, not the preview; pass it again with --confirm")
         preview = ms.bulk_action_preview(action_name, selection, attempt=attempt)
         _echo_bulk_preview(ctx, preview)
         _output_preview(ctx, preview)
         return
 
     accepted = ms.bulk_action_execute(
-        action_name, selection, confirm, attempt=attempt, reason=reason,
+        action_name, selection, confirm, attempt=attempt, reason=reason, force=force,
     )
     bulk_id = accepted.get("bulk_id")
     if not accepted.get("accepted") or not bulk_id:
@@ -1297,6 +1354,11 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
         return
 
     _output(ctx, status)
+    _note_force_required(
+        ctx, status,
+        "Re-run the execute with --force to perform it; the same --confirm token works, "
+        "and a forced execute runs as a new job.",
+    )
     code = _bulk_outcome(ctx, bulk_id, status, timeout)
     if code:
         ctx.exit(code)
@@ -1375,8 +1437,11 @@ def campaign_get(ctx, campaign_id) -> None:
                    "by default, so a repeat collapses onto the rows it already wrote; a new "
                    "attempt records the re-run beside what failed instead of over it. An opaque "
                    "handle, not prose: at most 128 characters, refused rather than truncated.")
+@click.option("--force", is_flag=True, default=False,
+              help=_FORCE_HELP + " Applies to the execute (with --confirm) only; it is not "
+                   "part of the confirmation token.")
 @pass_context
-def campaign_action(ctx, campaign_id, action_name, confirm, reason, attempt) -> None:
+def campaign_action(ctx, campaign_id, action_name, confirm, reason, attempt, force) -> None:
     """Sweep an action across a whole campaign (mailsec.act).
 
     \b
@@ -1390,9 +1455,18 @@ def campaign_action(ctx, campaign_id, action_name, confirm, reason, attempt) -> 
       limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --attempt after-the-outage
     """
     ms = _get_mailsec(ctx)
-    _output(ctx, ms.act_on_campaign(
-        campaign_id, action_name, confirm=confirm, reason=reason, attempt=attempt,
-    ))
+    if not confirm:
+        if force:
+            note(ctx, "--force applies to the execute, not the preview; pass it again with --confirm")
+        _output(ctx, ms.act_on_campaign(
+            campaign_id, action_name, confirm=confirm, reason=reason, attempt=attempt,
+        ))
+        return
+    result = ms.act_on_campaign(
+        campaign_id, action_name, confirm=confirm, reason=reason, attempt=attempt, force=force,
+    )
+    _output(ctx, result)
+    _note_force_required(ctx, result, "Re-run with --force to perform it.")
 
 
 # ---------------------------------------------------------------------------

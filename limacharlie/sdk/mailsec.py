@@ -467,6 +467,7 @@ class Mailsec:
         reason: str | None = None,
         attempt: str | None = None,
         banner: str | None = None,
+        force: bool = False,
     ) -> dict[str, Any]:
         """Remediate one message at the provider. Requires ``mailsec.act``.
 
@@ -486,19 +487,25 @@ class Mailsec:
                 ``mailsec_policy`` record of type ``banners`` into a fixed,
                 escaped template, so no caller can put markup in a user's mail.
                 Passing it warns and sends nothing; set the wording in policy.
+            force: Perform the action even if the organization is in
+                alert-only mode (no automation in enforce mode). The override
+                is recorded in the audit trail. Sent only when ``True``.
 
         Returns:
             The action record, including ``result`` — note ``alert_only``,
             which means the action was DECIDED and deliberately not performed
             because the org is not in enforce mode. That is a success, not a
             failure, and it is reported as its own result rather than as
-            ``ok``.
+            ``ok``. ``force_required: true`` accompanies it: re-sending with
+            ``force=True`` performs the action.
         """
         _warn_banner_is_ignored(banner)
         body: dict[str, Any] = {"action": action}
         for key, val in (("reason", reason), ("attempt", attempt)):
             if val is not None:
                 body[key] = val
+        if force is True:
+            body["force"] = True
         return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
 
     def revise_verdict(
@@ -661,6 +668,7 @@ class Mailsec:
         attempt: str | None = None,
         banner: str | None = None,
         reason: str | None = None,
+        force: bool = False,
     ) -> dict[str, Any]:
         """Execute a previewed bulk action. Requires ``mailsec.act``.
 
@@ -700,6 +708,14 @@ class Mailsec:
                 for one. It is deliberately NOT part of the confirmation, so
                 rewording it between previewing and executing neither invalidates
                 the token nor starts a second job over the same messages.
+            force: Perform the action even if the organization is in
+                alert-only mode (no automation in enforce mode). The override
+                is recorded in the audit trail. Sent only when ``True``. Like
+                ``reason`` it is not part of the confirmation, so the preview's
+                token is reused; a forced execute runs as a NEW job with its
+                own ``bulk_id`` rather than adopting the unforced one.
+                :meth:`bulk_action_status` reports ``force_required: true``
+                when members were withheld by alert-only mode.
 
         Returns:
             ``{"accepted": True, "bulk_id": str, "state": str, "counts": {...},
@@ -727,6 +743,8 @@ class Mailsec:
         for key, val in (("attempt", attempt), ("reason", reason)):
             if val is not None:
                 body[key] = val
+        if force is True:
+            body["force"] = True
         return self._post("actions/bulk/execute", body)
 
     def bulk_action_status(self, bulk_id: str) -> dict[str, Any]:
@@ -852,6 +870,7 @@ class Mailsec:
         reason: str | None = None,
         attempt: str | None = None,
         actor: str | None = None,
+        force: bool = False,
     ) -> dict[str, Any]:
         """Sweep an action across every member of a campaign.
 
@@ -892,6 +911,13 @@ class Mailsec:
             actor: Ignored if supplied — the gateway stamps the acting
                 identity from the authenticated claims, so an audit trail's
                 subject can never be chosen by its subject.
+            force: Perform the action even if the organization is in
+                alert-only mode (no automation in enforce mode). The override
+                is recorded in the audit trail. Applies to the EXECUTE only:
+                it is not part of the confirmation token, and passing it
+                without ``confirm`` (a preview) raises ``ValueError``. The
+                execution reports ``force_required: true`` when members were
+                withheld by alert-only mode.
 
         Note:
             Neither ``reason`` nor ``attempt`` is part of the confirmation
@@ -899,11 +925,18 @@ class Mailsec:
             between previewing and executing therefore does not invalidate a
             token you already hold.
         """
+        if force is True and confirm is None:
+            # Refused rather than dropped: a caller that believes it forced a
+            # preview would read the preview's counts as what a forced sweep
+            # will do, and the preview endpoint does not take force at all.
+            raise ValueError("force applies to the execute; pass confirm to execute the sweep")
         body: dict[str, Any] = {"action": action}
         for key, val in (("confirm", confirm), ("reason", reason),
                          ("attempt", attempt), ("actor", actor)):
             if val is not None:
                 body[key] = val
+        if force is True:
+            body["force"] = True
         return self._post(f"campaigns/{_seg(campaign_id)}/actions", body)
 
     # ------------------------------------------------------------------

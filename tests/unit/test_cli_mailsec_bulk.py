@@ -600,6 +600,66 @@ class TestTheHandleIsNeverLost:
         assert "already existed" in result.stderr
 
 
+class TestForce:
+    """--force belongs to the execute. It is not part of the confirmation, the
+    preview endpoint does not take it, and a job whose members alert-only mode
+    withheld has to say so — a `settled` line with exit 0 otherwise reads as a
+    remediation that happened."""
+
+    def test_force_reaches_the_execute(self):
+        result, ms = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN, "--force",
+            sdk_returns=_HAPPY,
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ms.bulk_action_execute.call_args.kwargs["force"] is True
+
+    def test_the_execute_is_not_forced_by_default(self):
+        result, ms = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN,
+            sdk_returns=_HAPPY,
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ms.bulk_action_execute.call_args.kwargs["force"] is False
+
+    def test_force_on_a_preview_is_not_sent_and_is_said_out_loud(self):
+        result, ms = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--force",
+            sdk_returns=_HAPPY,
+        )
+        assert result.exit_code == 0, result.stderr
+        ms.bulk_action_preview.assert_called_once()
+        assert "force" not in ms.bulk_action_preview.call_args.kwargs
+        ms.bulk_action_execute.assert_not_called()
+        assert "--force applies to the execute, not the preview" in result.stderr
+
+    def test_a_withheld_job_says_force_is_required(self):
+        withheld = {**_status(ok=0), "force": False, "force_required": True}
+        withheld["counts"] = {**withheld["counts"], "alert_only": 2}
+        result, _ = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN,
+            sdk_returns={**_HAPPY, "bulk_action_status": withheld},
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ("This organization is in alert-only mode, so the action was recorded but "
+                "not performed. Re-run the execute with --force") in result.stderr
+        assert json.loads(result.stdout) == withheld
+
+    def test_a_job_that_acted_says_nothing_about_force(self):
+        done = {**_status(), "force": False, "force_required": False}
+        result, _ = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN,
+            sdk_returns={**_HAPPY, "bulk_action_status": done},
+        )
+        assert result.exit_code == 0, result.stderr
+        assert "alert-only" not in result.stderr
+
+
 class TestExitCodesCarryTheOutcome:
     def test_a_completed_job_that_acted_on_something_exits_zero(self):
         result, _ = _invoke(
