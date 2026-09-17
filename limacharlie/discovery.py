@@ -36,7 +36,7 @@ PROFILES = {
             "auth signup", "auth get-token",
             "config show-paths", "config migrate",
             "completion",
-            "help discover", "help topic", "help receipt", "help capability",
+            "help discover", "help topic", "help cheatsheet",
         ],
     },
     "sensor_management": {
@@ -265,7 +265,7 @@ PROFILES = {
         ],
     },
     "data_access": {
-        "description": "Low-level data retrieval, schemas, records, and advanced response language",
+        "description": "Retrieve data through the Authenticated Resource Locator (ARL) resolver",
         "commands": [
             "arl get",
         ],
