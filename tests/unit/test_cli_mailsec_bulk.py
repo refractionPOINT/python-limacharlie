@@ -649,6 +649,50 @@ class TestForce:
                 "not performed. Re-run the execute with --force") in result.stderr
         assert json.loads(result.stdout) == withheld
 
+    def test_force_without_waiting_still_reaches_the_execute(self):
+        result, ms = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN, "--force", "--no-wait",
+            sdk_returns=_HAPPY,
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ms.bulk_action_execute.call_args.kwargs["force"] is True
+        ms.bulk_action_status.assert_not_called()
+        assert "alert-only" not in result.stderr
+
+    def test_a_forced_job_the_server_did_not_apply_says_so(self):
+        """The unforced job's id is adopted when force never reached the
+        collector; pointing at --force again would loop the operator."""
+        withheld = {**_status(ok=0), "force": False, "force_required": True}
+        result, _ = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "trash_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN, "--force",
+            sdk_returns={**_HAPPY, "bulk_action_status": withheld},
+        )
+        assert result.exit_code == 0, result.stderr
+        assert "--force was sent but the server did not apply it" in result.stderr
+        assert "Re-run the execute with --force" not in result.stderr
+
+    def test_bulk_status_says_when_force_is_required(self):
+        withheld = {**_status(ok=0), "force": False, "force_required": True}
+        result, _ = _invoke(
+            "mailsec", "message", "bulk-status", BULK_ID,
+            sdk_returns={"bulk_action_status": withheld},
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ("This organization is in alert-only mode, so the action was recorded but "
+                "not performed. Re-run the execute with --force") in result.stderr
+        assert json.loads(result.stdout) == withheld
+
+    def test_bulk_status_of_a_forced_job_still_withheld_says_force_was_not_applied(self):
+        withheld = {**_status(ok=0), "force": True, "force_required": True}
+        result, _ = _invoke(
+            "mailsec", "message", "bulk-status", BULK_ID,
+            sdk_returns={"bulk_action_status": withheld},
+        )
+        assert result.exit_code == 0, result.stderr
+        assert "--force was sent but the server did not apply it" in result.stderr
+
     def test_a_job_that_acted_says_nothing_about_force(self):
         done = {**_status(), "force": False, "force_required": False}
         result, _ = _invoke(

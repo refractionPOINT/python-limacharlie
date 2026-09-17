@@ -348,8 +348,8 @@ command says.
 
 Examples:
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message
-  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --reason "confirmed credential harvest" --force
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --reason "confirmed credential harvest"
+  limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --reason "confirmed credential harvest" --force
   limacharlie mailsec campaign action ec7e273b-... --action quarantine_message --confirm 3c514e... --attempt after-the-outage
 """
 
@@ -607,15 +607,31 @@ _ALERT_ONLY_NOTE = (
 )
 
 
-def _note_force_required(ctx: click.Context, response: Any, rerun: str) -> None:
+def _note_force_required(ctx: click.Context, response: Any, rerun: str, forced: bool) -> None:
     """Say on stderr that alert-only mode withheld the action, and how to force it.
 
     The response document itself is passed through untouched: ``force_required``
     is already in it for a script. This is the line a person at a terminal would
     otherwise miss, because ``result: alert_only`` reads like a success.
+
+    A forced action is never withheld, so ``force_required`` on a request that
+    carried --force means the flag did not reach the collector (an API that
+    predates it drops the field). Telling that caller to re-run with --force
+    would send them round in a loop.
     """
-    if isinstance(response, dict) and response.get("force_required") is True:
-        note(ctx, f"{_ALERT_ONLY_NOTE} {rerun}")
+    if not isinstance(response, dict) or response.get("force_required") is not True:
+        return
+    if forced:
+        note(ctx, f"{_ALERT_ONLY_NOTE} --force was sent but the server did not apply it; "
+                  f"the API in use may not support it yet.")
+        return
+    note(ctx, f"{_ALERT_ONLY_NOTE} {rerun}")
+
+
+_BULK_FORCE_RERUN = (
+    "Re-run the execute with --force to perform it; the same --confirm token works, "
+    "and a forced execute runs as a new job."
+)
 
 
 def _get_mailsec(ctx: click.Context) -> Mailsec:
@@ -1198,7 +1214,7 @@ def message_action(ctx, msg_uuid, action_name, reason, attempt, banner, force) -
         msg_uuid, action_name, reason=reason, attempt=attempt, force=force,
     )
     _output(ctx, result)
-    _note_force_required(ctx, result, "Re-run with --force to perform it.")
+    _note_force_required(ctx, result, "Re-run with --force to perform it.", force)
 
 
 @message_group.command("revise")
@@ -1354,11 +1370,7 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
         return
 
     _output(ctx, status)
-    _note_force_required(
-        ctx, status,
-        "Re-run the execute with --force to perform it; the same --confirm token works, "
-        "and a forced execute runs as a new job.",
-    )
+    _note_force_required(ctx, status, _BULK_FORCE_RERUN, force or status.get("force") is True)
     code = _bulk_outcome(ctx, bulk_id, status, timeout)
     if code:
         ctx.exit(code)
@@ -1378,7 +1390,10 @@ def message_bulk_status(ctx, bulk_id) -> None:
     Example:
       limacharlie mailsec message bulk-status 8f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f
     """
-    _output(ctx, _get_mailsec(ctx).bulk_action_status(bulk_id))
+    status = _get_mailsec(ctx).bulk_action_status(bulk_id)
+    _output(ctx, status)
+    _note_force_required(ctx, status, _BULK_FORCE_RERUN,
+                         isinstance(status, dict) and status.get("force") is True)
 
 
 # ---------------------------------------------------------------------------
@@ -1466,7 +1481,7 @@ def campaign_action(ctx, campaign_id, action_name, confirm, reason, attempt, for
         campaign_id, action_name, confirm=confirm, reason=reason, attempt=attempt, force=force,
     )
     _output(ctx, result)
-    _note_force_required(ctx, result, "Re-run with --force to perform it.")
+    _note_force_required(ctx, result, "Re-run with --force to perform it.", force)
 
 
 # ---------------------------------------------------------------------------

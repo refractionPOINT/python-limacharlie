@@ -305,18 +305,39 @@ class TestForce:
 
     def test_the_force_hint_respects_quiet(self):
         response = {"result": "alert_only", "force_required": True}
-        with (
-            patch("limacharlie.commands.mailsec.Client"),
-            patch("limacharlie.commands.mailsec.Organization"),
-            patch("limacharlie.commands.mailsec.Mailsec") as mailsec_cls,
-        ):
-            mailsec_cls.return_value.act_on_message.return_value = response
-            result = CliRunner(mix_stderr=False).invoke(cli, [
-                "--oid", "11111111-2222-3333-4444-555555555555", "--quiet",
-                "mailsec", "message", "action", "msg-1", "--action", "quarantine_message",
-            ])
+
+        def run(*global_flags):
+            with (
+                patch("limacharlie.commands.mailsec.Client"),
+                patch("limacharlie.commands.mailsec.Organization"),
+                patch("limacharlie.commands.mailsec.Mailsec") as mailsec_cls,
+            ):
+                mailsec_cls.return_value.act_on_message.return_value = response
+                return CliRunner(mix_stderr=False).invoke(cli, [
+                    "--oid", "11111111-2222-3333-4444-555555555555", *global_flags,
+                    "mailsec", "message", "action", "msg-1", "--action", "quarantine_message",
+                ])
+
+        # The control: the same invocation without --quiet does print it, so an
+        # empty stderr below is --quiet's doing and not a hint that never fires.
+        loud = run("--output", "json")
+        assert loud.exit_code == 0, loud.output
+        assert ALERT_ONLY_NOTE in loud.stderr
+        quiet = run("--quiet")
+        assert quiet.exit_code == 0, quiet.output
+        assert quiet.stderr == ""
+
+    def test_a_force_the_server_did_not_apply_is_not_answered_with_use_force(self):
+        """A forced action is never withheld, so force_required on a forced
+        request means the flag never reached the collector (an API that predates
+        it drops the field). "Re-run with --force" would loop the operator."""
+        response = {"result": "alert_only", "force_required": True}
+        result, _ = invoke_message_action(
+            "--action", "quarantine_message", "--force", returns=response,
+        )
         assert result.exit_code == 0, result.output
-        assert result.stderr == ""
+        assert "--force was sent but the server did not apply it" in result.stderr
+        assert "Re-run with --force" not in result.stderr
 
     def test_campaign_execute_forwards_force(self):
         result, mailsec = invoke_campaign_action(
@@ -341,6 +362,16 @@ class TestForce:
         assert result.exit_code == 0, result.output
         assert f"{ALERT_ONLY_NOTE} Re-run with --force to perform it." in result.stderr
         assert json.loads(result.stdout) == response
+
+    def test_a_forced_campaign_the_server_did_not_apply_says_so(self):
+        response = {"preview": False, "alert_only": 3, "force_required": True}
+        result, _ = invoke_campaign_action(
+            "--action", "quarantine_message", "--confirm", "member-bound-token", "--force",
+            returns=response,
+        )
+        assert result.exit_code == 0, result.output
+        assert "--force was sent but the server did not apply it" in result.stderr
+        assert "Re-run with --force" not in result.stderr
 
     def test_force_help_uses_the_agreed_wording(self):
         expected = ("Perform the action even if the organization is in alert-only mode (no "

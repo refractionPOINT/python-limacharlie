@@ -106,6 +106,19 @@ BULK_ACTIONS = (
 BULK_TERMINAL_STATES = ("complete", "interrupted")
 
 
+def _check_force(force: Any) -> bool:
+    """Validate the ``force`` argument of a remediation call.
+
+    The server forces only on a JSON boolean ``true``, so a truthy non-bool
+    (``1``, ``"yes"``) would either be sent as something it ignores or not be
+    sent at all. Either way the caller believes they forced and nothing moved,
+    so it is refused here instead.
+    """
+    if not isinstance(force, bool):
+        raise TypeError(f"force must be a bool, not {type(force).__name__}")
+    return force
+
+
 def normalize_bulk_selection(msg_uuids: Any) -> list[str]:
     """Trim, drop blanks, deduplicate and sort a bulk selection.
 
@@ -500,11 +513,12 @@ class Mailsec:
             ``force=True`` performs the action.
         """
         _warn_banner_is_ignored(banner)
+        _check_force(force)
         body: dict[str, Any] = {"action": action}
         for key, val in (("reason", reason), ("attempt", attempt)):
             if val is not None:
                 body[key] = val
-        if force is True:
+        if force:
             body["force"] = True
         return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
 
@@ -740,10 +754,11 @@ class Mailsec:
             "confirm": confirm,
         }
         _warn_banner_is_ignored(banner)
+        _check_force(force)
         for key, val in (("attempt", attempt), ("reason", reason)):
             if val is not None:
                 body[key] = val
-        if force is True:
+        if force:
             body["force"] = True
         return self._post("actions/bulk/execute", body)
 
@@ -915,7 +930,7 @@ class Mailsec:
                 alert-only mode (no automation in enforce mode). The override
                 is recorded in the audit trail. Applies to the EXECUTE only:
                 it is not part of the confirmation token, and passing it
-                without ``confirm`` (a preview) raises ``ValueError``. The
+                without a ``confirm`` (a preview) raises ``ValueError``. The
                 execution reports ``force_required: true`` when members were
                 withheld by alert-only mode.
 
@@ -925,7 +940,7 @@ class Mailsec:
             between previewing and executing therefore does not invalidate a
             token you already hold.
         """
-        if force is True and confirm is None:
+        if _check_force(force) and not confirm:
             # Refused rather than dropped: a caller that believes it forced a
             # preview would read the preview's counts as what a forced sweep
             # will do, and the preview endpoint does not take force at all.
@@ -935,7 +950,7 @@ class Mailsec:
                          ("attempt", attempt), ("actor", actor)):
             if val is not None:
                 body[key] = val
-        if force is True:
+        if force:
             body["force"] = True
         return self._post(f"campaigns/{_seg(campaign_id)}/actions", body)
 
