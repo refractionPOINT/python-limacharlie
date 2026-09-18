@@ -27,6 +27,7 @@ the one provider command here is the pre-save credential preflight
 
 from __future__ import annotations
 
+import base64
 import gzip
 import json
 import zlib
@@ -1221,6 +1222,50 @@ def _finding_filter_options(f):
         help="Substring search over the findings.",
     )(f)
     f = click.option(
+        "--grain", "grains", multiple=True,
+        type=click.Choice(["package", "cve", "other"]),
+        help="Which UNIT OF WORK a vulnerability finding states; "
+             "repeatable (OR). 'package' = upgrade <pkg> on host X, "
+             "closing N CVEs; 'cve' = one finding per CVE; 'other' = "
+             "everything else, including the container-image and "
+             "source-repository vulnerability lanes. UNLIKE every other "
+             "filter here, OMITTING this is NOT 'no constraint': the "
+             "default worklist leads with the package grain and EXCLUDES "
+             "the per-CVE rollups a package finding already states pair "
+             "for pair, so a pair is never counted twice. Pass "
+             "--grain cve to reach every per-CVE finding, or both values "
+             "for the union. The 'grain' facet always reports the full "
+             "per-grain population, so you can see what the default holds "
+             "back.",
+    )(f)
+    f = click.option(
+        "--exploit-band", "exploit_bands", multiple=True,
+        type=click.Choice(["kev_overdue", "kev_due", "exploit_likely",
+                           "exploit_probable", "elevated", "baseline",
+                           "none"]),
+        help="Exploit-urgency band, most urgent first; repeatable (OR). "
+             "KEV dominates EPSS; a KEV entry with no parseable due date "
+             "bands kev_due, never kev_overdue. 'none' selects findings "
+             "with no exploit signal at all.",
+    )(f)
+    f = click.option(
+        "--fix-state", "fix_states", multiple=True,
+        type=click.Choice(["fix_available", "no_fix", "unknown"]),
+        help="Fix availability; repeatable (OR). 'unknown' is a "
+             "first-class value and NOT a synonym for no_fix — a fixed "
+             "version nobody collected is not a fix that does not exist. "
+             "'no_fix' is asserted only on a positive signal (a malicious "
+             "package, or a VEX assertion that makes the fix moot).",
+    )(f)
+    f = click.option(
+        "--image-urn", "image_urns", multiple=True,
+        help="Filter to findings on a container image; repeatable (OR). "
+             "Takes the FULL image urn as 'cloudsec image list' returns "
+             "it, not a bare sha256: digest — a digest matches nothing "
+             "and says so with an empty page. This is how you pivot from "
+             "an image to its findings.",
+    )(f)
+    f = click.option(
         "--unassigned", is_flag=True, default=False,
         help="Include findings with no owner (the untriaged bucket); "
              "combines with --owner.",
@@ -1529,10 +1574,13 @@ def group() -> None:
       resource get        Canonical record for any urn
       graph neighbors     1-hop graph expansion around a urn
       query ...           Graph queries (list pack, run)
-      compliance ...      Framework assessment, frameworks, assignments
+      compliance ...      Live assessment + immutable runs, attestations,
+                          drift events, exports, schedules
       chokepoint ...      Estate-wide chokepoints (list, dismiss, restore)
       resolve ...         Sensor <-> cloud asset resolution
-      code ...            AppSec code lane (repos, status, sbom)
+      code ...            AppSec code lane (repos, status, sbom, PR checks)
+      image ...           Container images (repos, list, get)
+      azure ...           Azure scope containment evidence
       caasm ...           Third-party asset inventory, coverage, ingest
       provider ...        Credential preflight + coverage manifests
       policy ...          cloudsec_policy vocabulary + autocomplete
@@ -1638,14 +1686,18 @@ def free_tier(ctx) -> None:
 @group.group("code")
 def code_group() -> None:
     """AppSec code lane: repositories, scan status, SBOM export, connection
-    capabilities, and the dependency-upgrade queue.
+    capabilities, the dependency-upgrade queue, and the developer-facing
+    pull-request check.
 
     The lane scans a connected source-control organization's repositories
     and emits findings into the same worklist the cloud collectors feed,
     so the findings themselves are read with 'cloudsec finding list
     --repo <owner>/<name>'. The commands here are the repository-shaped
-    views that worklist cannot give you: repos, status, capabilities,
-    fixes, sbom, scan, rescan, autofix, and ingest.
+    views and triggers that worklist cannot give you: repos, status,
+    capabilities, fixes, sbom, scan, rescan, autofix, ingest, pr-check
+    and webhook.
+
+    Container images are their own inventory — see 'cloudsec image'.
     """
 
 
@@ -1853,6 +1905,156 @@ def code_rescan(ctx, repo, ref, provider) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.rescan_code_repo(repo, ref=ref, provider=provider))
+
+@code_group.command("pr-check")
+@click.argument("repo")
+@click.option("--pr", required=True, type=int,
+              help="The pull-request number.")
+@click.option("--base-sha", required=True,
+              help="A FULL commit id (40 or 64 hex characters). Still "
+                   "required, but NOT authoritative: the lane takes the base "
+                   "from the provider, because a caller-chosen base decides "
+                   "what the diff is measured from and a base equal to the "
+                   "head would make any pull request look like it introduced "
+                   "nothing.")
+@click.option("--head-sha", required=True,
+              help="The FULL commit id of the head. A branch or tag name is "
+                   "refused: the check is published ON the commit, and a ref "
+                   "would let it be attached to a commit nobody proposed.")
+@click.option("--action", required=True,
+              type=click.Choice(["opened", "synchronize", "reopened", "edited"]),
+              help="The webhook action. Required: the collection host checks "
+                   "membership of this closed set with no empty-string "
+                   "exemption, so a request carrying no action is refused "
+                   "unconditionally. Every other pull-request event leaves "
+                   "what the pull request introduces untouched and is refused "
+                   "too. A CI job with no webhook to quote should send "
+                   "'synchronize', which is what a push to an open pull "
+                   "request is.")
+@click.option("--prev-base-sha", default=None,
+              help="REQUIRED with --action edited: the full commit id the "
+                   "pull request was based on before the edit (the webhook's "
+                   "changes.base.sha.from).")
+@click.option("--base-ref", default=None,
+              help="Optional branch the pull request targets.")
+@click.option("--head-ref", default=None,
+              help="Optional branch the pull request comes from.")
+@click.option("--provider", default=None,
+              help="Source-control provider (default github).")
+@pass_context
+def code_pr_check(ctx, repo, pr, base_sha, head_sha, action, prev_base_sha,
+                  base_ref, head_ref, provider) -> None:
+    """Ask the code lane what a pull request INTRODUCES, as a check run.
+
+    REPO is '<owner>/<name>', the bare repository name, or its urn.
+
+    The lane scans the pull request's base and head and publishes a GitHub
+    check run on the head commit reporting only what is NEW in it; the
+    repository's own findings stay on 'cloudsec code repos'. Its normal
+    caller is the shipped D&R rule on the org's source-control webhook —
+    this is the same door for a CI job.
+
+    The pull request is READ FROM THE PROVIDER before anything is scanned
+    and what it says wins: the check is published only when the pull
+    request is open, belongs to this repository, and its head commit is
+    the --head-sha you sent.
+
+    '--action edited' is in the set for ONE of the things a provider
+    reports with it: a pull request RETARGETED at a different base branch,
+    which changes the diff under review without pushing a commit. A title
+    or body change is reported the same way and changes nothing, so
+    --prev-base-sha is what tells them apart. It is evidence, never a scan
+    input: the check is refused if the base did not actually move, so an
+    editing spree costs no scan.
+
+    'accepted' means QUEUED, never that a check will appear. It is
+    debounced per pull request ('debounce_seconds': a push of several
+    commits becomes one check), and each of these is a quiet no-op: a
+    connection whose GitHub App lacks Checks and Pull requests write
+    ('cloudsec code capabilities' names the missing permission), a
+    repository outside the code_scanning policy scope or with pr_checks
+    off, one over the free-tier quota, a connection that has spent its
+    daily write budget, or a connection paused right then. A scan that
+    cannot complete publishes a NEUTRAL check run, never a failure.
+
+    \b
+    Examples:
+      limacharlie cloudsec code pr-check acme/api --pr 42 \\
+        --base-sha 1111111111111111111111111111111111111111 \\
+        --head-sha 2222222222222222222222222222222222222222 --action synchronize
+      limacharlie cloudsec code pr-check acme/api --pr 42 --action edited \\
+        --base-sha <new-base> --head-sha <head> --prev-base-sha <old-base>
+    """
+    if action == "edited" and not prev_base_sha:
+        raise click.UsageError(
+            "--action edited needs --prev-base-sha: an edited pull request is "
+            "checked only when it retargeted its base branch, and a title or "
+            "body change is reported with the same action. Pass the webhook's "
+            "changes.base.sha.from.",
+        )
+    if prev_base_sha and action != "edited":
+        raise click.UsageError(
+            "--prev-base-sha is only meaningful with --action edited.",
+        )
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.check_pull_request(
+        repo, pr, base_sha, head_sha, action,
+        prev_base_sha=prev_base_sha,
+        base_ref=base_ref, head_ref=head_ref, provider=provider,
+    ))
+
+
+@code_group.command("webhook")
+@click.option("--connection", required=True,
+              help="The cloudsec_provider hive record name of a GitHub "
+                   "connection.")
+@click.option("--url", required=True,
+              help="The adapter's hook url: "
+                   "https://<this org's hooks domain>/<oid>/"
+                   "github-code-webhook-<connection>/<url secret> — the "
+                   "adapter's own name, whose 'github-code-webhook-' PREFIX "
+                   "is what the server enforces on that segment. The hooks "
+                   "domain is the 'url.hooks' value of 'limacharlie org "
+                   "url', always under .hook.limacharlie.io. https only, no "
+                   "credentials, port, query or fragment.")
+@click.option("--secret", required=True,
+              help="The webhook signing secret the adapter verifies "
+                   "(X-Hub-Signature-256): 20 to 256 bytes, no whitespace "
+                   "and no control characters. Never logged or echoed back.")
+@pass_context
+def code_webhook(ctx, connection, url, secret) -> None:
+    """Point a GitHub connection's App webhook at this org's adapter.
+
+    Push rescans and pull-request checks are driven by the GitHub App's
+    OWN webhook — one per App, covering every repository the App is
+    installed on. A connection whose App has no webhook, or one pointing
+    elsewhere, is repaired here.
+
+    The url rule is narrow on purpose: a caller who could name any url
+    could redirect an org's source-control event stream, and the secret
+    needed to accept it, to a server they control. Neither the url nor the
+    secret is ever returned or logged.
+
+    Returns the connection's RE-DETECTED webhook status. A SUCCESSFUL call
+    can still report state 'unavailable' with reason 'missing_events':
+    event subscriptions (Push, Pull request) cannot be changed through the
+    API, so an org owner has to tick them in the App's settings. The same
+    is true of an App whose webhook is not Active — GitHub's API cannot
+    create one, so that refusal ('webhook_not_active') also needs a human.
+
+    A timeout ('reason': 'timeout') MAY STILL HAVE BEEN APPLIED — re-read
+    the status with 'cloudsec code capabilities' rather than retrying
+    blindly. 'host_unavailable' is transient and safe to retry; the write
+    is idempotent.
+
+    \b
+    Example:
+      limacharlie cloudsec code webhook --connection my-github \\
+        --url "https://<domain>/<oid>/github-code-webhook-my-github/<secret>" \\
+        --secret "$WEBHOOK_SECRET"
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.configure_code_webhook(connection, url, secret))
 
 
 @code_group.command("autofix")
@@ -2550,6 +2752,273 @@ def _run(cmd: list[str], timeout_s: int, *, env: dict | None = None,
 
 
 # ---------------------------------------------------------------------------
+# image subgroup (registry-backed container image inventory)
+# ---------------------------------------------------------------------------
+
+def _image_repo_filter_options(f):
+    """The image-repository selectors (shared by repos/facets)."""
+    f = click.option(
+        "-q", "--search", "q", default=None,
+        help="Substring over the repository path, display name, registry "
+             "and urn.",
+    )(f)
+    f = click.option(
+        "--scanning-state", "scanning_state", default=None,
+        type=click.Choice(["enabled", "disabled", "unknown"]),
+        help="Native registry vulnerability-scanning state. NOT repeatable: "
+             "the backend would take several, but the API forwards only one, "
+             "so a second value would be dropped without a word. 'unknown' "
+             "means the registry did not report the state, not that scanning "
+             "is off.",
+    )(f)
+    f = click.option(
+        "--with-images/--without-images", "has_images", default=None,
+        help="Only repositories that do (or do not) currently contain any "
+             "image. Omit for no constraint — --without-images is a real "
+             "selection, not 'no filter'.",
+    )(f)
+    f = click.option(
+        "--with-findings/--without-findings", "has_findings", default=None,
+        help="Only repositories that do (or do not) have at least one OPEN "
+             "finding. Omit for no constraint.",
+    )(f)
+    f = click.option(
+        "--region", "regions", multiple=True,
+        help="Registry region; repeatable (OR). Note this one always "
+             "constrains the facet rail as well, so there is no region facet.",
+    )(f)
+    f = click.option(
+        "--registry", "registries", multiple=True,
+        help="Registry host; repeatable (OR).",
+    )(f)
+    f = click.option(
+        "--account", "accounts", multiple=True,
+        help="Cloud account; repeatable (OR).",
+    )(f)
+    f = click.option(
+        "--provider", "providers", multiple=True,
+        help="Cloud provider; repeatable (OR).",
+    )(f)
+    return f
+
+
+@group.group("image")
+def image_group() -> None:
+    """Container images: the registry-backed image inventory.
+
+    An image is keyed on its DIGEST ALONE, so one row is the same artifact
+    everywhere it is stored — tags, registry and push time belong to the
+    repository<->image membership, not to the image. The placement filters
+    on 'image list' therefore select images with AT LEAST ONE matching
+    placement; the row still reports its other placements.
+
+    Findings on an image are read from the worklist with
+    'cloudsec finding list --image-urn <urn>'.
+    """
+
+
+@image_group.command("repos")
+@_image_repo_filter_options
+@click.option("--sort", default=None,
+              type=click.Choice(["name", "risk", "images", "last_pushed"]),
+              help="Sort key (default name). Validated here because the "
+                   "server silently coerces an unrecognised key to 'name' "
+                   "rather than refusing it, which would hand you a "
+                   "successful, wrongly-ordered page.")
+@click.option("--order", default=None, type=click.Choice(["asc", "desc"]),
+              help="Sort order. The default follows the sort key: asc for "
+                   "name, desc for the rest.")
+@click.option("--all", "walk_all", is_flag=True, default=False,
+              help="Follow the cursor and return EVERY matching repository "
+                   "instead of one page.")
+@_paging_options
+@pass_context
+def image_repos(ctx, q, providers, accounts, registries, regions,
+                has_findings, has_images, scanning_state, sort, order,
+                walk_all, cursor, limit) -> None:
+    """List connected container-image repositories with their rollups.
+
+    'total' is the size of the whole filtered set, not of the page.
+    'top_severity' is ABSENT when a repository has no open findings — a
+    missing key means "none", never INFO.
+
+    Read 'coverage' before concluding anything from an empty list: mode
+    'observed_only' means no registry inventory was collected at all, so
+    an empty list with repository_inventory_available false means "not
+    collected", never "zero repositories".
+
+    \b
+    Examples:
+      limacharlie cloudsec image repos
+      limacharlie cloudsec image repos --with-findings --sort risk
+      limacharlie cloudsec image repos --provider aws --registry 123.dkr.ecr.us-east-1.amazonaws.com
+      limacharlie cloudsec image repos --scanning-state disabled --all
+    """
+    cs = _get_cloudsec(ctx)
+    selectors = dict(
+        q=q,
+        provider=list(providers) or None,
+        account=list(accounts) or None,
+        registry=list(registries) or None,
+        region=list(regions) or None,
+        has_findings=has_findings,
+        has_images=has_images,
+        scanning_state=scanning_state,
+        sort=sort,
+        order=order,
+    )
+    if walk_all:
+        rows = list(cs.iter_image_repos(limit=limit, **selectors))
+        _output(ctx, {"image_repos": rows, "total": len(rows),
+                      "next_cursor": ""})
+        return
+    _output(ctx, cs.list_image_repos(cursor=cursor, limit=limit, **selectors))
+
+
+@image_group.command("repo-facets")
+@_image_repo_filter_options
+@pass_context
+def image_repo_facets(ctx, q, providers, accounts, registries, regions,
+                      has_findings, has_images, scanning_state) -> None:
+    """Cross-filtered facet counts for the image-repository list.
+
+    Takes the same selectors as 'image repos' (this endpoint has no
+    paging), so the rail describes the population that list returns.
+
+    Each faceted dimension excludes its OWN selector, so the rail answers
+    "what if I changed this one filter" — with three exceptions that
+    always constrain every count: --region, --with-images and
+    --with-findings (and the -q search). That is why there is no region
+    facet. The empty string is a real bucket meaning "the provider did not
+    report it".
+
+    \b
+    Examples:
+      limacharlie cloudsec image repo-facets
+      limacharlie cloudsec image repo-facets --with-findings
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_image_repo_facets(
+        q=q,
+        provider=list(providers) or None,
+        account=list(accounts) or None,
+        registry=list(registries) or None,
+        region=list(regions) or None,
+        has_findings=has_findings,
+        has_images=has_images,
+        scanning_state=scanning_state,
+    ))
+
+
+@image_group.command("list")
+@click.option("-q", "--search", "q", default=None,
+              help="Substring over the image name and urn, and the joined "
+                   "repository path, registry host and tags.")
+@click.option("--repo-urn", "repo_urns", multiple=True,
+              help="Image-repository urn, as 'image repos' returns it; "
+                   "repeatable (OR).")
+@click.option("--provider", "providers", multiple=True,
+              help="Cloud provider; repeatable (OR). Matched on the image's "
+                   "PLACEMENTS.")
+@click.option("--account", "accounts", multiple=True,
+              help="Cloud account; repeatable (OR). Matched on placements.")
+@click.option("--registry", "registries", multiple=True,
+              help="Registry host; repeatable (OR). Matched on placements.")
+@click.option("--tag", "tags", multiple=True,
+              help="Exact tag; repeatable (OR). Matched on placements.")
+@click.option("--findings", default=None,
+              type=click.Choice(["any", "with", "without"]),
+              help="Open-finding selector (default any). Not a list.")
+@click.option("--running/--not-running", "running", default=None,
+              help="Only images observed running on a workload (or not). "
+                   "Omit for no constraint.")
+@click.option("--signed/--unsigned", "signed", default=None,
+              help="Only signed (or unsigned) images. Omit for no "
+                   "constraint — and note signing status is recorded only "
+                   "when a provider reports it, so an image whose status is "
+                   "UNKNOWN matches NEITHER. The field is not echoed back in "
+                   "the row either.")
+@click.option("--sort", default=None,
+              type=click.Choice(["name", "risk", "pushed"]),
+              help="Sort key (default name). Validated here because the "
+                   "server silently coerces an unrecognised key to 'name'.")
+@click.option("--order", default=None, type=click.Choice(["asc", "desc"]),
+              help="Sort order (default asc for name, desc otherwise).")
+@click.option("--all", "walk_all", is_flag=True, default=False,
+              help="Follow the cursor and return EVERY matching image "
+                   "instead of one page.")
+@_paging_options
+@pass_context
+def image_list(ctx, q, repo_urns, providers, accounts, registries, tags,
+               findings, running, signed, sort, order, walk_all, cursor,
+               limit) -> None:
+    """List container images, keyed by digest.
+
+    Each row's 'urn' is what 'cloudsec finding list --image-urn' takes.
+    'repositories' is a BOUNDED SAMPLE of 100 placements — read
+    'repository_count' for the truth and 'repositories_truncated' for
+    whether you are seeing all of them; tags inside a placement are capped
+    the same way.
+
+    'top_severity' is ABSENT when there are no open findings.
+    Counts and the risk/pushed sort keys come from a rollup rebuilt once
+    per collection pass, so they describe the last rebuild rather than
+    this instant.
+
+    \b
+    Examples:
+      limacharlie cloudsec image list --findings with --sort risk
+      limacharlie cloudsec image list --running --registry gcr.io
+      limacharlie cloudsec image list --tag latest --all
+      limacharlie cloudsec image list --repo-urn "lcrn:..." --limit 50
+    """
+    cs = _get_cloudsec(ctx)
+    selectors = dict(
+        q=q,
+        repo_urn=list(repo_urns) or None,
+        provider=list(providers) or None,
+        account=list(accounts) or None,
+        registry=list(registries) or None,
+        tag=list(tags) or None,
+        findings=findings,
+        running=running,
+        signed=signed,
+        sort=sort,
+        order=order,
+    )
+    if walk_all:
+        rows = list(cs.iter_container_images(limit=limit, **selectors))
+        _output(ctx, {"images": rows, "total": len(rows), "next_cursor": ""})
+        return
+    _output(ctx, cs.list_container_images(
+        cursor=cursor, limit=limit, **selectors))
+
+
+@image_group.command("get")
+@click.argument("digest")
+@pass_context
+def image_get(ctx, digest) -> None:
+    """Get one image by digest, with its placements and where it runs.
+
+    DIGEST is 'sha256:' plus 64 lowercase hex characters, exactly as
+    'image list' returns it. A digest the org has never seen is "not
+    found", not an empty result.
+
+    'memberships', 'workloads' and 'source_repositories' are BOUNDED
+    SAMPLES of 100 with no pagination — the paired *_count is the truth.
+    Only memberships carry a _truncated flag; for the other two, compare
+    the list length against the count yourself. To get past 100
+    placements, use 'image list --repo-urn ...' instead.
+
+    \b
+    Example:
+      limacharlie cloudsec image get sha256:0123abcd...
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_container_image(digest))
+
+
+# ---------------------------------------------------------------------------
 # fleet subgroup (multi-org)
 # ---------------------------------------------------------------------------
 
@@ -2601,12 +3070,17 @@ def finding_group() -> None:
 
 @finding_group.command("list")
 @_finding_filter_options
+@click.option("--cause", default=None,
+              help="Exact shared-fix cause key, as 'cloudsec finding causes' "
+                   "returns it. Scopes to the findings that one edit would "
+                   "close; an unknown key returns nothing.")
 @_sort_options
 @_paging_options
 @pass_context
 def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
+                 image_urns, fix_states, exploit_bands, grains,
                  source, owners, unassigned, sla_states, reachable, kev, q,
-                 sort, order, cursor, limit) -> None:
+                 cause, sort, order, cursor, limit) -> None:
     """List the merged, risk-ranked cloud-security findings.
 
     \b
@@ -2625,6 +3099,11 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        image_urn=list(image_urns) or None,
+        fix_state=list(fix_states) or None,
+        exploit_band=list(exploit_bands) or None,
+        grain=list(grains) or None,
+        cause=cause,
         source=source,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
@@ -2640,6 +3119,10 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
 
 @finding_group.command("facets")
 @_finding_filter_options
+@click.option("--cause", default=None,
+              help="Exact shared-fix cause key, as 'cloudsec finding causes' "
+                   "returns it. Scopes to the findings that one edit would "
+                   "close; an unknown key returns nothing.")
 @click.option("--owner-pin", "owner_pins", multiple=True,
               help="Keep these owners in the capped 'owner' facet even when "
                    "they would not rank into it (pass your own identity); "
@@ -2649,8 +3132,9 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
                    "pin can still be dropped.")
 @pass_context
 def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
+                   image_urns, fix_states, exploit_bands, grains,
                    source, owners, unassigned, sla_states, reachable, kev, q,
-                   owner_pins) -> None:
+                   cause, owner_pins) -> None:
     """Cross-filtered facet counts for the findings worklist.
 
     \b
@@ -2665,6 +3149,11 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        image_urn=list(image_urns) or None,
+        fix_state=list(fix_states) or None,
+        exploit_band=list(exploit_bands) or None,
+        grain=list(grains) or None,
+        cause=cause,
         source=source,
         owner=_selector_with_empty(owners, unassigned),
         owner_pin=list(owner_pins) or None,
@@ -2686,6 +3175,7 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
                    "rollup is not paginated; 'distinct' reports the tail.")
 @pass_context
 def finding_causes(ctx, severities, finding_classes, statuses, accounts, repos,
+                   image_urns, fix_states, exploit_bands, grains,
                    source, owners, unassigned, sla_states, reachable, kev, q,
                    cause, limit) -> None:
     """Findings grouped by CAUSE: one edit that closes N findings.
@@ -2703,6 +3193,10 @@ def finding_causes(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        image_urn=list(image_urns) or None,
+        fix_state=list(fix_states) or None,
+        exploit_band=list(exploit_bands) or None,
+        grain=list(grains) or None,
         source=source,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,
@@ -3179,7 +3673,14 @@ def query_run(ctx, named, text, query_json, project) -> None:
 
 @group.group("compliance")
 def compliance_group() -> None:
-    """Compliance assessment: report, frameworks, assignments."""
+    """Compliance: live assessment, immutable runs, attestations, schedules.
+
+    'report' is the live, point-in-time answer and keeps nothing. 'run'
+    persists an assessment as an immutable run that 'runs', 'export' and
+    the drift stream ('events') are read against — the audit-grade half,
+    for when somebody has to prove what was true on a date. 'attest'
+    records manual evidence for controls no detector can grade.
+    """
 
 
 @compliance_group.command("report")
@@ -3224,6 +3725,345 @@ def compliance_assignments(ctx) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_compliance_assignments())
+
+# --- compliance v2: immutable runs, attestations, drift, schedules ---------
+#
+# 'compliance report' above is the live, point-in-time answer and keeps
+# nothing. Everything below is the audit-grade half: an assessment is
+# PERSISTED as an immutable run, manual evidence is recorded as
+# append-only attestation revisions, control-state changes accumulate as a
+# drift stream, and a run renders to a deterministic artifact months later.
+
+
+@compliance_group.command("run")
+@click.option("--framework", default=None,
+              help="Framework id for an estate-wide run. Ignored when "
+                   "--assignment is set — the assignment's own framework "
+                   "wins.")
+@click.option("--assignment", default=None,
+              help="Named assignment to assess instead of the whole estate.")
+@click.option("--run-id", default=None,
+              help="Idempotency key. WITHOUT one, every invocation performs "
+                   "a full assessment and writes a NEW run (the generated id "
+                   "embeds the current time, so two calls a second apart make "
+                   "two runs). WITH one, a retry replays the stored run "
+                   "instead of re-assessing — and is refused, rather than "
+                   "quietly assessing something else, if the scope moved.")
+@pass_context
+def compliance_run(ctx, framework, assignment, run_id) -> None:
+    """Assess compliance and PERSIST the result as an immutable run.
+
+    This is the expensive verb on this surface: it evaluates every control
+    against the estate. 'compliance runs' and 'compliance export' are what
+    you read; this is what you schedule.
+
+    In the summary, 'score' covers ASSESSABLE controls only and
+    'low_coverage' is true when that is under half the gradeable ones —
+    never show the score without the coverage beside it.
+
+    Check 'applicable' FIRST. False means nothing was assessable at all,
+    so a 0 there does not mean "failed everything" — and 'low_coverage'
+    is false in that case too, because it is only computed when
+    'applicable' is true.
+
+    \b
+    Examples:
+      limacharlie cloudsec compliance run --framework cis-aws
+      limacharlie cloudsec compliance run --assignment prod-scope
+      limacharlie cloudsec compliance run --assignment prod-scope --run-id 2026-Q3
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.create_compliance_run(
+        framework=framework, assignment=assignment, run_id=run_id))
+
+
+@compliance_group.command("runs")
+@click.option("--run-id", default=None,
+              help="Read ONE run and its historical control snapshot. The "
+                   "other selectors are ignored when this is set.")
+@click.option("--framework", default=None,
+              help="Framework id (default cis-gcp).")
+@click.option("--assignment", default=None,
+              help="Assignment name (default: the whole estate).")
+@click.option("--limit", default=None, type=int,
+              help="Maximum runs (default 50, max 200; a larger ask falls "
+                   "back to the default rather than clamping to the max).")
+@pass_context
+def compliance_runs(ctx, run_id, framework, assignment, limit) -> None:
+    """List completed compliance runs, or read one in full.
+
+    Unlike 'compliance run', the list does NOT derive the framework from
+    the assignment: pass both or neither, because an assignment without
+    its matching framework returns an empty list rather than an error.
+
+    \b
+    Examples:
+      limacharlie cloudsec compliance runs
+      limacharlie cloudsec compliance runs --assignment prod-scope --framework cis-aws
+      limacharlie cloudsec compliance runs --run-id 9f2c...
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.list_compliance_runs(
+        run_id=run_id, framework=framework, assignment=assignment,
+        limit=limit))
+
+
+@compliance_group.command("attestations")
+@click.option("--framework", default=None, help="Framework id (default cis-gcp).")
+@click.option("--assignment", default=None,
+              help="Assignment name (default: the whole estate).")
+@pass_context
+def compliance_attestations(ctx, framework, assignment) -> None:
+    """List the attestation revisions for an assignment + framework.
+
+    Returns EVERY revision, not just the current ones — only the highest
+    revision of each id counts toward an assessment; the earlier ones are
+    the audit trail.
+
+    \b
+    Example:
+      limacharlie cloudsec compliance attestations --assignment prod-scope
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.list_compliance_attestations(
+        framework=framework, assignment=assignment))
+
+
+@compliance_group.command("attest")
+@click.option("--framework", default=None, help="Framework id (default cis-gcp).")
+@click.option("--assignment", default=None,
+              help="Assignment name (default: the whole estate).")
+@click.option("--attestation", "attestation_json", default=None,
+              help="The attestation revision as inline JSON.")
+@click.option("--input-file", default=None,
+              help="Read the attestation revision from a JSON/YAML file.")
+@pass_context
+def compliance_attest(ctx, framework, assignment, attestation_json,
+                      input_file) -> None:
+    """Write one attributed, immutable attestation revision.
+
+    Manual evidence for a control no detector can grade. REQUIRED: 'id',
+    'revision' (an integer >= 1), 'control_key', 'outcome' (pass, fail or
+    not_applicable), 'effective_at' and 'expires_at' (after effective_at).
+
+    'approved_at' is optional to write and load-bearing to use: an
+    attestation without it is stored and returned but never counts toward
+    a control, so omitting it writes a record that silently does nothing.
+    'rationale' is not validated either, but it is the only field that
+    says WHY a human asserted this — write it.
+
+    Also optional: 'requirement_id', 'evidence_refs' (entries must be
+    https://, output:// or ticket:// urls with no embedded credentials),
+    'compensating_control_ref' and 'supersedes_id'.
+
+    The server owns the attribution: assessor, approver, revoked_by,
+    created_at and the whole scope are stamped from your identity and
+    overwrite anything you send.
+
+    Only a REVOCATION is pinned to exactly previous + 1, because the
+    server copies that prior revision forward. An ordinary superseding
+    revision is merely inserted, so its (id, revision) must be unused —
+    and since only the highest revision of an id is ever consulted, one
+    written below the current high-water mark is accepted and then inert.
+    Nothing refuses it, so raise the number yourself.
+
+    REVOCATION IS A LATER REVISION, never a delete: re-send the same 'id'
+    with 'revision' exactly one higher and a 'revoked_at'. Everything else
+    in that body is ignored — the server carries the previous revision
+    forward and overlays only those two fields, so the original author's
+    attribution survives and yours is recorded separately.
+
+    An attestation counts only while approved, unrevoked, inside its
+    window, AND while its framework version, control key and scope still
+    match. Editing an assignment's scope silently orphans the attestations
+    written under the old one.
+
+    \b
+    Examples:
+      limacharlie cloudsec compliance attest --assignment prod-scope --input-file att.json
+      limacharlie cloudsec compliance attest --attestation '{"id":"a1","revision":1,...}'
+    """
+    attestation = _load_json_object_arg(
+        inline=attestation_json,
+        inline_hint="--attestation",
+        input_file=input_file,
+        file_hint="--input-file",
+        what="the attestation revision",
+        shape_msg="must decode to a JSON object (an attestation revision)",
+    )
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.create_compliance_attestation(
+        attestation, framework=framework, assignment=assignment))
+
+
+@compliance_group.command("events")
+@click.option("--assignment", default=None,
+              help="Assignment name (default: the whole estate). There is "
+                   "deliberately no framework selector — events are keyed on "
+                   "the assignment alone.")
+@click.option("--days", default=None, type=int,
+              help="Lookback in days. Default 90, ceiling 3650 — and an ask "
+                   "ABOVE the ceiling falls back to the DEFAULT rather than "
+                   "clamping to it, so --days 5000 is 90 days, not 3650.")
+@click.option("--limit", default=None, type=int,
+              help="Maximum events. Default 200, ceiling 1000, with the same "
+                   "fall-back-to-default behaviour.")
+@pass_context
+def compliance_events(ctx, assignment, days, limit) -> None:
+    """The compliance drift stream: material control-state changes.
+
+    CHANGE-ONLY: an event is appended only when a control's result
+    fingerprint moves, so a control that stayed PASS across ten runs
+    produces one event, not ten. An empty window means "nothing moved",
+    never "nothing ran".
+
+    \b
+    Examples:
+      limacharlie cloudsec compliance events --days 30
+      limacharlie cloudsec compliance events --assignment prod-scope --limit 500
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.list_compliance_events(
+        assignment=assignment, days=days, limit=limit))
+
+
+@compliance_group.command("export")
+@click.option("--run-id", required=True,
+              help="The immutable run id, as 'compliance runs' returns it.")
+@click.option("--format", "fmt", default=None,
+              type=click.Choice(["json", "csv", "pdf"]),
+              help="Artifact format (default json).")
+@click.option("--brand", default=None,
+              help="PDF only: the heading (default 'LimaCharlie Cloud Security').")
+@click.option("-o", "--output", "output_path", default=None,
+              help="Write the decoded document here. Omit to print the "
+                   "envelope, whose 'content' is base64.")
+@pass_context
+def compliance_export(ctx, run_id, fmt, brand, output_path) -> None:
+    """Render a stored compliance run as a deterministic artifact.
+
+    Reads the STORED run, never the live estate, and the JSON snapshot
+    carries no generation timestamp on purpose: exporting the same run id
+    a year from now returns the same bytes.
+
+    The PDF is an executive handoff, one line per control, with non-ASCII
+    replaced. Use json or csv when something downstream has to parse it.
+
+    \b
+    Examples:
+      limacharlie cloudsec compliance export --run-id 9f2c... -o run.json
+      limacharlie cloudsec compliance export --run-id 9f2c... --format pdf -o run.pdf
+    """
+    cs = _get_cloudsec(ctx)
+    result = cs.export_compliance_run(run_id, fmt=fmt, brand=brand)
+    if output_path is None:
+        _output(ctx, result)
+        return
+    content = result.get("content")
+    if content is None:
+        raise click.ClickException(
+            f"the export of run '{run_id}' carried no content to write")
+    # The server emits the document as raw bytes; this JSON transport
+    # base64-encodes them on the way out. Decode a string, but accept bytes
+    # as-is rather than failing on a transport that did not encode them —
+    # the caller asked for a file, and guessing wrong here would write
+    # nothing at all.
+    if isinstance(content, str):
+        try:
+            content = base64.b64decode(content, validate=True)
+        except Exception as e:
+            raise click.ClickException(
+                f"the export of run '{run_id}' did not decode as base64: {e}")
+    elif not isinstance(content, (bytes, bytearray)):
+        raise click.ClickException(
+            f"the export of run '{run_id}' carried a "
+            f"{type(content).__name__} where the document was expected")
+    with open(output_path, "wb") as f:
+        f.write(content)
+    click.echo(f"Wrote {len(content)} bytes to {output_path}.")
+
+
+@compliance_group.command("schedules")
+@pass_context
+def compliance_schedules(ctx) -> None:
+    """List the org's recurring compliance assessment schedules.
+
+    \b
+    Example:
+      limacharlie cloudsec compliance schedules
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.list_compliance_schedules())
+
+
+@compliance_group.command("schedule-set")
+@click.option("--schedule", "schedule_json", default=None,
+              help="The schedule as inline JSON.")
+@click.option("--input-file", default=None,
+              help="Read the schedule from a JSON/YAML file.")
+@pass_context
+def compliance_schedule_set(ctx, schedule_json, input_file) -> None:
+    """Create or revise a recurring compliance assessment schedule.
+
+    Required: 'id', 'assignment', 'framework_id', 'owner', 'cadence'
+    (weekly or monthly), 'delivery' (output, email or webhook),
+    'destination_ref', 'formats' (a non-empty list of json/csv/pdf with no
+    duplicates), 'next_run_at' and 'revision' (an integer >= 1).
+    'enabled' is optional.
+
+    'destination_ref' must be an output:// or secret:// reference —
+    credentials and webhook secrets are never carried inline.
+
+    'revision' is an optimistic-concurrency token, not a version label: an
+    edit must RAISE it (any higher value, not strictly +1). A lower
+    revision is refused; the same revision is a no-op if the content is
+    identical and a refusal if it is not. 'created_by' and 'updated_by'
+    are stamped from your identity, and 'created_by' on an existing
+    schedule is immutable.
+
+    \b
+    Example:
+      limacharlie cloudsec compliance schedule-set --input-file schedule.json
+    """
+    schedule = _load_json_object_arg(
+        inline=schedule_json,
+        inline_hint="--schedule",
+        input_file=input_file,
+        file_hint="--input-file",
+        what="the schedule",
+        shape_msg="must decode to a JSON object (a compliance schedule)",
+    )
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.set_compliance_schedule(schedule))
+
+
+# ---------------------------------------------------------------------------
+# azure subgroup
+# ---------------------------------------------------------------------------
+
+@group.group("azure")
+def azure_group() -> None:
+    """Azure-specific views of the estate."""
+
+
+@azure_group.command("scope-hierarchy")
+@pass_context
+def azure_scope_hierarchy(ctx) -> None:
+    """Azure scope containment: tenant, management group, subscription,
+    resource group, resource.
+
+    'traversable' is false, and that is a CONTRACT rather than a status
+    that might change. Containment is held outside the property graph on
+    purpose: it can explain inherited authorization, but it must never
+    become a free traversal step in a graph query, because "contained by"
+    is not "can reach".
+
+    \b
+    Example:
+      limacharlie cloudsec azure scope-hierarchy
+    """
+    cs = _get_cloudsec(ctx)
+    _output(ctx, cs.get_azure_scope_hierarchy())
 
 
 # ---------------------------------------------------------------------------
@@ -3673,12 +4513,17 @@ def export_group() -> None:
 
 @export_group.command("findings")
 @_finding_filter_options
+@click.option("--cause", default=None,
+              help="Exact shared-fix cause key, as 'cloudsec finding causes' "
+                   "returns it. Scopes the export to the findings that one "
+                   "edit would close; an unknown key exports nothing.")
 @_sort_options
 @_export_output_option
 @pass_context
 def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
+                    image_urns, fix_states, exploit_bands, grains,
                     source, owners, unassigned, sla_states, reachable, kev, q,
-                    sort, order, output_path) -> None:
+                    cause, sort, order, output_path) -> None:
     """Export the (filtered) findings worklist as CSV.
 
     \b
@@ -3694,6 +4539,11 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
         status=list(statuses) or None,
         account=list(accounts) or None,
         repo=list(repos) or None,
+        image_urn=list(image_urns) or None,
+        fix_state=list(fix_states) or None,
+        exploit_band=list(exploit_bands) or None,
+        grain=list(grains) or None,
+        cause=cause,
         source=source,
         owner=_selector_with_empty(owners, unassigned),
         sla=list(sla_states) or None,

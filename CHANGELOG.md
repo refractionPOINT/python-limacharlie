@@ -8,6 +8,58 @@
   `json` schema field, fixing HTTP 400 responses that reported the supplied
   object was a map rather than JSON.
 
+### Cloud Security & Code Security — bind the GA gateway surface
+
+Auditing `cloudsec` against the API gateway after the Code Security GA turned up
+six live route groups the CLI never reached, and four findings selectors it
+dropped. All of them are bound here.
+
+- **Container images are now visible at all.** New `cloudsec image` group:
+  `repos`, `repo-facets`, `list` and `get`, over the registry-backed image
+  inventory. An image is keyed on its digest alone, so one row is the same
+  artifact everywhere it is stored; the placement filters select images with at
+  least one matching placement. `--all` walks the keyset cursor, which is the
+  only correct way to page these — a short page is not necessarily the last.
+- **`cloudsec code pr-check`** asks the code lane what a pull request
+  INTRODUCES and publishes a GitHub check run on the head commit. `--action` is
+  required: the gateway tolerates an absent action but the collection host
+  behind it does not, so an omitted one fails every time — including the CI
+  case this command exists for. `--action edited` additionally requires
+  `--prev-base-sha`, refused client-side: `edited` also reports a title change,
+  and sending one without the previous base would spend a published RPC on
+  every description edit in a busy repository.
+- **`cloudsec code webhook`** points a GitHub connection's App webhook at the
+  org's adapter — the "Fix webhook" door. Without it, push rescans and
+  pull-request checks could not be wired up from the CLI at all.
+- **Vulnerability noise controls on the findings worklist.** `--grain`,
+  `--fix-state`, `--exploit-band` and `--image-urn` now work on `finding list`,
+  `finding facets`, `finding causes` and `export findings`; `--cause` now works
+  on `list`, `facets` and `export` as well as `causes`. `--grain` is the
+  load-bearing one: its absence is not "unconstrained" but re-engages the
+  server's leading-grain default, so until now the CLI could not reach per-CVE
+  findings at all, and could not pivot from an image to its findings. The three
+  vocabularies are validated client-side, because a dropped `--grain` value
+  answers a different question successfully.
+- **Audit-grade compliance.** New `cloudsec compliance` verbs: `run` (persist an
+  immutable assessment), `runs`, `attestations`, `attest`, `events` (the
+  change-only drift stream), `export` (deterministic JSON/CSV/PDF, decoded to a
+  file with `-o`), `schedules` and `schedule-set`. `compliance report` remains
+  the live, point-in-time answer.
+- **`cloudsec azure scope-hierarchy`** returns Azure scope containment evidence.
+- `cloudsec image repos --scanning-state` is deliberately NOT repeatable. The
+  backend takes a list, but the API gateway forwards only the first value, so a
+  repeatable flag here would drop the rest without a word. (The gateway is
+  where that should be fixed; until it is, the CLI does not claim a filter it
+  cannot deliver.)
+- `cloudsec code capabilities` and `cloudsec code fixes` shipped without ever
+  reaching a discovery profile, so `limacharlie help discover` could not surface
+  them. They are listed now, and a two-way coverage test — the one `mailsec`
+  already had — fails when the cloudsec surface and the discovery map drift
+  apart in either direction.
+- The cloud-security CLI reference documented only the LOCAL `code scan`. It now
+  covers the hosted code lane, pull-request checks, webhook wiring, container
+  images, the vulnerability selectors and compliance v2.
+
 ### Cloud Security (CNAPP) — local code scans
 
 - **`cloudsec code scan` runs static-analysis rules with the new scanner.** The

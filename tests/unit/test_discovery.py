@@ -193,6 +193,54 @@ class TestMailsecCoverage:
         )
 
 
+class TestCloudSecCoverage:
+    """Pin ``cloudsec`` command coverage in PROFILES.
+
+    The Cloud Security surface is the one that grows fastest — the code
+    lane, the container-image inventory and compliance v2 all arrived
+    after the group did — and twice a verb has shipped without ever
+    reaching a discovery profile, which makes it invisible to
+    ``limacharlie help discover`` and so to any agent finding the CLI by
+    that route. These tests fail when the cloudsec surface and the
+    discovery map drift apart in either direction.
+    """
+
+    @staticmethod
+    def _cloudsec_paths() -> set[str]:
+        from limacharlie.commands.cloudsec import group as cloudsec_group
+
+        return set(_leaf_paths(cloudsec_group, ["cloudsec"]))
+
+    @staticmethod
+    def _profiled_paths() -> set[str]:
+        return {
+            cmd
+            for profile in PROFILES.values()
+            for cmd in profile["commands"]
+            if cmd.split()[0] == "cloudsec"
+        }
+
+    def test_every_cloudsec_command_is_discoverable(self):
+        """A new cloudsec verb must be added to a discovery profile."""
+        missing = self._cloudsec_paths() - self._profiled_paths()
+        if missing:
+            pytest.fail(
+                "cloudsec commands that no discovery profile lists, so "
+                "'limacharlie help discover' cannot surface them:\n\n"
+                + "\n".join(f'    "{cmd}",' for cmd in sorted(missing))
+                + "\n\n  Add them to the 'cloud_security' profile in "
+                "limacharlie/discovery.py."
+            )
+
+    def test_no_stale_cloudsec_entries(self):
+        """A profile must not advertise a cloudsec verb that no longer exists."""
+        stale = self._profiled_paths() - self._cloudsec_paths()
+        assert not stale, (
+            f"Discovery profiles list cloudsec commands that do not exist: "
+            f"{sorted(stale)}. Remove or rename them in limacharlie/discovery.py."
+        )
+
+
 class TestExplainRegistry:
     def test_register_and_get(self):
         register_explain("test.command", "This is a test command explanation.")

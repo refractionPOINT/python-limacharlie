@@ -1160,3 +1160,250 @@ class TestCodeLane:
         got = list(cs.iter_code_fixes())
         assert got == [{"key": "a"}, {"key": "b"}]
         assert mock_org.client.request.call_count == 2
+
+
+class TestFindingVulnerabilitySelectors:
+    def test_repeatable_keys_reach_the_wire_once_per_value(self, cs, mock_org):
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings(
+            grain=["package", "cve"],
+            fix_state=["fix_available"],
+            exploit_band=["kev_overdue", "kev_due"],
+            image_urn=["lcrn:img:a", "lcrn:img:b"],
+            cause="lcrn:fw/allow-all",
+        )
+        _url, qp = _get_call(mock_org)
+        assert ("grain", "package") in qp
+        assert ("grain", "cve") in qp
+        assert ("fix_state", "fix_available") in qp
+        assert ("exploit_band", "kev_overdue") in qp
+        assert ("exploit_band", "kev_due") in qp
+        assert ("image_urn", "lcrn:img:a") in qp
+        assert ("image_urn", "lcrn:img:b") in qp
+        assert ("cause", "lcrn:fw/allow-all") in qp
+
+    def test_unset_selectors_are_absent_not_empty(self, cs, mock_org):
+        """An omitted grain must not reach the wire at all.
+
+        Sending `grain=` would be a value, and the server treats an
+        unrecognised value as "matches nothing" — a confidently empty
+        worklist. Absence is what means "apply the default".
+        """
+        mock_org.client.request.return_value = {"findings": []}
+        cs.list_findings(severity=["HIGH"])
+        _url, qp = _get_call(mock_org)
+        keys = {k for k, _ in qp}
+        assert "grain" not in keys
+        assert "fix_state" not in keys
+        assert "exploit_band" not in keys
+        assert "image_urn" not in keys
+        assert "cause" not in keys
+
+    def test_facets_and_causes_and_export_take_them_too(self, cs, mock_org):
+        for call, key in (
+            (lambda: cs.get_finding_facets(grain=["cve"]), "findings/facets"),
+            (lambda: cs.list_finding_causes(grain=["cve"]), "findings/causes"),
+        ):
+            mock_org.client.request.return_value = {}
+            call()
+            url, qp = _get_call(mock_org)
+            assert url.endswith(key)
+            assert ("grain", "cve") in qp
+
+        mock_org.client.request.return_value = "a,b\n"
+        cs.export_findings_csv(grain=["cve"], image_urn=["lcrn:img:a"])
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/findings"
+        assert ("grain", "cve") in qp
+        assert ("image_urn", "lcrn:img:a") in qp
+        assert ("format", "csv") in qp
+
+
+class TestCodePRCheckAndWebhook:
+    def test_check_pull_request_body(self, cs, mock_org):
+        mock_org.client.request.return_value = {"accepted": True}
+        cs.check_pull_request(
+            "acme/api", 42, "a" * 40, "b" * 40, "edited",
+            prev_base_sha="c" * 40,
+        )
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/pr_check"
+        assert body == {
+            "repo": "acme/api", "pr": 42,
+            "base_sha": "a" * 40, "head_sha": "b" * 40,
+            "action": "edited", "prev_base_sha": "c" * 40,
+        }
+
+    def test_check_pull_request_always_sends_an_action(self, cs, mock_org):
+        """The minimal body still carries `action`.
+
+        The gateway tolerates an absent action, but the collection host
+        behind it tests membership of a closed set with no empty-string
+        exemption — so a body without one is refused every time. `action`
+        is a required argument for that reason, and the minimal request
+        must not be one the server cannot accept.
+        """
+        mock_org.client.request.return_value = {"accepted": True}
+        cs.check_pull_request("acme/api", 1, "a" * 40, "b" * 40,
+                              "synchronize")
+        _url, body = _post_call(mock_org)
+        assert set(body) == {"repo", "pr", "base_sha", "head_sha", "action"}
+        assert body["action"] == "synchronize"
+
+    def test_action_is_required(self, cs, mock_org):
+        with pytest.raises(TypeError):
+            cs.check_pull_request("acme/api", 1, "a" * 40, "b" * 40)
+
+    def test_configure_code_webhook_body(self, cs, mock_org):
+        mock_org.client.request.return_value = {"state": "available"}
+        cs.configure_code_webhook("my-github", "https://h/o/k/s", "s" * 24)
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/webhook"
+        assert body == {"connection": "my-github",
+                        "url": "https://h/o/k/s", "secret": "s" * 24}
+
+
+class TestContainerImages:
+    def test_list_image_repos_selectors(self, cs, mock_org):
+        mock_org.client.request.return_value = {"image_repos": []}
+        cs.list_image_repos(
+            q="prod", provider=["aws"], registry=["r1"], region=["us-east-1"],
+            has_findings=False, has_images=True,
+            scanning_state="disabled", sort="risk", order="desc",
+            limit=50,
+        )
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/image-repos"
+        assert ("has_findings", "false") in qp
+        assert ("has_images", "true") in qp
+        # Scalar on the wire: the gateway reads only the first value, so
+        # sending a list would drop every value after it in silence.
+        assert [v for k, v in qp if k == "scanning_state"] == ["disabled"]
+        assert ("sort", "risk") in qp
+
+    def test_tri_state_none_is_absent(self, cs, mock_org):
+        mock_org.client.request.return_value = {"image_repos": []}
+        cs.list_image_repos(provider=["aws"])
+        _url, qp = _get_call(mock_org)
+        keys = {k for k, _ in qp}
+        assert "has_findings" not in keys
+        assert "has_images" not in keys
+
+    def test_image_repo_facets_url(self, cs, mock_org):
+        mock_org.client.request.return_value = {"total": 0}
+        cs.get_image_repo_facets(provider=["gcp"])
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/image-repos/facets"
+        assert qp == [("provider", "gcp")]
+
+    def test_list_container_images_selectors(self, cs, mock_org):
+        mock_org.client.request.return_value = {"images": []}
+        cs.list_container_images(
+            repo_urn=["lcrn:repo:1"], tag=["latest", "v2"], findings="with",
+            running=True, signed=False, sort="pushed",
+        )
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/images"
+        assert ("repo_urn", "lcrn:repo:1") in qp
+        assert ("tag", "latest") in qp
+        assert ("tag", "v2") in qp
+        assert ("findings", "with") in qp
+        assert ("running", "true") in qp
+        assert ("signed", "false") in qp
+
+    def test_get_container_image_quotes_the_digest(self, cs, mock_org):
+        """The digest carries a ':' and must not split the path."""
+        mock_org.client.request.return_value = {"image": {}}
+        digest = "sha256:" + "ab" * 32
+        cs.get_container_image(digest)
+        url, _qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/images/sha256%3A" + "ab" * 32
+
+    def test_iter_container_images_follows_the_cursor(self, cs, mock_org):
+        """A short page is not the last one — only next_cursor says so."""
+        pages = [
+            {"images": [{"urn": "a"}], "next_cursor": "c1"},
+            {"images": [{"urn": "b"}, {"urn": "c"}], "next_cursor": ""},
+        ]
+        mock_org.client.request.side_effect = pages
+        assert [r["urn"] for r in cs.iter_container_images()] == \
+            ["a", "b", "c"]
+        assert mock_org.client.request.call_count == 2
+
+    def test_iter_image_repos_follows_the_cursor(self, cs, mock_org):
+        pages = [
+            {"image_repos": [{"urn": "a"}], "next_cursor": "c1"},
+            {"image_repos": [], "next_cursor": ""},
+        ]
+        mock_org.client.request.side_effect = pages
+        assert [r["urn"] for r in cs.iter_image_repos()] == ["a"]
+        assert mock_org.client.request.call_count == 2
+
+
+class TestComplianceV2SDK:
+    def test_create_run_omits_unset(self, cs, mock_org):
+        mock_org.client.request.return_value = {"run": {}}
+        cs.create_compliance_run(assignment="prod")
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/compliance/v2"
+        assert body == {"assignment": "prod"}
+
+    def test_list_runs_selectors(self, cs, mock_org):
+        mock_org.client.request.return_value = {"runs": []}
+        cs.list_compliance_runs(run_id="r1", limit=10)
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/compliance/runs"
+        assert ("run_id", "r1") in qp
+        assert ("limit", "10") in qp
+
+    def test_attestation_body_and_scope_ride_separately(self, cs, mock_org):
+        """The scope is a query selector; the revision is the body."""
+        mock_org.client.request.return_value = {"attestations": []}
+        att = {"id": "a1", "revision": 2, "control_key": "1.1",
+               "outcome": "pass"}
+        cs.create_compliance_attestation(att, assignment="prod",
+                                         framework="cis-aws")
+        args, kwargs = mock_org.client.request.call_args
+        assert args[0] == "POST"
+        assert args[1] == f"cloudsec/{OID}/compliance/attestations"
+        assert json.loads(kwargs["raw_body"]) == att
+        assert set(kwargs["query_params"]) == {("framework", "cis-aws"),
+                                               ("assignment", "prod")}
+
+    def test_events_selectors(self, cs, mock_org):
+        mock_org.client.request.return_value = {"events": []}
+        cs.list_compliance_events(assignment="prod", days=30, limit=500)
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/compliance/events"
+        assert set(qp) == {("assignment", "prod"), ("days", "30"),
+                           ("limit", "500")}
+
+    def test_export_sends_format_not_fmt(self, cs, mock_org):
+        """The wire name is `format`; `fmt` only avoids shadowing a builtin."""
+        mock_org.client.request.return_value = {"format": "pdf"}
+        cs.export_compliance_run("r1", fmt="pdf", brand="Acme")
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/compliance/export"
+        assert set(qp) == {("run_id", "r1"), ("format", "pdf"),
+                           ("brand", "Acme")}
+
+    def test_schedules_read_and_write(self, cs, mock_org):
+        mock_org.client.request.return_value = {"schedules": []}
+        cs.list_compliance_schedules()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/compliance/schedules"
+        assert qp is None
+
+        sched = {"id": "s1", "revision": 1}
+        cs.set_compliance_schedule(sched)
+        url, body = _post_call(mock_org)
+        assert url == f"cloudsec/{OID}/compliance/schedules"
+        assert body == sched
+
+    def test_azure_scope_hierarchy(self, cs, mock_org):
+        mock_org.client.request.return_value = {"edges": [],
+                                                "traversable": False}
+        cs.get_azure_scope_hierarchy()
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/azure/scope-hierarchy"
+        assert qp is None

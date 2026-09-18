@@ -55,6 +55,15 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "rescan_code_repo", "autofix_code_finding",
             "ingest_code_results",
             "get_code_capabilities", "get_code_fixes", "iter_code_fixes",
+            "check_pull_request", "configure_code_webhook",
+            "list_image_repos", "iter_image_repos", "get_image_repo_facets",
+            "list_container_images", "iter_container_images",
+            "get_container_image",
+            "create_compliance_run", "list_compliance_runs",
+            "list_compliance_attestations", "create_compliance_attestation",
+            "list_compliance_events", "export_compliance_run",
+            "list_compliance_schedules", "set_compliance_schedule",
+            "get_azure_scope_hierarchy",
         ]
     })
     # CSV exports return raw text, not a JSON-renderable object.
@@ -322,6 +331,11 @@ class TestFindingCommands:
                 status=None,
                 account=None,
                 repo=None,
+                image_urn=None,
+                fix_state=None,
+                exploit_band=None,
+                grain=None,
+                cause=None,
                 source=None,
                 owner=None,
                 sla=None,
@@ -937,7 +951,9 @@ class TestExport:
             assert result.output == "col_a,col_b\n1,2\n"
             inst.export_findings_csv.assert_called_once_with(
                 severity=["CRITICAL"], finding_class=None, status=["open"],
-                account=None, repo=None, source=None, owner=None, sla=None,
+                account=None, repo=None, image_urn=None, fix_state=None,
+                exploit_band=None, grain=None, cause=None,
+                source=None, owner=None, sla=None,
                 reachable=None, kev=None, q=None, sort=None, order=None,
             )
 
@@ -1359,6 +1375,10 @@ class TestFindingCauses:
                 status=None,
                 account=None,
                 repo=None,
+                image_urn=None,
+                fix_state=None,
+                exploit_band=None,
+                grain=None,
                 source=None,
                 owner=None,
                 sla=None,
@@ -2408,3 +2428,491 @@ class TestCloudSecCode:
                 cs_cls)
             assert result.exit_code == 0
             assert inst.export_findings_csv.call_args.kwargs["repo"] == ["acme/api"]
+
+
+class TestFindingVulnerabilitySelectors:
+    """The B52 noise-control selectors and the image pivot.
+
+    `grain` is the one selector whose ABSENCE is not "unconstrained": the
+    server's default worklist leads with the package grain, so without
+    `--grain cve` the per-CVE findings are unreachable. These tests pin
+    that every one of them survives the CLI -> SDK hop, on every route
+    that accepts them.
+    """
+
+    def test_list_forwards_vulnerability_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "list",
+                 "--grain", "cve", "--grain", "other",
+                 "--fix-state", "fix_available",
+                 "--exploit-band", "kev_overdue",
+                 "--exploit-band", "kev_due",
+                 "--image-urn", "lcrn:img:a", "--image-urn", "lcrn:img:b",
+                 "--cause", "lcrn:fw/allow-all"],
+                cls, return_value={"findings": []},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_findings.call_args.kwargs
+            assert kwargs["grain"] == ["cve", "other"]
+            assert kwargs["fix_state"] == ["fix_available"]
+            assert kwargs["exploit_band"] == ["kev_overdue", "kev_due"]
+            assert kwargs["image_urn"] == ["lcrn:img:a", "lcrn:img:b"]
+            assert kwargs["cause"] == "lcrn:fw/allow-all"
+
+    def test_facets_forwards_vulnerability_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "facets", "--grain", "cve",
+                 "--fix-state", "unknown", "--image-urn", "lcrn:img:a"],
+                cls, return_value={"facets": {}},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.get_finding_facets.call_args.kwargs
+            assert kwargs["grain"] == ["cve"]
+            assert kwargs["fix_state"] == ["unknown"]
+            assert kwargs["image_urn"] == ["lcrn:img:a"]
+
+    def test_causes_forwards_vulnerability_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "finding", "causes", "--grain", "package",
+                 "--exploit-band", "none"],
+                cls, return_value={"causes": [], "distinct": 0},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_finding_causes.call_args.kwargs
+            assert kwargs["grain"] == ["package"]
+            assert kwargs["exploit_band"] == ["none"]
+
+    def test_export_forwards_vulnerability_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "export", "findings", "--grain", "cve",
+                 "--image-urn", "lcrn:img:a"],
+                cls,
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.export_findings_csv.call_args.kwargs
+            assert kwargs["grain"] == ["cve"]
+            assert kwargs["image_urn"] == ["lcrn:img:a"]
+
+    def test_closed_vocabularies_are_validated_client_side(self):
+        """A typo must not read as an unfiltered estate.
+
+        These are repeatable keys, so a bad value would survive to the
+        backend and return an empty page — but `--grain` is worse than
+        that: a dropped value re-engages the leading-grain DEFAULT, which
+        answers a different question successfully. Refuse them here.
+        """
+        for flag, bad in (("--grain", "packages"),
+                          ("--fix-state", "available"),
+                          ("--exploit-band", "kev")):
+            p1, p2, p3 = _patches()
+            with p1, p2, p3 as cls:
+                result, _inst = _invoke(
+                    ["cloudsec", "finding", "list", flag, bad], cls,
+                )
+                assert result.exit_code == 2, (flag, result.output)
+                assert bad in result.output
+
+
+class TestCodePRCheck:
+    def test_pr_check_forwards_the_body(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                 "--base-sha", "a" * 40, "--head-sha", "b" * 40,
+                 "--action", "synchronize"],
+                cls, return_value={"accepted": True},
+            )
+            assert result.exit_code == 0, result.output
+            inst.check_pull_request.assert_called_once_with(
+                "acme/api", 42, "a" * 40, "b" * 40, "synchronize",
+                prev_base_sha=None,
+                base_ref=None, head_ref=None, provider=None,
+            )
+
+    def test_edited_without_prev_base_sha_is_refused(self):
+        """`edited` also reports a title change, which changes nothing.
+
+        Sending one without prev_base_sha would spend a published RPC on
+        every description edit in a busy repository, so refuse it here
+        rather than downstream.
+        """
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                 "--base-sha", "a" * 40, "--head-sha", "b" * 40,
+                 "--action", "edited"],
+                cls,
+            )
+            assert result.exit_code == 2, result.output
+            assert "--prev-base-sha" in result.output
+            inst.check_pull_request.assert_not_called()
+
+    def test_prev_base_sha_without_edited_is_refused(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                 "--base-sha", "a" * 40, "--head-sha", "b" * 40,
+                 "--action", "opened", "--prev-base-sha", "c" * 40],
+                cls,
+            )
+            assert result.exit_code == 2, result.output
+            inst.check_pull_request.assert_not_called()
+
+    def test_edited_with_prev_base_sha_is_accepted(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                 "--base-sha", "a" * 40, "--head-sha", "b" * 40,
+                 "--action", "edited", "--prev-base-sha", "c" * 40],
+                cls, return_value={"accepted": True},
+            )
+            assert result.exit_code == 0, result.output
+            assert inst.check_pull_request.call_args.kwargs[
+                "prev_base_sha"] == "c" * 40
+
+    def test_a_missing_action_is_refused(self):
+        """The host refuses a body with no action, so never send one.
+
+        The gateway tolerates an absent action — it guards its vocabulary
+        check with `action != ""` — but the collection host behind it
+        does not, so a request without one fails unconditionally. That is
+        exactly the shape a CI job would send if the flag were optional.
+        """
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                 "--base-sha", "a" * 40, "--head-sha", "b" * 40],
+                cls,
+            )
+            assert result.exit_code == 2, result.output
+            assert "--action" in result.output
+            inst.check_pull_request.assert_not_called()
+
+    def test_unknown_action_is_refused(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                 "--base-sha", "a" * 40, "--head-sha", "b" * 40,
+                 "--action", "closed"],
+                cls,
+            )
+            assert result.exit_code == 2, result.output
+            inst.check_pull_request.assert_not_called()
+
+
+class TestCodeWebhook:
+    def test_webhook_forwards_the_three_fields(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "webhook", "--connection", "my-github",
+                 "--url", "https://x.hook.limacharlie.io/oid/"
+                          "github-code-webhook-my-github/abc",
+                 "--secret", "s" * 24],
+                cls, return_value={"state": "available"},
+            )
+            assert result.exit_code == 0, result.output
+            inst.configure_code_webhook.assert_called_once_with(
+                "my-github",
+                "https://x.hook.limacharlie.io/oid/"
+                "github-code-webhook-my-github/abc",
+                "s" * 24,
+            )
+
+    def test_the_secret_is_not_echoed(self):
+        """The url's last segment and the secret are credentials."""
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, _inst = _invoke(
+                ["cloudsec", "code", "webhook", "--connection", "my-github",
+                 "--url", "https://x.hook.limacharlie.io/oid/"
+                          "github-code-webhook-my-github/abc",
+                 "--secret", "sekrit-value-not-in-output"],
+                cls, return_value={"state": "available", "reason": ""},
+            )
+            assert result.exit_code == 0, result.output
+            assert "sekrit-value-not-in-output" not in result.output
+            # The url's last segment is the adapter's URL secret, so the
+            # whole url is a credential too — it must not be echoed back
+            # as a confirmation the way a benign argument would be.
+            assert "hook.limacharlie.io" not in result.output
+
+
+class TestImageCommands:
+    def test_image_repos_forwards_tri_state_and_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "image", "repos", "--provider", "aws",
+                 "--registry", "r1", "--region", "us-east-1",
+                 "--without-findings", "--with-images",
+                 "--scanning-state", "disabled", "--sort", "risk",
+                 "--limit", "50"],
+                cls, return_value={"image_repos": []},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_image_repos.call_args.kwargs
+            assert kwargs["provider"] == ["aws"]
+            assert kwargs["registry"] == ["r1"]
+            assert kwargs["region"] == ["us-east-1"]
+            assert kwargs["has_findings"] is False
+            assert kwargs["has_images"] is True
+            assert kwargs["scanning_state"] == "disabled"
+            assert kwargs["sort"] == "risk"
+            assert kwargs["limit"] == 50
+
+    def test_image_repos_tri_state_defaults_to_unconstrained(self):
+        """Omitting the flag must send None, not False.
+
+        False is a real selection on these dimensions ("repositories with
+        no findings"), so defaulting it would silently narrow the read.
+        """
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "image", "repos"], cls,
+                return_value={"image_repos": []},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_image_repos.call_args.kwargs
+            assert kwargs["has_findings"] is None
+            assert kwargs["has_images"] is None
+
+    def test_image_repos_all_walks_the_cursor(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            inst = MagicMock()
+            cls.return_value = inst
+            inst.iter_image_repos.return_value = iter([{"urn": "a"},
+                                                       {"urn": "b"}])
+            runner = CliRunner()
+            result = runner.invoke(
+                cli, ["--output", "json", "cloudsec", "image", "repos",
+                      "--all"],
+            )
+            assert result.exit_code == 0, result.output
+            payload = json.loads(result.output)
+            assert payload["image_repos"] == [{"urn": "a"}, {"urn": "b"}]
+            assert payload["total"] == 2
+            assert payload["next_cursor"] == ""
+            inst.list_image_repos.assert_not_called()
+
+    def test_image_repo_facets_takes_no_paging(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "image", "repo-facets", "--provider", "gcp"],
+                cls, return_value={"total": 0},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.get_image_repo_facets.call_args.kwargs
+            assert "cursor" not in kwargs and "limit" not in kwargs
+            assert kwargs["provider"] == ["gcp"]
+
+    def test_image_list_forwards_placement_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "image", "list", "--repo-urn", "lcrn:repo:1",
+                 "--tag", "latest", "--tag", "v2", "--findings", "with",
+                 "--running", "--unsigned", "--sort", "pushed"],
+                cls, return_value={"images": []},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_container_images.call_args.kwargs
+            assert kwargs["repo_urn"] == ["lcrn:repo:1"]
+            assert kwargs["tag"] == ["latest", "v2"]
+            assert kwargs["findings"] == "with"
+            assert kwargs["running"] is True
+            assert kwargs["signed"] is False
+            assert kwargs["sort"] == "pushed"
+
+    def test_image_list_signed_defaults_to_unconstrained(self):
+        """Unknown signing status matches neither True nor False.
+
+        The server predicate is `signed = @signed`, so an image whose
+        provider never reported a signature is invisible under either
+        pinned value. Defaulting the flag would hide those rows.
+        """
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "image", "list"], cls,
+                return_value={"images": []},
+            )
+            assert result.exit_code == 0, result.output
+            kwargs = inst.list_container_images.call_args.kwargs
+            assert kwargs["signed"] is None
+            assert kwargs["running"] is None
+
+    def test_image_get_passes_the_digest(self):
+        p1, p2, p3 = _patches()
+        digest = "sha256:" + "0" * 64
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "image", "get", digest], cls,
+                return_value={"image": {}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_container_image.assert_called_once_with(digest)
+
+    def test_image_list_rejects_unknown_sort(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "image", "list", "--sort", "severity"], cls,
+            )
+            assert result.exit_code == 2, result.output
+            inst.list_container_images.assert_not_called()
+
+
+class TestComplianceV2:
+    def test_run_forwards_selectors(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "run", "--assignment", "prod",
+                 "--run-id", "2026-Q3"],
+                cls, return_value={"run": {}},
+            )
+            assert result.exit_code == 0, result.output
+            inst.create_compliance_run.assert_called_once_with(
+                framework=None, assignment="prod", run_id="2026-Q3")
+
+    def test_runs_list_and_detail(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "runs", "--run-id", "r1"], cls,
+                return_value={"run": {}, "controls": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_compliance_runs.assert_called_once_with(
+                run_id="r1", framework=None, assignment=None, limit=None)
+
+    def test_attest_reads_the_body_from_a_file(self, tmp_path):
+        body = {"id": "a1", "revision": 1, "control_key": "1.1",
+                "outcome": "pass"}
+        f = tmp_path / "att.json"
+        f.write_text(json.dumps(body))
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "attest", "--input-file", str(f),
+                 "--assignment", "prod"],
+                cls, return_value={"attestations": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.create_compliance_attestation.assert_called_once_with(
+                body, framework=None, assignment="prod")
+
+    def test_attest_rejects_a_non_object_body(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "attest", "--attestation", "[1,2]"],
+                cls,
+            )
+            assert result.exit_code == 2, result.output
+            inst.create_compliance_attestation.assert_not_called()
+
+    def test_events_forwards_window(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "events", "--days", "30",
+                 "--limit", "500"],
+                cls, return_value={"events": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.list_compliance_events.assert_called_once_with(
+                assignment=None, days=30, limit=500)
+
+    def test_export_writes_the_decoded_document(self, tmp_path):
+        """`content` is base64 on this transport — a file must hold bytes."""
+        import base64 as _b64
+        out = tmp_path / "run.pdf"
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            inst = MagicMock()
+            cls.return_value = inst
+            inst.export_compliance_run.return_value = {
+                "format": "pdf",
+                "content": _b64.b64encode(b"%PDF-1.4 body").decode(),
+                "filename": "compliance-r1.pdf",
+            }
+            runner = CliRunner()
+            result = runner.invoke(cli, [
+                "cloudsec", "compliance", "export", "--run-id", "r1",
+                "--format", "pdf", "-o", str(out),
+            ])
+            assert result.exit_code == 0, result.output
+            assert out.read_bytes() == b"%PDF-1.4 body"
+
+    def test_export_without_output_prints_the_envelope(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "export", "--run-id", "r1"], cls,
+                return_value={"format": "json", "content": "e30=",
+                              "filename": "compliance-r1.json"},
+            )
+            assert result.exit_code == 0, result.output
+            assert json.loads(result.output)["filename"] == \
+                "compliance-r1.json"
+            inst.export_compliance_run.assert_called_once_with(
+                "r1", fmt=None, brand=None)
+
+    def test_export_rejects_an_unknown_format(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "export", "--run-id", "r1",
+                 "--format", "html"],
+                cls,
+            )
+            assert result.exit_code == 2, result.output
+            inst.export_compliance_run.assert_not_called()
+
+    def test_schedule_set_reads_the_body(self, tmp_path):
+        body = {"id": "s1", "assignment": "prod", "framework_id": "cis-aws",
+                "owner": "a@b.c", "cadence": "weekly", "delivery": "output",
+                "destination_ref": "output://soc", "formats": ["pdf"],
+                "next_run_at": "2026-10-01T00:00:00Z", "revision": 1}
+        f = tmp_path / "sched.json"
+        f.write_text(json.dumps(body))
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "compliance", "schedule-set", "--input-file",
+                 str(f)],
+                cls, return_value={"schedules": []},
+            )
+            assert result.exit_code == 0, result.output
+            inst.set_compliance_schedule.assert_called_once_with(body)
+
+
+class TestAzureScopeHierarchy:
+    def test_scope_hierarchy(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "azure", "scope-hierarchy"], cls,
+                return_value={"edges": [], "traversable": False},
+            )
+            assert result.exit_code == 0, result.output
+            inst.get_azure_scope_hierarchy.assert_called_once_with()
