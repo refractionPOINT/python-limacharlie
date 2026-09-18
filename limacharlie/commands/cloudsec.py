@@ -3860,9 +3860,12 @@ def compliance_attest(ctx, framework, assignment, attestation_json,
     created_at and the whole scope are stamped from your identity and
     overwrite anything you send.
 
-    An ordinary superseding revision may carry any unused revision above
-    the last one. A REVOCATION is the one case pinned to exactly
-    previous + 1, because the server copies that prior revision forward.
+    Only a REVOCATION is pinned to exactly previous + 1, because the
+    server copies that prior revision forward. An ordinary superseding
+    revision is merely inserted, so its (id, revision) must be unused —
+    and since only the highest revision of an id is ever consulted, one
+    written below the current high-water mark is accepted and then inert.
+    Nothing refuses it, so raise the number yourself.
 
     REVOCATION IS A LATER REVISION, never a delete: re-send the same 'id'
     with 'revision' exactly one higher and a 'revoked_at'. Everything else

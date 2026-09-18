@@ -170,7 +170,7 @@ limacharlie cloudsec compliance schedule-set --input-file schedule.json
 
 `approved_at` is optional to write and load-bearing to use: an attestation without it is stored and returned but **never counts toward a control**, so omitting it writes a record that silently does nothing. `rationale` is not validated either, but it is the only field that says why a human asserted this — write it. `evidence_refs` entries must be `https://`, `output://` or `ticket://` urls with no embedded credentials.
 
-An ordinary superseding revision may carry any unused revision above the last one. A revocation is the one case pinned to exactly `previous + 1`, because the server copies that prior revision forward.
+Only a revocation is pinned to exactly `previous + 1`, because the server copies that prior revision forward. An ordinary superseding revision is merely inserted, so its `(id, revision)` must be unused — and since only the highest revision of an id is ever consulted, one written below the current high-water mark is accepted and then inert. Nothing refuses it, so raise the number yourself.
 
 REVOCATION IS A LATER REVISION, never a delete: re-send the same `id` with `revision` exactly one higher and a `revoked_at`. Everything else in that body is ignored — the server carries the previous revision forward and overlays only those two fields, so the original author's attribution survives and yours is recorded separately. An attestation counts only while approved, unrevoked, inside its window, and while its framework version, control key and scope still match; editing an assignment's scope silently orphans the attestations written under the old one.
 
