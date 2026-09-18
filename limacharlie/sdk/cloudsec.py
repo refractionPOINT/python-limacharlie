@@ -16,8 +16,26 @@ standing, and the multi-org fleet overview
 
 The AppSec code lane additionally exposes what each connected
 source-control organization may actually DO
-(:meth:`CloudSec.get_code_capabilities` — GitHub connections only) and
-the dependency-upgrade queue (:meth:`CloudSec.get_code_fixes`).
+(:meth:`CloudSec.get_code_capabilities` — GitHub connections only), the
+dependency-upgrade queue (:meth:`CloudSec.get_code_fixes`), the
+registry-backed container-image inventory
+(:meth:`CloudSec.list_image_repos`, :meth:`CloudSec.list_container_images`,
+:meth:`CloudSec.get_container_image`), the pull-request check
+(:meth:`CloudSec.check_pull_request`) and the connection's App webhook
+repair (:meth:`CloudSec.configure_code_webhook`).
+
+Compliance comes in two shapes. :meth:`CloudSec.get_compliance` is the
+live, point-in-time assessment that keeps nothing. The v2 surface —
+:meth:`CloudSec.create_compliance_run`,
+:meth:`CloudSec.list_compliance_runs`,
+:meth:`CloudSec.list_compliance_attestations`,
+:meth:`CloudSec.create_compliance_attestation`,
+:meth:`CloudSec.list_compliance_events`,
+:meth:`CloudSec.export_compliance_run`,
+:meth:`CloudSec.list_compliance_schedules` and
+:meth:`CloudSec.set_compliance_schedule` — is the audit-grade half:
+immutable runs, append-only attestation revisions, a drift stream and
+deterministic exports.
 
 Reads require the ``cloudsec.get`` permission and writes require
 ``cloudsec.set``; every route additionally requires the org to be
@@ -135,6 +153,11 @@ def _finding_query_pairs(
     owner_pin: list[str] | None = None,
     sla: list[str] | None = None,
     repo: list[str] | None = None,
+    image_urn: list[str] | None = None,
+    fix_state: list[str] | None = None,
+    exploit_band: list[str] | None = None,
+    grain: list[str] | None = None,
+    cause: str | None = None,
     source: str | None = None,
     reachable: bool | None = None,
     kev: bool | None = None,
@@ -144,7 +167,7 @@ def _finding_query_pairs(
     cursor: str | None = None,
     limit: int | None = None,
 ) -> list[tuple[str, str]]:
-    """Assemble the findings worklist selectors shared by list/facets.
+    """Assemble the findings worklist selectors shared by list/facets/causes.
 
     ``owner`` is the one selector here whose EMPTY value is a real
     selection: ``owner=[""]`` asks for the UNASSIGNED bucket, so it must
@@ -159,11 +182,19 @@ def _finding_query_pairs(
     the one-word answer ``list_code_repos`` gives per repository — and
     ``"both"``, the value that would otherwise want a list, already means
     "no constraint".
+
+    ``grain`` is the one selector whose ABSENCE is not "unconstrained": see
+    :meth:`CloudSec.list_findings` for what the server's default grain
+    holds back. Every one of these repeatable keys is forwarded verbatim —
+    the vocabularies live at the backend, and a value outside one returns
+    an empty page rather than silently widening the read.
     """
     return _query_pairs(
         severity=severity, finding_class=finding_class, status=status,
         account=account, owner=owner, owner_pin=owner_pin, sla=sla,
-        repo=repo, source=source, reachable=reachable, kev=kev, q=q,
+        repo=repo, image_urn=image_urn, fix_state=fix_state,
+        exploit_band=exploit_band, grain=grain, cause=cause,
+        source=source, reachable=reachable, kev=kev, q=q,
         sort=sort, order=order, cursor=cursor, limit=limit,
     )
 
@@ -319,6 +350,11 @@ class CloudSec:
         owner: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        image_urn: list[str] | None = None,
+        fix_state: list[str] | None = None,
+        exploit_band: list[str] | None = None,
+        grain: list[str] | None = None,
+        cause: str | None = None,
         source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
@@ -368,6 +404,48 @@ class CloudSec:
                 selector; cloud findings have no repository, so any repo
                 filter excludes them. An unknown repository honestly
                 returns nothing rather than widening the read.
+            image_urn: Container-image filter values, OR'd. Each value is
+                the FULL image node urn — the ``urn`` field of a
+                :meth:`list_container_images` row (or ``image.urn`` from
+                :meth:`get_container_image`), never a bare ``sha256:...``
+                digest. The server matches on the literal urn, so a digest
+                or a partial string matches nothing and says so with an
+                empty page rather than an error. This is how you pivot
+                from an image to the findings on it.
+            fix_state: Fix-availability filter values, OR'd:
+                ``fix_available``, ``no_fix``, ``unknown``. ``unknown`` is
+                a first-class value and is NOT a synonym for ``no_fix`` —
+                a fixed version nobody collected is not a fix that does
+                not exist. ``no_fix`` is asserted only on a positive
+                signal (a malicious package, or a VEX assertion that makes
+                the fix moot).
+            exploit_band: Exploit-urgency filter values, OR'd, most urgent
+                first: ``kev_overdue``, ``kev_due``, ``exploit_likely``,
+                ``exploit_probable``, ``elevated``, ``baseline``, ``none``.
+                KEV dominates EPSS; a KEV entry whose remediation due date
+                is missing or unparseable bands ``kev_due`` and never
+                ``kev_overdue``. ``none`` selects findings with no exploit
+                signal at all.
+            grain: Which UNIT OF WORK a vulnerability finding states, OR'd:
+                ``package`` (upgrade <pkg> on host X, closing N CVEs),
+                ``cve`` (one finding per CVE, with the affected resources
+                as pivot targets), ``other`` (everything else, including
+                the container-image and source-repository vulnerability
+                lanes).
+
+                UNLIKE every other selector here, OMITTING this is NOT
+                "no constraint". The default worklist leads with the
+                ``package`` grain and EXCLUDES the per-CVE rollups a
+                package finding already states pair for pair, so the same
+                pair is never counted twice under two rule ids. Pass
+                ``grain=["cve"]`` to reach every per-CVE finding including
+                those, or both values for the unfiltered union. The
+                ``grain`` facet of :meth:`get_finding_facets` always
+                reports the full per-grain population, so you can see what
+                the default is holding back.
+            cause: Exact shared-fix cause key, as
+                :meth:`list_finding_causes` returns it. A SCALAR, not a
+                list. An unknown key returns no findings.
             source: The code lane's PRODUCER filter — which scanner found
                 the finding. ``"hosted"`` is the scan LimaCharlie ran,
                 ``"ingest"`` a document your own pipeline pushed (SARIF,
@@ -401,6 +479,8 @@ class CloudSec:
         return self._get("findings", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
+            image_urn=image_urn, fix_state=fix_state,
+            exploit_band=exploit_band, grain=grain, cause=cause,
             source=source, reachable=reachable, kev=kev, q=q,
             sort=sort, order=order, cursor=cursor, limit=limit,
         ))
@@ -416,6 +496,11 @@ class CloudSec:
         owner_pin: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        image_urn: list[str] | None = None,
+        fix_state: list[str] | None = None,
+        exploit_band: list[str] | None = None,
+        grain: list[str] | None = None,
+        cause: str | None = None,
         source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
@@ -494,7 +579,9 @@ class CloudSec:
         return self._get("findings/facets", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, owner_pin=owner_pin, sla=sla,
-            repo=repo, source=source, reachable=reachable, kev=kev, q=q,
+            repo=repo, image_urn=image_urn, fix_state=fix_state,
+            exploit_band=exploit_band, grain=grain, cause=cause,
+            source=source, reachable=reachable, kev=kev, q=q,
         ))
 
     def list_finding_causes(
@@ -508,6 +595,10 @@ class CloudSec:
         owner: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        image_urn: list[str] | None = None,
+        fix_state: list[str] | None = None,
+        exploit_band: list[str] | None = None,
+        grain: list[str] | None = None,
         source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
@@ -563,14 +654,14 @@ class CloudSec:
             a ranking and scale signal; the finding's own read is the
             authority on its status.
         """
-        pairs = _finding_query_pairs(
+        return self._get("findings/causes", _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
+            image_urn=image_urn, fix_state=fix_state,
+            exploit_band=exploit_band, grain=grain, cause=cause,
             source=source, reachable=reachable, kev=kev, q=q,
             limit=limit,
-        )
-        _add_scalar(pairs, "cause", cause)
-        return self._get("findings/causes", pairs)
+        ))
 
     def get_finding(self, finding_id: str) -> dict[str, Any]:
         """Get one finding by id (e.g. ``fnd_<fingerprint>``).
@@ -1229,6 +1320,326 @@ class CloudSec:
         return self._get("compliance/assignments")
 
     # ------------------------------------------------------------------
+    # Compliance v2 (immutable runs, attestations, drift, schedules)
+    # ------------------------------------------------------------------
+    #
+    # :meth:`get_compliance` above is the LIVE, point-in-time assessment:
+    # ask it a question and it answers about the estate as it is now,
+    # keeping nothing. The v2 surface here is the audit-grade half — an
+    # assessment is PERSISTED as an immutable run, manual evidence is
+    # recorded as append-only attestation revisions, control-state changes
+    # accumulate as a drift stream, and a run can be rendered to a
+    # deterministic artifact months later. Use it when somebody has to be
+    # able to prove what was true on a date.
+
+    def create_compliance_run(
+        self,
+        *,
+        framework: str | None = None,
+        assignment: str | None = None,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Assess compliance and PERSIST the result as an immutable run.
+
+        Args:
+            framework: Framework id for an estate-wide run. Defaults to
+                the backend's default framework when neither this nor
+                ``assignment`` is given.
+            assignment: A named assignment. Its own framework SUPERSEDES
+                ``framework``, so a ``framework`` passed alongside it is
+                silently discarded. An unknown name is an error.
+            run_id: An idempotency key. Omit and every call performs a
+                FULL assessment and writes a NEW run — the generated id
+                embeds the current time, so two calls a second apart
+                produce two runs. Pass one and a retry replays the stored
+                run verbatim instead of re-assessing, provided the
+                assignment, framework, scope and assignment revision all
+                still match; if any of them moved, the call is refused
+                rather than quietly assessing something else under an id
+                you already published.
+
+        Returns:
+            ``{"run": {...}, "report": {...}, "assignment": {...}}``.
+            ``run`` carries the identity an auditor needs —  ``run_id``,
+            ``framework_id``, ``framework_version``, ``catalog_hash``,
+            ``rule_pack_hash``, ``assignment_revision``, ``scope_hash``,
+            ``result_set_hash``, ``scan_generations``, ``status``,
+            ``started_at``, ``completed_at``, ``summary`` — and ``report``
+            the framework info plus one ``ControlResult`` per control.
+
+        Note:
+            This is the expensive call on this surface: it evaluates every
+            control against the estate. The reads
+            (:meth:`list_compliance_runs`, :meth:`export_compliance_run`)
+            are what you poll; this is what you schedule.
+
+            ``rule_pack_hash`` reads the literal ``"unobserved"`` — not an
+            empty string — when no detector run reported one.
+
+            In ``report.summary``, ``score`` is computed over ASSESSABLE
+            controls only and ``low_coverage`` is true when that covers
+            less than half of the gradeable ones. Never render the score
+            without the coverage beside it. ``applicable`` false means
+            nothing was assessable at all, in which case ``score`` is 0
+            and that 0 does not mean "failed everything".
+        """
+        body: dict[str, Any] = {}
+        for key, value in (
+            ("framework", framework),
+            ("assignment", assignment),
+            ("run_id", run_id),
+        ):
+            if value:
+                body[key] = value
+        return self._post("compliance/v2", body)
+
+    def list_compliance_runs(
+        self,
+        *,
+        run_id: str | None = None,
+        framework: str | None = None,
+        assignment: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """List completed compliance runs, or read one run in full.
+
+        Args:
+            run_id: Read ONE run and its historical control snapshot.
+                When given, the other selectors are ignored.
+            framework: Framework id. Defaults to the backend default.
+            assignment: Assignment name. Defaults to the whole estate.
+            limit: Maximum runs (backend default 50, max 200; a larger
+                ask is reduced to the default rather than clamped to the
+                max).
+
+        Returns:
+            With ``run_id``: ``{"run": {...}, "controls": [...]}`` — note
+            the key is ``controls``, not ``report``, and the results are
+            RECONSTRUCTED from the drift stream rather than stored whole.
+            Without it: ``{"runs": [{...}, ...]}``, only ``completed``
+            runs, newest first.
+
+        Note:
+            Unlike :meth:`create_compliance_run`, the list does NOT derive
+            the framework from the assignment. Passing an assignment
+            without its matching framework returns an empty list, not an
+            error — pass both, or neither.
+        """
+        return self._get("compliance/runs", _query_pairs(
+            run_id=run_id, framework=framework, assignment=assignment,
+            limit=limit,
+        ))
+
+    def list_compliance_attestations(
+        self,
+        *,
+        framework: str | None = None,
+        assignment: str | None = None,
+    ) -> dict[str, Any]:
+        """List the attestation revisions for one assignment + framework.
+
+        Returns:
+            ``{"attestations": [...]}`` — EVERY revision, not just the
+            current ones, ordered by attestation id then revision
+            descending. Only the highest revision of each id counts
+            toward an assessment; the earlier ones are the audit trail.
+        """
+        return self._get("compliance/attestations", _query_pairs(
+            framework=framework, assignment=assignment,
+        ))
+
+    def create_compliance_attestation(
+        self,
+        attestation: dict[str, Any],
+        *,
+        framework: str | None = None,
+        assignment: str | None = None,
+    ) -> dict[str, Any]:
+        """Write one attributed, immutable attestation revision.
+
+        Manual evidence for a control no detector can grade. Attestations
+        are APPEND-ONLY: a revision is inserted, never updated, so
+        re-writing an existing ``(id, revision)`` fails rather than
+        rewriting a record somebody's name is on.
+
+        Args:
+            attestation: The revision. You supply ``id``, ``revision``
+                (an integer ≥ 1, and ``previous + 1`` to supersede),
+                ``control_key``, ``outcome`` (``pass``, ``fail`` or
+                ``not_applicable``), ``rationale``, ``approved_at``,
+                ``effective_at``, ``expires_at`` (which must be after
+                ``effective_at``), and optionally ``requirement_id``
+                (empty matches any requirement of the control),
+                ``evidence_refs``, ``compensating_control_ref``,
+                ``supersedes_id`` and ``revoked_at``. You may also pass
+                ``expected_scope_hash`` and ``expected_framework_version``
+                as optimistic preconditions — the write is refused if the
+                scope or catalog moved under you.
+
+                The server owns the attribution: ``assessor``,
+                ``approver``, ``revoked_by``, ``created_at``, ``oid``,
+                ``assignment``, ``framework_id``, ``framework_version``
+                and ``scope_hash`` are stamped from the calling identity
+                and the resolved scope, overwriting anything you send.
+            framework: Framework id. Defaults to the backend default.
+            assignment: Assignment name. Defaults to the whole estate.
+
+        Returns:
+            ``{"attestations": [...]}`` — the full list after the write.
+
+        Note:
+            ``evidence_refs`` entries must be ``https://``, ``output://``
+            or ``ticket://`` urls with no embedded credentials.
+
+            REVOCATION IS A LATER REVISION, never a delete. Re-send the
+            same ``id`` with ``revision`` exactly one higher and a
+            ``revoked_at``; everything else in the body is ignored,
+            because the server copies the previous revision forward and
+            overlays only those two fields. That keeps the original
+            author's attribution intact and records yours separately.
+
+            An attestation only counts toward a control while it is
+            approved, not revoked, and inside its validity window — AND
+            while its framework version, control key and scope hash still
+            match the assessment. Editing an assignment's scope changes
+            the scope hash and silently orphans the attestations written
+            under the old one.
+        """
+        return self._post(
+            "compliance/attestations",
+            attestation,
+            _query_pairs(framework=framework, assignment=assignment),
+        )
+
+    def list_compliance_events(
+        self,
+        *,
+        assignment: str | None = None,
+        days: int | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """The compliance drift stream: material control-state changes.
+
+        Args:
+            assignment: Assignment name. Defaults to the whole estate.
+                There is deliberately no framework selector — events are
+                keyed on the assignment alone.
+            days: Lookback (backend default 90, max 3650).
+            limit: Maximum events (backend default 200, max 1000).
+
+        Returns:
+            ``{"events": [{"event_id", "oid", "assignment",
+            "framework_id", "control_key", "run_id",
+            "previous_fingerprint", "fingerprint", "occurred_at",
+            "result"}, ...]}``, newest first.
+
+        Note:
+            This is a CHANGE-ONLY stream. An event is appended only when a
+            control's result fingerprint differs from its previous state,
+            so a control that stayed PASS across ten runs produces one
+            event, not ten. An empty window means "nothing moved", never
+            "nothing ran". ``previous_fingerprint`` is empty on a
+            control's first event.
+        """
+        return self._get("compliance/events", _query_pairs(
+            assignment=assignment, days=days, limit=limit,
+        ))
+
+    def export_compliance_run(
+        self,
+        run_id: str,
+        *,
+        fmt: str | None = None,
+        brand: str | None = None,
+    ) -> dict[str, Any]:
+        """Render a stored compliance run as a deterministic artifact.
+
+        Args:
+            run_id: The immutable run id, as
+                :meth:`list_compliance_runs` returns it.
+            fmt: ``json`` (the default), ``csv`` or ``pdf``. Anything else
+                is refused by name.
+            brand: PDF only — the heading. Defaults to "LimaCharlie Cloud
+                Security".
+
+        Returns:
+            ``{"format": str, "content": str, "filename": str}``.
+            ``content`` is the document's bytes, BASE64-ENCODED on this
+            JSON transport — decode it before writing a file, including
+            for ``json`` and ``csv``.
+
+        Note:
+            The export reads the STORED run, never the live estate, and
+            the JSON snapshot deliberately carries no generation
+            timestamp. Exporting the same run id a year from now returns
+            the same bytes — which is the point.
+
+            The PDF is an executive handoff, one line per control, with
+            non-ASCII characters replaced. Use ``json`` or ``csv`` when
+            something downstream has to parse it.
+        """
+        return self._get("compliance/export", _query_pairs(
+            run_id=run_id, format=fmt, brand=brand,
+        ))
+
+    def list_compliance_schedules(self) -> dict[str, Any]:
+        """List the org's recurring compliance assessment schedules.
+
+        Returns:
+            ``{"schedules": [{"id", "oid", "assignment", "framework_id",
+            "owner", "cadence", "delivery", "destination_ref", "formats",
+            "enabled", "next_run_at", "last_run_id", "last_error",
+            "revision", "created_by", "updated_by", "updated_at"}, ...]}``.
+        """
+        return self._get("compliance/schedules")
+
+    def set_compliance_schedule(self, schedule: dict[str, Any]) -> dict[str, Any]:
+        """Create or revise a recurring compliance assessment schedule.
+
+        Args:
+            schedule: The schedule. Required: ``id``, ``assignment``,
+                ``framework_id``, ``owner``, ``cadence``
+                (``weekly`` or ``monthly``), ``delivery`` (``output``,
+                ``email`` or ``webhook``), ``destination_ref``,
+                ``formats`` (a non-empty list of ``json``/``csv``/``pdf``
+                with no duplicates), ``next_run_at``, and ``revision``
+                (an integer ≥ 1). ``enabled`` is optional.
+
+                ``destination_ref`` MUST be an ``output://`` or
+                ``secret://`` reference. Credentials and webhook secrets
+                are never carried inline.
+
+        Returns:
+            ``{"schedules": [...]}`` — the full list after the write.
+
+        Note:
+            ``revision`` is an optimistic-concurrency token, not a
+            version label: an edit must INCREMENT it. A lower revision is
+            refused; the same revision is an idempotent no-op if the
+            content is identical and a refusal if it is not. ``created_by``
+            on an existing schedule is immutable — the stored value wins.
+        """
+        return self._post("compliance/schedules", schedule)
+
+    def get_azure_scope_hierarchy(self) -> dict[str, Any]:
+        """Azure scope containment evidence (tenant → … → resource).
+
+        Returns:
+            ``{"edges": [{"parent_urn", "child_urn", "source",
+            "observed_at"}, ...], "traversable": false}``, sorted by
+            parent then child. ``source`` and ``observed_at`` are omitted
+            when not recorded.
+
+        Note:
+            ``traversable: false`` is a CONTRACT, not a status that might
+            change. Containment is stored outside the property graph on
+            purpose: it can explain inherited authorization, but it must
+            never become a free traversal step in a graph query, because
+            "contained by" is not "can reach".
+        """
+        return self._get("azure/scope-hierarchy")
+
+    # ------------------------------------------------------------------
     # AppSec code lane (repositories, scan status, SBOM)
     # ------------------------------------------------------------------
 
@@ -1418,6 +1829,172 @@ class CloudSec:
         if provider:
             body["provider"] = provider
         return self._post("code/scan", body)
+
+    def check_pull_request(
+        self,
+        repo: str,
+        pr: int,
+        base_sha: str,
+        head_sha: str,
+        *,
+        action: str | None = None,
+        prev_base_sha: str | None = None,
+        base_ref: str | None = None,
+        head_ref: str | None = None,
+        provider: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask the code lane what a pull request INTRODUCES, as a check run.
+
+        The lane scans the pull request's base and head and publishes a
+        GitHub check run on the head commit reporting only what is NEW in
+        it; the repository's own findings stay on
+        :meth:`list_code_repos`. Its normal caller is the shipped D&R rule
+        on the org's source-control webhook, but this is a plain
+        documented route, so a CI job can ask the same question.
+
+        Args:
+            repo: The repository — ``"<owner>/<name>"``, its bare name, or
+                its canonical urn.
+            pr: The pull-request number.
+            base_sha: A FULL commit id. Still required, but NOT
+                authoritative: the lane takes the base from the provider,
+                because a caller-chosen base decides what the diff is
+                measured from and a base equal to the head would make any
+                pull request look like it introduced nothing.
+            head_sha: The FULL commit id of the head. A branch or tag name
+                is refused — the check is published ON the commit, and a
+                ref would let it be attached to a commit nobody proposed.
+            action: The webhook action: ``opened``, ``synchronize``,
+                ``reopened`` or ``edited``. Every other pull-request event
+                leaves what the pull request introduces untouched and is
+                refused.
+            prev_base_sha: REQUIRED when ``action`` is ``edited``, refused
+                as incomplete without it. ``edited`` is in the set for one
+                thing it reports — a pull request RETARGETED at a
+                different base branch, which changes the diff under review
+                without pushing a commit. A title or body change is
+                reported the same way and changes nothing, so this value
+                (GitHub's ``changes.base.sha.from``) is what tells the two
+                apart. It is EVIDENCE, never a scan input: the check is
+                refused if the provider says the base did not actually
+                move, so an editing spree costs no scan and nothing
+                against the daily write budget.
+            base_ref: Optional branch the pull request targets.
+            head_ref: Optional branch the pull request comes from.
+            provider: Source-control provider; defaults to ``github``.
+
+        Returns:
+            ``{"accepted": bool, "repo": str, "pr": int, "provider": str,
+            "debounce_seconds": int}``.
+
+        Note:
+            The pull request is READ FROM THE PROVIDER before anything is
+            scanned and what it says wins: the check is published only
+            when the pull request is open, belongs to this repository, and
+            its head commit is the ``head_sha`` you sent. A pull request
+            whose own base and head are the same commit is refused.
+
+            ``accepted`` means the check was QUEUED, never that one will
+            appear. It is acknowledged immediately, debounced per pull
+            request (a push of several commits becomes one check) and
+            handed to the collector replica holding that connection, which
+            applies the rest of the decision. Each of these is a quiet
+            no-op from here: a connection whose GitHub App has not been
+            granted *Checks: Read and write* and *Pull requests: Read and
+            write* (the connection App is read-only by default —
+            :meth:`get_code_capabilities` reports which permission is
+            missing); a repository outside the ``code_scanning`` policy
+            scope or with ``pr_checks`` off; a repository over the
+            free-tier quota; a connection that has spent its daily
+            source-control write budget; or a connection paused or failing
+            over at that instant.
+
+            The verdict is the check run's conclusion, set by the policy's
+            ``gating.fail_on``.
+        """
+        body: dict[str, Any] = {
+            "repo": repo,
+            "pr": pr,
+            "base_sha": base_sha,
+            "head_sha": head_sha,
+        }
+        for key, value in (
+            ("action", action),
+            ("prev_base_sha", prev_base_sha),
+            ("base_ref", base_ref),
+            ("head_ref", head_ref),
+            ("provider", provider),
+        ):
+            if value:
+                body[key] = value
+        return self._post("code/pr_check", body)
+
+    def configure_code_webhook(
+        self, connection: str, url: str, secret: str,
+    ) -> dict[str, Any]:
+        """Point a GitHub connection's App webhook at this org's adapter.
+
+        Push rescans and pull-request checks are driven by the GitHub
+        App's OWN webhook — one per App, covering every repository the App
+        is installed on — delivered to the connection's
+        ``github-code-webhook-<connection>`` webhook adapter. A connection
+        whose App has no webhook, or one pointing elsewhere, is repaired
+        here: LimaCharlie rewrites the App's hook config with the App's own
+        credential.
+
+        Args:
+            connection: The ``cloudsec_provider`` hive record name of a
+                GitHub connection.
+            url: The adapter's hook url. It is refused unless it is
+                EXACTLY
+                ``https://<hooks domain>/<this oid>/github-code-webhook-<connection>/<url secret>``
+                where the hooks domain is this org's own — the
+                ``url.hooks`` value of ``GET /orgs/{oid}/url``, always
+                under ``.hook.limacharlie.io``. https only, no
+                credentials, port, query or fragment, and the org in the
+                path must be this one. The rule is narrow on purpose: a
+                caller who could name any url could redirect an org's
+                source-control event stream, and the secret needed to
+                accept it, to a server they control.
+            secret: The webhook signing secret the adapter verifies
+                (``X-Hub-Signature-256``); 20 to 256 characters, no
+                whitespace.
+
+        Returns:
+            The connection's RE-DETECTED webhook status:
+            ``{"state": "available" | "unavailable" | "unknown",
+            "reason": str, "missing_events": [str, ...], "detail": str}``.
+            ``reason`` is ``webhook_not_configured``,
+            ``webhook_points_elsewhere``, ``missing_events``,
+            ``verification_unavailable``, or empty.
+
+        Note:
+            Neither the url nor the secret is ever returned or logged, by
+            this method or by the server.
+
+            Event subscriptions (Push, Pull request) CANNOT be changed
+            through the API. When ``reason`` is ``missing_events`` an org
+            owner has to tick them in the App's settings.
+
+            A refusal is a 400 carrying a machine-readable ``reason`` —
+            among them ``connection_not_found``, ``provider_not_github``,
+            ``webhook_in_use_by_other_org`` (the App's webhook already
+            delivers to another org) and ``webhook_not_active`` (the App
+            has no active webhook, which GitHub's API cannot create, so an
+            owner must tick Active first). A failure talking to GitHub is
+            a 502 with a ``github_`` reason; a request past its
+            50-second bound is a 504 with reason ``timeout`` AND MAY STILL
+            HAVE BEEN APPLIED, so re-read the status rather than retrying
+            blindly; a transient LimaCharlie failure is a 503 with reason
+            ``host_unavailable`` and is safe to retry. The write itself is
+            idempotent.
+        """
+        return self._post("code/webhook", {
+            "connection": connection,
+            "url": url,
+            "secret": secret,
+        })
+
     def autofix_code_finding(
         self,
         finding_id: str,
@@ -1669,6 +2246,299 @@ class CloudSec:
             cursor = page.get("next_cursor") or None
             if not cursor:
                 return
+
+    # ------------------------------------------------------------------
+    # Container images (registry-backed image inventory)
+    # ------------------------------------------------------------------
+    #
+    # These reads have their own contract rather than riding the generic
+    # resource inventory, because an image and its placement are different
+    # objects: an image is keyed on its DIGEST ALONE and is therefore
+    # global across every registry, account, cluster and provider that
+    # holds it, while tags, registry and push time belong to the
+    # repository<->image MEMBERSHIP. Every filter and sort runs
+    # server-side.
+
+    def list_image_repos(
+        self,
+        *,
+        q: str | None = None,
+        provider: list[str] | None = None,
+        account: list[str] | None = None,
+        registry: list[str] | None = None,
+        region: list[str] | None = None,
+        has_findings: bool | None = None,
+        has_images: bool | None = None,
+        scanning_state: list[str] | None = None,
+        sort: str | None = None,
+        order: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """One page of connected container-image repositories.
+
+        Args:
+            q: Substring over the repository path, display name, registry
+                and urn.
+            provider: Cloud provider filter values, OR'd.
+            account: Account filter values, OR'd.
+            registry: Registry-host filter values, OR'd.
+            region: Registry-region filter values, OR'd.
+            has_findings: ``True`` for repositories with at least one OPEN
+                finding, ``False`` for those with none. TRI-STATE: omit
+                (``None``) for no constraint — ``False`` is a real
+                selection, not "unfiltered".
+            has_images: Same tri-state shape, on whether the repository
+                currently contains any image.
+            scanning_state: Native registry-scanning state filter values,
+                OR'd: ``enabled``, ``disabled``, ``unknown``.
+            sort: ``name`` (the default), ``risk``, ``images`` or
+                ``last_pushed``. An unrecognised key is silently coerced
+                to ``name`` by the server rather than rejected, so a typo
+                returns a successful, wrongly-ordered page.
+            order: ``asc`` or ``desc``. The default follows the sort key —
+                ``asc`` for ``name``, ``desc`` for the rest.
+            cursor: Keyset-pagination token from a previous page.
+            limit: Page size (default 100, max 1000).
+
+        Returns:
+            ``{"image_repos": [{"urn", "provider", "registry",
+            "repository", "display_name", "account", "region",
+            "scanning_state", "image_count", "tagged_image_count",
+            "open_findings", "top_severity", "first_seen", "last_seen"},
+            ...], "next_cursor": str, "total": int, "coverage": {...}}``.
+
+            ``total`` is the size of the whole filtered set, not of the
+            page. ``top_severity`` is ABSENT when the repository has no
+            open findings — a missing key means "none", never ``INFO``.
+            ``account`` and ``region`` are omitted when the provider did
+            not report them.
+
+            ``coverage`` is ``{"mode": ..., "repository_inventory_available":
+            bool}`` and says how much of the estate this list can possibly
+            represent: ``observed_only`` means no registry inventory was
+            collected at all and the rows exist only because something was
+            seen running or scanned. So an EMPTY list with
+            ``repository_inventory_available`` false means "not
+            collected", never "zero repositories".
+
+        Note:
+            ``next_cursor`` is the ONLY end-of-set signal. A short page is
+            not necessarily the last one, and a full page does not
+            guarantee another — walk with :meth:`iter_image_repos` or loop
+            on the cursor. The cursor is bound to the filter and sort it
+            was issued under; changing any selector mid-walk is an error
+            rather than a silently different result.
+        """
+        return self._get("code/image-repos", _query_pairs(
+            q=q, provider=provider, account=account, registry=registry,
+            region=region, has_findings=has_findings,
+            has_images=has_images, scanning_state=scanning_state,
+            sort=sort, order=order, cursor=cursor, limit=limit,
+        ))
+
+    def iter_image_repos(self, **selectors: Any):
+        """Yield every matching image repository, page by page.
+
+        Wraps :meth:`list_image_repos` and follows ``next_cursor`` to the
+        end, which is the correct way to walk it: a page can be short
+        without being the last.
+
+        Yields:
+            dict: One ``image_repos`` entry per iteration.
+        """
+        selectors.pop("cursor", None)
+        cursor: str | None = None
+        while True:
+            page = self.list_image_repos(cursor=cursor, **selectors)
+            for row in page.get("image_repos") or []:
+                yield row
+            cursor = page.get("next_cursor") or None
+            if not cursor:
+                return
+
+    def get_image_repo_facets(
+        self,
+        *,
+        q: str | None = None,
+        provider: list[str] | None = None,
+        account: list[str] | None = None,
+        registry: list[str] | None = None,
+        region: list[str] | None = None,
+        has_findings: bool | None = None,
+        has_images: bool | None = None,
+        scanning_state: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Cross-filtered facet counts for the image-repository list.
+
+        Takes the SAME selectors as :meth:`list_image_repos` (minus
+        paging, which this endpoint ignores), so the rail describes the
+        population that list returns.
+
+        Returns:
+            ``{"total": int, "providers": [{"value", "count"}, ...],
+            "accounts": [...], "registries": [...],
+            "scanning_states": [...]}``.
+
+        Note:
+            Each faceted dimension excludes its OWN selector so the rail
+            answers "what if I changed this one filter" — with three
+            exceptions that always constrain every count: ``region``,
+            ``has_images`` and ``has_findings`` (and the ``q`` search).
+            There is deliberately no ``region`` facet for that reason.
+
+            The empty string is a legitimate bucket value meaning "the
+            provider did not report it", not a parsing artifact. A
+            dimension with no rows may be absent rather than an empty
+            list, so read each with ``.get(...)``.
+        """
+        return self._get("code/image-repos/facets", _query_pairs(
+            q=q, provider=provider, account=account, registry=registry,
+            region=region, has_findings=has_findings,
+            has_images=has_images, scanning_state=scanning_state,
+        ))
+
+    def list_container_images(
+        self,
+        *,
+        q: str | None = None,
+        repo_urn: list[str] | None = None,
+        provider: list[str] | None = None,
+        account: list[str] | None = None,
+        registry: list[str] | None = None,
+        tag: list[str] | None = None,
+        findings: str | None = None,
+        running: bool | None = None,
+        signed: bool | None = None,
+        sort: str | None = None,
+        order: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """One page of container images, keyed by digest.
+
+        An image is identified by its DIGEST ALONE, so one row is the same
+        artifact everywhere it is stored. The placement selectors below
+        (``repo_urn``, ``provider``, ``account``, ``registry``, ``tag``)
+        therefore select images with AT LEAST ONE matching placement — the
+        returned row still lists its other placements.
+
+        Args:
+            q: Substring over the image name, urn, and the joined
+                repository path, registry host and tags.
+            repo_urn: Image-repository urn filter values, OR'd — the
+                ``urn`` field of a :meth:`list_image_repos` row.
+            provider: Provider filter values, OR'd (matched on placement).
+            account: Account filter values, OR'd (matched on placement).
+            registry: Registry-host filter values, OR'd (on placement).
+            tag: Exact tag filter values, OR'd (on placement).
+            findings: ``with`` (open findings), ``without`` (none), or
+                ``any``. A SCALAR. Anything the server does not recognise
+                is treated as ``any``, i.e. unconstrained.
+            running: ``True`` for images observed running on a workload,
+                ``False`` for those not. TRI-STATE — omit for no
+                constraint.
+            signed: ``True``/``False`` on the image's signature. TRI-STATE,
+                and note that signing status is only recorded when a
+                provider reports it: an image whose status is UNKNOWN
+                matches NEITHER ``True`` nor ``False``, and the field is
+                not echoed back in the row.
+            sort: ``name`` (the default), ``risk`` or ``pushed``. An
+                unrecognised key is silently coerced to ``name``.
+            order: ``asc`` or ``desc`` (default ``asc`` for ``name``,
+                ``desc`` otherwise).
+            cursor: Keyset-pagination token from a previous page.
+            limit: Page size (default 100, max 1000).
+
+        Returns:
+            ``{"images": [{"urn", "digest", "name", "open_findings",
+            "findings_by_severity", "top_severity", "workload_count",
+            "built_from_repo_count", "repository_count", "repositories",
+            "repositories_truncated", "first_seen", "last_seen",
+            "scanner_provenance", "registry_observed"}, ...],
+            "next_cursor": str, "total": int, "coverage": {...}}``.
+
+            ``urn`` is what :meth:`list_findings` takes as ``image_urn``.
+            ``repositories`` is a BOUNDED SAMPLE (100) of placements —
+            ``{"repository_urn", "provider", "registry", "repository",
+            "account", "region", "tags", "tag_count", "tags_truncated",
+            "last_seen"}`` — so read ``repository_count`` for the truth
+            and ``repositories_truncated`` for whether you are seeing all
+            of them. ``tags`` is separately capped at 100.
+
+            ``top_severity`` is ABSENT when there are no open findings; a
+            missing key means "none", never ``INFO``.
+            ``findings_by_severity`` is always an object (``{}`` when
+            empty). ``coverage`` carries a third ``mode`` this list can
+            report that :meth:`list_image_repos` cannot: ``mixed``, meaning
+            registry inventory exists but some images were only ever
+            observed at runtime.
+
+        Note:
+            ``next_cursor`` is the only end-of-set signal, and the cursor
+            is bound to the filter and sort it was issued under. Cursors
+            from :meth:`list_image_repos` are NOT interchangeable with
+            these.
+
+            Every count and the ``risk``/``pushed`` sort keys come from a
+            rollup rebuilt once per collection pass, so they describe the
+            last rebuild rather than this instant.
+        """
+        return self._get("code/images", _query_pairs(
+            q=q, repo_urn=repo_urn, provider=provider, account=account,
+            registry=registry, tag=tag, findings=findings,
+            running=running, signed=signed, sort=sort, order=order,
+            cursor=cursor, limit=limit,
+        ))
+
+    def iter_container_images(self, **selectors: Any):
+        """Yield every matching container image, page by page.
+
+        Wraps :meth:`list_container_images` and follows ``next_cursor`` to
+        the end.
+
+        Yields:
+            dict: One ``images`` entry per iteration.
+        """
+        selectors.pop("cursor", None)
+        cursor: str | None = None
+        while True:
+            page = self.list_container_images(cursor=cursor, **selectors)
+            for row in page.get("images") or []:
+                yield row
+            cursor = page.get("next_cursor") or None
+            if not cursor:
+                return
+
+    def get_container_image(self, digest: str) -> dict[str, Any]:
+        """One container image by digest, with its placements and use.
+
+        Args:
+            digest: The image digest, ``sha256:`` followed by 64 lowercase
+                hex characters, exactly as :meth:`list_container_images`
+                returns it. Anything else is refused as an invalid digest;
+                a well-formed digest the org has never seen is "not
+                found", not an empty result.
+
+        Returns:
+            ``{"image": {...}, "memberships": [...],
+            "membership_count": int, "memberships_truncated": bool,
+            "workloads": [{"urn", "name"}, ...], "workload_count": int,
+            "source_repositories": [{"urn", "name"}, ...],
+            "source_repository_count": int}``. ``image`` is one
+            :meth:`list_container_images` row; ``memberships`` are the
+            placement objects that row documents.
+
+        Note:
+            ``memberships``, ``workloads`` and ``source_repositories`` are
+            BOUNDED SAMPLES of 100, not complete sets, and there is no
+            pagination for them — the paired ``*_count`` is the truth.
+            Only memberships carry a ``_truncated`` flag; for the other
+            two, compare the list length against the count yourself. To
+            get past 100 placements, list images filtered by ``repo_urn``
+            instead.
+        """
+        return self._get(f"code/images/{_quote(digest, safe='')}")
 
     # ------------------------------------------------------------------
     # Overview / trends / chokepoints
@@ -2066,6 +2936,11 @@ class CloudSec:
         owner: list[str] | None = None,
         sla: list[str] | None = None,
         repo: list[str] | None = None,
+        image_urn: list[str] | None = None,
+        fix_state: list[str] | None = None,
+        exploit_band: list[str] | None = None,
+        grain: list[str] | None = None,
+        cause: str | None = None,
         source: str | None = None,
         reachable: bool | None = None,
         kev: bool | None = None,
@@ -2088,6 +2963,8 @@ class CloudSec:
         pairs = _finding_query_pairs(
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
+            image_urn=image_urn, fix_state=fix_state,
+            exploit_band=exploit_band, grain=grain, cause=cause,
             source=source, reachable=reachable, kev=kev, q=q,
             sort=sort, order=order,
         )
