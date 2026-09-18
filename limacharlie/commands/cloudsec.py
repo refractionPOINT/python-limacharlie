@@ -1921,11 +1921,16 @@ def code_rescan(ctx, repo, ref, provider) -> None:
               help="The FULL commit id of the head. A branch or tag name is "
                    "refused: the check is published ON the commit, and a ref "
                    "would let it be attached to a commit nobody proposed.")
-@click.option("--action", default=None,
+@click.option("--action", required=True,
               type=click.Choice(["opened", "synchronize", "reopened", "edited"]),
-              help="The webhook action. Every other pull-request event leaves "
-                   "what the pull request introduces untouched and is "
-                   "refused.")
+              help="The webhook action. Required: the collection host checks "
+                   "membership of this closed set with no empty-string "
+                   "exemption, so a request carrying no action is refused "
+                   "unconditionally. Every other pull-request event leaves "
+                   "what the pull request introduces untouched and is refused "
+                   "too. A CI job with no webhook to quote should send "
+                   "'synchronize', which is what a push to an open pull "
+                   "request is.")
 @click.option("--prev-base-sha", default=None,
               help="REQUIRED with --action edited: the full commit id the "
                    "pull request was based on before the edit (the webhook's "
@@ -1993,8 +1998,8 @@ def code_pr_check(ctx, repo, pr, base_sha, head_sha, action, prev_base_sha,
         )
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.check_pull_request(
-        repo, pr, base_sha, head_sha,
-        action=action, prev_base_sha=prev_base_sha,
+        repo, pr, base_sha, head_sha, action,
+        prev_base_sha=prev_base_sha,
         base_ref=base_ref, head_ref=head_ref, provider=provider,
     ))
 
@@ -2006,15 +2011,16 @@ def code_pr_check(ctx, repo, pr, base_sha, head_sha, action, prev_base_sha,
 @click.option("--url", required=True,
               help="The adapter's hook url: "
                    "https://<this org's hooks domain>/<oid>/"
-                   "github-code-webhook-<connection>/<url secret>. The "
-                   "hooks domain is the 'url.hooks' value of "
-                   "'limacharlie org url', always under "
-                   ".hook.limacharlie.io. https only, no credentials, port, "
-                   "query or fragment.")
+                   "github-code-webhook-<connection>/<url secret> — the "
+                   "adapter's own name, whose 'github-code-webhook-' PREFIX "
+                   "is what the server enforces on that segment. The hooks "
+                   "domain is the 'url.hooks' value of 'limacharlie org "
+                   "url', always under .hook.limacharlie.io. https only, no "
+                   "credentials, port, query or fragment.")
 @click.option("--secret", required=True,
               help="The webhook signing secret the adapter verifies "
-                   "(X-Hub-Signature-256): 20 to 256 characters, no "
-                   "whitespace. Never logged or echoed back.")
+                   "(X-Hub-Signature-256): 20 to 256 bytes, no whitespace "
+                   "and no control characters. Never logged or echoed back.")
 @pass_context
 def code_webhook(ctx, connection, url, secret) -> None:
     """Point a GitHub connection's App webhook at this org's adapter.
@@ -2757,11 +2763,13 @@ def _image_repo_filter_options(f):
              "and urn.",
     )(f)
     f = click.option(
-        "--scanning-state", "scanning_states", multiple=True,
+        "--scanning-state", "scanning_state", default=None,
         type=click.Choice(["enabled", "disabled", "unknown"]),
-        help="Native registry vulnerability-scanning state; repeatable (OR). "
-             "'unknown' means the registry did not report it, not that it is "
-             "off.",
+        help="Native registry vulnerability-scanning state. NOT repeatable: "
+             "the backend would take several, but the API forwards only one, "
+             "so a second value would be dropped without a word. 'unknown' "
+             "means the registry did not report the state, not that scanning "
+             "is off.",
     )(f)
     f = click.option(
         "--with-images/--without-images", "has_images", default=None,
@@ -2826,7 +2834,7 @@ def image_group() -> None:
 @_paging_options
 @pass_context
 def image_repos(ctx, q, providers, accounts, registries, regions,
-                has_findings, has_images, scanning_states, sort, order,
+                has_findings, has_images, scanning_state, sort, order,
                 walk_all, cursor, limit) -> None:
     """List connected container-image repositories with their rollups.
 
@@ -2855,7 +2863,7 @@ def image_repos(ctx, q, providers, accounts, registries, regions,
         region=list(regions) or None,
         has_findings=has_findings,
         has_images=has_images,
-        scanning_state=list(scanning_states) or None,
+        scanning_state=scanning_state,
         sort=sort,
         order=order,
     )
@@ -2871,7 +2879,7 @@ def image_repos(ctx, q, providers, accounts, registries, regions,
 @_image_repo_filter_options
 @pass_context
 def image_repo_facets(ctx, q, providers, accounts, registries, regions,
-                      has_findings, has_images, scanning_states) -> None:
+                      has_findings, has_images, scanning_state) -> None:
     """Cross-filtered facet counts for the image-repository list.
 
     Takes the same selectors as 'image repos' (this endpoint has no
@@ -2898,7 +2906,7 @@ def image_repo_facets(ctx, q, providers, accounts, registries, regions,
         region=list(regions) or None,
         has_findings=has_findings,
         has_images=has_images,
-        scanning_state=list(scanning_states) or None,
+        scanning_state=scanning_state,
     ))
 
 
@@ -3751,9 +3759,12 @@ def compliance_run(ctx, framework, assignment, run_id) -> None:
 
     In the summary, 'score' covers ASSESSABLE controls only and
     'low_coverage' is true when that is under half the gradeable ones —
-    never show the score without the coverage beside it. 'applicable'
-    false means nothing was assessable, so a 0 does not mean "failed
-    everything".
+    never show the score without the coverage beside it.
+
+    Check 'applicable' FIRST. False means nothing was assessable at all,
+    so a 0 there does not mean "failed everything" — and 'low_coverage'
+    is false in that case too, because it is only computed when
+    'applicable' is true.
 
     \b
     Examples:
@@ -3831,17 +3842,27 @@ def compliance_attest(ctx, framework, assignment, attestation_json,
                       input_file) -> None:
     """Write one attributed, immutable attestation revision.
 
-    Manual evidence for a control no detector can grade. Supply 'id',
+    Manual evidence for a control no detector can grade. REQUIRED: 'id',
     'revision' (an integer >= 1), 'control_key', 'outcome' (pass, fail or
-    not_applicable), 'rationale', 'approved_at', 'effective_at' and
-    'expires_at' (after effective_at); optionally 'requirement_id',
-    'evidence_refs', 'compensating_control_ref' and 'supersedes_id'.
-    'evidence_refs' entries must be https://, output:// or ticket:// urls
-    with no embedded credentials.
+    not_applicable), 'effective_at' and 'expires_at' (after effective_at).
+
+    'approved_at' is optional to write and load-bearing to use: an
+    attestation without it is stored and returned but never counts toward
+    a control, so omitting it writes a record that silently does nothing.
+    'rationale' is not validated either, but it is the only field that
+    says WHY a human asserted this — write it.
+
+    Also optional: 'requirement_id', 'evidence_refs' (entries must be
+    https://, output:// or ticket:// urls with no embedded credentials),
+    'compensating_control_ref' and 'supersedes_id'.
 
     The server owns the attribution: assessor, approver, revoked_by,
     created_at and the whole scope are stamped from your identity and
     overwrite anything you send.
+
+    An ordinary superseding revision may carry any unused revision above
+    the last one. A REVOCATION is the one case pinned to exactly
+    previous + 1, because the server copies that prior revision forward.
 
     REVOCATION IS A LATER REVISION, never a delete: re-send the same 'id'
     with 'revision' exactly one higher and a 'revoked_at'. Everything else
@@ -3878,9 +3899,12 @@ def compliance_attest(ctx, framework, assignment, attestation_json,
                    "deliberately no framework selector — events are keyed on "
                    "the assignment alone.")
 @click.option("--days", default=None, type=int,
-              help="Lookback in days (default 90, max 3650).")
+              help="Lookback in days. Default 90, ceiling 3650 — and an ask "
+                   "ABOVE the ceiling falls back to the DEFAULT rather than "
+                   "clamping to it, so --days 5000 is 90 days, not 3650.")
 @click.option("--limit", default=None, type=int,
-              help="Maximum events (default 200, max 1000).")
+              help="Maximum events. Default 200, ceiling 1000, with the same "
+                   "fall-back-to-default behaviour.")
 @pass_context
 def compliance_events(ctx, assignment, days, limit) -> None:
     """The compliance drift stream: material control-state changes.
@@ -3936,12 +3960,21 @@ def compliance_export(ctx, run_id, fmt, brand, output_path) -> None:
     if content is None:
         raise click.ClickException(
             f"the export of run '{run_id}' carried no content to write")
+    # The server emits the document as raw bytes; this JSON transport
+    # base64-encodes them on the way out. Decode a string, but accept bytes
+    # as-is rather than failing on a transport that did not encode them —
+    # the caller asked for a file, and guessing wrong here would write
+    # nothing at all.
     if isinstance(content, str):
         try:
             content = base64.b64decode(content, validate=True)
         except Exception as e:
             raise click.ClickException(
                 f"the export of run '{run_id}' did not decode as base64: {e}")
+    elif not isinstance(content, (bytes, bytearray)):
+        raise click.ClickException(
+            f"the export of run '{run_id}' carried a "
+            f"{type(content).__name__} where the document was expected")
     with open(output_path, "wb") as f:
         f.write(content)
     click.echo(f"Wrote {len(content)} bytes to {output_path}.")
@@ -3979,9 +4012,11 @@ def compliance_schedule_set(ctx, schedule_json, input_file) -> None:
     credentials and webhook secrets are never carried inline.
 
     'revision' is an optimistic-concurrency token, not a version label: an
-    edit must INCREMENT it. A lower revision is refused; the same revision
-    is a no-op if the content is identical and a refusal if it is not.
-    'created_by' on an existing schedule is immutable.
+    edit must RAISE it (any higher value, not strictly +1). A lower
+    revision is refused; the same revision is a no-op if the content is
+    identical and a refusal if it is not. 'created_by' and 'updated_by'
+    are stamped from your identity, and 'created_by' on an existing
+    schedule is immutable.
 
     \b
     Example:

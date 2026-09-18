@@ -188,6 +188,10 @@ def _finding_query_pairs(
     holds back. Every one of these repeatable keys is forwarded verbatim —
     the vocabularies live at the backend, and a value outside one returns
     an empty page rather than silently widening the read.
+
+    Every repeatable selector is TRUNCATED AT 100 VALUES by the gateway,
+    with no error and no signal in the response. A script fanning out over
+    more than 100 repositories, owners or image urns must batch them.
     """
     return _query_pairs(
         severity=severity, finding_class=finding_class, status=status,
@@ -1356,7 +1360,9 @@ class CloudSec:
                 assignment, framework, scope and assignment revision all
                 still match; if any of them moved, the call is refused
                 rather than quietly assessing something else under an id
-                you already published.
+                you already published. (The generated id is a hash over
+                the scope AND the current time, so it is unpredictable
+                and not readable back — it is an identity, not a label.)
 
         Returns:
             ``{"run": {...}, "report": {...}, "assignment": {...}}``.
@@ -1379,9 +1385,14 @@ class CloudSec:
             In ``report.summary``, ``score`` is computed over ASSESSABLE
             controls only and ``low_coverage`` is true when that covers
             less than half of the gradeable ones. Never render the score
-            without the coverage beside it. ``applicable`` false means
-            nothing was assessable at all, in which case ``score`` is 0
-            and that 0 does not mean "failed everything".
+            without the coverage beside it.
+
+            Check ``applicable`` FIRST. False means nothing was assessable
+            at all, in which case ``score`` is 0 — and that 0 does not
+            mean "failed everything". ``low_coverage`` is also false in
+            that case, because it is only computed when ``applicable`` is
+            true, so a false ``low_coverage`` is reassuring only once you
+            know something was assessed.
         """
         body: dict[str, Any] = {}
         for key, value in (
@@ -1463,15 +1474,22 @@ class CloudSec:
         rewriting a record somebody's name is on.
 
         Args:
-            attestation: The revision. You supply ``id``, ``revision``
-                (an integer ≥ 1, and ``previous + 1`` to supersede),
-                ``control_key``, ``outcome`` (``pass``, ``fail`` or
-                ``not_applicable``), ``rationale``, ``approved_at``,
-                ``effective_at``, ``expires_at`` (which must be after
-                ``effective_at``), and optionally ``requirement_id``
-                (empty matches any requirement of the control),
-                ``evidence_refs``, ``compensating_control_ref``,
-                ``supersedes_id`` and ``revoked_at``. You may also pass
+            attestation: The revision. REQUIRED: ``id``, ``revision``
+                (an integer ≥ 1), ``control_key``, ``outcome`` (``pass``,
+                ``fail`` or ``not_applicable``), ``effective_at`` and
+                ``expires_at`` (which must be after ``effective_at``).
+
+                ``approved_at`` is OPTIONAL to write and load-bearing to
+                use: an attestation without it is stored and returned but
+                never counts toward a control, so omitting it writes a
+                record that silently does nothing. ``rationale`` is not
+                validated either, but it is the only field that says WHY
+                a human asserted this — write it.
+
+                Also optional: ``requirement_id`` (empty matches any
+                requirement of the control), ``evidence_refs``,
+                ``compensating_control_ref``, ``supersedes_id`` and
+                ``revoked_at``. You may also pass
                 ``expected_scope_hash`` and ``expected_framework_version``
                 as optimistic preconditions — the write is refused if the
                 scope or catalog moved under you.
@@ -1490,6 +1508,11 @@ class CloudSec:
         Note:
             ``evidence_refs`` entries must be ``https://``, ``output://``
             or ``ticket://`` urls with no embedded credentials.
+
+            An ordinary superseding revision may carry any unused
+            ``revision`` above the last one. A REVOCATION is the one case
+            the server pins to exactly ``previous + 1``, because it
+            copies a specific prior revision forward.
 
             REVOCATION IS A LATER REVISION, never a delete. Re-send the
             same ``id`` with ``revision`` exactly one higher and a
@@ -1524,8 +1547,12 @@ class CloudSec:
             assignment: Assignment name. Defaults to the whole estate.
                 There is deliberately no framework selector — events are
                 keyed on the assignment alone.
-            days: Lookback (backend default 90, max 3650).
-            limit: Maximum events (backend default 200, max 1000).
+            days: Lookback. Backend default 90, ceiling 3650 — and an
+                ask ABOVE the ceiling falls back to the DEFAULT rather
+                than clamping to it, so ``days=5000`` is 90 days, not
+                3650.
+            limit: Maximum events. Backend default 200, ceiling 1000,
+                with the same fall-back-to-default behaviour.
 
         Returns:
             ``{"events": [{"event_id", "oid", "assignment",
@@ -1614,10 +1641,12 @@ class CloudSec:
 
         Note:
             ``revision`` is an optimistic-concurrency token, not a
-            version label: an edit must INCREMENT it. A lower revision is
-            refused; the same revision is an idempotent no-op if the
-            content is identical and a refusal if it is not. ``created_by``
-            on an existing schedule is immutable — the stored value wins.
+            version label: an edit must RAISE it (any higher value, not
+            strictly ``+1``). A lower revision is refused; the same
+            revision is an idempotent no-op if the content is identical
+            and a refusal if it is not. ``created_by`` and ``updated_by``
+            are stamped from the calling identity, and ``created_by`` on
+            an existing schedule is immutable — the stored value wins.
         """
         return self._post("compliance/schedules", schedule)
 
@@ -1836,8 +1865,8 @@ class CloudSec:
         pr: int,
         base_sha: str,
         head_sha: str,
+        action: str,
         *,
-        action: str | None = None,
         prev_base_sha: str | None = None,
         base_ref: str | None = None,
         head_ref: str | None = None,
@@ -1864,10 +1893,15 @@ class CloudSec:
             head_sha: The FULL commit id of the head. A branch or tag name
                 is refused — the check is published ON the commit, and a
                 ref would let it be attached to a commit nobody proposed.
-            action: The webhook action: ``opened``, ``synchronize``,
-                ``reopened`` or ``edited``. Every other pull-request event
-                leaves what the pull request introduces untouched and is
-                refused.
+            action: REQUIRED. The webhook action: ``opened``,
+                ``synchronize``, ``reopened`` or ``edited``. Every other
+                pull-request event leaves what the pull request introduces
+                untouched and is refused — and so is an ABSENT action: the
+                collection host checks membership of that closed set
+                without an empty-string exemption, so a request carrying
+                no action is refused unconditionally. A CI job with no
+                webhook to quote should send ``synchronize``, which is
+                what a push to an open pull request is.
             prev_base_sha: REQUIRED when ``action`` is ``edited``, refused
                 as incomplete without it. ``edited`` is in the set for one
                 thing it reports — a pull request RETARGETED at a
@@ -1918,8 +1952,8 @@ class CloudSec:
             "base_sha": base_sha,
             "head_sha": head_sha,
         }
+        body["action"] = action
         for key, value in (
-            ("action", action),
             ("prev_base_sha", prev_base_sha),
             ("base_ref", base_ref),
             ("head_ref", head_ref),
@@ -1948,7 +1982,9 @@ class CloudSec:
             url: The adapter's hook url. It is refused unless it is
                 EXACTLY
                 ``https://<hooks domain>/<this oid>/github-code-webhook-<connection>/<url secret>``
-                where the hooks domain is this org's own — the
+                — the adapter's own name, whose ``github-code-webhook-``
+                PREFIX is what the server actually enforces on that
+                segment — where the hooks domain is this org's own: the
                 ``url.hooks`` value of ``GET /orgs/{oid}/url``, always
                 under ``.hook.limacharlie.io``. https only, no
                 credentials, port, query or fragment, and the org in the
@@ -1957,8 +1993,8 @@ class CloudSec:
                 source-control event stream, and the secret needed to
                 accept it, to a server they control.
             secret: The webhook signing secret the adapter verifies
-                (``X-Hub-Signature-256``); 20 to 256 characters, no
-                whitespace.
+                (``X-Hub-Signature-256``); 20 to 256 bytes, with no
+                whitespace and no control characters.
 
         Returns:
             The connection's RE-DETECTED webhook status:
@@ -2269,7 +2305,7 @@ class CloudSec:
         region: list[str] | None = None,
         has_findings: bool | None = None,
         has_images: bool | None = None,
-        scanning_state: list[str] | None = None,
+        scanning_state: str | None = None,
         sort: str | None = None,
         order: str | None = None,
         cursor: str | None = None,
@@ -2290,8 +2326,13 @@ class CloudSec:
                 selection, not "unfiltered".
             has_images: Same tri-state shape, on whether the repository
                 currently contains any image.
-            scanning_state: Native registry-scanning state filter values,
-                OR'd: ``enabled``, ``disabled``, ``unknown``.
+            scanning_state: Native registry-scanning state:
+                ``enabled``, ``disabled`` or ``unknown``. A SCALAR, not a
+                list — the backend would take several, but the gateway
+                forwards only one, so a list here would silently drop
+                every value after the first. ``unknown`` means the
+                registry did not report the state, not that scanning is
+                off.
             sort: ``name`` (the default), ``risk``, ``images`` or
                 ``last_pushed``. An unrecognised key is silently coerced
                 to ``name`` by the server rather than rejected, so a typo
@@ -2367,7 +2408,7 @@ class CloudSec:
         region: list[str] | None = None,
         has_findings: bool | None = None,
         has_images: bool | None = None,
-        scanning_state: list[str] | None = None,
+        scanning_state: str | None = None,
     ) -> dict[str, Any]:
         """Cross-filtered facet counts for the image-repository list.
 

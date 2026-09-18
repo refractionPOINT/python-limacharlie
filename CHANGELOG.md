@@ -21,10 +21,13 @@ dropped. All of them are bound here.
   least one matching placement. `--all` walks the keyset cursor, which is the
   only correct way to page these — a short page is not necessarily the last.
 - **`cloudsec code pr-check`** asks the code lane what a pull request
-  INTRODUCES and publishes a GitHub check run on the head commit. `--action
-  edited` requires `--prev-base-sha`, refused client-side: `edited` also reports
-  a title change, and sending one without the previous base would spend a
-  published RPC on every description edit in a busy repository.
+  INTRODUCES and publishes a GitHub check run on the head commit. `--action` is
+  required: the gateway tolerates an absent action but the collection host
+  behind it does not, so an omitted one fails every time — including the CI
+  case this command exists for. `--action edited` additionally requires
+  `--prev-base-sha`, refused client-side: `edited` also reports a title change,
+  and sending one without the previous base would spend a published RPC on
+  every description edit in a busy repository.
 - **`cloudsec code webhook`** points a GitHub connection's App webhook at the
   org's adapter — the "Fix webhook" door. Without it, push rescans and
   pull-request checks could not be wired up from the CLI at all.
@@ -43,6 +46,11 @@ dropped. All of them are bound here.
   file with `-o`), `schedules` and `schedule-set`. `compliance report` remains
   the live, point-in-time answer.
 - **`cloudsec azure scope-hierarchy`** returns Azure scope containment evidence.
+- `cloudsec image repos --scanning-state` is deliberately NOT repeatable. The
+  backend takes a list, but the API gateway forwards only the first value, so a
+  repeatable flag here would drop the rest without a word. (The gateway is
+  where that should be fixed; until it is, the CLI does not claim a filter it
+  cannot deliver.)
 - `cloudsec code capabilities` and `cloudsec code fixes` shipped without ever
   reaching a discovery profile, so `limacharlie help discover` could not surface
   them. They are listed now, and a two-way coverage test — the one `mailsec`

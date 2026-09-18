@@ -1223,8 +1223,8 @@ class TestCodePRCheckAndWebhook:
     def test_check_pull_request_body(self, cs, mock_org):
         mock_org.client.request.return_value = {"accepted": True}
         cs.check_pull_request(
-            "acme/api", 42, "a" * 40, "b" * 40,
-            action="edited", prev_base_sha="c" * 40,
+            "acme/api", 42, "a" * 40, "b" * 40, "edited",
+            prev_base_sha="c" * 40,
         )
         url, body = _post_call(mock_org)
         assert url == f"cloudsec/{OID}/code/pr_check"
@@ -1234,11 +1234,25 @@ class TestCodePRCheckAndWebhook:
             "action": "edited", "prev_base_sha": "c" * 40,
         }
 
-    def test_check_pull_request_omits_unset_optionals(self, cs, mock_org):
+    def test_check_pull_request_always_sends_an_action(self, cs, mock_org):
+        """The minimal body still carries `action`.
+
+        The gateway tolerates an absent action, but the collection host
+        behind it tests membership of a closed set with no empty-string
+        exemption — so a body without one is refused every time. `action`
+        is a required argument for that reason, and the minimal request
+        must not be one the server cannot accept.
+        """
         mock_org.client.request.return_value = {"accepted": True}
-        cs.check_pull_request("acme/api", 1, "a" * 40, "b" * 40)
+        cs.check_pull_request("acme/api", 1, "a" * 40, "b" * 40,
+                              "synchronize")
         _url, body = _post_call(mock_org)
-        assert set(body) == {"repo", "pr", "base_sha", "head_sha"}
+        assert set(body) == {"repo", "pr", "base_sha", "head_sha", "action"}
+        assert body["action"] == "synchronize"
+
+    def test_action_is_required(self, cs, mock_org):
+        with pytest.raises(TypeError):
+            cs.check_pull_request("acme/api", 1, "a" * 40, "b" * 40)
 
     def test_configure_code_webhook_body(self, cs, mock_org):
         mock_org.client.request.return_value = {"state": "available"}
@@ -1255,15 +1269,16 @@ class TestContainerImages:
         cs.list_image_repos(
             q="prod", provider=["aws"], registry=["r1"], region=["us-east-1"],
             has_findings=False, has_images=True,
-            scanning_state=["disabled", "unknown"], sort="risk", order="desc",
+            scanning_state="disabled", sort="risk", order="desc",
             limit=50,
         )
         url, qp = _get_call(mock_org)
         assert url == f"cloudsec/{OID}/code/image-repos"
         assert ("has_findings", "false") in qp
         assert ("has_images", "true") in qp
-        assert ("scanning_state", "disabled") in qp
-        assert ("scanning_state", "unknown") in qp
+        # Scalar on the wire: the gateway reads only the first value, so
+        # sending a list would drop every value after it in silence.
+        assert [v for k, v in qp if k == "scanning_state"] == ["disabled"]
         assert ("sort", "risk") in qp
 
     def test_tri_state_none_is_absent(self, cs, mock_org):

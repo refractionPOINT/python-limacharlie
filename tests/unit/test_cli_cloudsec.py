@@ -2533,8 +2533,8 @@ class TestCodePRCheck:
             )
             assert result.exit_code == 0, result.output
             inst.check_pull_request.assert_called_once_with(
-                "acme/api", 42, "a" * 40, "b" * 40,
-                action="synchronize", prev_base_sha=None,
+                "acme/api", 42, "a" * 40, "b" * 40, "synchronize",
+                prev_base_sha=None,
                 base_ref=None, head_ref=None, provider=None,
             )
 
@@ -2582,6 +2582,25 @@ class TestCodePRCheck:
             assert inst.check_pull_request.call_args.kwargs[
                 "prev_base_sha"] == "c" * 40
 
+    def test_a_missing_action_is_refused(self):
+        """The host refuses a body with no action, so never send one.
+
+        The gateway tolerates an absent action — it guards its vocabulary
+        check with `action != ""` — but the collection host behind it
+        does not, so a request without one fails unconditionally. That is
+        exactly the shape a CI job would send if the flag were optional.
+        """
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(
+                ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                 "--base-sha", "a" * 40, "--head-sha", "b" * 40],
+                cls,
+            )
+            assert result.exit_code == 2, result.output
+            assert "--action" in result.output
+            inst.check_pull_request.assert_not_called()
+
     def test_unknown_action_is_refused(self):
         p1, p2, p3 = _patches()
         with p1, p2, p3 as cls:
@@ -2627,6 +2646,10 @@ class TestCodeWebhook:
             )
             assert result.exit_code == 0, result.output
             assert "sekrit-value-not-in-output" not in result.output
+            # The url's last segment is the adapter's URL secret, so the
+            # whole url is a credential too — it must not be echoed back
+            # as a confirmation the way a benign argument would be.
+            assert "hook.limacharlie.io" not in result.output
 
 
 class TestImageCommands:
@@ -2648,7 +2671,7 @@ class TestImageCommands:
             assert kwargs["region"] == ["us-east-1"]
             assert kwargs["has_findings"] is False
             assert kwargs["has_images"] is True
-            assert kwargs["scanning_state"] == ["disabled"]
+            assert kwargs["scanning_state"] == "disabled"
             assert kwargs["sort"] == "risk"
             assert kwargs["limit"] == 50
 

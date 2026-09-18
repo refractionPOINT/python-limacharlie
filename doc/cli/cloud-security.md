@@ -41,7 +41,7 @@ limacharlie cloudsec fleet overview --oid <OID1> --oid <OID2>
 
 ## Findings
 
-Repeatable filters are OR within a key and AND across keys. Finding classes: `toxic_combination`, `public_exposure`, `ciem_risk`, `privilege_escalation`, `vulnerability`, `misconfig`, `coverage_gap`. Sort keys: `lc_risk` (default), `severity`, `first_seen`.
+Repeatable filters are OR within a key and AND across keys, and every one of them is truncated at 100 values by the API with no error and no signal in the response — a script fanning out over more than 100 repositories, owners or image urns has to batch them. Finding classes: `toxic_combination`, `public_exposure`, `ciem_risk`, `privilege_escalation`, `vulnerability`, `misconfig`, `coverage_gap`. Sort keys: `lc_risk` (default), `severity`, `first_seen`.
 
 `--owner` filters by assigned owner and `--unassigned` selects the untriaged bucket; they combine, so "mine or nobody's" is one filter with both. On `finding facets` the `owner` facet is capped at the top 50 owners by count (`owner_truncated` reports whether any were dropped) — `--owner-pin` keeps named owners in it even when they would not rank in, and filters nothing. That is bounded by the same cap: pins share the 50 slots with any `--owner` values, so past ~50 combined a pin can still be dropped and `owner_truncated` will not say so.
 
@@ -137,7 +137,7 @@ limacharlie cloudsec compliance assignments              # scoped assignments
 limacharlie cloudsec compliance report --assignment prod-scope
 ```
 
-`score` covers ASSESSABLE controls only, and `low_coverage` is true when that is under half the gradeable ones — never show the score without the coverage beside it. `applicable` false means nothing was assessable at all, so a `0` there does not mean "failed everything."
+`score` covers ASSESSABLE controls only, and `low_coverage` is true when that is under half the gradeable ones — never show the score without the coverage beside it. Check `applicable` first: false means nothing was assessable at all, so a `0` there does not mean "failed everything" — and `low_coverage` is false in that case too, because it is only computed when `applicable` is true.
 
 ### Audit-grade compliance (immutable runs, attestations, drift)
 
@@ -160,15 +160,21 @@ limacharlie cloudsec compliance schedule-set --input-file schedule.json
 
 `compliance runs` does NOT derive the framework from the assignment the way `compliance run` does: pass both or neither, because an assignment without its matching framework returns an empty list rather than an error.
 
+`--days` and `--limit` on `compliance events` have ceilings (3650 and 1000), and an ask above a ceiling falls back to the DEFAULT rather than clamping to it — `--days 5000` gives 90 days, not 3650.
+
 `compliance events` is a CHANGE-ONLY stream. A control that stayed PASS across ten runs produces one event, not ten, so an empty window means "nothing moved," never "nothing ran."
 
 `compliance export` reads the STORED run, never the live estate, and the JSON snapshot carries no generation timestamp on purpose — exporting the same run id a year from now returns the same bytes. `-o` decodes and writes the document; without it the envelope prints with `content` base64-encoded. The PDF is an executive handoff, one line per control; use `json` or `csv` when something downstream has to parse it.
 
-**Attestations are append-only immutable revisions** — manual evidence for a control no detector can grade. Supply `id`, `revision` (≥ 1), `control_key`, `outcome` (`pass`/`fail`/`not_applicable`), `rationale`, `approved_at`, `effective_at` and `expires_at`; `evidence_refs` entries must be `https://`, `output://` or `ticket://` urls with no embedded credentials. The server stamps the attribution and the scope over anything you send.
+**Attestations are append-only immutable revisions** — manual evidence for a control no detector can grade. Required: `id`, `revision` (≥ 1), `control_key`, `outcome` (`pass`/`fail`/`not_applicable`), `effective_at` and `expires_at`. The server stamps the attribution and the scope over anything you send.
+
+`approved_at` is optional to write and load-bearing to use: an attestation without it is stored and returned but **never counts toward a control**, so omitting it writes a record that silently does nothing. `rationale` is not validated either, but it is the only field that says why a human asserted this — write it. `evidence_refs` entries must be `https://`, `output://` or `ticket://` urls with no embedded credentials.
+
+An ordinary superseding revision may carry any unused revision above the last one. A revocation is the one case pinned to exactly `previous + 1`, because the server copies that prior revision forward.
 
 REVOCATION IS A LATER REVISION, never a delete: re-send the same `id` with `revision` exactly one higher and a `revoked_at`. Everything else in that body is ignored — the server carries the previous revision forward and overlays only those two fields, so the original author's attribution survives and yours is recorded separately. An attestation counts only while approved, unrevoked, inside its window, and while its framework version, control key and scope still match; editing an assignment's scope silently orphans the attestations written under the old one.
 
-A schedule needs `id`, `assignment`, `framework_id`, `owner`, `cadence` (`weekly`/`monthly`), `delivery` (`output`/`email`/`webhook`), `destination_ref`, `formats` and `next_run_at`, plus a `revision` an edit must INCREMENT — it is an optimistic-concurrency token, not a version label. `destination_ref` must be an `output://` or `secret://` reference; credentials never travel inline.
+A schedule needs `id`, `assignment`, `framework_id`, `owner`, `cadence` (`weekly`/`monthly`), `delivery` (`output`/`email`/`webhook`), `destination_ref`, `formats` and `next_run_at`, plus a `revision` an edit must RAISE (any higher value, not strictly `+1`) — it is an optimistic-concurrency token, not a version label. `destination_ref` must be an `output://` or `secret://` reference; credentials never travel inline.
 
 ## Azure scope hierarchy
 
@@ -257,6 +263,8 @@ Scans the pull request's base and head and publishes a GitHub check run on the h
 
 `--head-sha` and `--base-sha` must be FULL commit ids; a branch or tag name is refused, because the check is published ON the commit and a ref would let it be attached to a commit nobody proposed. The pull request is read from the provider before anything is scanned and what it says wins — the check is published only when the PR is open, belongs to this repository, and its head commit is the `--head-sha` you sent.
 
+`--action` is **required**. The gateway tolerates an absent action, but the collection host behind it tests membership of the closed set with no empty-string exemption, so a request carrying no action is refused every time — including the CI case above. A job with no webhook to quote should send `synchronize`, which is what a push to an open pull request is.
+
 `--action edited` is in the accepted set for one of the things a provider reports with it: a pull request RETARGETED at a different base branch, which changes the diff under review without pushing a commit. A title or body change is reported the same way and changes nothing, so `--action edited` REQUIRES `--prev-base-sha` (the webhook's `changes.base.sha.from`). That value is evidence, never a scan input: the check is refused if the base did not actually move, so an editing spree costs no scan.
 
 A check needs the connection's GitHub App to hold *Checks: Read and write* and *Pull requests: Read and write* — it is read-only by default, and `code capabilities` names the missing permission. A scan that cannot complete publishes a NEUTRAL check run, never a failure.
@@ -287,6 +295,8 @@ limacharlie cloudsec finding list --image-urn "<urn from image list>"
 An image is keyed on its **digest alone**, so one row is the same artifact everywhere it is stored — tags, registry and push time belong to the repository↔image MEMBERSHIP, not to the image. The placement filters on `image list` (`--repo-urn`, `--provider`, `--account`, `--registry`, `--tag`) therefore select images with AT LEAST ONE matching placement; the row still lists its other placements.
 
 `repositories`, `memberships`, `workloads` and `source_repositories` are BOUNDED SAMPLES of 100 with no pagination — the paired `*_count` is the truth, and only memberships carry a `_truncated` flag. To get past 100 placements, use `image list --repo-urn ...` instead.
+
+`--scanning-state` is the one image selector that is **not** repeatable: the backend would take several values, but the API forwards only one, so a second would be dropped without a word.
 
 Tri-state flags: omitting `--with-findings`/`--with-images`/`--running`/`--signed` leaves the dimension unconstrained; the negative form is a real selection. `--signed`/`--unsigned` is special — signing status is recorded only when a provider reports it, so an image whose status is UNKNOWN matches NEITHER, and the field is not echoed back in the row.
 
