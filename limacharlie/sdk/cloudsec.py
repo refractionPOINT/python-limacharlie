@@ -1170,6 +1170,7 @@ class CloudSec:
         rules: list[dict[str, Any]],
         *,
         target: str | None = None,
+        surface: str | None = None,
         resource_types: list[str] | None = None,
         sample_limit: int | None = None,
     ) -> dict[str, Any]:
@@ -1186,6 +1187,9 @@ class CloudSec:
             target: Which rule set is being simulated —
                 ``data_store`` | ``compute`` | ``identity`` | ``any``
                 (default ``any``) — scoping the walked resource family.
+            surface: Policy surface whose capability and token vocabulary must
+                be validated (for example ``coverage`` or
+                ``classification.compute``). New authoring clients should set it.
             resource_types: Optional explicit resource_type narrowing
                 (exclusions rules).
             sample_limit: Sample size to return (default 25, server cap
@@ -1201,6 +1205,8 @@ class CloudSec:
         body: dict[str, Any] = {"rules": rules}
         if target is not None:
             body["target"] = target
+        if surface is not None:
+            body["surface"] = surface
         if resource_types is not None:
             body["resource_types"] = resource_types
         if sample_limit is not None:

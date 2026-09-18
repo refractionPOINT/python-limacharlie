@@ -714,11 +714,13 @@ class TestPolicyAuthoring:
         mock_org.client.request.return_value = {"evaluated": 0, "matched": 0}
         cs.simulate_resource_match(
             [{"tag": "pci"}], target="data_store",
+            surface="classification.data_stores",
             resource_types=["DataStore"], sample_limit=10,
         )
         _, body = _post_call(mock_org)
         assert body == {
             "rules": [{"tag": "pci"}], "target": "data_store",
+            "surface": "classification.data_stores",
             "resource_types": ["DataStore"], "sample_limit": 10,
         }
 
