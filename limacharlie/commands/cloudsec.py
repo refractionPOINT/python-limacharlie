@@ -1161,6 +1161,11 @@ _ORDER_CHOICES = click.Choice(["asc", "desc"], case_sensitive=False)
 _SIMULATE_TARGET_CHOICES = click.Choice(
     ["data_store", "compute", "identity", "any"], case_sensitive=False,
 )
+_SIMULATE_SURFACE_CHOICES = click.Choice([
+    "classification.data_stores", "classification.compute",
+    "classification.identities", "coverage", "exclusions.collection",
+    "exclusions.emission", "compliance.scope",
+], case_sensitive=False)
 _SUGGEST_DIMENSION_CHOICES = click.Choice(
     ["name", "account"], case_sensitive=False,
 )
@@ -4413,12 +4418,14 @@ def simulate_group() -> None:
               help="Read the rules (JSON array) from a JSON or YAML file.")
 @click.option("--target", default=None, type=_SIMULATE_TARGET_CHOICES,
               help="Which rule set is simulated (default any); scopes the walked family.")
+@click.option("--surface", default=None, type=_SIMULATE_SURFACE_CHOICES,
+              help="Validate against the policy surface that will store the rule.")
 @click.option("--resource-type", "resource_types", multiple=True,
               help="Explicit resource_type narrowing (exclusions rules); repeatable.")
 @click.option("--sample-limit", default=None, type=int,
               help="Sample size to return (default 25, cap 100).")
 @pass_context
-def simulate_resources(ctx, rules_json, input_file, target, resource_types,
+def simulate_resources(ctx, rules_json, input_file, target, surface, resource_types,
                        sample_limit) -> None:
     """Preview a resource-matcher rule set against the stored inventory.
 
@@ -4438,7 +4445,7 @@ def simulate_resources(ctx, rules_json, input_file, target, resource_types,
     )
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.simulate_resource_match(
-        rules, target=target,
+        rules, target=target, surface=surface,
         resource_types=list(resource_types) or None,
         sample_limit=sample_limit,
     ))

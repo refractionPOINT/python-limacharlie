@@ -1176,6 +1176,7 @@ class TestSimulate:
                 ["cloudsec", "simulate", "resources",
                  "--rules-json", '[{"name_glob": "prod-*"}]',
                  "--target", "data_store",
+                 "--surface", "classification.data_stores",
                  "--resource-type", "DataStore",
                  "--sample-limit", "10"], cls,
                 return_value={"evaluated": 1, "matched": 1},
@@ -1183,6 +1184,7 @@ class TestSimulate:
             assert result.exit_code == 0, result.output
             inst.simulate_resource_match.assert_called_once_with(
                 [{"name_glob": "prod-*"}], target="data_store",
+                surface="classification.data_stores",
                 resource_types=["DataStore"], sample_limit=10,
             )
 
@@ -1197,7 +1199,7 @@ class TestSimulate:
             assert result.exit_code == 0, result.output
             inst.simulate_resource_match.assert_called_once_with(
                 [{"account_glob": "*prod*"}], target=None,
-                resource_types=None, sample_limit=None,
+                surface=None, resource_types=None, sample_limit=None,
             )
 
     def test_resources_rejects_non_array(self):
