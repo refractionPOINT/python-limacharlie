@@ -468,7 +468,7 @@ this accepts is a rule that will save. An invalid rule comes back as a
 successful response with valid=false and the reason — that is the
 answer to the question, not a failure to answer it.
 
-Tenant rule ids must start with 'custom-'.
+Rule IDs are ordinary dr-mail record keys; no prefix is reserved.
 
 Examples:
   limacharlie mailsec rule validate --file rule.json
@@ -1657,7 +1657,7 @@ def hunt_remediate(ctx, hunt_id, action_name, confirm, reason) -> None:
 @rule_group.command("validate")
 @click.option("--file", "rule_file", required=True, type=click.Path(exists=True, dir_okay=False),
               help="JSON file holding the candidate rule body.")
-@click.option("--rule-id", default=None, help="Rule id; tenant ids must start with 'custom-'.")
+@click.option("--rule-id", default=None, help="Rule ID: an ordinary dr-mail record key.")
 @pass_context
 def rule_validate(ctx, rule_file, rule_id) -> None:
     """Check a candidate rule without saving it.
@@ -1676,7 +1676,7 @@ def rule_validate(ctx, rule_file, rule_id) -> None:
 @rule_group.command("backtest")
 @click.option("--file", "rule_file", required=True, type=click.Path(exists=True, dir_okay=False),
               help="JSON file holding the candidate rule body.")
-@click.option("--rule-id", default=None, help="Rule id; tenant ids must start with 'custom-'.")
+@click.option("--rule-id", default=None, help="Rule ID: an ordinary dr-mail record key.")
 @click.option("--since", default=None, help="Lower time bound.")
 @click.option("--until", default=None, help="Upper time bound.")
 @pass_context

@@ -1174,10 +1174,8 @@ class Mailsec:
         Args:
             rule: The rule body (``name``, ``fp_notes``, ``phase``,
                 ``weight``, ``detect``, ...).
-            rule_id: The rule id. Tenant rule ids must start with
-                ``custom-``; omitting it validates against a placeholder in
-                that namespace so an unnamed draft is not refused for a name
-                it was never asked for.
+            rule_id: The dr-mail record key. No prefix is reserved. If omitted,
+                validation uses the placeholder ``unnamed``.
         """
         body: dict[str, Any] = {"rule": rule}
         if rule_id is not None:

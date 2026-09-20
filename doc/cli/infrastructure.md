@@ -23,7 +23,7 @@ limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
 limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-run
 ```
 
-Available hive flags: `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
+Available hive flags: `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
 `--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
 `--hive-ai-agent`, `--hive-external-adapter`.
@@ -108,3 +108,15 @@ limacharlie exfil list                         # Exfiltration watches
 - [Configuration Sync SDK](../sdk/configs.md) — Configs Python class for IaC
 - [Other SDK Classes](../sdk/other-classes.md) — Artifacts, Payloads, Outputs classes
 - [Hive & Data Stores](hive-data.md) — Hive records and shortcuts
+
+### Mail Security rules as code
+
+Mail rules and policy are ordinary Hive records. Pull and push the same configuration used by the Mail Rules UI:
+
+```bash
+limacharlie sync pull --config-file mailsec.yaml --hive-dr-mail --hive-mailsec-policy
+limacharlie sync push --config-file mailsec.yaml --hive-dr-mail --hive-mailsec-policy --dry-run
+limacharlie sync push --config-file mailsec.yaml --hive-dr-mail --hive-mailsec-policy
+```
+
+Both hives are also included by `--all`. Rule keys have no reserved prefix; each `dr-mail` record contains one rule, with its on/off state in `usr_mtd.enabled`.

@@ -42,6 +42,8 @@ class Configs:
     ALL_HIVES = {
         "acl",
         "dr-general",
+        "dr-mail",
+        "mailsec_policy",
         "dr-managed",
         "dr-service",
         "fp",
