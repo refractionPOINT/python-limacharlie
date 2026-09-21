@@ -370,3 +370,9 @@ Rollout requires the compatible gateway and graph reader before use; a disabled
 provenance server rejects the new selectors. Revert clients independently or omit
 the selectors; no schema rollback or feature enablement is performed by this CLI.
 Program: maximelb/claude-config#137, epic maximelb/claude-config#134.
+
+New-selector requests require an exact `applied_iac_filters` receipt in JSON.
+CSV responses carry a bounded first comment line with a base64url JSON receipt;
+the SDK validates and removes it before returning CSV. Older or partly upgraded
+servers that do not acknowledge the requested selectors raise an error instead
+of presenting an unfiltered result. Selector-free calls remain unchanged.

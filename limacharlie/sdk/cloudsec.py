@@ -153,6 +153,32 @@ def _validate_iac_selectors(attribution, origin):
             raise ValueError("invalid iac_attribution verdict")
 
 
+def _require_iac_receipt(response, pairs, raw_response=False):
+    expected = {}
+    for key, value in pairs or []:
+        if key == "has_iac_origin":
+            expected[key] = value == "true"
+        elif key == "iac_attribution":
+            expected.setdefault(key, []).append(value)
+    if not expected:
+        return response
+    try:
+        if raw_response:
+            line, separator, body = response.partition("\n")
+            prefix = "# lc_iac_filters_v1="
+            if not separator or len(line) > 1024 or not line.startswith(prefix):
+                raise ValueError("missing receipt")
+            encoded = line[len(prefix):].rstrip("\r")
+            applied = json.loads(base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True))
+        else:
+            applied = response.get("applied_iac_filters")
+        if json.dumps(applied, sort_keys=True, separators=(",", ":")) != json.dumps(expected, sort_keys=True, separators=(",", ":")):
+            raise ValueError("receipt mismatch")
+    except (ValueError, TypeError, AttributeError):
+        raise RuntimeError("IaC query selectors were not acknowledged by this server version") from None
+    return body if raw_response else response
+
+
 def _finding_query_pairs(
     *,
     has_iac_origin: bool | None = None,
@@ -331,12 +357,13 @@ class CloudSec:
         *,
         raw_response: bool = False,
     ) -> Any:
-        return self._org.client.request(
+        response = self._org.client.request(
             "GET",
             f"cloudsec/{self.oid}/{path}",
             query_params=query_params or None,
             raw_response=raw_response,
         )
+        return _require_iac_receipt(response, query_params, raw_response)
 
     def _post(
         self,

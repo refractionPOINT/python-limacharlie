@@ -1411,10 +1411,17 @@ class TestComplianceV2SDK:
         assert qp is None
 
 
+def _iac_response(receipt, method):
+    if method.startswith('export_'):
+        token = base64.urlsafe_b64encode(json.dumps(receipt, sort_keys=True, separators=(',', ':')).encode()).decode().rstrip('=')
+        return '# lc_iac_filters_v1=' + token + '\nname\nfixture\n'
+    return {'applied_iac_filters': receipt}
+
+
 class TestIaCQuerySelectors:
     @pytest.mark.parametrize('method', ['list_findings', 'get_finding_facets', 'list_finding_causes', 'export_findings_csv'])
     def test_same_selectors_and_tenant_on_every_finding_surface(self, cs, mock_org, method):
-        mock_org.client.request.return_value = {}
+        mock_org.client.request.return_value = _iac_response({"has_iac_origin": False, "iac_attribution": ["unknown", "ambiguous"]}, method)
         getattr(cs, method)(has_iac_origin=False, iac_attribution=['unknown', 'ambiguous'])
         url, pairs = _get_call(mock_org)
         assert url.startswith(f'cloudsec/{OID}/')
@@ -1424,6 +1431,7 @@ class TestIaCQuerySelectors:
 
     @pytest.mark.parametrize('method', ['list_inventory', 'get_inventory_facets', 'export_inventory_csv'])
     def test_inventory_false_is_not_omitted(self, cs, mock_org, method):
+        mock_org.client.request.return_value = _iac_response({"has_iac_origin": False}, method)
         getattr(cs, method)(has_iac_origin=False)
         url, pairs = _get_call(mock_org)
         assert url.startswith(f'cloudsec/{OID}/')
@@ -1445,7 +1453,26 @@ class TestIaCQuerySelectors:
     def test_other_tenant_cannot_change_bound_client(self, cs, mock_org):
         other = MagicMock()
         other.oid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        other.client.request.return_value = _iac_response({'has_iac_origin': True}, 'list_inventory')
+        mock_org.client.request.return_value = _iac_response({'has_iac_origin': True}, 'list_inventory')
         CloudSec(other).list_inventory(has_iac_origin=True)
         cs.list_inventory(has_iac_origin=True)
         assert _get_call(mock_org)[0] == f'cloudsec/{OID}/inventory'
         assert _get_call(other)[0] == f'cloudsec/{other.oid}/inventory'
+
+
+@pytest.mark.parametrize('method', ['list_findings', 'get_finding_facets', 'list_finding_causes', 'export_findings_csv', 'list_inventory', 'get_inventory_facets', 'export_inventory_csv'])
+def test_iac_query_refuses_legacy_or_mismatched_server(cs, mock_org, method):
+    for receipt in [None, {}, {'has_iac_origin': True}, {'has_iac_origin': 0}]:
+        mock_org.client.request.return_value = _iac_response(receipt, method)
+        with pytest.raises(RuntimeError, match='not acknowledged'):
+            getattr(cs, method)(has_iac_origin=False)
+
+
+def test_iac_csv_receipt_is_removed_after_validation(cs, mock_org):
+    mock_org.client.request.return_value = _iac_response({'has_iac_origin': False}, 'export_inventory_csv')
+    assert cs.export_inventory_csv(has_iac_origin=False) == 'name\nfixture\n'
+    for invalid in ['name\nfixture\n', '# lc_iac_filters_v1=%%%\nname\n', '# lc_iac_filters_v1=' + 'a' * 1024 + '\n']:
+        mock_org.client.request.return_value = invalid
+        with pytest.raises(RuntimeError, match='not acknowledged'):
+            cs.export_inventory_csv(has_iac_origin=False)
