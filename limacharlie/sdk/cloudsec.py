@@ -2117,13 +2117,16 @@ class CloudSec:
 
         Raises:
             ValueError: If the document exceeds the 1 MiB wire limit.
+            TypeError: If the document is not bytes, str or dict.
         """
         if isinstance(document, dict):
             raw = json.dumps(document, separators=(",", ":")).encode("utf-8")
         elif isinstance(document, str):
             raw = document.encode("utf-8")
+        elif isinstance(document, bytes):
+            raw = document
         else:
-            raw = bytes(document)
+            raise TypeError("provenance document must be bytes, str or dict")
         if not raw or len(raw) > 1 << 20:
             raise ValueError("provenance document must be between 1 byte and 1 MiB")
         return self._org.client.request(

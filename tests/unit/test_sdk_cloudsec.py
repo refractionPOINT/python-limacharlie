@@ -1429,3 +1429,9 @@ class TestCodeProvenance:
         path, params = _get_call(mock_org)
         assert path == f"cloudsec/{OID}/code/provenance"
         assert dict(params) == {"commit": "b" * 40, "digest": "sha256:" + "a" * 64, "cursor": "page"}
+
+    @pytest.mark.parametrize("document", [1_000_000_000, None, [1, 2], True])
+    def test_wrong_type_rejected_without_allocation_or_network(self, cs, mock_org, document):
+        with pytest.raises(TypeError):
+            cs.push_code_provenance(document)
+        mock_org.client.request.assert_not_called()
