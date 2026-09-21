@@ -30,6 +30,7 @@ import zlib
 import base64
 import time
 import json
+import threading
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -183,6 +184,31 @@ def _create_ssl_context():
             return None
 
 
+_ssl_context = None
+_ssl_context_lock = threading.Lock()
+
+def _get_ssl_context():
+    """
+    Return the process-wide SSL context, creating it on first use.
+
+    Building a context loads the whole system CA bundle into native memory, and
+    urlopen( context = ... ) holds it in an opener reference cycle that only the
+    cyclic garbage collector releases. One context per call therefore piles up
+    tens of MB per process in anything long-running that makes many API calls.
+    An SSLContext holds no per-connection state and is safe to share across
+    threads and connections.
+
+    Returns:
+        ssl.SSLContext: The shared SSL context, or None if one cannot be created
+    """
+    global _ssl_context
+    if _ssl_context is None:
+        with _ssl_context_lock:
+            if _ssl_context is None:
+                _ssl_context = _create_ssl_context()
+    return _ssl_context
+
+
 class Manager( object ):
     '''General interface to a limacharlie.io Organization.'''
 
@@ -330,7 +356,7 @@ class Manager( object ):
                 request.get_method = lambda: "POST"
 
                 # Use custom SSL context to handle OpenSSL 3.0+ stricter EOF handling
-                ssl_context = _create_ssl_context()
+                ssl_context = _get_ssl_context()
                 if not _IS_PYTHON_2 and ssl_context is not None:
                     u = urlopen( request, context = ssl_context )
                 else:
@@ -358,7 +384,7 @@ class Manager( object ):
             request.get_method = lambda: "POST"
 
             # Use custom SSL context to handle OpenSSL 3.0+ stricter EOF handling
-            ssl_context = _create_ssl_context()
+            ssl_context = _get_ssl_context()
             if not _IS_PYTHON_2 and ssl_context is not None:
                 u = urlopen( request, context = ssl_context )
             else:
@@ -416,7 +442,7 @@ class Manager( object ):
                 request.add_header( 'Content-Type', contentType )
 
             # Use custom SSL context to handle OpenSSL 3.0+ stricter EOF handling
-            ssl_context = _create_ssl_context()
+            ssl_context = _get_ssl_context()
             if not _IS_PYTHON_2 and ssl_context is not None and url.startswith('https'):
                 u = urlopen( request, timeout = timeout, context = ssl_context )
             else:

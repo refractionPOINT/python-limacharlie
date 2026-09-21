@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.11.4 - September 21st, 2026
+
+- Reuse a single SSL context for all REST and JWT calls instead of building one
+  per call.
+
+  Since 4.10.4 every API call created its own `ssl.SSLContext`, which loads the
+  whole system CA bundle, and passed it to `urlopen( context = ... )`. The opener
+  that `urlopen` builds around it is a reference cycle, so each context stayed
+  allocated until the cyclic garbage collector ran. Long-running processes that
+  make many API calls (extensions, services) carried tens of MB of extra memory
+  per process as a result. The context is now created once per process and
+  shared; its settings, including `OP_IGNORE_UNEXPECTED_EOF`, are unchanged.
+
 ## 4.11.2 - January 13th, 2026
 
 - Add support for `external_adapter` hive in the SDK and CLI.
