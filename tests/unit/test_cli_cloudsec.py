@@ -53,7 +53,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "simulate_resource_match", "simulate_finding_match",
             "list_code_repos", "get_code_status", "get_code_sbom",
             "rescan_code_repo", "autofix_code_finding",
-            "ingest_code_results",
+            "ingest_code_results", "push_code_provenance", "list_code_provenance",
             "get_code_capabilities", "get_code_fixes", "iter_code_fixes",
             "check_pull_request", "configure_code_webhook",
             "list_image_repos", "iter_image_repos", "get_image_repo_facets",
@@ -2918,3 +2918,22 @@ class TestAzureScopeHierarchy:
             )
             assert result.exit_code == 0, result.output
             inst.get_azure_scope_hierarchy.assert_called_once_with()
+
+
+class TestProvenanceCommands:
+    def test_push_preserves_bytes(self, tmp_path):
+        document = tmp_path / "provenance.json"
+        raw = b'{ "schema" : "lc-build-provenance/v1" }'
+        document.write_bytes(raw)
+        with _patches()[0], _patches()[1], _patches()[2] as mock:
+            result, instance = _invoke(["cloudsec", "code", "provenance", "push", "-f", str(document)], mock)
+        assert result.exit_code == 0, result.output
+        instance.push_code_provenance.assert_called_once_with(raw)
+
+    def test_push_bounds_before_client(self, tmp_path):
+        document = tmp_path / "too-large.json"
+        document.write_bytes(b"x" * ((1 << 20) + 1))
+        with _patches()[0], _patches()[1], _patches()[2] as mock:
+            result, instance = _invoke(["cloudsec", "code", "provenance", "push", "-f", str(document)], mock)
+        assert result.exit_code != 0
+        instance.push_code_provenance.assert_not_called()

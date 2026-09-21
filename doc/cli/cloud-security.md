@@ -342,3 +342,19 @@ A rule set document holds one entry per rule file, where each `rules` value is a
 Before the scan starts, the CLI refuses a document the scanner would not accept: unknown fields, a version other than 1, a record without a unique non-empty `key` or a `rules` object, more than 32 MiB, or no rules at all. The scanner checks each rule, then reports and skips any rule it cannot load.
 
 **Scanner version.** The default image is pinned to scanner v0.16.0. A `--image` or `--binary` running `sast` must be v0.16.0 or newer, because older scanners reject the rule-set flags. That failure is a usage error (exit 2), and the CLI's error message names the version you need. A scan without `sast` passes no rule-set flag, so it still runs on older scanners.
+
+## Build provenance
+
+`limacharlie cloudsec code provenance push -f provenance.json` sends an LC
+`lc-build-provenance/v1`, SLSA Provenance v1 or offline Sigstore bundle, bounded to
+1 MiB. The server assigns the authenticated tenant and signer context. A signature
+is verified only against configured tenant trust; failed verification is refused.
+Do not include raw source, credentials, environment variables or build output.
+
+`limacharlie cloudsec code provenance list --digest sha256:<64-hex>` reads
+normalized attestations. Optional `--repo-urn`, `--commit` and `--cursor` select a
+page. Use the response's `result.next_cursor` for the next page. Conflicting claims
+remain visible and resolve to unknown even when a commit filter hides one claim.
+Writes require `cloudsec.set`, reads `cloudsec.get`. The server feature must be
+enabled after schema installation; command availability grants no deployment or
+response authorization.
