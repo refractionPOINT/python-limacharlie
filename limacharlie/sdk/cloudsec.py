@@ -2106,6 +2106,50 @@ class CloudSec:
             body["provider"] = provider
         return self._post("code/autofix", body)
 
+    def push_code_provenance(self, document: bytes | str | dict[str, Any]) -> dict[str, Any]:
+        """Push build provenance without changing signed document bytes.
+
+        Args:
+            document: LC provenance, SLSA v1 or an offline Sigstore bundle.
+
+        Returns:
+            dict: Result counts and server-computed attestation identity.
+
+        Raises:
+            ValueError: If the document exceeds the 1 MiB wire limit.
+        """
+        if isinstance(document, dict):
+            raw = json.dumps(document, separators=(",", ":")).encode("utf-8")
+        elif isinstance(document, str):
+            raw = document.encode("utf-8")
+        else:
+            raw = bytes(document)
+        if not raw or len(raw) > 1 << 20:
+            raise ValueError("provenance document must be between 1 byte and 1 MiB")
+        return self._org.client.request(
+            "POST", f"cloudsec/{self.oid}/code/provenance",
+            raw_body=raw, content_type="application/json",
+        )
+
+    def list_code_provenance(self, *, repo_urn: str | None = None,
+                             commit: str | None = None, digest: str | None = None,
+                             cursor: str | None = None) -> dict[str, Any]:
+        """Read normalized build attestations and their full-claim decisions.
+
+        Args:
+            repo_urn: Canonical repository URN within this organization.
+            commit: Full hexadecimal source commit.
+            digest: OCI sha256 artifact digest.
+            cursor: Opaque cursor from the previous response.
+
+        Returns:
+            dict: Result containing provenance records and optional next_cursor.
+        """
+        params = [(key, value) for key, value in (
+            ("repo_urn", repo_urn), ("commit", commit), ("digest", digest),
+            ("cursor", cursor)) if value is not None]
+        return self._get("code/provenance", params)
+
     def ingest_code_results(
         self,
         repo: str,

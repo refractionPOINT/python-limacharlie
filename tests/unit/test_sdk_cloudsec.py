@@ -1409,3 +1409,23 @@ class TestComplianceV2SDK:
         url, qp = _get_call(mock_org)
         assert url == f"cloudsec/{OID}/azure/scope-hierarchy"
         assert qp is None
+
+class TestCodeProvenance:
+    def test_raw_bundle_bytes_and_tenant_path(self, cs, mock_org):
+        raw = b'{ "mediaType" : "bundle" }'
+        cs.push_code_provenance(raw)
+        args, kwargs = mock_org.client.request.call_args
+        assert args == ("POST", f"cloudsec/{OID}/code/provenance")
+        assert kwargs["raw_body"] == raw
+        assert kwargs["content_type"] == "application/json"
+
+    def test_bounds_before_network(self, cs, mock_org):
+        with pytest.raises(ValueError):
+            cs.push_code_provenance(b"x" * ((1 << 20) + 1))
+        mock_org.client.request.assert_not_called()
+
+    def test_read_selectors(self, cs, mock_org):
+        cs.list_code_provenance(commit="b" * 40, digest="sha256:" + "a" * 64, cursor="page")
+        path, params = _get_call(mock_org)
+        assert path == f"cloudsec/{OID}/code/provenance"
+        assert dict(params) == {"commit": "b" * 40, "digest": "sha256:" + "a" * 64, "cursor": "page"}

@@ -2237,6 +2237,35 @@ def code_ingest(ctx, repo, source, file_path, commit, ref, default_branch, provi
         default_branch=default_branch, provider=provider))
 
 
+@code_group.group("provenance")
+def code_provenance_group():
+    """Push and inspect immutable build provenance."""
+
+
+@code_provenance_group.command("push")
+@click.option("--file", "-f", "file_path", required=True, type=click.Path(exists=True, dir_okay=False), help="LC/SLSA/Sigstore JSON document, at most 1 MiB.")
+@click.pass_context
+def code_provenance_push(ctx, file_path):
+    """Push a CI-produced document; the server assigns trust and tenant identity."""
+    with open(file_path, "rb") as stream:
+        document = stream.read((1 << 20) + 1)
+    if not document or len(document) > 1 << 20:
+        raise click.ClickException("provenance document must be between 1 byte and 1 MiB")
+    _output(ctx, _get_cloudsec(ctx).push_code_provenance(document))
+
+
+@code_provenance_group.command("list")
+@click.option("--repo-urn", help="Canonical repository URN in this organization.")
+@click.option("--commit", help="Full hexadecimal source commit.")
+@click.option("--digest", help="OCI sha256 artifact digest.")
+@click.option("--cursor", help="Opaque next-page cursor.")
+@click.pass_context
+def code_provenance_list(ctx, repo_urn, commit, digest, cursor):
+    """Read attestations; filtered-out conflicts still resolve to unknown."""
+    _output(ctx, _get_cloudsec(ctx).list_code_provenance(
+        repo_urn=repo_urn, commit=commit, digest=digest, cursor=cursor))
+
+
 @code_group.command("scan")
 @click.argument("path", type=click.Path(exists=True, file_okay=False), default=".")
 @click.option("--repo", default=None,
