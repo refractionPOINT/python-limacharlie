@@ -143,8 +143,20 @@ def _inventory_account_selector(
     return {"account_unscoped": account_unscoped or None}
 
 
+def _validate_iac_selectors(attribution, origin):
+    if origin is not None and type(origin) is not bool:
+        raise ValueError("has_iac_origin must be a boolean or None")
+    if attribution is not None:
+        if not isinstance(attribution, (list, tuple)) or not 1 <= len(attribution) <= 4:
+            raise ValueError("iac_attribution must contain one to four verdicts")
+        if any(v not in ("attributed", "ambiguous", "none", "unknown") for v in attribution):
+            raise ValueError("invalid iac_attribution verdict")
+
+
 def _finding_query_pairs(
     *,
+    has_iac_origin: bool | None = None,
+    iac_attribution: list[str] | None = None,
     severity: list[str] | None = None,
     finding_class: list[str] | None = None,
     status: list[str] | None = None,
@@ -193,7 +205,9 @@ def _finding_query_pairs(
     with no error and no signal in the response. A script fanning out over
     more than 100 repositories, owners or image urns must batch them.
     """
+    _validate_iac_selectors(iac_attribution, has_iac_origin)
     return _query_pairs(
+        iac_attribution=iac_attribution, has_iac_origin=has_iac_origin,
         severity=severity, finding_class=finding_class, status=status,
         account=account, owner=owner, owner_pin=owner_pin, sla=sla,
         repo=repo, image_urn=image_urn, fix_state=fix_state,
@@ -347,6 +361,8 @@ class CloudSec:
     def list_findings(
         self,
         *,
+        has_iac_origin: bool | None = None,
+        iac_attribution: list[str] | None = None,
         severity: list[str] | None = None,
         finding_class: list[str] | None = None,
         status: list[str] | None = None,
@@ -371,6 +387,8 @@ class CloudSec:
         """List the merged, risk-ranked cloud-security findings.
 
         Args:
+            iac_attribution: One to four attributed, ambiguous, none or unknown verdicts.
+            has_iac_origin: Recorded origin evidence exists; False is not proof of no IaC.
             severity: Filter values (CRITICAL/HIGH/MEDIUM/LOW/INFO), OR'd.
             finding_class: Filter values (toxic_combination, public_exposure,
                 ciem_risk, privilege_escalation, vulnerability, misconfig,
@@ -481,6 +499,7 @@ class CloudSec:
             ``{"findings": [...], "next_cursor": str}``.
         """
         return self._get("findings", _finding_query_pairs(
+            iac_attribution=iac_attribution, has_iac_origin=has_iac_origin,
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
             image_urn=image_urn, fix_state=fix_state,
@@ -492,6 +511,8 @@ class CloudSec:
     def get_finding_facets(
         self,
         *,
+        has_iac_origin: bool | None = None,
+        iac_attribution: list[str] | None = None,
         severity: list[str] | None = None,
         finding_class: list[str] | None = None,
         status: list[str] | None = None,
@@ -516,6 +537,8 @@ class CloudSec:
         facet dimension is counted against the other active filters.
 
         Args:
+            iac_attribution: One to four attributed, ambiguous, none or unknown verdicts.
+            has_iac_origin: Recorded origin evidence exists; False is not proof of no IaC.
             owner_pin: Owners to keep in the ``owner`` facet even when they
                 would not rank into it. NOT a filter — it selects no rows
                 and changes no count. The ``owner`` facet is capped at the
@@ -581,6 +604,7 @@ class CloudSec:
             "on_track": 20, "exempt": 0, "none": 900}}}``.
         """
         return self._get("findings/facets", _finding_query_pairs(
+            iac_attribution=iac_attribution, has_iac_origin=has_iac_origin,
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, owner_pin=owner_pin, sla=sla,
             repo=repo, image_urn=image_urn, fix_state=fix_state,
@@ -591,6 +615,8 @@ class CloudSec:
     def list_finding_causes(
         self,
         *,
+        has_iac_origin: bool | None = None,
+        iac_attribution: list[str] | None = None,
         cause: str | None = None,
         severity: list[str] | None = None,
         finding_class: list[str] | None = None,
@@ -630,6 +656,8 @@ class CloudSec:
         class", not "no findings".
 
         Args:
+            iac_attribution: One to four attributed, ambiguous, none or unknown verdicts.
+            has_iac_origin: Recorded origin evidence exists; False is not proof of no IaC.
             cause: One cause key. Set it for the count of that cause alone,
                 returned as a single-entry ``causes`` — or an EMPTY
                 ``causes`` when no finding under the filter carries it, so
@@ -659,6 +687,7 @@ class CloudSec:
             authority on its status.
         """
         return self._get("findings/causes", _finding_query_pairs(
+            iac_attribution=iac_attribution, has_iac_origin=has_iac_origin,
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
             image_urn=image_urn, fix_state=fix_state,
@@ -946,6 +975,7 @@ class CloudSec:
     def list_inventory(
         self,
         *,
+        has_iac_origin: bool | None = None,
         resource_type: str | None = None,
         provider: str | None = None,
         account: str | None = None,
@@ -959,6 +989,7 @@ class CloudSec:
         """List the cloud resource inventory.
 
         Args:
+            has_iac_origin: Recorded origin evidence exists; False is not proof of no IaC.
             resource_type: Filter by resource type (the ``type`` selector).
             provider: Filter by the producing provider sweep (e.g. ``gcp``,
                 ``aws``, ``okta``, ``google_workspace``).
@@ -973,17 +1004,26 @@ class CloudSec:
         Returns:
             ``{"resources": [...], "next_cursor": str}``.
         """
+        _validate_iac_selectors(None, has_iac_origin)
         selector = _inventory_account_selector(account_empty, account_unscoped)
         return self._get("inventory", _query_pairs(
             type=resource_type, provider=provider, account=account,
-            region=region, q=q,
+            region=region, q=q, has_iac_origin=has_iac_origin,
             **selector,
             cursor=cursor, limit=limit,
         ))
 
-    def get_inventory_facets(self) -> dict[str, Any]:
-        """Inventory facet counts (by type/account/region)."""
-        return self._get("inventory/facets")
+    def get_inventory_facets(self, *, has_iac_origin: bool | None = None) -> dict[str, Any]:
+        """Get inventory facet counts under an optional origin selector.
+
+        Args:
+            has_iac_origin: Recorded origin evidence exists; False is not proof of no IaC.
+
+        Returns:
+            dict: Cross-filtered type, account, region and available origin buckets.
+        """
+        _validate_iac_selectors(None, has_iac_origin)
+        return self._get("inventory/facets", _query_pairs(has_iac_origin=has_iac_origin))
 
     def get_topology(self) -> dict[str, Any]:
         """Pre-aggregated estate topology (exact at any estate size).
@@ -2979,6 +3019,8 @@ class CloudSec:
     def export_findings_csv(
         self,
         *,
+        has_iac_origin: bool | None = None,
+        iac_attribution: list[str] | None = None,
         severity: list[str] | None = None,
         finding_class: list[str] | None = None,
         status: list[str] | None = None,
@@ -3011,6 +3053,7 @@ class CloudSec:
             The CSV document as a string.
         """
         pairs = _finding_query_pairs(
+            iac_attribution=iac_attribution, has_iac_origin=has_iac_origin,
             severity=severity, finding_class=finding_class, status=status,
             account=account, owner=owner, sla=sla, repo=repo,
             image_urn=image_urn, fix_state=fix_state,
@@ -3024,6 +3067,7 @@ class CloudSec:
     def export_inventory_csv(
         self,
         *,
+        has_iac_origin: bool | None = None,
         resource_type: str | None = None,
         provider: str | None = None,
         account: str | None = None,
@@ -3041,10 +3085,11 @@ class CloudSec:
         Returns:
             The CSV document as a string.
         """
+        _validate_iac_selectors(None, has_iac_origin)
         selector = _inventory_account_selector(account_empty, account_unscoped)
         pairs = _query_pairs(
             type=resource_type, provider=provider, account=account,
-            region=region, q=q,
+            region=region, q=q, has_iac_origin=has_iac_origin,
             **selector,
         )
         pairs.append(("format", "csv"))

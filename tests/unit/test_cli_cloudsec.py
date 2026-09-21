@@ -326,6 +326,7 @@ class TestFindingCommands:
             )
             assert result.exit_code == 0, result.output
             inst.list_findings.assert_called_once_with(
+                has_iac_origin=None, iac_attribution=None,
                 severity=["CRITICAL", "HIGH"],
                 finding_class=["toxic_combination"],
                 status=None,
@@ -927,6 +928,7 @@ class TestInventoryProvider:
             )
             assert result.exit_code == 0, result.output
             inst.list_inventory.assert_called_once_with(
+                has_iac_origin=None,
                 resource_type=None, provider="okta", account=None,
                 region=None, q=None, account_empty=None,
                 cursor=None, limit=None,
@@ -950,6 +952,7 @@ class TestExport:
             # Raw CSV on stdout, NOT the JSON renderer.
             assert result.output == "col_a,col_b\n1,2\n"
             inst.export_findings_csv.assert_called_once_with(
+                has_iac_origin=None, iac_attribution=None,
                 severity=["CRITICAL"], finding_class=None, status=["open"],
                 account=None, repo=None, image_urn=None, fix_state=None,
                 exploit_band=None, grain=None, cause=None,
@@ -976,6 +979,7 @@ class TestExport:
             )
             assert result.exit_code == 0, result.output
             inst.export_inventory_csv.assert_called_once_with(
+                has_iac_origin=None,
                 resource_type="Bucket", provider="gcp", account=None,
                 region=None, q=None, account_empty=None,
             )
@@ -1062,6 +1066,7 @@ class TestInventoryAllAccounts:
             )
             assert result.exit_code == 0, result.output
             inst.list_inventory.assert_called_once_with(
+                has_iac_origin=None,
                 resource_type=None, provider=None, account=None,
                 region=None, q=None, account_empty=None,
                 cursor=None, limit=None,
@@ -1076,6 +1081,7 @@ class TestInventoryAllAccounts:
             )
             assert result.exit_code == 0, result.output
             inst.list_inventory.assert_called_once_with(
+                has_iac_origin=None,
                 resource_type=None, provider=None, account=None,
                 region=None, q=None, account_empty=True,
                 cursor=None, limit=None,
@@ -1101,6 +1107,7 @@ class TestInventoryAllAccounts:
             )
             assert result.exit_code == 0, result.output
             inst.export_inventory_csv.assert_called_once_with(
+                has_iac_origin=None,
                 resource_type=None, provider=None, account=None,
                 region=None, q=None, account_empty=None,
             )
@@ -1113,6 +1120,7 @@ class TestInventoryAllAccounts:
             )
             assert result.exit_code == 0, result.output
             inst.export_inventory_csv.assert_called_once_with(
+                has_iac_origin=None,
                 resource_type=None, provider=None, account=None,
                 region=None, q=None, account_empty=True,
             )
@@ -1371,6 +1379,7 @@ class TestFindingCauses:
             )
             assert result.exit_code == 0, result.output
             inst.list_finding_causes.assert_called_once_with(
+                has_iac_origin=None, iac_attribution=None,
                 cause=None,
                 severity=["CRITICAL"],
                 finding_class=None,
@@ -2918,3 +2927,39 @@ class TestAzureScopeHierarchy:
             )
             assert result.exit_code == 0, result.output
             inst.get_azure_scope_hierarchy.assert_called_once_with()
+
+
+class TestIaCSelectors:
+    @pytest.mark.parametrize('command,method', [
+        (['finding', 'list'], 'list_findings'),
+        (['finding', 'facets'], 'get_finding_facets'),
+        (['finding', 'causes'], 'list_finding_causes'),
+        (['export', 'findings'], 'export_findings_csv'),
+    ])
+    def test_finding_flags(self, command, method):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(['cloudsec', *command, '--no-has-iac-origin', '--iac-attribution', 'unknown'], cls)
+            assert result.exit_code == 0, result.output
+            kwargs = getattr(inst, method).call_args.kwargs
+            assert kwargs['has_iac_origin'] is False
+            assert kwargs['iac_attribution'] == ['unknown']
+
+    @pytest.mark.parametrize('command,method', [
+        (['inventory', 'list'], 'list_inventory'),
+        (['inventory', 'facets'], 'get_inventory_facets'),
+        (['export', 'inventory'], 'export_inventory_csv'),
+    ])
+    def test_inventory_flags(self, command, method):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(['cloudsec', *command, '--no-has-iac-origin'], cls)
+            assert result.exit_code == 0, result.output
+            assert getattr(inst, method).call_args.kwargs['has_iac_origin'] is False
+
+    def test_unknown_verdict_refused(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(['cloudsec', 'finding', 'list', '--iac-attribution', 'safe'], cls)
+            assert result.exit_code != 0
+            inst.list_findings.assert_not_called()

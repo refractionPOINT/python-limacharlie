@@ -1409,3 +1409,43 @@ class TestComplianceV2SDK:
         url, qp = _get_call(mock_org)
         assert url == f"cloudsec/{OID}/azure/scope-hierarchy"
         assert qp is None
+
+
+class TestIaCQuerySelectors:
+    @pytest.mark.parametrize('method', ['list_findings', 'get_finding_facets', 'list_finding_causes', 'export_findings_csv'])
+    def test_same_selectors_and_tenant_on_every_finding_surface(self, cs, mock_org, method):
+        mock_org.client.request.return_value = {}
+        getattr(cs, method)(has_iac_origin=False, iac_attribution=['unknown', 'ambiguous'])
+        url, pairs = _get_call(mock_org)
+        assert url.startswith(f'cloudsec/{OID}/')
+        assert ('has_iac_origin', 'false') in pairs
+        assert [v for k, v in pairs if k == 'iac_attribution'] == ['unknown', 'ambiguous']
+        assert all(k != 'oid' for k, _ in pairs)
+
+    @pytest.mark.parametrize('method', ['list_inventory', 'get_inventory_facets', 'export_inventory_csv'])
+    def test_inventory_false_is_not_omitted(self, cs, mock_org, method):
+        getattr(cs, method)(has_iac_origin=False)
+        url, pairs = _get_call(mock_org)
+        assert url.startswith(f'cloudsec/{OID}/')
+        assert ('has_iac_origin', 'false') in pairs
+
+    @pytest.mark.parametrize('value', ['', 'false', 0, 1, [], {}])
+    @pytest.mark.parametrize('method', ['list_findings', 'get_finding_facets', 'list_finding_causes', 'export_findings_csv', 'list_inventory', 'get_inventory_facets', 'export_inventory_csv'])
+    def test_malformed_boolean_never_sends_request(self, cs, mock_org, value, method):
+        with pytest.raises(ValueError):
+            getattr(cs, method)(has_iac_origin=value)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize('value', [[], 'unknown', ['safe'], ['unknown'] * 5, [None], [{}], ['UNKNOWN']])
+    def test_malformed_verdict_never_sends_request(self, cs, mock_org, value):
+        with pytest.raises(ValueError):
+            cs.list_findings(iac_attribution=value)
+        mock_org.client.request.assert_not_called()
+
+    def test_other_tenant_cannot_change_bound_client(self, cs, mock_org):
+        other = MagicMock()
+        other.oid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        CloudSec(other).list_inventory(has_iac_origin=True)
+        cs.list_inventory(has_iac_origin=True)
+        assert _get_call(mock_org)[0] == f'cloudsec/{OID}/inventory'
+        assert _get_call(other)[0] == f'cloudsec/{other.oid}/inventory'

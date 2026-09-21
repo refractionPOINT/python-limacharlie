@@ -342,3 +342,31 @@ A rule set document holds one entry per rule file, where each `rules` value is a
 Before the scan starts, the CLI refuses a document the scanner would not accept: unknown fields, a version other than 1, a record without a unique non-empty `key` or a `rules` object, more than 32 MiB, or no rules at all. The scanner checks each rule, then reports and skips any rule it cannot load.
 
 **Scanner version.** The default image is pinned to scanner v0.16.0. A `--image` or `--binary` running `sast` must be v0.16.0 or newer, because older scanners reject the rule-set flags. That failure is a usage error (exit 2), and the CLI's error message names the version you need. A scan without `sast` passes no rule-set flag, so it still runs on older scanners.
+
+### IaC provenance selectors (CS-02)
+
+When server-side provenance queries are enabled, finding list, facets, causes and
+CSV export accept repeatable `--iac-attribution` values (`attributed`, `ambiguous`,
+`none`, `unknown`). Findings and inventory list/facets/export accept
+`--has-iac-origin` or `--no-has-iac-origin`. Omit both for no origin constraint.
+The negative selector means no **recorded** origin evidence, not proof that a
+resource has no IaC. Unknown, partial and stale evidence never establish safety.
+
+```bash
+limacharlie cloudsec finding list --iac-attribution unknown --no-has-iac-origin
+limacharlie cloudsec inventory list --has-iac-origin
+limacharlie cloudsec export findings --iac-attribution ambiguous
+```
+
+SDK equivalents use keyword arguments `iac_attribution=["unknown"]` and
+`has_iac_origin=False`; explicit false is preserved on the wire. Malformed values
+are rejected before HTTP. Selectors remain scoped to the bound organization.
+Facets exclude their own selector. Resource detail may include bounded
+`iac_origin` and `iac_origin_partial` evidence even for a clean resource. Source
+permalinks are optional and commit-bound; missing revision metadata is unknown,
+not a link to HEAD. These read-only clients do not fetch source URLs.
+
+Rollout requires the compatible gateway and graph reader before use; a disabled
+provenance server rejects the new selectors. Revert clients independently or omit
+the selectors; no schema rollback or feature enablement is performed by this CLI.
+Program: maximelb/claude-config#137, epic maximelb/claude-config#134.
