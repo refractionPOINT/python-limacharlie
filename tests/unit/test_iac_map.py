@@ -60,3 +60,15 @@ def test_offline_extract_does_not_authenticate_or_inherit_tokens(tmp_path):
     assert "SENSITIVE_CANARY" not in result.output
     assert json.loads(result.output)["schema"] == "lc-iac-map/v1"
     auth.assert_not_called()
+
+
+def test_s3_map_is_supported_and_state_stays_identity_only():
+    doc = json.loads(GOLDEN.read_bytes())
+    resource = doc["resources"][0]
+    resource.update(address="aws_s3_bucket.assets", type="aws_s3_bucket", provider="aws", scope={"account": "123456789012"}, identity={"name": "assets"})
+    validate_iac_map(json.dumps(doc))
+    resource["desired"] = {"force_destroy": True}
+    with pytest.raises(ValueError):
+        validate_iac_map(json.dumps(doc))
+    doc["source_kind"] = "plan_desired"
+    validate_iac_map(json.dumps(doc))

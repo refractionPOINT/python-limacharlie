@@ -128,4 +128,29 @@ def validate_iac_map(document: bytes | str) -> bytes:
 
 
 # Closed v1 extraction allowlist; arbitrary desired values are never uploaded.
-_TYPES = {'google_storage_bucket': ('gcp', ('uniform_bucket_level_access', 'force_destroy')), 'google_bigquery_dataset': ('gcp', ()), 'google_sql_database_instance': ('gcp', ('deletion_protection',)), 'google_pubsub_topic': ('gcp', ()), 'google_pubsub_subscription': ('gcp', ()), 'google_compute_instance': ('gcp', ('deletion_protection', 'can_ip_forward')), 'aws_db_instance': ('aws', ('publicly_accessible', 'storage_encrypted', 'deletion_protection')), 'aws_rds_cluster': ('aws', ('storage_encrypted', 'deletion_protection')), 'aws_dynamodb_table': ('aws', ('deletion_protection_enabled',)), 'aws_redshift_cluster': ('aws', ('publicly_accessible', 'encrypted')), 'aws_instance': ('aws', ('associate_public_ip_address',)), 'azurerm_storage_account': ('azure', ('https_traffic_only_enabled', 'public_network_access_enabled', 'allow_nested_items_to_be_public')), 'azurerm_key_vault': ('azure', ('public_network_access_enabled', 'purge_protection_enabled')), 'azurerm_cosmosdb_account': ('azure', ('public_network_access_enabled',)), 'azurerm_mssql_server': ('azure', ('public_network_access_enabled',)), 'azurerm_mysql_flexible_server': ('azure', ('public_network_access_enabled',)), 'azurerm_postgresql_flexible_server': ('azure', ('public_network_access_enabled',)), 'azurerm_redis_cache': ('azure', ('public_network_access_enabled', 'non_ssl_port_enabled')), 'azurerm_linux_virtual_machine': ('azure', ()), 'azurerm_windows_virtual_machine': ('azure', ()), 'azurerm_virtual_machine': ('azure', ())}
+_TYPES = {'aws_db_instance': ('aws',
+                     ('publicly_accessible', 'storage_encrypted', 'deletion_protection')),
+ 'aws_dynamodb_table': ('aws', ('deletion_protection_enabled',)),
+ 'aws_instance': ('aws', ('associate_public_ip_address',)),
+ 'aws_rds_cluster': ('aws', ('storage_encrypted', 'deletion_protection')),
+ 'aws_redshift_cluster': ('aws', ('publicly_accessible', 'encrypted')),
+ 'aws_s3_bucket': ('aws', ('force_destroy',)),
+ 'azurerm_cosmosdb_account': ('azure', ('public_network_access_enabled',)),
+ 'azurerm_key_vault': ('azure', ('public_network_access_enabled', 'purge_protection_enabled')),
+ 'azurerm_linux_virtual_machine': ('azure', ()),
+ 'azurerm_mssql_server': ('azure', ('public_network_access_enabled',)),
+ 'azurerm_mysql_flexible_server': ('azure', ('public_network_access_enabled',)),
+ 'azurerm_postgresql_flexible_server': ('azure', ('public_network_access_enabled',)),
+ 'azurerm_redis_cache': ('azure', ('public_network_access_enabled', 'non_ssl_port_enabled')),
+ 'azurerm_storage_account': ('azure',
+                             ('https_traffic_only_enabled',
+                              'public_network_access_enabled',
+                              'allow_nested_items_to_be_public')),
+ 'azurerm_virtual_machine': ('azure', ()),
+ 'azurerm_windows_virtual_machine': ('azure', ()),
+ 'google_bigquery_dataset': ('gcp', ()),
+ 'google_compute_instance': ('gcp', ('deletion_protection', 'can_ip_forward')),
+ 'google_pubsub_subscription': ('gcp', ()),
+ 'google_pubsub_topic': ('gcp', ()),
+ 'google_sql_database_instance': ('gcp', ('deletion_protection',)),
+ 'google_storage_bucket': ('gcp', ('uniform_bucket_level_access', 'force_destroy'))}
