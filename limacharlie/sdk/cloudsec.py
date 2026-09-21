@@ -201,9 +201,10 @@ def _finding_query_pairs(
     the vocabularies live at the backend, and a value outside one returns
     an empty page rather than silently widening the read.
 
-    Every repeatable selector is TRUNCATED AT 100 VALUES by the gateway,
+    Legacy repeatable selectors are TRUNCATED AT 100 VALUES by the gateway,
     with no error and no signal in the response. A script fanning out over
     more than 100 repositories, owners or image urns must batch them.
+    IaC attribution instead rejects more than four or unknown verdicts locally.
     """
     _validate_iac_selectors(iac_attribution, has_iac_origin)
     return _query_pairs(
