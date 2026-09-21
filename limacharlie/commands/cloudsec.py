@@ -4630,3 +4630,73 @@ def export_query(ctx, named, text, query_json, project, output_path) -> None:
     _emit_csv(ctx, cs.export_query_csv(
         named=named, text=text, query=query, project=project,
     ), output_path)
+
+
+@code_group.group("iac-map")
+def code_iac_map() -> None:
+    """Extract sanitized IaC evidence locally, then push it explicitly."""
+
+
+@code_iac_map.command("extract")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local terraform show -json file; raw bytes never leave this machine.")
+@click.option("--source-kind", required=True, type=click.Choice(["state_identity", "plan_desired"]), help="State identity only, or allowlisted desired plan booleans.")
+@click.option("--repository", required=True, help="Repository owner/name.")
+@click.option("--commit", required=True, help="Full source commit (40 or 64 lowercase hex characters).")
+@click.option("--workspace", default="default", show_default=True, help="Workspace identity; never evaluated as an expression.")
+@click.option("--provider", default="github", type=click.Choice(["github", "gitlab", "bitbucket"]), show_default=True)
+@click.option("--tool", default="terraform", type=click.Choice(["terraform", "opentofu"]), show_default=True)
+@click.option("--observed-at", default=None, help="RFC3339 observation timestamp; default is extraction time.")
+def code_iac_map_extract(input_path, source_kind, repository, commit, workspace, provider, tool, observed_at) -> None:
+    """Write sanitized lc-iac-map/v1 JSON to stdout without authenticating.
+
+    Install the iac-map-extract binary from the LimaCharlie scanner distribution
+    on PATH. It reads a local show-json file offline, retaining no source or
+    secrets. State is identity-only. Plan output includes only allowlisted
+    booleans. A partial result is honest incomplete evidence, never absence.
+    Upload is a separate explicit push command.
+    """
+    import shutil
+    from ..sdk.iac_map import MAX_BYTES, validate_iac_map
+    binary = shutil.which("iac-map-extract")
+    if binary is None:
+        raise click.ClickException("install the scanner's iac-map-extract binary on PATH, then retry")
+    args = [binary, "--input", os.path.abspath(input_path), "--source-kind", source_kind,
+            "--repository", repository, "--commit", commit, "--workspace", workspace,
+            "--provider", provider, "--tool", tool]
+    if observed_at:
+        args.extend(["--observed-at", observed_at])
+    # The trusted offline binary has its own byte/node/time caps. Do not pass
+    # SDK tokens/environment to it or relay potentially sensitive error output.
+    with tempfile.TemporaryFile() as output:
+        try:
+            result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output,
+                                    stderr=subprocess.DEVNULL, timeout=10, check=False,
+                                    env={"PATH": os.defpath})
+            output.seek(0)
+            raw = output.read(MAX_BYTES + 1)
+            if result.returncode != 0:
+                raise ValueError("extractor refused input")
+            raw = validate_iac_map(raw)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise click.ClickException("offline IaC extraction failed; use bounded terraform show -json input and verify the metadata") from None
+    click.get_binary_stream("stdout").write(raw.rstrip(b"\n") + b"\n")
+
+
+@code_iac_map.command("push")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 10 MiB. Raw state/plans are refused.")
+@pass_context
+def code_iac_map_push(ctx, input_path) -> None:
+    """Push only locally sanitized IaC JSON; requires cloudsec.set.
+
+    Run iac-map extract first. No source code or raw Terraform state/plan is
+    uploaded. Failed/partial snapshots preserve prior mappings, and identical
+    published replay writes nothing. Feature availability depends on rollout.
+    """
+    from ..sdk.iac_map import MAX_BYTES, validate_iac_map
+    try:
+        with open(input_path, "rb") as source:
+            raw = validate_iac_map(source.read(MAX_BYTES + 1))
+    except (OSError, ValueError):
+        raise click.ClickException("invalid sanitized IaC map; run cloudsec code iac-map extract first") from None
+    result = _get_cloudsec(ctx).push_iac_map(raw)
+    _output(ctx, result)
