@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Email Security onboarding
+
+- List `mailsec_provider`, `mailsec_policy`, and `dr-mail` in `hive list-types`.
+- Cover explicit `backfill_days: 0` provider updates through CLI file parsing and SDK serialization.
+
 ### Cases
 
 - `case create --detection` now encodes the detection for the extension's

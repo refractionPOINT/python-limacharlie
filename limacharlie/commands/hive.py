@@ -102,6 +102,9 @@ def _record_from_input(key: str, data: Any) -> HiveRecord:
 
 # Known hive types supported by LimaCharlie.
 _KNOWN_HIVE_TYPES = [
+    "mailsec_provider",
+    "mailsec_policy",
+    "dr-mail",
     "dr-general",
     "dr-managed",
     "dr-service",
