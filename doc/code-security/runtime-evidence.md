@@ -52,9 +52,8 @@ and a conflicting package inventory all resolve to `present` or unknown, each wi
 Read the answer with the two readers, not by hand:
 
 * `runtime_verdict(response)` — the server's whole-resource verdict, plus the coverage
-  it rests on. It is a **field read**: the backend already computes the fold
-  (`runtimeevidence.CheckResult.Headline`), so re-deriving it in the client would be a
-  permanent drift surface. And the obvious hand-rolled fold is wrong in a dangerous
+  it rests on. It is a **field read**: the backend already computes the fold, so
+  re-deriving it in the client would be a permanent drift surface. And the obvious hand-rolled fold is wrong in a dangerous
   way — the negative rung ranks *below* `present`, so taking the strongest per-package
   answer reports a whole-machine negative whenever nothing positive turned up, losing
   the veto that one incomplete package (or an incomplete sensor set) holds.
@@ -73,18 +72,11 @@ Two things to read before `status`:
   following minutes. A cold first call is expected to be inconclusive; ask again after
   the retry rather than reporting the immature window as a finished answer.
 
-`dormant` was the old name for `not_observed`. `decode_runtime_status` folds it
-(plan 24 §14) and nothing in the SDK can emit it. The CIEM identity-dormancy facet
-(`dormant_90d`, `dormant_admin`), the AI-sessions session status and sensor sleep mode
-keep the word and are unrelated vocabularies.
+`dormant` was the old name for `not_observed`. `decode_runtime_status` folds it and
+nothing in the SDK can emit it. The CIEM identity-dormancy facet (`dormant_90d`,
+`dormant_admin`), the AI-sessions session status and sensor sleep mode keep the word and
+are unrelated vocabularies.
 
-This method requires a gateway route that is **not deployed yet**
-(`POST /cloudsec/{oid}/findings/{id}/runtime-check`). Until it ships the call fails
-like any unknown route rather than answering from nothing.
-
-Contract: https://github.com/refractionPOINT/go-cloudsec/pull/413
-Package: https://github.com/maximelb/claude-config/issues/150
-
-Program: https://github.com/maximelb/claude-config/issues/149
-Epic: https://github.com/maximelb/claude-config/issues/134
-Backend: https://github.com/refractionPOINT/legion_graph/pull/241
+This method requires the gateway route
+`POST /cloudsec/{oid}/findings/{id}/runtime-check`. Where it is not yet available the
+call fails like any unknown route rather than answering from nothing.

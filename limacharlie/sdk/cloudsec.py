@@ -339,11 +339,10 @@ _RESOLVE_CHUNK_SIZE = 100
 # ---------------------------------------------------------------------------
 #
 # The question this answers, for one open package finding on one cloud workload:
-# did that code actually run? Plan 24 decision D6 fixes the answer to five rungs
-# and no more. go-cloudsec ``findings/runtime.go`` and
-# ``runtimeevidence/verdict.go`` (PR refractionPOINT/go-cloudsec#413) are the
-# authority; these constants mirror them so the SDK cannot drift into a sixth
-# rung or a different spelling.
+# did that code actually run? The answer is one of five rungs and no more. The
+# LimaCharlie backend's runtime-evidence contract is the authority; these
+# constants mirror it so the SDK cannot drift into a sixth rung or a different
+# spelling.
 #
 # ``not_observed`` IS THE ONLY NEGATIVE RUNG AND IT IS NOT A SAFETY CLAIM. It
 # says a COMPLETE telemetry window was searched and the package was never seen
@@ -372,7 +371,7 @@ RUNTIME_LOADED = "loaded"
 RUNTIME_EXECUTING = "executing"
 
 #: The ladder in ascending evidence order, unknown first — the exact membership
-#: and order of go-cloudsec ``findings.RuntimeStatuses()``.
+#: and order of the backend's published ladder.
 RUNTIME_STATUSES = (
     RUNTIME_UNKNOWN,
     RUNTIME_PRESENT,
@@ -381,7 +380,7 @@ RUNTIME_STATUSES = (
     RUNTIME_EXECUTING,
 )
 
-# The pre-CS-15 spelling of RUNTIME_NOT_OBSERVED. Plan 24 §14: "Decode legacy
+# The earlier spelling of RUNTIME_NOT_OBSERVED. The contract's rule: "Decode legacy
 # dormant as not_observed but never emit it." It is private on purpose — nothing
 # in this module can produce it, and decode_runtime_status is the only thing that
 # even recognizes it.
@@ -393,7 +392,7 @@ RUNTIME_STATUSES = (
 _LEGACY_RUNTIME_NOT_OBSERVED = "dormant"
 
 #: The verdict reason vocabulary — a verbatim mirror of the ``Reason`` constants
-#: in go-cloudsec ``runtimeevidence/verdict.go`` as merged. Every non-positive
+#: in the backend's runtime-evidence contract. Every non-positive
 #: verdict carries one, so a caller can always say WHY instead of reporting a
 #: blank.
 #:
@@ -420,6 +419,11 @@ RUNTIME_REASONS = frozenset({
     "observed_loaded",
     "complete_window",
     "inventory_conflict",
+    # Added after this list first shipped: the agent discarded its own buffered
+    # telemetry during the window, so the events that would have shown the code running
+    # may never have arrived. Distinct from ``write_shed``, which is the platform
+    # shedding work; this one is a fact about the monitored host.
+    "telemetry_dropped",
     "sensors_partial",
 })
 
@@ -437,7 +441,7 @@ RUNTIME_UNAVAILABLE_REASONS = frozenset({
     "cache_unavailable",
 })
 
-#: D1 evidence levels the runtime lane may state. Never ``verified`` and never
+#: Evidence levels the runtime lane may state. Never ``verified`` and never
 #: ``asserted``: a positive match on an exact host-recorded path is ``observed``,
 #: everything else — including the negative rung, which is a deduction from a
 #: complete window rather than a sighting — is ``derived``.
@@ -446,8 +450,7 @@ RUNTIME_LEVELS = ("observed", "derived", "unknown")
 def decode_runtime_status(value: Any) -> tuple[str, bool]:
     """Fold any stored or wire spelling onto the public runtime ladder.
 
-    This is the ONE decoder, mirroring go-cloudsec
-    ``findings.DecodeRuntimeStatus``. It accepts BOTH spellings of the unknown
+    This is the ONE decoder, mirroring the backend's own status decoder. It accepts BOTH spellings of the unknown
     rung — the rendered :data:`RUNTIME_WIRE_UNKNOWN` and Go's zero value ``""`` —
     folds the legacy ``dormant`` token to ``not_observed``, and reads an
     unrecognized token as unknown rather than as a verdict. Nothing here can
@@ -511,7 +514,7 @@ def runtime_verdict(response: dict[str, Any]) -> dict[str, Any]:
     """Read the SERVER's single verdict out of a runtime-check response.
 
     THERE IS DELIBERATELY NO CLIENT-SIDE FOLD. The backend already computes the
-    whole-resource verdict (``runtimeevidence.CheckResult.Headline``) and puts it
+    whole-resource verdict and puts it
     at the top of the ``runtime`` object, so this reads it rather than
     re-deriving it. Re-deriving would be a permanent drift surface, and getting
     it wrong is easy in one specific and dangerous way: the negative rung ranks
@@ -1041,9 +1044,8 @@ class CloudSec:
         shed write, an interrupted window, a truncated watch list, a package
         with no version, an unattributable package and a conflicting package
         inventory all resolve to ``present`` or unknown with a reason from
-        :data:`RUNTIME_REASONS` — never to ``not_observed`` (plan 24 §18
-        gate 12). A negative is reported only for a complete window over a
-        complete sensor set.
+        :data:`RUNTIME_REASONS` — never to ``not_observed``. A negative is
+        reported only for a complete window over a complete sensor set.
 
         The response is returned VERBATIM, with no field reinterpreted here.
         Read the single verdict with :func:`runtime_verdict` and the rows with
