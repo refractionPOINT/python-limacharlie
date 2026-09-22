@@ -373,3 +373,19 @@ coverage, not deployment or remediation verification. Keep raw files local; only
 for response actions.
 
 SDK equivalent: `CloudSec(org).push_iac_map(sanitized_json_bytes)`, which performs local bounded preflight before its HTTP request.
+
+## Build provenance
+
+`limacharlie cloudsec code provenance push -f provenance.json` sends an LC
+`lc-build-provenance/v1`, SLSA Provenance v1 or offline Sigstore bundle, bounded to
+1 MiB. The server assigns the authenticated tenant and signer context. A signature
+is verified only against configured tenant trust; failed verification is refused.
+Do not include raw source, credentials, environment variables or build output.
+
+`limacharlie cloudsec code provenance list --digest sha256:<64-hex>` reads
+normalized attestations. Optional `--repo-urn`, `--commit` and `--cursor` select a
+page. Use the response's `result.next_cursor` for the next page. Conflicting claims
+remain visible and resolve to unknown even when a commit filter hides one claim.
+Writes require `cloudsec.set`, reads `cloudsec.get`. The server feature must be
+enabled after schema installation; command availability grants no deployment or
+response authorization.
