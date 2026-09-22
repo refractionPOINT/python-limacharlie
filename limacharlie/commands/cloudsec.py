@@ -1216,12 +1216,21 @@ def _selector_with_empty(values, include_empty: bool) -> list[str] | None:
     return out or None
 
 
+def _iac_origin_option(f):
+    return click.option("--has-iac-origin/--no-has-iac-origin", default=None,
+                        help="Filter recorded IaC origin evidence. No recorded evidence does not prove no IaC exists; omit for no constraint.")(f)
+
+
 def _finding_filter_options(f):
     """The findings worklist filter selectors (shared by list/facets).
 
     Click stacks decorators bottom-up, so the option that should show
     first in --help is applied last.
     """
+    f = _iac_origin_option(f)
+    f = click.option("--iac-attribution", "iac_attributions", multiple=True,
+                     type=click.Choice(["attributed", "ambiguous", "none", "unknown"]),
+                     help="IaC attribution verdict; repeat up to four times. Missing evidence is unknown, never safe.")(f)
     f = click.option(
         "-q", "--search", "q", default=None,
         help="Substring search over the findings.",
@@ -1347,6 +1356,7 @@ def _finding_filter_options(f):
 
 def _inventory_filter_options(f):
     """The inventory filter selectors (shared by list/export)."""
+    f = _iac_origin_option(f)
     f = click.option(
         "--account-empty", "account_empty", is_flag=True, default=False,
         help="Select only resources that have no cloud account.",
@@ -3111,7 +3121,7 @@ def finding_group() -> None:
 @_sort_options
 @_paging_options
 @pass_context
-def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
+def finding_list(ctx, has_iac_origin, iac_attributions, severities, finding_classes, statuses, accounts, repos,
                  image_urns, fix_states, exploit_bands, grains,
                  source, owners, unassigned, sla_states, reachable, kev, q,
                  cause, sort, order, cursor, limit) -> None:
@@ -3128,6 +3138,8 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_findings(
+        has_iac_origin=has_iac_origin,
+        iac_attribution=list(iac_attributions) or None,
         severity=list(severities) or None,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
@@ -3165,7 +3177,7 @@ def finding_list(ctx, severities, finding_classes, statuses, accounts, repos,
                    "slots with any --owner values, so past ~50 combined a "
                    "pin can still be dropped.")
 @pass_context
-def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
+def finding_facets(ctx, has_iac_origin, iac_attributions, severities, finding_classes, statuses, accounts, repos,
                    image_urns, fix_states, exploit_bands, grains,
                    source, owners, unassigned, sla_states, reachable, kev, q,
                    cause, owner_pins) -> None:
@@ -3178,6 +3190,8 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.get_finding_facets(
+        has_iac_origin=has_iac_origin,
+        iac_attribution=list(iac_attributions) or None,
         severity=list(severities) or None,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
@@ -3208,7 +3222,7 @@ def finding_facets(ctx, severities, finding_classes, statuses, accounts, repos,
               help="Rollup size (default 20, cap 200). Not a page size — the "
                    "rollup is not paginated; 'distinct' reports the tail.")
 @pass_context
-def finding_causes(ctx, severities, finding_classes, statuses, accounts, repos,
+def finding_causes(ctx, has_iac_origin, iac_attributions, severities, finding_classes, statuses, accounts, repos,
                    image_urns, fix_states, exploit_bands, grains,
                    source, owners, unassigned, sla_states, reachable, kev, q,
                    cause, limit) -> None:
@@ -3222,6 +3236,8 @@ def finding_causes(ctx, severities, finding_classes, statuses, accounts, repos,
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_finding_causes(
         cause=cause,
+        has_iac_origin=has_iac_origin,
+        iac_attribution=list(iac_attributions) or None,
         severity=list(severities) or None,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
@@ -3503,7 +3519,7 @@ def inventory_group() -> None:
 @_inventory_filter_options
 @_paging_options
 @pass_context
-def inventory_list(ctx, resource_type, provider, account, region, q,
+def inventory_list(ctx, has_iac_origin, resource_type, provider, account, region, q,
                    all_accounts, account_empty, cursor, limit) -> None:
     """List the cloud resource inventory.
 
@@ -3518,7 +3534,7 @@ def inventory_list(ctx, resource_type, provider, account, region, q,
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_inventory(
         resource_type=resource_type, provider=provider, account=account,
-        region=region, q=q,
+        region=region, q=q, has_iac_origin=has_iac_origin,
         account_empty=_inventory_account_empty(
             account, all_accounts, account_empty),
         cursor=cursor, limit=limit,
@@ -3526,8 +3542,9 @@ def inventory_list(ctx, resource_type, provider, account, region, q,
 
 
 @inventory_group.command("facets")
+@_iac_origin_option
 @pass_context
-def inventory_facets(ctx) -> None:
+def inventory_facets(ctx, has_iac_origin) -> None:
     """Inventory facet counts by type/account/region.
 
     \b
@@ -3535,7 +3552,7 @@ def inventory_facets(ctx) -> None:
       limacharlie cloudsec inventory facets
     """
     cs = _get_cloudsec(ctx)
-    _output(ctx, cs.get_inventory_facets())
+    _output(ctx, cs.get_inventory_facets(has_iac_origin=has_iac_origin))
 
 
 # ---------------------------------------------------------------------------
@@ -4556,7 +4573,7 @@ def export_group() -> None:
 @_sort_options
 @_export_output_option
 @pass_context
-def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
+def export_findings(ctx, has_iac_origin, iac_attributions, severities, finding_classes, statuses, accounts, repos,
                     image_urns, fix_states, exploit_bands, grains,
                     source, owners, unassigned, sla_states, reachable, kev, q,
                     cause, sort, order, output_path) -> None:
@@ -4570,6 +4587,8 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
     """
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_findings_csv(
+        has_iac_origin=has_iac_origin,
+        iac_attribution=list(iac_attributions) or None,
         severity=list(severities) or None,
         finding_class=list(finding_classes) or None,
         status=list(statuses) or None,
@@ -4595,7 +4614,7 @@ def export_findings(ctx, severities, finding_classes, statuses, accounts, repos,
 @_inventory_filter_options
 @_export_output_option
 @pass_context
-def export_inventory(ctx, resource_type, provider, account, region, q,
+def export_inventory(ctx, has_iac_origin, resource_type, provider, account, region, q,
                      all_accounts, account_empty, output_path) -> None:
     """Export the (filtered) cloud resource inventory as CSV.
 
@@ -4607,7 +4626,7 @@ def export_inventory(ctx, resource_type, provider, account, region, q,
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_inventory_csv(
         resource_type=resource_type, provider=provider, account=account,
-        region=region, q=q,
+        region=region, q=q, has_iac_origin=has_iac_origin,
         account_empty=_inventory_account_empty(
             account, all_accounts, account_empty),
     ), output_path)
