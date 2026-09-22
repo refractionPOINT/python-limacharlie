@@ -79,6 +79,14 @@ Changelog = "https://github.com/refractionPOINT/python-limacharlie/blob/master/C
 # To run actual benchmarks with timing: pytest tests/microbenchmarks/ --benchmark-only
 testpaths = ["tests/unit", "tests/microbenchmarks"]
 addopts = "--benchmark-disable"
+markers = [
+    # Live end-to-end tests for the search consumption mode. Outside testpaths
+    # like the rest of tests/integration, and additionally skipped unless
+    # LC_TEST_SEARCH_MODE_E2E is set, because they need server-side support a
+    # given deployment may not have yet. Deselect with -m "not searchmode_e2e";
+    # see tests/integration/test_search_mode_e2e.py for how to run them.
+    "searchmode_e2e: live search-mode tests, need a backend that serves the mode field",
+]
 
 [tool.setuptools.packages.find]
 include = ["limacharlie*"]
