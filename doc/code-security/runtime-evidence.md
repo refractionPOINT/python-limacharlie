@@ -9,8 +9,7 @@ The SDK does not reinterpret identity as risk or manufacture absent posture flag
 An unresolved identifier is **unknown**, even when `resolver_ready` is true.
 Readiness describes reader provisioning, not successful cache access or complete
 sensor coverage. In particular, unresolved assets do not prove that no sensor
-runs there. This clarifies the older resolve-helper docstring's absence example.
-Chunked responses preserve evidence fields and merge readiness pessimistically.
+runs there. Chunked responses preserve evidence fields and merge readiness pessimistically.
 
 Node placement is supplemental to an independent asset identity. It does not
 prove host-versus-container execution, loaded code, exploitability, or absence of
