@@ -34,7 +34,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "get_overview", "list_changes", "get_risk_trend", "get_scan_status",
             "get_topology", "get_free_tier",
             "list_findings", "get_finding_facets", "get_finding_classes",
-            "get_finding", "list_finding_causes",
+            "get_finding", "list_finding_causes", "check_finding_runtime",
             "set_finding_status", "bulk_set_finding_status",
             "set_finding_owner", "set_finding_ticket",
             "list_attack_paths", "get_public_access", "get_identity_facets",
@@ -100,8 +100,8 @@ class TestCloudSecHelp:
         runner = CliRunner()
         result = runner.invoke(cli, ["cloudsec", "finding", "--help"])
         assert result.exit_code == 0
-        for cmd in ["list", "facets", "causes", "classes", "get", "resolve",
-                    "bulk-resolve", "set-owner", "set-ticket"]:
+        for cmd in ["list", "facets", "causes", "classes", "get", "runtime-check",
+                    "resolve", "bulk-resolve", "set-owner", "set-ticket"]:
             assert cmd in result.output
 
     def test_caasm_subgroup_help(self):

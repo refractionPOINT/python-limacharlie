@@ -7,7 +7,9 @@ identity access population and single-identity rollup, the resource
 inventory, the Data Security (DSPM) store list and facets, the
 pre-aggregated estate topology and security graph, compliance
 assessment, the risk overview, CAASM (third-party asset attack
-surface), sensor<->cloud-asset resolution, the finding triage
+surface), sensor<->cloud-asset resolution, the on-demand runtime
+package check (:meth:`CloudSec.check_finding_runtime` and the
+five-rung ladder in :data:`RUNTIME_STATUSES`), the finding triage
 writes, the cloudsec_policy authoring aids (vocabulary, live
 autocomplete, and the two "Simulate" preflights), CSV exports of the
 read surface, per-provider coverage manifests, the free-tier
@@ -330,6 +332,213 @@ def _query_run_body(
 # can only carry ~190 UUIDs. 100 per request (~4KB) leaves comfortable headroom;
 # the gateway's own per-request cap is 500.
 _RESOLVE_CHUNK_SIZE = 100
+
+
+# ---------------------------------------------------------------------------
+# Runtime package evidence (CS-15) — the PUBLIC five-rung ladder
+# ---------------------------------------------------------------------------
+#
+# The question this answers, for one open package finding on one cloud workload:
+# did that code actually run? Plan 24 decision D6 fixes the answer to five rungs
+# and no more. go-cloudsec ``findings/runtime.go`` and
+# ``runtimeevidence/verdict.go`` (PR refractionPOINT/go-cloudsec#413) are the
+# authority; these constants mirror them so the SDK cannot drift into a sixth
+# rung or a different spelling.
+#
+# ``not_observed`` IS THE ONLY NEGATIVE RUNG AND IT IS NOT A SAFETY CLAIM. It
+# says a COMPLETE telemetry window was searched and the package was never seen
+# running. It does not say the package is absent, the finding is fixed, or the
+# vulnerability is not exploitable. Runtime evidence never moves a finding's
+# stored ``lc_risk`` and is never part of its identity.
+
+#: No usable runtime evidence: missing, stale, expired, foreign, unattributable
+#: or conflicting. Its wire spelling is the EMPTY STRING, so an absent ``status``
+#: and ``status: ""`` mean the same thing.
+RUNTIME_UNKNOWN = ""
+#: An agent runs on the resource but the telemetry cannot carry a claim.
+RUNTIME_PRESENT = "present"
+#: A COMPLETE telemetry window saw the package never run. The only negative rung,
+#: and the only one with a completeness precondition.
+RUNTIME_NOT_OBSERVED = "not_observed"
+#: The package is mapped into a running process.
+RUNTIME_LOADED = "loaded"
+#: The package IS the running executable.
+RUNTIME_EXECUTING = "executing"
+
+#: The ladder in ascending evidence order, unknown first — the exact membership
+#: and order of go-cloudsec ``findings.RuntimeStatuses()``.
+RUNTIME_STATUSES = (
+    RUNTIME_UNKNOWN,
+    RUNTIME_PRESENT,
+    RUNTIME_NOT_OBSERVED,
+    RUNTIME_LOADED,
+    RUNTIME_EXECUTING,
+)
+
+# The pre-CS-15 spelling of RUNTIME_NOT_OBSERVED. Plan 24 §14: "Decode legacy
+# dormant as not_observed but never emit it." It is private on purpose — nothing
+# in this module can produce it, and decode_runtime_status is the only thing that
+# even recognizes it.
+#
+# UNRELATED USES OF THE SAME WORD, none of which this touches: the CIEM identity
+# dormancy facet (``dormant_90d``, ``dormant_admin``), the AI-sessions session
+# status, and sensor sleep mode (``is_sleep``, "dormant mode" in
+# ``limacharlie/commands/sensor.py``). Different vocabularies entirely.
+_LEGACY_RUNTIME_NOT_OBSERVED = "dormant"
+
+#: The closed reason vocabulary — a verbatim mirror of the ``Reason`` constants
+#: in go-cloudsec ``runtimeevidence/verdict.go``. Every non-positive verdict
+#: carries one, so a caller can always say WHY instead of reporting a blank.
+RUNTIME_REASONS = frozenset({
+    "no_evidence",
+    "expired",
+    "not_relevant",
+    "unattributable",
+    "window_short",
+    "window_interrupted",
+    "write_shed",
+    "attribution_incomplete",
+    "telemetry_absent",
+    "relevance_truncated",
+    "unversioned",
+    "observed_executing",
+    "observed_loaded",
+    "complete_window",
+    "inventory_conflict",
+    "sensors_partial",
+})
+
+#: D1 evidence levels the runtime lane may state. Never ``verified`` and never
+#: ``asserted``: a positive match on an exact host-recorded path is ``observed``,
+#: everything else — including the negative rung, which is a deduction from a
+#: complete window rather than a sighting — is ``derived``.
+RUNTIME_LEVELS = ("observed", "derived", "unknown")
+
+# Aggregation order for folding several verdicts into one. NOT a severity, and it
+# never feeds lc_risk. The negative rung deliberately ranks BELOW ``present`` so
+# that one sensor (or one package) with an incomplete window vetoes a
+# resource-level negative — see runtime_headline.
+_RUNTIME_RANK = {
+    RUNTIME_NOT_OBSERVED: 1,
+    RUNTIME_PRESENT: 2,
+    RUNTIME_LOADED: 3,
+    RUNTIME_EXECUTING: 4,
+}
+
+
+def decode_runtime_status(value: Any) -> tuple[str, bool]:
+    """Fold any stored or wire spelling onto the public runtime ladder.
+
+    This is the ONE decoder, mirroring go-cloudsec
+    ``findings.DecodeRuntimeStatus``: the legacy ``dormant`` token becomes
+    ``not_observed``, an empty or absent token stays unknown, and an
+    unrecognized token becomes unknown rather than being read as a verdict.
+    Nothing here can return the legacy token, so no encoder can round-trip it
+    back out.
+
+    Args:
+        value: The wire/stored status. ``None``, a non-string and an empty
+            string are all treated as unknown.
+
+    Returns:
+        tuple: ``(status, recognized)``. ``status`` is always one of
+        :data:`RUNTIME_STATUSES`. ``recognized`` is False when the input was
+        not a known token at all, which lets a caller count malformed input
+        instead of silently reading it as unknown.
+    """
+    if not isinstance(value, str):
+        return RUNTIME_UNKNOWN, value is None
+    token = value.strip().lower()
+    if token == "":
+        return RUNTIME_UNKNOWN, True
+    if token == _LEGACY_RUNTIME_NOT_OBSERVED:
+        return RUNTIME_NOT_OBSERVED, True
+    if token in RUNTIME_STATUSES:
+        return token, True
+    return RUNTIME_UNKNOWN, False
+
+
+def is_runtime_positive(status: str) -> bool:
+    """Whether a status asserts a sighting (``loaded`` or ``executing``)."""
+    return status in (RUNTIME_LOADED, RUNTIME_EXECUTING)
+
+
+def is_runtime_negative(status: str) -> bool:
+    """Whether a status asserts the package was not observed running.
+
+    Ask through this rather than testing ``not is_runtime_positive(...)``:
+    "not loaded and not executing" and "watched a complete window and never saw
+    it run" are different statements, and only the second one has been earned.
+    """
+    return status == RUNTIME_NOT_OBSERVED
+
+
+def _runtime_unknown(reason: str) -> dict[str, Any]:
+    """The honest empty verdict.
+
+    Deliberately carries no ``source``: this fold happens in the client, and
+    stamping the producer token on a verdict no producer emitted would invent
+    provenance. go-cloudsec's ``runtimeevidence.Unknown`` does set it, because
+    there it IS the producer.
+    """
+    return {"status": RUNTIME_UNKNOWN, "reason": reason, "level": "unknown"}
+
+
+def runtime_headline(result: dict[str, Any]) -> dict[str, Any]:
+    """Fold a runtime-check result into the single verdict to show beside a finding.
+
+    Use this instead of taking a maximum over the per-package rows yourself.
+    The ranking puts the negative rung BELOW ``present`` precisely so that one
+    package whose window is incomplete vetoes a whole-resource negative, and a
+    naive maximum silently loses that veto. It mirrors
+    ``runtimeevidence.Aggregate`` / ``CheckResult.Headline``:
+
+    * any sighting on any package is the answer;
+    * otherwise a negative survives only if EVERY row is negative AND the
+      caller could enumerate every sensor (``sensors_complete``);
+    * anything less is ``present`` or unknown, with the veto as the reason.
+
+    Args:
+        result: The response of :meth:`CloudSec.check_finding_runtime`, or any
+            dict with the same ``packages`` / ``sensors_complete`` shape.
+
+    Returns:
+        dict: One verdict — ``status`` (a member of :data:`RUNTIME_STATUSES`),
+        ``reason``, ``level``, and whatever else the winning row carried.
+    """
+    sensors_complete = bool((result or {}).get("sensors_complete"))
+    verdicts: list[dict[str, Any]] = []
+    for row in (result or {}).get("packages") or []:
+        raw = (row or {}).get("verdict") or {}
+        verdict = dict(raw)
+        verdict["status"], _ = decode_runtime_status(raw.get("status"))
+        verdicts.append(verdict)
+
+    if not verdicts:
+        return _runtime_unknown("no_evidence" if sensors_complete else "sensors_partial")
+
+    # Seeded with the FIRST row rather than a synthetic unknown, so an all-unknown
+    # input keeps a real reason instead of collapsing to no_evidence. Ties keep the
+    # earlier element, which makes the fold deterministic.
+    best = verdicts[0]
+    negatives = 0
+    for index, verdict in enumerate(verdicts):
+        if verdict["status"] == RUNTIME_NOT_OBSERVED:
+            negatives += 1
+        if index > 0 and _RUNTIME_RANK.get(verdict["status"], 0) > _RUNTIME_RANK.get(best["status"], 0):
+            best = verdict
+
+    if is_runtime_positive(best["status"]):
+        return best
+    if negatives and negatives == len(verdicts) and sensors_complete:
+        return best
+    if best["status"] == RUNTIME_PRESENT:
+        return best
+    # Everything left is unknown, plus possibly some negatives a partial sensor
+    # set or an unknown sibling just vetoed. Report the veto, not the negative.
+    if negatives:
+        return _runtime_unknown("no_evidence" if sensors_complete else "sensors_partial")
+    return _runtime_unknown(best.get("reason", "") or "")
 
 
 class CloudSec:
@@ -731,6 +940,58 @@ class CloudSec:
             ``{"finding": {...}}``.
         """
         return self._get(f"findings/{finding_id}")
+
+    def check_finding_runtime(self, finding_id: str) -> dict[str, Any]:
+        """Ask whether the code behind a package finding actually ran (CS-15).
+
+        Runs the on-demand runtime check for one finding's cloud resource and
+        returns the per-package verdicts on the PUBLIC five-rung ladder
+        (:data:`RUNTIME_STATUSES`): unknown, ``present``, ``not_observed``,
+        ``loaded``, ``executing``.
+
+        REQUIRES A GATEWAY ROUTE THAT IS NOT DEPLOYED YET. This client is
+        written against the documented contract of
+        ``POST /cloudsec/{oid}/findings/{finding_id}/runtime-check``
+        (plan 24 §6, permission ``cloudsec.get``, informational and async).
+        Until that route ships, the call fails the way any unknown route does —
+        it is not silently degraded to something else, because a runtime check
+        that quietly answers from nothing would be worse than an error.
+
+        WHAT THE ANSWER IS NOT. ``not_observed`` says a COMPLETE telemetry
+        window was searched and the package was never seen running. It does not
+        say the package is absent, that the finding is fixed, or that the
+        vulnerability is not exploitable, and no rung here proves anything about
+        exploitability. Runtime evidence is informational: it never changes the
+        finding's stored ``lc_risk``, its fingerprint or its disposition.
+
+        ABSENT AND INCOMPLETE EVIDENCE IS NEVER A NEGATIVE. A telemetry lapse, a
+        shed write, an interrupted window, a truncated watch list, a package with
+        no version or an unattributable package all resolve to ``present`` or
+        unknown with a reason from :data:`RUNTIME_REASONS` — never to
+        ``not_observed`` (plan 24 §18 gate 12).
+
+        The response is returned VERBATIM, with no field reinterpreted here.
+        Fold it to one rung with :func:`runtime_headline` rather than taking a
+        maximum over the rows, which loses the negative veto.
+
+        Args:
+            finding_id: The finding id (e.g. ``fnd_<fingerprint>``).
+
+        Returns:
+            dict: ``{"resource_urn": ..., "packages": [{"key": ...,
+            "verdict": {"status": ..., "reason": ..., "level": ...,
+            "source": ..., "observed_at": ..., "stale_at": ..., "paths": [...]}}],
+            "sensors": N, "sensors_complete": bool, "complete": bool,
+            "retry_after": ...}``. ``complete`` false with a ``retry_after``
+            means a window is still maturing and asking again later could change
+            the answer; every other unsettled state is final and says why.
+
+        Raises:
+            LcApiException: The org lacks ``cloudsec.get``, is not subscribed to
+                ``ext-cloud-security``, the finding does not exist, or the route
+                is not served by this gateway yet.
+        """
+        return self._post(f"findings/{_quote(finding_id, safe='')}/runtime-check", {})
 
     def get_finding_classes(self) -> dict[str, Any]:
         """The canonical ``finding_class`` vocabulary.

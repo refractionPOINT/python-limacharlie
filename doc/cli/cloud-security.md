@@ -86,6 +86,48 @@ limacharlie cloudsec finding set-owner fnd_abc --owner alice@corp.com
 limacharlie cloudsec finding set-ticket fnd_abc --ticket JIRA-123
 ```
 
+### Runtime check: did that code actually run?
+
+`finding runtime-check` asks whether the vulnerable package behind a finding was
+actually running on the finding's cloud resource, using the endpoint telemetry
+LimaCharlie already retains. It is **informational**: it never changes the finding's
+risk score, status, identity or disposition.
+
+```bash
+limacharlie cloudsec finding runtime-check fnd_0123abcd
+limacharlie cloudsec finding runtime-check fnd_0123abcd --headline
+```
+
+The answer is one of **five** rungs, and only one of them is negative:
+
+| Rung | Means |
+|---|---|
+| *(empty string)* | **unknown** — no usable evidence: missing, stale, expired, unattributable or conflicting |
+| `present` | an agent is on the resource, but the telemetry cannot carry a claim |
+| `not_observed` | a **complete** telemetry window saw the package never run |
+| `loaded` | the package is mapped into a running process |
+| `executing` | the package **is** the running executable |
+
+**`not_observed` is not a safety claim.** It says a complete window did not see the
+code run — not that the package is gone, that the finding is fixed, or that the
+vulnerability is not exploitable. Nothing this command returns proves anything about
+exploitability.
+
+**A telemetry lapse never produces a negative.** An interrupted or too-young window,
+a shed write, a truncated watch list, a package with no version and an unattributable
+package all come back as `present` or unknown **with a `reason`** explaining which
+gate failed — never as `not_observed`.
+
+`--headline` folds the per-package rows into the one verdict to display. Prefer it
+over taking a maximum yourself: the negative rung ranks *below* `present` on purpose,
+so a single incomplete package vetoes a whole-resource negative, and a naive maximum
+silently loses that veto. `dormant`, the old spelling of `not_observed`, is decoded on
+read and never emitted.
+
+> This command needs a gateway route that is **not deployed yet**
+> (`POST /cloudsec/{oid}/findings/{id}/runtime-check`). Until it ships the command
+> fails the way any unknown route does, rather than answering from nothing.
+
 ## Attack paths & CIEM
 
 `ciem facets` and `ciem identities` take the SAME cross-filter, so the rail's counts describe the population the list returns — with one exception: the no-tier bucket `--unclassified` selects is skipped when counting, so it is the only selection the rail cannot give a count for (the same is true of `--unclassified` on `data-security`). The boolean filters are tri-state: omitting one leaves the dimension unconstrained, which is not the same as pinning it false. `--mfa unknown` is everyone the MFA question does not apply to (no identity-provider observation, or non-human) — it is not `off`.
