@@ -376,3 +376,20 @@ CSV responses carry a bounded first comment line with a base64url JSON receipt;
 the SDK validates and removes it before returning CSV. Older or partly upgraded
 servers that do not acknowledge the requested selectors raise an error instead
 of presenting an unfiltered result. Selector-free calls remain unchanged.
+
+
+## Build provenance
+
+`limacharlie cloudsec code provenance push -f provenance.json` sends an LC
+`lc-build-provenance/v1`, SLSA Provenance v1 or offline Sigstore bundle, bounded to
+1 MiB. The server assigns the authenticated tenant and signer context. A signature
+is verified only against configured tenant trust; failed verification is refused.
+Do not include raw source, credentials, environment variables or build output.
+
+`limacharlie cloudsec code provenance list --digest sha256:<64-hex>` reads
+normalized attestations. Optional `--repo-urn`, `--commit` and `--cursor` select a
+page. Use the response's `result.next_cursor` for the next page. Conflicting claims
+remain visible and resolve to unknown even when a commit filter hides one claim.
+Writes require `cloudsec.set`, reads `cloudsec.get`. The server feature must be
+enabled after schema installation; command availability grants no deployment or
+response authorization.
