@@ -13,6 +13,37 @@
   `json` schema field, fixing HTTP 400 responses that reported the supplied
   object was a map rather than JSON.
 
+### Cloud Security — runtime package evidence (CS-15)
+
+- **`cloudsec finding runtime-check`** asks whether the vulnerable code behind a
+  package finding was actually observed running on the finding's cloud resource,
+  and `CloudSec.check_finding_runtime` is the SDK method behind it. Informational
+  only: it never changes the finding's risk score, status, identity or
+  disposition.
+- The answer is one of **five** rungs — `unknown`, `present`, `not_observed`,
+  `loaded`, `executing` — with constants, a decoder and readers in
+  `limacharlie.sdk.cloudsec`. `not_observed` is the only negative and it is **not
+  a safety claim**: it says a complete telemetry window did not see the code run,
+  not that the package is gone, that the finding is fixed, or that the
+  vulnerability is not exploitable. A telemetry lapse comes back as `present` or
+  `unknown` with a reason, never as a negative.
+- `runtime_verdict()` reads the server's whole-resource verdict and
+  `runtime_packages()` the per-package rows. `runtime_verdict` is a field read,
+  not a local fold: the negative rung ranks *below* `present`, so reducing the
+  rows yourself reports a whole-machine negative whenever nothing positive turned
+  up, losing the veto a single incomplete package holds.
+- Read `accepted` before `status`. The runtime-evidence feature is **default-off**,
+  and with it off the call succeeds with `accepted: false` and reason
+  `feature_disabled`. Asking is also what *starts* the measurement, so a first
+  call is expected to be inconclusive: `complete: false` with
+  `retry_after_seconds` means ask again.
+- `dormant`, the pre-CS-15 spelling of `not_observed`, is decoded on read and can
+  never be emitted. Unrelated uses of the word (dormant admin identities, AI
+  session status, sensor sleep mode) are untouched.
+- Needs the gateway route `POST /cloudsec/{oid}/findings/{id}/runtime-check`,
+  which is not deployed yet; until it is, the call fails like any unknown route
+  rather than answering from nothing.
+
 ### Cloud Security & Code Security — bind the GA gateway surface
 
 Auditing `cloudsec` against the API gateway after the Code Security GA turned up
