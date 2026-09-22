@@ -13,6 +13,29 @@ search = Search(org)
 results = search.execute("event NEW_PROCESS", start=1704067200, end=1704153600)
 ```
 
+### Search mode
+
+`mode` declares how you intend to consume the search, not how much data you want: you never ask for a row count, the server sizes the pages. `"interactive"` favours time to first results, `"batch"` favours throughput over the whole result set, which means fewer and larger pages. Both return the same rows in the same order, so only where the page boundaries fall changes.
+
+```python
+from limacharlie.sdk.search import SEARCH_MODE_BATCH
+
+for page in search.execute(query, start, end, mode=SEARCH_MODE_BATCH):
+    stats = page.get("stats") or {}
+    # What this page actually ran as, which is not necessarily what was asked
+    # for: the mode is enabled per organization and the server may pick one
+    # itself. Absent entirely from a search that ran without pagination.
+    print(stats.get("searchMode"), stats.get("pageSize"), stats.get("paginatedByteCap"))
+```
+
+`execute()` defaults to `"batch"`, not to `None`. Its callers are scripts and automation that read every page and pay a fixed cost per round trip, so the throughput shape is the right one for them; the shape tuned for a human watching a screen is not. A client that puts a person in front of the results, such as this package's CLI, passes `"interactive"` for itself rather than relying on the default.
+
+Passing `mode=None` explicitly sends no mode at all and leaves the choice to the server. That is the only way to omit the key, and it is not what leaving the argument out does. Anything that is not one of the two modes is refused with a `ValidationError` before the request is sent, matching on the exact spelling, because the server ignores a value it does not recognise and a typo would otherwise produce the mode you did not ask for with nothing to signal it.
+
+`pageSize` is the soft per-page result cap rather than a promise: a page ends below it on a time limit, a byte limit or the end of the data, and slightly above it because a page stops only once a whole batch of results has arrived. `paginatedByteCap` is the reply-byte ceiling.
+
+The mode is submitted once. Continuation pages fetched with the pagination token inherit it, so it is never resent. It applies to a paginated search only, and a query that must process all the data before it can answer anything, such as `GROUP BY`, `ORDER BY` or an aggregation over every record, is unaffected.
+
 ### Open queries
 
 `list_open_queries()` reports the searches the organization currently has open, and which of them are consuming its concurrency limit. Those are different numbers: a paginated search sitting between pages is open and resumable but holds no slot, so `slotsHeld` (not `count`) is what the limit applies to.
