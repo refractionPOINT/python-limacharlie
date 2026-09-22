@@ -2174,6 +2174,25 @@ class CloudSec:
             body["provider"] = provider
         return self._post("code/autofix", body)
 
+    def push_iac_map(self, document: bytes | str) -> dict[str, Any]:
+        """Push a sanitized IaC map with the organization's write authorization.
+
+        Args:
+            document: Locally extracted lc-iac-map/v1 JSON, at most 10 MiB.
+
+        Returns:
+            dict: Reconcile counts, partial coverage, content hash and replay status.
+
+        Raises:
+            ValueError: If local preflight rejects the sanitized document.
+            AuthenticationError: If the organization lacks cloudsec.set permission.
+        """
+        from .iac_map import validate_iac_map
+        raw = validate_iac_map(document)
+        return self._org.client.request(
+            "POST", f"cloudsec/{self.oid}/code/iac-map",
+            raw_body=raw, content_type="application/json")
+
     def push_code_provenance(self, document: bytes | str | dict[str, Any]) -> dict[str, Any]:
         """Push build provenance without changing signed document bytes.
 

@@ -343,6 +343,36 @@ Before the scan starts, the CLI refuses a document the scanner would not accept:
 
 **Scanner version.** The default image is pinned to scanner v0.16.0. A `--image` or `--binary` running `sast` must be v0.16.0 or newer, because older scanners reject the rule-set flags. That failure is a usage error (exit 2), and the CLI's error message names the version you need. A scan without `sast` passes no rule-set flag, so it still runs on older scanners.
 
+### Sanitized IaC maps
+
+Extract locally before uploading. Install `iac-map-extract` from the LimaCharlie
+scanner distribution on `PATH`. The extractor never authenticates or sends raw
+Terraform input to a service. Produce a local `terraform show -json` file, then:
+
+```sh
+limacharlie cloudsec code iac-map extract --input terraform.json \
+  --source-kind state_identity --repository owner/repo \
+  --commit FULL_COMMIT --workspace default > sanitized-map.json
+limacharlie cloudsec code iac-map push --input sanitized-map.json
+```
+
+`FULL_COMMIT` is the full 40- or 64-character lowercase source revision. Use
+`--source-kind plan_desired` for plan JSON, `--tool opentofu` for OpenTofu, and
+`--provider gitlab` or `bitbucket` where appropriate. State output includes only
+resource identity. Plan output additionally permits closed desired booleans;
+secret values, source snippets, outputs and arbitrary attributes are omitted.
+Unknown or unsupported inputs make coverage partial; partial/failed pushes cannot
+delete prior mappings. Raw state and plans are refused by the push command/API.
+
+Raw extraction input is limited to 64 MiB; sanitized uploads to 10 MiB, 50,000
+resources, depth 8 and strings of 4 KiB. Push requires `cloudsec.set` for the selected
+organization and feature availability. The API limits pushes to 30/minute per
+identity and organization. A successful response describes reconciliation and
+coverage, not deployment or remediation verification. Keep raw files local; only
+`sanitized-map.json` belongs in the upload step. No collection credential is used
+for response actions.
+
+SDK equivalent: `CloudSec(org).push_iac_map(sanitized_json_bytes)`, which performs local bounded preflight before its HTTP request.
 ### IaC provenance selectors (CS-02)
 
 When server-side provenance queries are enabled, finding list, facets, causes and

@@ -128,7 +128,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "billing": ("billing", "group"),
     "case": ("case_cmd", "group"),
     "cloud-adapter": ("cloud_sensor", "group"),
-    "cloudsec": ("cloudsec", "group"),
+    "cloudsec": ("cloudsec", "group"),  # Includes code iac-map extract/push.
     "completion": ("completion", "cmd"),
     "config": ("config_cmd", "group"),
     "detection": ("detection", "group"),
