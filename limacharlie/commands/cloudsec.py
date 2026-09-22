@@ -43,7 +43,7 @@ import click
 from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
-from ..sdk.cloudsec import CloudSec
+from ..sdk.cloudsec import CloudSec, runtime_packages, runtime_verdict
 from ..sdk.hive import Hive
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
@@ -372,6 +372,60 @@ valid set.
 
 Example:
   limacharlie cloudsec finding classes
+"""
+
+_EXPLAIN_FINDING_RUNTIME_CHECK = """\
+Ask whether the code behind a package finding actually ran, using the
+endpoint telemetry LimaCharlie already has for the finding's cloud
+resource. Informational only: it never changes the finding's risk
+score, its status or its identity.
+
+The answer is one of five rungs, and only one of them is negative:
+
+  unknown       no usable evidence (missing, stale, expired,
+                unattributable or conflicting)
+  present       an agent is there, but the telemetry cannot carry a claim
+  not_observed  a COMPLETE telemetry window saw the package never run
+  loaded        the package is mapped into a running process
+  executing     the package IS the running executable
+
+'not_observed' is NOT a safety claim. It says a complete window did not
+see the code run - not that the package is gone, that the finding is
+fixed, or that the vulnerability is not exploitable. Nothing here proves
+anything about exploitability.
+
+A telemetry lapse never yields a negative: an interrupted or too-young
+window, a shed write, a truncated watch list, a versionless package or an
+unattributable one all come back as 'present' or unknown WITH a reason.
+A negative is reported only for a complete window over a complete
+sensor set.
+
+ASKING IS WHAT STARTS THE MEASUREMENT. The check publishes this
+finding's packages as relevant so the agents begin summarizing them, and
+evidence accumulates over the following minutes. So a first call is
+EXPECTED to be inconclusive: 'complete' false with a
+'retry_after_seconds' means the window has not matured, so ask again. It
+is not a finished answer.
+
+The runtime-evidence feature is DEFAULT-OFF. With it off the call still
+succeeds and returns accepted=false with reason 'feature_disabled' - an
+explicit "we did not run", never a fabricated verdict. Read 'accepted'
+before reading 'status'.
+
+--verdict prints the server's own whole-resource verdict instead of the
+full response. It is a field read, not a local fold: the backend computes
+that verdict, and re-deriving it from the rows is the one mistake worth
+naming - the negative rung ranks BELOW 'present' on purpose, so taking
+the strongest per-package answer reports a whole-machine negative
+whenever nothing positive turned up, losing the veto that one incomplete
+package is supposed to exercise.
+
+--packages prints just the per-package rows.
+
+Example:
+  limacharlie cloudsec finding runtime-check fnd_0123abcd
+  limacharlie cloudsec finding runtime-check fnd_0123abcd --verdict
+  limacharlie cloudsec finding runtime-check fnd_0123abcd --packages
 """
 
 _EXPLAIN_FINDING_RESOLVE = """\
@@ -964,6 +1018,7 @@ register_explain("cloudsec.finding.facets", _EXPLAIN_FINDING_FACETS)
 register_explain("cloudsec.finding.causes", _EXPLAIN_FINDING_CAUSES)
 register_explain("cloudsec.finding.classes", _EXPLAIN_FINDING_CLASSES)
 register_explain("cloudsec.finding.get", _EXPLAIN_FINDING_GET)
+register_explain("cloudsec.finding.runtime-check", _EXPLAIN_FINDING_RUNTIME_CHECK)
 register_explain("cloudsec.finding.resolve", _EXPLAIN_FINDING_RESOLVE)
 register_explain("cloudsec.finding.bulk-resolve", _EXPLAIN_FINDING_BULK_RESOLVE)
 register_explain("cloudsec.finding.set-owner", _EXPLAIN_FINDING_SET_OWNER)
@@ -3282,6 +3337,52 @@ def finding_get(ctx, finding_id) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.get_finding(finding_id))
+
+
+@finding_group.command("runtime-check")
+@click.argument("finding_id")
+@click.option("--verdict", "verdict_only", is_flag=True, default=False,
+              help="Print the server's own whole-resource verdict instead of the full "
+                   "response. A field read, not a local fold: re-deriving it from the "
+                   "per-package rows loses the veto that one incomplete package holds "
+                   "over a whole-machine negative.")
+@click.option("--packages", "packages_only", is_flag=True, default=False,
+              help="Print just the per-package rows, with statuses decoded.")
+@pass_context
+def finding_runtime_check(ctx, finding_id, verdict_only, packages_only) -> None:
+    """Ask whether the code behind package finding FINDING_ID actually ran.
+
+    Informational only — it never changes the finding's risk score or status.
+    The verdict is one of five rungs: unknown, present, not_observed, loaded,
+    executing.
+
+    'not_observed' means a COMPLETE telemetry window did not see the code run —
+    not that the package is gone, that the finding is fixed, or that the
+    vulnerability is not exploitable. Nothing here proves anything about
+    exploitability. A telemetry lapse never yields a negative — it comes back as
+    'present' or unknown, with a reason.
+
+    Asking is what starts the measurement, so a first call is expected to be
+    inconclusive: 'complete' false with a 'retry_after_seconds' means the window
+    has not matured yet. The feature is default-off; with it off the call returns
+    accepted=false with reason 'feature_disabled', which is not a statement that
+    nothing ran.
+
+    \b
+    Examples:
+      limacharlie cloudsec finding runtime-check fnd_abc
+      limacharlie cloudsec finding runtime-check fnd_abc --verdict
+    """
+    if verdict_only and packages_only:
+        raise click.UsageError("provide at most one of --verdict or --packages")
+    cs = _get_cloudsec(ctx)
+    response = cs.check_finding_runtime(finding_id)
+    if verdict_only:
+        _output(ctx, runtime_verdict(response))
+    elif packages_only:
+        _output(ctx, {"packages": runtime_packages(response)})
+    else:
+        _output(ctx, response)
 
 
 @finding_group.command("resolve")
