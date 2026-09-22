@@ -116,6 +116,7 @@ class CheckpointWriter:
         limit: int | None,
         oid: str,
         force: bool = False,
+        mode: str | None = None,
     ) -> None:
         """Initialize checkpoint writer.
 
@@ -131,6 +132,11 @@ class CheckpointWriter:
             limit: Result limit or None.
             oid: Organization ID.
             force: If True, overwrite existing data file and metadata.
+            mode: Search consumption mode the search was submitted with, or
+                None for the server default. Recorded because a resume
+                submits a fresh search, which would otherwise drop the mode
+                the original run asked for. A checkpoint written without one
+                has no ``mode`` key, which reads back as None.
 
         Raises:
             FileExistsError: If data_path already exists and force is False.
@@ -174,6 +180,7 @@ class CheckpointWriter:
             "end_time": end_time,
             "stream": stream,
             "limit": limit,
+            "mode": mode,
             "oid": oid,
             "created_at": now,
             "updated_at": now,

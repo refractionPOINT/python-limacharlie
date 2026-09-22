@@ -9,6 +9,17 @@
   `GET /v1/cloudsec/{oid}/code/repos/{owner%2Fname}/sbom`. Signatures and
   output are unchanged. Needs an API release that serves the new route.
 
+### Search consumption mode
+
+**Behavior change for SDK callers, not a backward-compatible addition.** `Search.execute()` now defaults to `mode="batch"`. Every existing SDK caller that does not pass `mode` sends a request body with a key it did not have before, and gets different page shapes: fewer and larger pages. Results and their ordering are unchanged and only the page boundaries move, so no caller reads different data, but a caller that sizes buffers per page, meters progress per page, or has timeouts tuned to the old page shape will see the difference. Pass `mode=None` explicitly to restore the previous request exactly and leave the choice to the server.
+
+- `mode` declares how the caller intends to consume the search rather than how much data it wants: `interactive` favours time to first results, `batch` favours throughput over the whole result set (fewer, larger pages). The rows and their order are identical either way.
+- The SDK defaults to `batch` because its callers are scripts and automation that read every page and pay a fixed cost per round trip. `None` remains meaningful as "send no mode at all"; it is no longer the default.
+- The CLI does not inherit that default. `search run` and `search saved-run` default to `interactive`, and to `batch` only where the run is evidently a bulk retrieval: driven by `--checkpoint` or `--resume`, stdout redirected to a file or a pipe, or `--output jsonl`, `csv` or `toon`. Anything ambiguous stays `interactive`, because an over-large page in front of someone waiting at a terminal is the worse failure. `--mode` overrides the default in every case.
+- A spelling that is not exactly `interactive` or `batch` is refused client-side, because the server ignores a value it does not recognise and a typo would otherwise silently run the mode that was not asked for.
+- The mode is submitted once. Continuation pages inherit it and never resend it. A `--checkpoint` run records the mode it resolved to, so that `--resume`, which opens a fresh search, repeats it.
+- Each page's stats carry `searchMode` (what the page actually ran as), `pageSize` and `paginatedByteCap`. They pass through to `--output json` and `--output jsonl` untouched, and are absent for a search that ran without pagination. The stderr stats line reports the applied mode, since the requested one is a hint the server may not take.
+
 ### Email Security onboarding
 
 - List `mailsec_provider`, `mailsec_policy`, and `dr-mail` in `hive list-types`.
