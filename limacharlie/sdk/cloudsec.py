@@ -411,6 +411,7 @@ RUNTIME_REASONS = frozenset({
     "window_short",
     "window_interrupted",
     "write_shed",
+    "stale_confirmation",
     "attribution_incomplete",
     "telemetry_absent",
     "relevance_truncated",

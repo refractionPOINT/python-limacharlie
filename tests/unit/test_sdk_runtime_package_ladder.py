@@ -71,6 +71,24 @@ def test_only_sightings_are_positive_and_only_not_observed_is_negative():
     assert not is_runtime_negative(RUNTIME_UNKNOWN)
 
 
+def test_the_verdict_reason_list_matches_the_merged_contract():
+    """Pin the reason list against go-cloudsec as merged.
+
+    It drifted once already: `stale_confirmation` landed on go-cloudsec master while this
+    was in flight and was missing here, which would have left a live reason with no copy
+    anywhere in the CLI or the docs. The list is a reference, not a validator (an
+    unrecognized reason is still rendered, never dropped), but a missing entry is a gap in
+    what we can EXPLAIN, and that is worth failing on.
+    """
+    assert RUNTIME_REASONS == frozenset({
+        "no_evidence", "expired", "not_relevant", "unattributable",
+        "window_short", "window_interrupted", "write_shed", "stale_confirmation",
+        "attribution_incomplete", "telemetry_absent", "relevance_truncated",
+        "unversioned", "observed_executing", "observed_loaded", "complete_window",
+        "inventory_conflict", "sensors_partial",
+    })
+
+
 def test_availability_reasons_are_not_part_of_the_verdict_vocabulary():
     # They explain the ABSENCE of a verdict, not a verdict. Conflating them would let
     # "the feature is off" be reported with the authority of a measured answer.
