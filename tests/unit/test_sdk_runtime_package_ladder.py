@@ -1,19 +1,16 @@
 """CS-15: the PUBLIC five-rung runtime ladder in the SDK and the CLI.
 
-These tests pin the properties the ladder is FOR, not its shape. Both come from the
-plan, not from taste:
+These tests pin the properties the ladder is FOR, not its shape. Both are rules of the
+backend's runtime-evidence contract, not matters of taste:
 
-* plan 24 §14 — "Decode legacy dormant as not_observed but never emit it"; and
-* plan 24 §18 gate 12 — "Runtime negative only on complete window; telemetry lapse
-  yields unknown", which on the client side means the SDK must never manufacture a
-  negative and must never report an unavailable check as one.
+* "Decode legacy dormant as not_observed but never emit it"; and
+* "Runtime negative only on complete window; telemetry lapse yields unknown", which on the
+  client side means the SDK must never manufacture a negative and must never report an
+  unavailable check as one.
 
-Contract: go-cloudsec ``findings/runtime.go`` + ``runtimeevidence/verdict.go`` (#413,
-merged). WIRE shape: the gateway route
-``POST /cloudsec/{oid}/findings/{id}/runtime-check`` forwards the graph actor's Data
-dict verbatim, so the envelope is ``{"accepted": bool, "runtime": {...} | None}`` with
-FLAT per-package rows and the unknown rung rendered as the literal ``"unknown"``
-(legion_graph ``runtimePackageWire`` / ``runtimeVerdictWire``).
+WIRE shape: the gateway route ``POST /cloudsec/{oid}/findings/{id}/runtime-check``
+returns ``{"accepted": bool, "runtime": {...} | None}`` with FLAT per-package rows and the
+unknown rung rendered as the literal ``"unknown"``.
 """
 
 import re
@@ -53,7 +50,7 @@ _LEGACY = "dormant"
 
 
 def test_ladder_is_exactly_the_five_rungs_in_ascending_evidence_order():
-    # A sixth rung here without one in go-cloudsec findings.RuntimeStatuses() is how
+    # A sixth rung here without one in the backend's ladder is how
     # a surface starts claiming something the backend never said.
     assert RUNTIME_STATUSES == ("", "present", "not_observed", "loaded", "executing")
     assert RUNTIME_UNKNOWN == ""
@@ -72,11 +69,11 @@ def test_only_sightings_are_positive_and_only_not_observed_is_negative():
 
 
 def test_the_verdict_reason_list_matches_the_merged_contract():
-    """Pin the reason list against go-cloudsec as merged.
+    """Pin the reason list against the backend's contract.
 
-    It drifted once already: `stale_confirmation` landed on go-cloudsec master while this
-    was in flight and was missing here, which would have left a live reason with no copy
-    anywhere in the CLI or the docs. The list is a reference, not a validator (an
+    It has drifted TWICE: `stale_confirmation` was added by the backend while this was in
+    flight, then `telemetry_dropped` was added after this SDK had already shipped. Either
+    would have left a live reason with no copy anywhere in the CLI or the docs. The list is a reference, not a validator (an
     unrecognized reason is still rendered, never dropped), but a missing entry is a gap in
     what we can EXPLAIN, and that is worth failing on.
     """
@@ -85,7 +82,7 @@ def test_the_verdict_reason_list_matches_the_merged_contract():
         "window_short", "window_interrupted", "write_shed", "stale_confirmation",
         "attribution_incomplete", "telemetry_absent", "relevance_truncated",
         "unversioned", "observed_executing", "observed_loaded", "complete_window",
-        "inventory_conflict", "sensors_partial",
+        "inventory_conflict", "telemetry_dropped", "sensors_partial",
     })
 
 
@@ -127,7 +124,7 @@ def test_the_legacy_token_appears_in_the_sdk_only_as_the_private_decode_constant
 
 
 def test_the_legacy_token_can_never_be_emitted():
-    # Plan §14: decode it, never emit it. Swept over the whole token space rather than
+    # The contract's rule: decode it, never emit it. Swept over the whole token space rather than
     # by inspecting one caller; see the structural check above for the other half.
     assert _LEGACY not in RUNTIME_STATUSES
     for token in list(RUNTIME_STATUSES) + [_LEGACY, "", None, "sixth_rung", 7, True, [], {}]:
@@ -179,7 +176,7 @@ def test_every_rung_folds_through_unchanged_case_insensitively(rung):
 
 
 def _row(key, status, reason="", **extra):
-    """One FLAT per-package row, exactly as legion_graph runtimeVerdictWire emits it."""
+    """One FLAT per-package row, exactly as the backend emits it."""
     row = {"key": key, "status": status, "reason": reason, "level": "derived", "source": "endpoint_runtime_package"}
     row.update(extra)
     return row
@@ -367,7 +364,7 @@ def test_check_finding_runtime_posts_the_documented_route_and_returns_it_verbati
     call = org.client.request.call_args
     assert call.args[0] == "POST"
     assert call.args[1] == f"cloudsec/{org.oid}/findings/fnd_0123abcd/runtime-check"
-    # The body stays EMPTY. Plan §9: every target is derived from the finding id
+    # The body stays EMPTY: every target is derived from the finding id
     # server-side, so a caller must not be able to name a sensor, a resource or a
     # package — and the only way to keep that true from here is to send nothing.
     assert call.kwargs["raw_body"] == b"{}"
