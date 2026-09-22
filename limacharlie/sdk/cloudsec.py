@@ -1827,7 +1827,7 @@ class CloudSec:
             carries ``open_findings``, ``by_class`` and
             ``repos_with_findings``.
 
-            An EMPTY ``code`` list means the lane has never run in this org.
+            An EMPTY ``code`` list means no retained run status is available.
             It does not mean the lane is off — that is a property of the
             org's ``code_scanning`` policy record, not of this call.
         """
@@ -2798,8 +2798,8 @@ class CloudSec:
 
         ``resolver_ready`` (is redis-cloudsec provisioned at all) is merged,
         not dropped: it is pessimistic — one not-ready chunk makes the whole
-        merged answer not-ready. Without it a caller cannot tell "no sensor
-        runs on a cloud asset" from "the resolver is not running here". It
+        merged answer not-ready. Readiness does not establish cache health or
+        complete coverage; unresolved identifiers remain unknown. It
         stays ABSENT when no chunk reported it (an older backend) rather than
         being invented as False.
         """
