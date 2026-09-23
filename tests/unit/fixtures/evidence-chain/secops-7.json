@@ -1,0 +1,135 @@
+{
+ "chain": {
+  "oid": "11111111-2222-4333-8444-555555555555",
+  "finding_id": "fnd_sec1",
+  "stages": [
+   {
+    "stage": "declared",
+    "status": "unknown",
+    "level": "unknown",
+    "source": "iac_origin",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "no_iac_origin",
+    "reason_recognised": true,
+    "action": "push_iac_map"
+   },
+   {
+    "stage": "committed",
+    "status": "proven",
+    "level": "asserted",
+    "source": "provenance_claims",
+    "observed_at": "2026-09-23T11:00:00Z",
+    "stale_at": "2026-09-23T17:00:00Z",
+    "reason_domain": "deployment",
+    "reason": "resolved",
+    "reason_recognised": true,
+    "refs": [
+     {
+      "kind": "commit",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     {
+      "kind": "commit",
+      "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ]
+   },
+   {
+    "stage": "built",
+    "status": "proven",
+    "level": "asserted",
+    "source": "provenance_claims",
+    "observed_at": "2026-09-23T11:00:00Z",
+    "stale_at": "2026-09-23T17:00:00Z",
+    "reason_domain": "deployment",
+    "reason": "resolved",
+    "reason_recognised": true
+   },
+   {
+    "stage": "running",
+    "status": "proven",
+    "level": "observed",
+    "source": "deployment_observations",
+    "outcome": "rolling",
+    "observed_at": "2026-09-23T11:00:00Z",
+    "stale_at": "2026-09-23T17:00:00Z",
+    "reason_domain": "deployment",
+    "reason": "resolved",
+    "reason_recognised": true,
+    "refs": [
+     {
+      "kind": "workload",
+      "value": "lcrn:11111111-2222-4333-8444-555555555555:gcp:run.googleapis.com/Service:proj-a/us-central1/api"
+     },
+     {
+      "kind": "digest",
+      "value": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+     },
+     {
+      "kind": "digest",
+      "value": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+     }
+    ]
+   },
+   {
+    "stage": "exposed",
+    "status": "proven",
+    "level": "derived",
+    "source": "graph_exposure",
+    "outcome": "exposed",
+    "observed_at": "2026-09-23T11:30:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "exposure_established",
+    "reason_recognised": true,
+    "refs": [
+     {
+      "kind": "path",
+      "value": "lcrn:11111111-2222-4333-8444-555555555555:gcp:PublicEndpoint:api"
+     }
+    ]
+   },
+   {
+    "stage": "observed",
+    "status": "unknown",
+    "level": "unknown",
+    "source": "endpoint_runtime_package",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "runtime",
+    "reason": "sensor_quarantined",
+    "reason_recognised": false,
+    "action": "review_reason"
+   },
+   {
+    "stage": "responded",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "remediation_run",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "no_remediation_requested",
+    "reason_recognised": true,
+    "action": "request_remediation"
+   },
+   {
+    "stage": "verified",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "remediation_run",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "no_remediation_requested",
+    "reason_recognised": true,
+    "action": "request_remediation"
+   }
+  ],
+  "complete": false,
+  "gaps": 2,
+  "generated_at": "2026-09-23T12:00:00Z"
+ }
+}

@@ -1,0 +1,146 @@
+{
+ "coverage": {
+  "oid": "11111111-2222-4333-8444-555555555555",
+  "generated_at": "2026-09-23T12:00:00Z",
+  "lines": [
+   {
+    "metric": "workloads_with_digest",
+    "numerator": 28,
+    "denominator": 35,
+    "complete": false,
+    "breakdown": [
+     {
+      "key": "provider_unreachable",
+      "count": 5
+     },
+     {
+      "key": "tag_only",
+      "count": 2
+     }
+    ],
+    "observed_at": "2026-09-23T11:00:00Z",
+    "stale_at": "2026-09-23T17:00:00Z",
+    "reason_domain": "chain",
+    "reason": "coverage_incomplete",
+    "reason_recognised": true,
+    "action": "check_provider_access"
+   },
+   {
+    "metric": "workloads_fully_resolved",
+    "numerator": 25,
+    "denominator": 35,
+    "complete": false,
+    "breakdown": [
+     {
+      "key": "provider_unreachable",
+      "count": 5
+     },
+     {
+      "key": "tag_only",
+      "count": 2
+     }
+    ],
+    "observed_at": "2026-09-23T11:00:00Z",
+    "stale_at": "2026-09-23T17:00:00Z",
+    "reason_domain": "chain",
+    "reason": "coverage_incomplete",
+    "reason_recognised": true,
+    "action": "check_provider_access"
+   },
+   {
+    "metric": "digests_with_source",
+    "numerator": null,
+    "denominator": null,
+    "complete": false,
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "metric_not_materialized",
+    "reason_recognised": true,
+    "action": "review_manually"
+   },
+   {
+    "metric": "workloads_chain_proven",
+    "numerator": null,
+    "denominator": null,
+    "complete": false,
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "metric_not_materialized",
+    "reason_recognised": true,
+    "action": "review_manually"
+   },
+   {
+    "metric": "declarations_attributed",
+    "numerator": null,
+    "denominator": null,
+    "complete": false,
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "metric_not_materialized",
+    "reason_recognised": true,
+    "action": "review_manually"
+   },
+   {
+    "metric": "pr_context_success",
+    "numerator": null,
+    "denominator": null,
+    "complete": false,
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "metric_not_materialized",
+    "reason_recognised": true,
+    "action": "review_manually"
+   },
+   {
+    "metric": "remediation_outcomes",
+    "numerator": 3,
+    "denominator": 5,
+    "complete": true,
+    "breakdown": [
+     {
+      "key": "persists",
+      "count": 1
+     },
+     {
+      "key": "regressed",
+      "count": 1
+     },
+     {
+      "key": "verified",
+      "count": 3
+     }
+    ],
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z"
+   },
+   {
+    "metric": "verification_latency",
+    "numerator": null,
+    "denominator": null,
+    "complete": false,
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "metric_not_materialized",
+    "reason_recognised": true,
+    "action": "review_manually"
+   },
+   {
+    "metric": "runtime_telemetry",
+    "numerator": null,
+    "denominator": null,
+    "complete": false,
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "metric_not_materialized",
+    "reason_recognised": true,
+    "action": "review_manually"
+   }
+  ]
+ }
+}

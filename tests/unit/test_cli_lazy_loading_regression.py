@@ -151,7 +151,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "cloud-adapter": frozenset({"delete", "disable", "enable", "get", "list", "list-types", "schema", "sensors", "set", "tag"}),
     "cloudsec": frozenset({
         "overview", "changes", "risk-trend", "scan-status", "topology",
-        "free-tier", "fleet", "finding", "attack-path", "ciem", "inventory",
+        "free-tier", "fleet", "finding", "remediation", "attack-path", "ciem", "inventory",
         "data-security", "resource", "graph", "query", "compliance",
         "chokepoint", "resolve", "caasm", "code", "image", "azure",
         "provider", "policy", "simulate", "export",

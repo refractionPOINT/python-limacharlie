@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import json
 import zlib
 import os
@@ -43,7 +44,9 @@ import click
 from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
-from ..sdk.cloudsec import CloudSec, runtime_packages, runtime_verdict
+from ..sdk.cloudsec import (
+    CloudSec, chain_stage_summary, coverage_summary, runtime_packages, runtime_verdict,
+)
 from ..sdk.hive import Hive
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
@@ -2331,6 +2334,54 @@ def code_provenance_list(ctx, repo_urn, commit, digest, cursor):
         repo_urn=repo_urn, commit=commit, digest=digest, cursor=cursor))
 
 
+@code_group.command("impact")
+@click.option("--repo-urn", default=None, help="Canonical repository URN in this organization.")
+@click.option("--commit", default=None, help="Full hexadecimal commit (with --repo-urn).")
+@click.option("--finding-id", default=None, help="One IaC code finding id instead of a repository.")
+@pass_context
+def code_impact(ctx, repo_urn, commit, finding_id) -> None:
+    """Show which live resources a repository's infrastructure code touches.
+
+    Anything the server could not fully establish is 'partial' with a closed
+    reason, never "no impact". Exposure, privilege and sensitivity are positive
+    facts: 'not_established' does not mean safe.
+
+    \b
+    Examples:
+      limacharlie cloudsec code impact --repo-urn lcrn:1:<oid>:github:... --commit <sha>
+      limacharlie cloudsec code impact --finding-id fnd_0123...
+    """
+    try:
+        _output(ctx, _get_cloudsec(ctx).get_code_impact(repo_urn=repo_urn, commit=commit, finding_id=finding_id))
+    except ValueError as e:
+        raise click.UsageError(str(e)) from None
+
+
+@code_group.command("coverage")
+@click.option("--summary", is_flag=True, default=False,
+              help="Print one row per metric: counts, the percentage only when it may "
+                   "be shown, and otherwise the reason and next action.")
+@pass_context
+def code_coverage(ctx, summary) -> None:
+    """Show Code Security coverage with explicit denominators.
+
+    Every metric is listed. An unmeasured metric has no numbers at all, never
+    0 of 0. A percentage appears only for a complete, fresh, untruncated count
+    with a positive denominator; otherwise the counts are shown with the reason
+    and what to do next.
+
+    \b
+    Examples:
+      limacharlie cloudsec code coverage
+      limacharlie cloudsec code coverage --summary
+    """
+    response = _get_cloudsec(ctx).get_code_coverage()
+    if summary:
+        _output(ctx, {"coverage": coverage_summary(response), "reason": (response or {}).get("reason", "")})
+    else:
+        _output(ctx, response)
+
+
 @code_group.command("scan")
 @click.argument("path", type=click.Path(exists=True, file_okay=False), default=".")
 @click.option("--repo", default=None,
@@ -3385,6 +3436,43 @@ def finding_runtime_check(ctx, finding_id, verdict_only, packages_only) -> None:
         _output(ctx, response)
 
 
+@finding_group.command("chain")
+@click.argument("finding_id")
+@click.option("--runtime", "with_runtime", is_flag=True, default=False,
+              help="Include the current runtime evidence on the observed stage. Reads "
+                   "existing evidence only; 'finding runtime-check' starts a measurement.")
+@click.option("--summary", is_flag=True, default=False,
+              help="Print one row per stage instead of the full response.")
+@pass_context
+def finding_chain(ctx, finding_id, with_runtime, summary) -> None:
+    """Show the evidence chain for FINDING_ID.
+
+    Eight stages: declared, committed, built, running, exposed, observed,
+    responded, verified. Each is proven, partial, unknown or not_applicable,
+    with a reason and, when not proven, the next action. A reason this client
+    does not recognise is printed exactly as the server sent it.
+
+    'proven' means the evidence is complete, not that the news is good: read
+    the outcome. An unknown stage is never a statement that something is safe,
+    unexposed or fixed.
+
+    \b
+    Examples:
+      limacharlie cloudsec finding chain fnd_0123...
+      limacharlie cloudsec finding chain fnd_0123... --summary
+    """
+    try:
+        response = _get_cloudsec(ctx).get_finding_evidence_chain(finding_id, runtime=with_runtime)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from None
+    if summary:
+        chain = (response or {}).get("chain") or {}
+        _output(ctx, {"gaps": chain.get("gaps"), "complete": chain.get("complete"),
+                      "stages": chain_stage_summary(response), "reason": (response or {}).get("reason", "")})
+    else:
+        _output(ctx, response)
+
+
 @finding_group.command("resolve")
 @click.argument("finding_id")
 @click.option("--kind", required=True, type=_KIND_CHOICES,
@@ -3470,6 +3558,145 @@ def finding_set_ticket(ctx, finding_id, ticket, clear) -> None:
 # ---------------------------------------------------------------------------
 # attack-path subgroup
 # ---------------------------------------------------------------------------
+
+@group.group("remediation")
+def remediation_group() -> None:
+    """Request, review and decide Code Security remediation runs.
+
+    A run never acts before a human approves it. Creating and deciding need the
+    cloudsec.respond permission, which cloudsec.set does not imply.
+    """
+
+
+@remediation_group.command("list")
+@click.option("--finding-id", default=None, help="Only runs for this finding.")
+@click.option("--cursor", default=None, help="Opaque next-page cursor.")
+@pass_context
+def remediation_list(ctx, finding_id, cursor) -> None:
+    """List remediation runs, newest first."""
+    _output(ctx, _get_cloudsec(ctx).list_remediations(finding_id=finding_id, cursor=cursor))
+
+
+@remediation_group.command("get")
+@click.argument("run_id")
+@pass_context
+def remediation_get(ctx, run_id) -> None:
+    """Show one remediation run and its steps."""
+    try:
+        _output(ctx, _get_cloudsec(ctx).get_remediation(run_id))
+    except ValueError as e:
+        raise click.UsageError(str(e)) from None
+
+
+@remediation_group.command("create")
+@click.argument("finding_id")
+@click.option("--action", "action", required=True,
+              help="Remediation action, e.g. open_fix_pr. The server resolves every target "
+                   "from the finding.")
+@click.option("--idempotency-key", default=None,
+              help="Replay-safe key; a repeat returns the same run. Generated when omitted.")
+@pass_context
+def remediation_create(ctx, finding_id, action, idempotency_key) -> None:
+    """Request a remediation run for FINDING_ID. It waits for approval before acting."""
+    key = idempotency_key or f"cli-{uuid.uuid4()}"
+    try:
+        _output(ctx, _get_cloudsec(ctx).create_remediation(finding_id, action, key))
+    except ValueError as e:
+        raise click.UsageError(str(e)) from None
+
+
+# Which states each decision applies to, mirrored from the server so a stale review
+# is refused locally before anything is sent. The server re-checks everything.
+_DECIDABLE = {
+    "approve": ("awaiting_approval",),
+    "reject": ("awaiting_approval",),
+    "cancel": ("requested", "planning", "awaiting_approval", "executing"),
+}
+
+
+def _decision_token(oid: str, run: dict[str, Any], decision: str) -> str:
+    """Bind a confirmation to exactly what was reviewed.
+
+    The token is derived from the org, run, decision, generation and target
+    digest, so it stops matching as soon as the run or its targets change.
+    """
+    material = "|".join([oid, str(run.get("run_id", "")), decision,
+                         str(run.get("generation", "")), str(run.get("scope_digest", ""))])
+    return hashlib.sha256(material.encode()).hexdigest()[:16]
+
+
+def _remediation_decide(ctx, run_id: str, decision: str, confirm: str | None) -> None:
+    cs = _get_cloudsec(ctx)
+    try:
+        detail = (cs.get_remediation(run_id) or {}).get("result") or {}
+    except ValueError as e:
+        raise click.UsageError(str(e)) from None
+    run = detail.get("run") or {}
+    state = run.get("state", "")
+    if state not in _DECIDABLE[decision]:
+        raise click.ClickException(f"run {run_id} is '{state}'; it cannot be {decision}d now")
+    token = _decision_token(cs.oid, run, decision)
+    if not confirm:
+        # Review only: nothing is sent. The operator reads exactly what the decision
+        # applies to, then repeats the command with the token.
+        _output(ctx, {
+            "review": {
+                "decision": decision,
+                "run_id": run.get("run_id"),
+                "finding_id": run.get("finding_id"),
+                "action": run.get("action"),
+                "state": state,
+                "targets": (run.get("scope") or {}).get("targets", []),
+                "old_digests": (run.get("scope") or {}).get("old_digests", []),
+                "scope_truncated": bool((run.get("scope") or {}).get("truncated", False)),
+                "expected": run.get("expected"),
+                "deadline_at": run.get("deadline_at"),
+                "generation": run.get("generation"),
+                "scope_digest": run.get("scope_digest"),
+            },
+            "confirm": token,
+            "next": f"re-run with --confirm {token} to {decision} exactly this run; "
+                    "the token stops matching if the run or its targets change",
+        })
+        return
+    if confirm != token:
+        raise click.ClickException(
+            "confirmation does not match the run as it is now (it changed since the review, "
+            "or the token is for another run or decision); review it again")
+    _output(ctx, cs.decide_remediation(run_id, decision, int(run.get("generation", -1)),
+                                       run.get("scope_digest") if decision == "approve" else None))
+
+
+_CONFIRM_HELP = ("Token printed by the same command without --confirm. Without it nothing "
+                 "is sent: the command only prints what the decision would apply to.")
+
+
+@remediation_group.command("approve")
+@click.argument("run_id")
+@click.option("--confirm", default=None, help=_CONFIRM_HELP)
+@pass_context
+def remediation_approve(ctx, run_id, confirm) -> None:
+    """Approve RUN_ID after reviewing its targets. Two steps: review, then --confirm."""
+    _remediation_decide(ctx, run_id, "approve", confirm)
+
+
+@remediation_group.command("reject")
+@click.argument("run_id")
+@click.option("--confirm", default=None, help=_CONFIRM_HELP)
+@pass_context
+def remediation_reject(ctx, run_id, confirm) -> None:
+    """Reject RUN_ID. Two steps: review, then --confirm."""
+    _remediation_decide(ctx, run_id, "reject", confirm)
+
+
+@remediation_group.command("cancel")
+@click.argument("run_id")
+@click.option("--confirm", default=None, help=_CONFIRM_HELP)
+@pass_context
+def remediation_cancel(ctx, run_id, confirm) -> None:
+    """Cancel RUN_ID while it has not finished. Two steps: review, then --confirm."""
+    _remediation_decide(ctx, run_id, "cancel", confirm)
+
 
 @group.group("attack-path")
 def attack_path_group() -> None:

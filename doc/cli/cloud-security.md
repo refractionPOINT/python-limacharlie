@@ -487,3 +487,59 @@ remain visible and resolve to unknown even when a commit filter hides one claim.
 Writes require `cloudsec.set`, reads `cloudsec.get`. The server feature must be
 enabled after schema installation; command availability grants no deployment or
 response authorization.
+
+## Evidence chain
+
+`limacharlie cloudsec finding chain <finding_id>` shows the evidence chain for one
+finding in eight stages: declared, committed, built, running, exposed, observed,
+responded, verified. Each stage is `proven`, `partial`, `unknown` or
+`not_applicable`, with its evidence level, times and a reason. Every stage that is
+not proven also names the next action, such as `push_build_provenance`,
+`run_runtime_check` or `approve_remediation`.
+
+- `proven` means the evidence for the stage is complete. It does not mean the
+  news is good. Read `outcome`: a complete runtime window can prove
+  `not_observed`, and a remediation can be `regressed`.
+- An unknown stage is never a statement that something is safe, not exposed or
+  fixed.
+- A reason this CLI version does not recognise is printed exactly as the server
+  sent it, with `reason_recognised: false` and the action `review_reason`.
+- `--runtime` adds the current runtime evidence to the observed stage. It only
+  reads existing evidence. `finding runtime-check` is what starts a measurement.
+- `--summary` prints one row per stage and the number of stages with gaps.
+
+## Coverage
+
+`limacharlie cloudsec code coverage` shows Code Security coverage with explicit
+denominators. It covers workloads with an immutable digest, digests with a source
+commit, remediation outcomes and six more metrics.
+
+- Every metric is listed. A metric that is not measured has no numbers, never
+  0 of 0.
+- With `--summary`, a percentage appears only for a complete, fresh, untruncated
+  count with a positive denominator. Otherwise the counts are shown with the
+  reason and the next action.
+
+## Code impact
+
+`limacharlie cloudsec code impact --repo-urn <urn> [--commit <sha>]`, or
+`--finding-id <id>`, shows which live resources a repository's infrastructure code
+touches. Anything the server could not fully establish is `partial` with a reason,
+never "no impact".
+
+## Remediation runs
+
+`limacharlie cloudsec remediation list|get|create|approve|reject|cancel` manages
+remediation runs.
+
+- A run never acts before a human approves it. The server resolves every target
+  from the finding, so a caller cannot name one.
+- Creating and deciding need `cloudsec.respond`, which `cloudsec.set` does not
+  imply.
+- Deciding takes two steps. Without `--confirm`, `approve`, `reject` and `cancel`
+  send nothing. They print what the decision would apply to (action, targets, old
+  digests, deadline, generation) and a confirmation token.
+- Repeating the command with `--confirm <token>` sends the decision. The token is
+  derived from the run's generation and target digest, so it stops matching when
+  the run or its targets change. The server applies the same check again and
+  refuses a stale decision.

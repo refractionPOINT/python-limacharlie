@@ -1,0 +1,117 @@
+{
+ "chain": {
+  "oid": "11111111-2222-4333-8444-555555555555",
+  "finding_id": "fnd_cld1",
+  "stages": [
+   {
+    "stage": "declared",
+    "status": "proven",
+    "level": "asserted",
+    "source": "iac_origin",
+    "observed_at": "2026-09-23T09:00:00Z",
+    "stale_at": "2026-09-30T09:00:00Z",
+    "reason_domain": "chain",
+    "reason": "iac_origin",
+    "reason_recognised": true,
+    "refs": [
+     {
+      "kind": "repository",
+      "value": "acme/infra"
+     },
+     {
+      "kind": "file",
+      "value": "main.tf",
+      "url": "https://github.com/acme/infra/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/main.tf#L12-L20"
+     },
+     {
+      "kind": "commit",
+      "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     }
+    ]
+   },
+   {
+    "stage": "committed",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "deployment_observations",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "not_a_workload",
+    "reason_recognised": true
+   },
+   {
+    "stage": "built",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "deployment_observations",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "not_a_workload",
+    "reason_recognised": true
+   },
+   {
+    "stage": "running",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "deployment_observations",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "not_a_workload",
+    "reason_recognised": true
+   },
+   {
+    "stage": "exposed",
+    "status": "proven",
+    "level": "derived",
+    "source": "graph_exposure",
+    "outcome": "exposed",
+    "observed_at": "2026-09-23T11:30:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "exposure_established",
+    "reason_recognised": true
+   },
+   {
+    "stage": "observed",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "endpoint_runtime_package",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "runtime_not_applicable",
+    "reason_recognised": true
+   },
+   {
+    "stage": "responded",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "remediation_run",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "no_remediation_requested",
+    "reason_recognised": true,
+    "action": "request_remediation"
+   },
+   {
+    "stage": "verified",
+    "status": "not_applicable",
+    "level": "unknown",
+    "source": "remediation_run",
+    "observed_at": "0001-01-01T00:00:00Z",
+    "stale_at": "0001-01-01T00:00:00Z",
+    "reason_domain": "chain",
+    "reason": "no_remediation_requested",
+    "reason_recognised": true,
+    "action": "request_remediation"
+   }
+  ],
+  "complete": true,
+  "gaps": 0,
+  "generated_at": "2026-09-23T12:00:00Z"
+ }
+}
