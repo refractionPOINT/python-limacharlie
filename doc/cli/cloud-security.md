@@ -541,5 +541,6 @@ remediation runs.
   digests, deadline, generation) and a confirmation token.
 - Repeating the command with `--confirm <token>` sends the decision. The token is
   derived from the run's generation and target digest, so it stops matching when
-  the run or its targets change. The server applies the same check again and
-  refuses a stale decision.
+  the run or its targets change. The token is a review step, not a secret. The
+  server is the gate: it requires `cloudsec.respond` and refuses a decision whose
+  generation or target digest no longer matches the run.

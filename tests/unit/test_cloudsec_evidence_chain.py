@@ -297,3 +297,21 @@ def test_a_run_that_cannot_take_the_decision_is_refused_locally(decision, state)
                            get_remediation=_run(state=state))
     assert result.exit_code != 0
     inst.decide_remediation.assert_not_called()
+
+
+@pytest.mark.parametrize("generation", [None, "3", -1, True])
+def test_a_run_without_a_reviewable_generation_fails_cleanly(generation):
+    run = _run()
+    run["result"]["run"]["generation"] = generation
+    for args in (["cloudsec", "remediation", "cancel", RID], ["cloudsec", "remediation", "cancel", RID, "--confirm", "0" * 16]):
+        result, inst = _invoke(args, get_remediation=run)
+        assert result.exit_code == 1, result.output
+        assert "reviewable generation" in result.output
+        assert not isinstance(result.exception, TypeError)
+        inst.decide_remediation.assert_not_called()
+
+
+@pytest.mark.parametrize("decision,word", [("approve", "approved"), ("reject", "rejected"), ("cancel", "cancelled")])
+def test_the_refusal_names_the_decision_correctly(decision, word):
+    result, _ = _invoke(["cloudsec", "remediation", decision, RID], get_remediation=_run(state="verified"))
+    assert f"cannot be {word} now" in result.output
