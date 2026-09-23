@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from typing import Any, TYPE_CHECKING
 from urllib.parse import quote as _quote
 from urllib.request import urlopen as _urlopen
@@ -607,6 +608,128 @@ def runtime_packages(response: dict[str, Any]) -> list[dict[str, Any]]:
         row["level"] = _runtime_level(raw.get("level"))
         out.append(row)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Evidence chain and coverage helpers
+# ---------------------------------------------------------------------------
+
+#: The eight stages of a finding's evidence chain, in order.
+CHAIN_STAGES = (
+    "declared", "committed", "built", "running",
+    "exposed", "observed", "responded", "verified",
+)
+
+#: Outcomes that state a fact about the finding. The server only sends them on a
+#: ``proven`` stage; a client must never display one on any other stage.
+ASSERTIVE_OUTCOMES = {
+    "running": ("rolling",),
+    "exposed": ("exposed",),
+    "observed": ("executing", "loaded", "not_observed"),
+    "responded": ("monitoring", "verified", "persists", "regressed"),
+    "verified": ("verified",),
+}
+
+
+_FINDING_ID_RE = re.compile(r"^fnd_[0-9a-f]{32}$")
+_RUN_ID_RE = re.compile(r"^rem_[0-9a-f]{32}$")
+
+
+def _require_id(value: str, pattern: "re.Pattern[str]", what: str) -> str:
+    """Refuse an id that is not the canonical shape before it reaches a URL path."""
+    if not isinstance(value, str) or not pattern.match(value):
+        raise ValueError(f"{what} is not a canonical id")
+    return value
+
+
+def chain_stage_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten an evidence-chain response into one row per stage for display.
+
+    Every field is copied as the server sent it. Reasons and actions are never
+    mapped, so a token this client does not know is shown verbatim. The one
+    thing removed is an assertive outcome (``verified``, ``exposed``,
+    ``not_observed``...) on a stage that is not ``proven``: it would read as
+    the answer when the evidence behind it is incomplete.
+
+    Args:
+        response: The ``get_finding_evidence_chain`` response.
+
+    Returns:
+        list: ``[{"stage", "status", "reason", "reason_recognised", "action",
+        "outcome", "level", "observed_at", "stale_at"}]``, or an empty list
+        when the response carries no chain.
+    """
+    chain = (response or {}).get("chain") or {}
+    rows = []
+    for stage in chain.get("stages") or []:
+        if not isinstance(stage, dict):
+            continue
+        name = stage.get("stage", "")
+        status = stage.get("status", "")
+        outcome = stage.get("outcome", "")
+        if status != "proven" and outcome in ASSERTIVE_OUTCOMES.get(name, ()):
+            outcome = ""
+        rows.append({
+            "stage": name,
+            "status": status,
+            "reason": stage.get("reason", ""),
+            "reason_recognised": bool(stage.get("reason_recognised", False)),
+            "action": stage.get("action", ""),
+            "outcome": outcome,
+            "level": stage.get("level", ""),
+            "observed_at": stage.get("observed_at", ""),
+            "stale_at": stage.get("stale_at", ""),
+        })
+    return rows
+
+
+def coverage_percent(line: dict[str, Any]) -> float | None:
+    """Return a coverage line's percentage, or None when none may be shown.
+
+    A percentage is shown only for a measured, complete, untruncated line with
+    a positive denominator and no stated reason. Otherwise show the counts and
+    the reason: 0% and 100% of an empty, stale or partial set would both read
+    as facts about the estate.
+
+    Args:
+        line: One entry of the coverage report's ``lines``.
+
+    Returns:
+        float: The percentage in [0, 100], or None.
+    """
+    num, den = line.get("numerator"), line.get("denominator")
+    if not isinstance(num, int) or not isinstance(den, int) or isinstance(num, bool) or isinstance(den, bool):
+        return None
+    if den <= 0 or num < 0 or num > den or not line.get("complete") or line.get("truncated") or line.get("reason"):
+        return None
+    return num * 100.0 / den
+
+
+def coverage_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten a coverage response into one display row per metric.
+
+    Args:
+        response: The ``get_code_coverage`` response.
+
+    Returns:
+        list: ``[{"metric", "numerator", "denominator", "percent", "reason",
+        "action"}]`` with ``percent`` None whenever it may not be shown, and
+        numerator/denominator None when the metric is not measured.
+    """
+    report = (response or {}).get("coverage") or {}
+    rows = []
+    for line in report.get("lines") or []:
+        if not isinstance(line, dict):
+            continue
+        rows.append({
+            "metric": line.get("metric", ""),
+            "numerator": line.get("numerator"),
+            "denominator": line.get("denominator"),
+            "percent": coverage_percent(line),
+            "reason": line.get("reason", ""),
+            "action": line.get("action", ""),
+        })
+    return rows
 
 
 class CloudSec:
@@ -2587,6 +2710,159 @@ class CloudSec:
             ("repo_urn", repo_urn), ("commit", commit), ("digest", digest),
             ("cursor", cursor)) if value is not None]
         return self._get("code/provenance", params)
+
+    def get_code_impact(self, *, repo_urn: str | None = None, commit: str | None = None,
+                        finding_id: str | None = None) -> dict[str, Any]:
+        """Read which live resources a repository's infrastructure code touches.
+
+        Select either a repository (optionally at a full commit) or one IaC
+        code finding. Anything the server could not fully establish is
+        ``partial`` with a closed reason, never "no impact".
+
+        Args:
+            repo_urn: Canonical repository URN in this organization.
+            commit: Full hexadecimal commit (only with ``repo_urn``).
+            finding_id: One IaC code finding id instead of a repository.
+
+        Returns:
+            dict: ``{"impact": {...}}``, or ``{"impact": None, "reason": ...}``
+            where reason is ``feature_disabled`` or ``subject_not_found``.
+
+        Raises:
+            ValueError: If both or neither subject is given.
+        """
+        if bool(finding_id) == bool(repo_urn) or (commit and not repo_urn):
+            raise ValueError("select either repo_urn (optionally with commit) or finding_id")
+        params = [(key, value) for key, value in (
+            ("repo_urn", repo_urn), ("commit", commit), ("finding_id", finding_id)) if value]
+        return self._get("code/impact", params)
+
+    def get_finding_evidence_chain(self, finding_id: str, *, runtime: bool = False) -> dict[str, Any]:
+        """Read a finding's eight-stage evidence chain.
+
+        Stages: declared, committed, built, running, exposed, observed,
+        responded, verified. Each is proven, partial, unknown or
+        not_applicable, with a level, times, a closed reason and, when not
+        proven, a concrete next action. An unrecognised reason arrives verbatim
+        with ``reason_recognised`` false and action ``review_reason``; show it,
+        do not drop it. ``proven`` means the evidence is complete, not that the
+        news is good: read ``outcome``.
+
+        Args:
+            finding_id: The finding id (``fnd_`` followed by 32 hex).
+            runtime: Include the current runtime evidence on the observed
+                stage. This reads existing evidence only; use
+                :meth:`check_finding_runtime` to start a measurement.
+
+        Returns:
+            dict: ``{"chain": {...}}``, or ``{"chain": None, "reason": ...}``
+            where reason is ``feature_disabled`` or ``finding_not_found``.
+
+        Raises:
+            ValueError: If the finding id is not the canonical shape.
+        """
+        _require_id(finding_id, _FINDING_ID_RE, "finding_id")
+        params = [("runtime", "true")] if runtime else None
+        return self._get(f"findings/{finding_id}/evidence-chain", params)
+
+    def get_code_coverage(self) -> dict[str, Any]:
+        """Read Code Security coverage with explicit denominators.
+
+        Every metric is listed. An unmeasured metric has a null numerator and
+        denominator, never 0 of 0. Use :func:`coverage_percent` to decide
+        whether a percentage may be shown.
+
+        Returns:
+            dict: ``{"coverage": {"lines": [...]}}``, or
+            ``{"coverage": None, "reason": "feature_disabled"}``.
+        """
+        return self._get("code/coverage")
+
+    # ------------------------------------------------------------------
+    # Remediation runs
+    # ------------------------------------------------------------------
+
+    def list_remediations(self, *, finding_id: str | None = None,
+                          cursor: str | None = None) -> dict[str, Any]:
+        """List remediation runs, newest first.
+
+        Args:
+            finding_id: Only runs for this finding.
+            cursor: Opaque cursor from the previous page.
+
+        Returns:
+            dict: ``{"result": {"runs": [...], "next_cursor": ...}}``.
+        """
+        params = [(key, value) for key, value in (
+            ("finding_id", finding_id), ("cursor", cursor)) if value]
+        return self._get("remediations", params)
+
+    def get_remediation(self, run_id: str) -> dict[str, Any]:
+        """Get one remediation run with its steps.
+
+        Args:
+            run_id: The run id (``rem_`` followed by 32 hex).
+
+        Returns:
+            dict: ``{"result": {"run": {...}, "steps": [...]}}``.
+        """
+        _require_id(run_id, _RUN_ID_RE, "run_id")
+        return self._get(f"remediations/{run_id}")
+
+    def create_remediation(self, finding_id: str, action: str, idempotency_key: str) -> dict[str, Any]:
+        """Request a remediation run for a finding.
+
+        The server resolves every target from the finding; the run waits for a
+        human approval before it acts. Requires ``cloudsec.respond``, which
+        ``cloudsec.set`` does not imply.
+
+        Args:
+            finding_id: The finding to remediate.
+            action: A remediation action token (e.g. ``open_fix_pr``).
+            idempotency_key: Caller-chosen key; a replay returns the same run.
+
+        Returns:
+            dict: ``{"result": {...}}`` with the run.
+
+        Raises:
+            PermissionDeniedError: The caller lacks ``cloudsec.respond``.
+        """
+        _require_id(finding_id, _FINDING_ID_RE, "finding_id")
+        return self._post(f"findings/{finding_id}/remediations",
+                          {"action": action, "idempotency_key": idempotency_key})
+
+    def decide_remediation(self, run_id: str, decision: str, generation: int,
+                           scope_digest: str | None = None) -> dict[str, Any]:
+        """Approve, reject or cancel a remediation run.
+
+        ``generation`` (and for approve, ``scope_digest``) must be the values of
+        the run you reviewed. If the run or its targets changed since, the
+        server refuses and nothing runs. Requires ``cloudsec.respond``.
+
+        Args:
+            run_id: The run id.
+            decision: ``approve``, ``reject`` or ``cancel``.
+            generation: The reviewed run generation.
+            scope_digest: The reviewed target digest (required to approve).
+
+        Returns:
+            dict: ``{"result": {...}}`` with the updated run.
+
+        Raises:
+            ValueError: If the decision is unknown or approve lacks scope_digest.
+            PermissionDeniedError: The caller lacks ``cloudsec.respond``.
+        """
+        _require_id(run_id, _RUN_ID_RE, "run_id")
+        if decision not in ("approve", "reject", "cancel"):
+            raise ValueError("decision must be approve, reject or cancel")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise ValueError("generation must be a non-negative integer")
+        body: dict[str, Any] = {"generation": generation}
+        if decision == "approve":
+            if not scope_digest:
+                raise ValueError("approving requires the reviewed scope_digest")
+            body["scope_digest"] = scope_digest
+        return self._post(f"remediations/{run_id}/{decision}", body)
 
     def ingest_code_results(
         self,

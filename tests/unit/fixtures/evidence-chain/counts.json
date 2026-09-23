@@ -1,0 +1,463 @@
+{
+ "_comment": "Count-agreement fixture. One query, answered once by the API; the web app and the CLI must show exactly these counts. The findings page deliberately holds fewer rows than the total so a client that counts the page instead of reading the server total fails.",
+ "code_coverage": {
+  "coverage": {
+   "generated_at": "2026-09-23T12:00:00Z",
+   "lines": [
+    {
+     "breakdown": [
+      {
+       "count": 5,
+       "key": "provider_unreachable"
+      },
+      {
+       "count": 2,
+       "key": "tag_only"
+      }
+     ],
+     "complete": true,
+     "denominator": 35,
+     "metric": "workloads_with_digest",
+     "numerator": 28,
+     "observed_at": "2026-09-23T11:00:00Z",
+     "stale_at": "2026-09-23T17:00:00Z"
+    },
+    {
+     "breakdown": [
+      {
+       "count": 5,
+       "key": "provider_unreachable"
+      },
+      {
+       "count": 2,
+       "key": "tag_only"
+      }
+     ],
+     "complete": true,
+     "denominator": 35,
+     "metric": "workloads_fully_resolved",
+     "numerator": 25,
+     "observed_at": "2026-09-23T11:00:00Z",
+     "stale_at": "2026-09-23T17:00:00Z"
+    },
+    {
+     "action": "review_manually",
+     "complete": false,
+     "denominator": null,
+     "metric": "digests_with_source",
+     "numerator": null,
+     "observed_at": "0001-01-01T00:00:00Z",
+     "reason": "metric_not_materialized",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "stale_at": "0001-01-01T00:00:00Z"
+    },
+    {
+     "action": "review_manually",
+     "complete": false,
+     "denominator": null,
+     "metric": "workloads_chain_proven",
+     "numerator": null,
+     "observed_at": "0001-01-01T00:00:00Z",
+     "reason": "metric_not_materialized",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "stale_at": "0001-01-01T00:00:00Z"
+    },
+    {
+     "action": "review_manually",
+     "complete": false,
+     "denominator": null,
+     "metric": "declarations_attributed",
+     "numerator": null,
+     "observed_at": "0001-01-01T00:00:00Z",
+     "reason": "metric_not_materialized",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "stale_at": "0001-01-01T00:00:00Z"
+    },
+    {
+     "action": "review_manually",
+     "complete": false,
+     "denominator": null,
+     "metric": "pr_context_success",
+     "numerator": null,
+     "observed_at": "0001-01-01T00:00:00Z",
+     "reason": "metric_not_materialized",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "stale_at": "0001-01-01T00:00:00Z"
+    },
+    {
+     "breakdown": [
+      {
+       "count": 2,
+       "key": "awaiting_approval"
+      },
+      {
+       "count": 1,
+       "key": "cancelled"
+      },
+      {
+       "count": 1,
+       "key": "persists"
+      },
+      {
+       "count": 1,
+       "key": "regressed"
+      },
+      {
+       "count": 3,
+       "key": "verified"
+      }
+     ],
+     "complete": true,
+     "denominator": 5,
+     "metric": "remediation_outcomes",
+     "numerator": 3,
+     "observed_at": "0001-01-01T00:00:00Z",
+     "stale_at": "0001-01-01T00:00:00Z"
+    },
+    {
+     "action": "review_manually",
+     "complete": false,
+     "denominator": null,
+     "metric": "verification_latency",
+     "numerator": null,
+     "observed_at": "0001-01-01T00:00:00Z",
+     "reason": "metric_not_materialized",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "stale_at": "0001-01-01T00:00:00Z"
+    },
+    {
+     "action": "review_manually",
+     "complete": false,
+     "denominator": null,
+     "metric": "runtime_telemetry",
+     "numerator": null,
+     "observed_at": "0001-01-01T00:00:00Z",
+     "reason": "metric_not_materialized",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "stale_at": "0001-01-01T00:00:00Z"
+    }
+   ],
+   "oid": "11111111-2222-4333-8444-555555555555"
+  }
+ },
+ "evidence_chain": {
+  "chain": {
+   "complete": false,
+   "finding_id": "fnd_sec1",
+   "gaps": 3,
+   "generated_at": "2026-09-23T12:00:00Z",
+   "oid": "11111111-2222-4333-8444-555555555555",
+   "stages": [
+    {
+     "action": "push_iac_map",
+     "level": "unknown",
+     "observed_at": "0001-01-01T00:00:00Z",
+     "reason": "no_iac_origin",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "source": "iac_origin",
+     "stage": "declared",
+     "stale_at": "0001-01-01T00:00:00Z",
+     "status": "unknown"
+    },
+    {
+     "level": "asserted",
+     "observed_at": "2026-09-23T11:00:00Z",
+     "reason": "resolved",
+     "reason_domain": "deployment",
+     "reason_recognised": true,
+     "refs": [
+      {
+       "kind": "commit",
+       "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+       "kind": "commit",
+       "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+     ],
+     "source": "provenance_claims",
+     "stage": "committed",
+     "stale_at": "2026-09-23T17:00:00Z",
+     "status": "proven"
+    },
+    {
+     "level": "asserted",
+     "observed_at": "2026-09-23T11:00:00Z",
+     "reason": "resolved",
+     "reason_domain": "deployment",
+     "reason_recognised": true,
+     "source": "provenance_claims",
+     "stage": "built",
+     "stale_at": "2026-09-23T17:00:00Z",
+     "status": "proven"
+    },
+    {
+     "level": "observed",
+     "observed_at": "2026-09-23T11:00:00Z",
+     "outcome": "rolling",
+     "reason": "resolved",
+     "reason_domain": "deployment",
+     "reason_recognised": true,
+     "refs": [
+      {
+       "kind": "workload",
+       "value": "lcrn:11111111-2222-4333-8444-555555555555:gcp:run.googleapis.com/Service:proj-a/us-central1/api"
+      },
+      {
+       "kind": "digest",
+       "value": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+       "kind": "digest",
+       "value": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+     ],
+     "source": "deployment_observations",
+     "stage": "running",
+     "stale_at": "2026-09-23T17:00:00Z",
+     "status": "proven"
+    },
+    {
+     "level": "derived",
+     "observed_at": "2026-09-23T11:30:00Z",
+     "outcome": "exposed",
+     "reason": "exposure_established",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "refs": [
+      {
+       "kind": "path",
+       "value": "lcrn:11111111-2222-4333-8444-555555555555:gcp:PublicEndpoint:api"
+      }
+     ],
+     "source": "graph_exposure",
+     "stage": "exposed",
+     "stale_at": "0001-01-01T00:00:00Z",
+     "status": "proven"
+    },
+    {
+     "level": "observed",
+     "observed_at": "2026-09-23T11:40:00Z",
+     "outcome": "executing",
+     "reason": "observed_executing",
+     "reason_domain": "runtime",
+     "reason_recognised": true,
+     "refs": [
+      {
+       "kind": "path",
+       "value": "/app/lib/log4j-core-2.14.jar"
+      }
+     ],
+     "source": "endpoint_runtime_package",
+     "stage": "observed",
+     "stale_at": "2026-09-23T12:10:00Z",
+     "status": "proven"
+    },
+    {
+     "action": "approve_remediation",
+     "level": "unknown",
+     "observed_at": "0001-01-01T00:00:00Z",
+     "outcome": "awaiting_approval",
+     "reason": "awaiting_approval",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "refs": [
+      {
+       "kind": "remediation",
+       "value": "rem_cccccccccccccccccccccccccccccccc"
+      }
+     ],
+     "source": "remediation_run",
+     "stage": "responded",
+     "stale_at": "0001-01-01T00:00:00Z",
+     "status": "partial"
+    },
+    {
+     "action": "approve_remediation",
+     "level": "unknown",
+     "observed_at": "0001-01-01T00:00:00Z",
+     "outcome": "awaiting_approval",
+     "reason": "awaiting_approval",
+     "reason_domain": "chain",
+     "reason_recognised": true,
+     "refs": [
+      {
+       "kind": "remediation",
+       "value": "rem_cccccccccccccccccccccccccccccccc"
+      }
+     ],
+     "source": "remediation_run",
+     "stage": "verified",
+     "stale_at": "0001-01-01T00:00:00Z",
+     "status": "unknown"
+    }
+   ]
+  }
+ },
+ "expected": {
+  "chain_gaps": 3,
+  "coverage": [
+   {
+    "denominator": 35,
+    "metric": "workloads_with_digest",
+    "numerator": 28
+   },
+   {
+    "denominator": 35,
+    "metric": "workloads_fully_resolved",
+    "numerator": 25
+   },
+   {
+    "denominator": null,
+    "metric": "digests_with_source",
+    "numerator": null
+   },
+   {
+    "denominator": null,
+    "metric": "workloads_chain_proven",
+    "numerator": null
+   },
+   {
+    "denominator": null,
+    "metric": "declarations_attributed",
+    "numerator": null
+   },
+   {
+    "denominator": null,
+    "metric": "pr_context_success",
+    "numerator": null
+   },
+   {
+    "denominator": 5,
+    "metric": "remediation_outcomes",
+    "numerator": 3
+   },
+   {
+    "denominator": null,
+    "metric": "verification_latency",
+    "numerator": null
+   },
+   {
+    "denominator": null,
+    "metric": "runtime_telemetry",
+    "numerator": null
+   }
+  ],
+  "findings_page_rows": 2,
+  "findings_total": 7
+ },
+ "findings_facets": {
+  "applied_cause": "",
+  "applied_iac_filters": {
+   "has_iac_origin": true
+  },
+  "facets": {
+   "account": {
+    "proj-a": 7
+   },
+   "exploit_band": {},
+   "finding_class": {
+    "public_exposure": 7
+   },
+   "fix_state": {},
+   "grain": {},
+   "has_iac_origin": {
+    "false": 16,
+    "true": 7
+   },
+   "iac_attribution": {
+    "attributed": 7
+   },
+   "in_kev": {
+    "false": 7
+   },
+   "owner": {
+    "": 7
+   },
+   "owner_truncated": false,
+   "reachable": {
+    "true": 7
+   },
+   "repo": {},
+   "repo_truncated": false,
+   "severity": {
+    "CRITICAL": 2,
+    "HIGH": 7,
+    "LOW": 3,
+    "MEDIUM": 11
+   },
+   "sla": {
+    "breached": 0,
+    "due_soon": 0,
+    "exempt": 0,
+    "none": 0,
+    "on_track": 7
+   },
+   "status": {
+    "open": 7
+   },
+   "total": 7
+  },
+  "snapshot_age_s": 0
+ },
+ "findings_page": {
+  "applied_iac_filters": {
+   "has_iac_origin": true
+  },
+  "findings": [
+   {
+    "finding_class": "public_exposure",
+    "finding_id": "fnd_cnt1",
+    "fingerprint": "0000000000000000000000000000000000000000000000000000000000000001",
+    "iac_origin": [
+     {
+      "end_line": 20,
+      "file": "main.tf",
+      "repo": "acme/infra",
+      "start_line": 12
+     }
+    ],
+    "lc_risk": 799,
+    "resource_urn": "lcrn:11111111-2222-4333-8444-555555555555:gcp:storage.googleapis.com/Bucket:proj-a/b1",
+    "rule_id": "bucket-public-read",
+    "severity": "HIGH",
+    "status": "open",
+    "title": "Bucket is publicly readable"
+   },
+   {
+    "finding_class": "public_exposure",
+    "finding_id": "fnd_cnt2",
+    "fingerprint": "0000000000000000000000000000000000000000000000000000000000000002",
+    "iac_origin": [
+     {
+      "end_line": 20,
+      "file": "main.tf",
+      "repo": "acme/infra",
+      "start_line": 12
+     }
+    ],
+    "lc_risk": 798,
+    "resource_urn": "lcrn:11111111-2222-4333-8444-555555555555:gcp:storage.googleapis.com/Bucket:proj-a/b2",
+    "rule_id": "bucket-public-read",
+    "severity": "HIGH",
+    "status": "open",
+    "title": "Bucket is publicly readable"
+   }
+  ],
+  "next_cursor": "Y3Vyc29yLTI"
+ },
+ "oid": "11111111-2222-4333-8444-555555555555",
+ "query": {
+  "has_iac_origin": true,
+  "severity": [
+   "HIGH"
+  ]
+ }
+}
