@@ -3614,6 +3614,9 @@ _DECIDABLE = {
 }
 
 
+_DECIDED = {"approve": "approved", "reject": "rejected", "cancel": "cancelled"}
+
+
 def _decision_token(oid: str, run: dict[str, Any], decision: str) -> str:
     """Bind a confirmation to exactly what was reviewed.
 
@@ -3634,7 +3637,13 @@ def _remediation_decide(ctx, run_id: str, decision: str, confirm: str | None) ->
     run = detail.get("run") or {}
     state = run.get("state", "")
     if state not in _DECIDABLE[decision]:
-        raise click.ClickException(f"run {run_id} is '{state}'; it cannot be {decision}d now")
+        raise click.ClickException(f"run {run_id} is '{state}'; it cannot be {_DECIDED[decision]} now")
+    generation = run.get("generation")
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0 or \
+            (decision == "approve" and not run.get("scope_digest")):
+        raise click.ClickException(
+            f"run {run_id} does not carry a reviewable generation and target digest; "
+            "it cannot be decided from here")
     token = _decision_token(cs.oid, run, decision)
     if not confirm:
         # Review only: nothing is sent. The operator reads exactly what the decision
@@ -3663,7 +3672,7 @@ def _remediation_decide(ctx, run_id: str, decision: str, confirm: str | None) ->
         raise click.ClickException(
             "confirmation does not match the run as it is now (it changed since the review, "
             "or the token is for another run or decision); review it again")
-    _output(ctx, cs.decide_remediation(run_id, decision, int(run.get("generation", -1)),
+    _output(ctx, cs.decide_remediation(run_id, decision, generation,
                                        run.get("scope_digest") if decision == "approve" else None))
 
 
