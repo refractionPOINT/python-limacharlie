@@ -232,6 +232,10 @@ def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[
         alt_root = None
     elif target == "api":
         alt_root = None
+    elif target == "jwt":
+        # Follows LC_JWT_URL like the client's own token exchange does.
+        from .. import client as _client
+        alt_root = _client.JWT_URL
     elif target in _TARGETS:
         alt_root = _TARGETS[target]
     elif target.startswith("https://") or target.startswith("http://"):
