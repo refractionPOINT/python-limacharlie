@@ -94,6 +94,16 @@ export LC_UID=your-user-id
 export LC_CURRENT_ENV=staging
 ```
 
+To target a LimaCharlie deployment other than the public one, such as a local
+development stack, point the API and token-exchange roots elsewhere. Both are
+unset by default, and a value that is not an absolute `http://` or `https://`
+URL is refused:
+
+```bash
+export LC_API_URL=http://127.0.0.1:9090
+export LC_JWT_URL=http://127.0.0.1:8135
+```
+
 ## Credentials File
 
 Credentials are stored in `~/.limacharlie.d/config.yaml` (YAML, mode 0600):

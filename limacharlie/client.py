@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import ssl
 import sys
 import time
@@ -41,9 +42,30 @@ try:
 except ImportError:
     __version__ = "0.0.0.dev0"
 
-ROOT_URL = "https://api.limacharlie.io"
+
+
+def _root_from_env(name: str, default: str) -> str:
+    """Return the service root named by environment variable *name*, or *default*.
+
+    ``LC_API_URL`` and ``LC_JWT_URL`` point the SDK and CLI at a LimaCharlie
+    deployment other than the public one, such as a local development stack
+    (``LC_API_URL=http://127.0.0.1:9090 LC_JWT_URL=http://127.0.0.1:8135``).
+    Unset or empty keeps the public roots. A value that is not an absolute
+    http(s) URL is refused rather than ignored: silently falling back to the
+    public API would send the caller's credentials somewhere they did not ask
+    for.
+    """
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    if not (value.startswith("https://") or value.startswith("http://")):
+        raise ValueError(f"{name}={value!r}: want an absolute http:// or https:// URL")
+    return value.rstrip("/")
+
+
+ROOT_URL = _root_from_env("LC_API_URL", "https://api.limacharlie.io")
 API_VERSION = "v1"
-JWT_URL = "https://jwt.limacharlie.io"
+JWT_URL = _root_from_env("LC_JWT_URL", "https://jwt.limacharlie.io")
 
 HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
