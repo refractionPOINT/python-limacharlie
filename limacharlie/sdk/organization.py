@@ -144,7 +144,7 @@ class Organization:
         Returns:
             dict: Schema definition.
         """
-        return self._client.request("GET", f"orgs/{self.oid}/schema/{urlescape(name, safe='')}")
+        return self._client.request("GET", f"orgs/{self.oid}/schema", query_params={"name": name})
 
     def reset_schemas(self) -> dict[str, Any]:
         """Reset (rebuild) all event schemas for the organization.
