@@ -82,10 +82,11 @@ addopts = "--benchmark-disable"
 markers = [
     # Live end-to-end tests for the search consumption mode. Outside testpaths
     # like the rest of tests/integration, and additionally skipped unless
-    # LC_TEST_SEARCH_MODE_E2E is set, because they need server-side support a
-    # given deployment may not have yet. Deselect with -m "not searchmode_e2e";
-    # see tests/integration/test_search_mode_e2e.py for how to run them.
-    "searchmode_e2e: live search-mode tests, need a backend that serves the mode field",
+    # LC_TEST_SEARCH_MODE_E2E is set, because they start real, billed searches
+    # over a day of data. The PR build's integration step sets it. Deselect
+    # with -m "not searchmode_e2e"; see
+    # tests/integration/test_search_mode_e2e.py for how to run them.
+    "searchmode_e2e: live search-mode tests, start real billed searches",
 ]
 
 [tool.setuptools.packages.find]
