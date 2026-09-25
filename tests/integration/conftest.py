@@ -20,7 +20,8 @@ def pytest_addoption( parser ):
 def pytest_generate_tests( metafunc ):
     option_value = metafunc.config.option.oid
     if "oid" in metafunc.fixturenames and option_value is not None:
-        metafunc.parametrize( "oid", [ option_value ] )
+        metafunc.parametrize( "oid", [ option_value ], ids = [ "oid" ] )
     option_value = metafunc.config.option.key
     if "key" in metafunc.fixturenames and option_value is not None:
-        metafunc.parametrize( "key", [ option_value ] )
+        # Constant id: pytest would otherwise embed the key value in every test id (and the build log).
+        metafunc.parametrize( "key", [ option_value ], ids = [ "key" ] )
