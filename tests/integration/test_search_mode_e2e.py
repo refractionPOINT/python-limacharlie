@@ -8,10 +8,12 @@ before treating one as a regression.
 Running them
 ------------
 
-They are gated twice over and skip by default:
+They run in the PR build's integration step, which sets
+``LC_TEST_SEARCH_MODE_E2E=1`` next to the build's ``--oid`` / ``--key``, and
+skip everywhere else by default:
 
 1. ``tests/integration`` is outside ``testpaths`` in pyproject.toml, so a plain
-   ``pytest`` run, which is what CI runs, never collects this file.
+   ``pytest`` run never collects this file.
 2. Even when the directory is named explicitly, every test here skips unless
    ``LC_TEST_SEARCH_MODE_E2E`` is set in the environment.
 
@@ -26,11 +28,10 @@ Deselect them from an otherwise live integration run with
 Why the second gate exists
 --------------------------
 
-The ``mode`` field is served by the search backend. Until that support is
-deployed and enabled for the organization under test, these fail for a
-server-side reason with nothing wrong in this package. The environment
-variable is the opt-in that says "the backend this is pointed at is expected
-to support mode". Without it the honest result is a skip, not a red build.
+Unlike the rest of ``tests/integration``, these start real searches over a
+day of data, which take a concurrency slot and are billed, and they need an
+organization with telemetry in that day. The environment variable is the
+opt-in that says both are intended. Without it the honest result is a skip.
 
 What they assert, and what they deliberately do not
 ---------------------------------------------------
@@ -46,6 +47,7 @@ the rows arrive whole. Asserting the equality is only sound where the test
 also controls the organization's configuration, which these do not.
 """
 
+import json
 import os
 import sys
 import time
@@ -54,6 +56,9 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
+from click.testing import CliRunner
+
+from limacharlie.cli import cli
 from limacharlie.client import Client
 from limacharlie.sdk.organization import Organization
 from limacharlie.sdk.search import (
@@ -69,11 +74,9 @@ _E2E_ENV_VAR = "LC_TEST_SEARCH_MODE_E2E"
 _SKIP_REASON = (
     "Live search-mode end-to-end test, skipped by default. To run: set "
     f"{_E2E_ENV_VAR}=1 and pass --oid and --key for an organization with "
-    "searchable telemetry in the window under test. These exercise the "
-    "server's optional `mode` field on POST /v1/search, which must be "
-    "deployed and enabled for that organization first; until it is, they "
-    "fail for a server-side reason and not because of a defect in this "
-    "package."
+    "searchable telemetry in the window under test. These start real, "
+    "billed searches against the server's optional `mode` field on "
+    "POST /v1/search."
 )
 
 pytestmark = [
@@ -297,3 +300,64 @@ def test_both_modes_return_the_same_rows_in_the_same_order(oid, key):
         "page boundaries are meant to differ between modes; the result set "
         "and its ordering are meant to be identical."
     )
+
+
+def test_no_mode_leaves_it_to_the_organization(oid, key):
+    """``mode=None`` sends no mode key, and a page still reports what it ran as.
+
+    That request is the one an SDK without the field would send, so it is the
+    exact opt-out from this package's batch default. Which mode it resolves to
+    is the organization's configuration to decide, so it is reported rather
+    than asserted.
+    """
+    start, end = _window()
+    results = list(_search(oid, key).execute(
+        _QUERY, start_time=start, end_time=end, mode=None, limit=2,
+    ))
+
+    _, stats = _require_paginated_page(results)
+    applied = _assert_applied_mode(stats)
+    print(f"submitted no mode key, page ran as {applied!r}")
+
+
+def _cli_search_pages(oid, key, *extra):
+    """Run ``search run`` through the CLI with JSONL output and parse its pages.
+
+    CliRunner's stdout is not a terminal and JSONL is a bulk format, so this is
+    the path on which the CLI resolves its own mode rather than inheriting the
+    SDK's. Each output line is one result object, stats included.
+    """
+    end = int(time.time()) - 300
+    start = end - _WINDOW_SECONDS
+    runner = CliRunner(env={"LC_API_KEY": key}, mix_stderr=False)
+    result = runner.invoke(cli, [
+        "--oid", oid, "--output", "jsonl",
+        "search", "run", "--query", _QUERY,
+        "--start", str(start), "--end", str(end), "--limit", "2",
+        *extra,
+    ])
+    assert result.exit_code == 0, (
+        f"search run exited {result.exit_code}.\nstderr:\n{result.stderr}"
+    )
+    return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+def test_the_cli_bulk_default_reaches_the_server_and_comes_back_applied(oid, key):
+    """The CLI's own mode resolution produces a page that reports its mode.
+
+    With no ``--mode``, JSONL output and a non-terminal stdout the CLI resolves
+    to batch. This asserts the resolved mode made it onto a real submission and
+    that the page states what it ran as.
+    """
+    pages = _cli_search_pages(oid, key)
+    _, stats = _require_paginated_page(pages)
+    applied = _assert_applied_mode(stats)
+    print(f"CLI resolved batch for JSONL output, page ran as {applied!r}")
+
+
+def test_the_cli_mode_flag_reaches_the_server_and_comes_back_applied(oid, key):
+    """``--mode`` overrides the CLI's resolution on a real submission."""
+    pages = _cli_search_pages(oid, key, "--mode", SEARCH_MODE_INTERACTIVE)
+    _, stats = _require_paginated_page(pages)
+    applied = _assert_applied_mode(stats)
+    print(f"CLI submitted --mode interactive, page ran as {applied!r}")
