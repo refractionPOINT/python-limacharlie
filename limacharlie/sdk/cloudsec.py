@@ -2334,12 +2334,8 @@ class CloudSec:
             leaves this API's auth boundary. It is deliberately short-lived;
             fetch it promptly and do not store it.
         """
-        # The key contains a '/', so it is percent-encoded into ONE path
-        # segment. The gateway accepts either spelling, but encoding is what
-        # keeps the request unambiguous for anything in between.
-        quoted = _quote(repo, safe="")
         return self._get(
-            f"code/repos/{quoted}/sbom", _query_pairs(provider=provider))
+            "code/sbom", _query_pairs(repo=repo, provider=provider))
 
     def download_code_sbom(
         self, repo: str, *, provider: str | None = None,

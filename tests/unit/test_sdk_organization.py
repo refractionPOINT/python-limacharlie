@@ -100,7 +100,7 @@ class TestOrganizationSchemas:
 
     def test_get_schema(self, org, mock_client):
         org.get_schema("NEW_PROCESS")
-        mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/schema/NEW_PROCESS")
+        mock_client.request.assert_called_once_with("GET", "orgs/test-oid-123/schema", query_params={"name": "NEW_PROCESS"})
 
     def test_reset_schemas(self, org, mock_client):
         org.reset_schemas()
