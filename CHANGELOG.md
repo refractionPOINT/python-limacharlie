@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Cloud Security — SBOM route
+
+- `CloudSec.get_code_sbom` / `download_code_sbom` (and `cloudsec code sbom`)
+  now call `GET /v1/cloudsec/{oid}/code/sbom?repo=<owner/name>` instead of
+  `GET /v1/cloudsec/{oid}/code/repos/{owner%2Fname}/sbom`. Signatures and
+  output are unchanged. Needs an API release that serves the new route.
+
 ### Email Security onboarding
 
 - List `mailsec_provider`, `mailsec_policy`, and `dr-mail` in `hive list-types`.

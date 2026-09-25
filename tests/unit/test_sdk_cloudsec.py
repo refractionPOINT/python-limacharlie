@@ -981,25 +981,24 @@ class TestCodeLane:
         assert url == f"cloudsec/{OID}/code/status"
         assert qp is None
 
-    def test_get_code_sbom_percent_encodes_the_key(self, cs, mock_org):
-        """The repository key holds a '/', which must not become a path split.
+    def test_get_code_sbom_sends_the_key_as_a_query_value(self, cs, mock_org):
+        """The repository key goes in ``?repo=``, never in the path.
 
-        Left unencoded it would add a path segment and the route would not
-        match at all — a 404 with nothing on the client side to explain it.
+        The key holds a '/', so as a path segment it would need encoding
+        that intermediaries may undo; as a query value it is carried as-is.
         """
         mock_org.client.request.return_value = {"sbom": None}
-        cs.get_code_sbom("refractionPOINT/lc-appsec-fixtures")
+        cs.get_code_sbom("acme/api")
         url, qp = _get_call(mock_org)
-        assert url == (
-            f"cloudsec/{OID}/code/repos/"
-            "refractionPOINT%2Flc-appsec-fixtures/sbom")
-        assert qp is None
+        assert url == f"cloudsec/{OID}/code/sbom"
+        assert qp == [("repo", "acme/api")]
 
     def test_get_code_sbom_provider(self, cs, mock_org):
         mock_org.client.request.return_value = {"sbom": None}
-        cs.get_code_sbom("acme/api", provider="github")
-        _, qp = _get_call(mock_org)
-        assert qp == [("provider", "github")]
+        cs.get_code_sbom("acme/platform/api", provider="gitlab")
+        url, qp = _get_call(mock_org)
+        assert url == f"cloudsec/{OID}/code/sbom"
+        assert qp == [("repo", "acme/platform/api"), ("provider", "gitlab")]
 
     def test_rescan_code_repo_posts_the_trigger(self, cs, mock_org):
         mock_org.client.request.return_value = {"accepted": True}
