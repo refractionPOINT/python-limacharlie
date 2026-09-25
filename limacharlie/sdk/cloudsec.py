@@ -2324,9 +2324,10 @@ class CloudSec:
 
             A repository with no SBOM yet is a SUCCESSFUL response with
             ``sbom`` ``None`` and a machine-readable ``reason``
-            (``sbom_not_generated_yet`` or
-            ``code_lane_not_enabled_in_datacenter``) — only a repository the
-            org does not have is an error. Check ``sbom`` for ``None`` before
+            (``sbom_not_generated_yet``, ``no_sbom_for_this_repository`` or
+            ``code_lane_not_enabled_in_datacenter``; treat any other value
+            as terminal) — only a repository the org does not have is an
+            error. Check ``sbom`` for ``None`` before
             using it.
 
         Note:
@@ -2334,12 +2335,10 @@ class CloudSec:
             leaves this API's auth boundary. It is deliberately short-lived;
             fetch it promptly and do not store it.
         """
-        # The key contains a '/', so it is percent-encoded into ONE path
-        # segment. The gateway accepts either spelling, but encoding is what
-        # keeps the request unambiguous for anything in between.
-        quoted = _quote(repo, safe="")
+        # The key travels as a query value, where its '/' is an ordinary
+        # character rather than a path separator.
         return self._get(
-            f"code/repos/{quoted}/sbom", _query_pairs(provider=provider))
+            "code/sbom", _query_pairs(repo=repo, provider=provider))
 
     def download_code_sbom(
         self, repo: str, *, provider: str | None = None,
