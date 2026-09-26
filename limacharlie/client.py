@@ -72,6 +72,38 @@ HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
 HTTP_GATEWAY_TIMEOUT = 504
 
+
+def parse_retry_after(value: str | None, now: float | None = None) -> int | None:
+    """Parse an HTTP ``Retry-After`` header into whole seconds from now.
+
+    Both forms RFC 9110 allows are read: delay-seconds (``"30"``) and an
+    HTTP-date. A date in the past is 0. Anything else — absent, empty,
+    negative, garbage — is ``None``, meaning "the server did not say", which
+    is different from "retry now".
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if value.isascii() and value.isdigit():
+        # Clamped here so a hostile or broken header can neither overflow the int
+        # parser (Python refuses very long digit strings) nor mean "forever".
+        if len(value) > 9:
+            return 999_999_999
+        return int(value)
+    try:
+        from email.utils import parsedate_to_datetime
+
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if when is None or when.tzinfo is None:
+        return None
+    current = time.time() if now is None else now
+    return max(0, int(when.timestamp() - current + 0.999))
+
+
 # Default limit for response body in debug output. Bodies longer than
 # this are truncated with a "[truncated]" marker. Use debug_full_response=True
 # on the Client (or --debug-full on the CLI) to disable truncation.
@@ -614,13 +646,16 @@ class Client:
 
     def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                    raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None,
-                   extra_headers: dict[str, str] | None = None, raw_response: bool = False) -> tuple[int, Any]:
+                   extra_headers: dict[str, str] | None = None, raw_response: bool = False,
+                   response_headers: dict[str, str] | None = None) -> tuple[int, Any]:
         """Make a single HTTP request to the API.
 
         Args:
             raw_response: Return the response body as decoded text instead of
                 parsed JSON (for non-JSON endpoints like CSV exports). Error
                 (non-2xx) bodies are still parsed as JSON when possible.
+            response_headers: When given, filled with the headers of an error
+                (non-2xx) response, so the caller can read e.g. ``Retry-After``.
 
         Returns:
             tuple: (status_code, response_data)
@@ -707,8 +742,11 @@ class Client:
                 resp = json.loads(error_str)
             except Exception:
                 resp = error_str
-            resp_headers = e.headers.items() if hasattr(e, "headers") else []
-            self._debug_response(e.code, list(resp_headers), error_str)
+            resp_headers = list(e.headers.items()) if getattr(e, "headers", None) is not None else []
+            if response_headers is not None:
+                for h_name, h_val in resp_headers:
+                    response_headers[h_name.lower()] = h_val
+            self._debug_response(e.code, resp_headers, error_str)
             return (e.code, resp)
 
         except ssl.SSLError as e:
@@ -718,7 +756,7 @@ class Client:
     def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
                 max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None,
-                raw_response: bool = False) -> Any:
+                raw_response: bool = False, retry_quota_errors: bool | None = None) -> Any:
         """Make an API request with retry logic and JWT management.
 
         Args:
@@ -735,13 +773,18 @@ class Client:
             extra_headers: Additional HTTP headers to include.
             raw_response: Return the response body as decoded text instead
                 of parsed JSON (for non-JSON endpoints like CSV exports).
+            retry_quota_errors: Override the client's ``is_retry_quota_errors``
+                for this call. ``False`` raises :class:`RateLimitError` on the
+                first 429, for a caller that runs its own backoff.
 
         Returns:
             dict: Parsed JSON response (or str when raw_response is set).
 
         Raises:
             AuthenticationError: on 401 after JWT refresh.
-            RateLimitError: on 429 when retry is not enabled.
+            RateLimitError: on 429 when retry is not enabled. Its
+                ``retry_after`` carries the response's ``Retry-After`` in
+                seconds, or ``None`` when the response had none.
             ApiError: on other non-200 responses after retries.
         """
         has_auth_refreshed = False
@@ -753,16 +796,20 @@ class Client:
             else:
                 self.refresh_jwt()
 
+        if retry_quota_errors is None:
+            retry_quota_errors = self._is_retry_quota_errors
+
         retries = 0
         while retries < max_retries:
             retries += 1
 
+            error_headers: dict[str, str] = {}
             code, data = self._rest_call(
                 url, verb, params=params, alt_root=alt_root,
                 query_params=query_params, raw_body=raw_body,
                 content_type=content_type, is_no_auth=is_no_auth,
                 timeout=timeout, extra_headers=extra_headers,
-                raw_response=raw_response,
+                raw_response=raw_response, response_headers=error_headers,
             )
 
             if code == HTTP_OK:
@@ -798,13 +845,14 @@ class Client:
                 break
 
             if code == HTTP_TOO_MANY_REQUESTS:
-                if self._is_retry_quota_errors:
+                if retry_quota_errors:
                     wait = min(10 * (2 ** (retries - 1)), 60)
                     self._debug(f"Rate limited, waiting {wait}s before retry...")
                     time.sleep(wait)
                     continue
                 raise RateLimitError(
                     f"Rate limit exceeded: {data}",
+                    retry_after=parse_retry_after(error_headers.get("retry-after")),
                     code=code,
                 )
 
