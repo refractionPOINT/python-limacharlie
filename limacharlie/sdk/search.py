@@ -86,6 +86,31 @@ def _is_transient_poll_error(exc: Exception) -> bool:
     return False
 
 
+# Consumption modes a search may be submitted with.  The mode declares how
+# the caller intends to READ the search, not how much data it wants: the
+# caller never asks for a row count, the server sizes the pages.
+#
+#   interactive - optimize for time to first results.
+#   batch       - optimize for throughput over the whole result set, which
+#                 means fewer and larger pages.
+#
+# The results and their ordering are identical either way; only where the
+# page boundaries fall changes.
+#
+# :meth:`Search.execute` defaults to SEARCH_MODE_BATCH, because its callers
+# are scripts that read every page. A client rendering to a person picks
+# SEARCH_MODE_INTERACTIVE for itself rather than inheriting that default.
+SEARCH_MODE_INTERACTIVE = "interactive"
+SEARCH_MODE_BATCH = "batch"
+
+# Every mode :meth:`Search.execute` accepts.  Anything else is refused before
+# the request is sent, because the server ignores a value it does not
+# recognise and runs the search as ``interactive``: a typo would otherwise
+# cost nothing visible and silently produce the mode the caller did not ask
+# for.  Matching is exact, so ``"Batch"`` is a typo like any other.
+SEARCH_MODES = frozenset({SEARCH_MODE_INTERACTIVE, SEARCH_MODE_BATCH})
+
+
 # Pattern to extract region identifier from search URL.
 # Real URLs look like: https://9157798c50af372c.replay-search.limacharlie.io/v1/search/
 # The region identifier is the hex hash prefix before ".replay-search".
@@ -236,6 +261,7 @@ class Search:
         poll_max_retries: int = 3,
         start_token: str | None = None,
         start_page: int = 1,
+        mode: str | None = SEARCH_MODE_BATCH,
     ) -> Generator[dict[str, Any], None, None]:
         """Execute an LCQL query and return results.
 
@@ -260,14 +286,54 @@ class Search:
             start_page: Starting page number for progress display (default 1).
                 Used with start_token to show accurate page numbers when
                 resuming mid-search.
+            mode: How the caller intends to consume the search:
+                ``"interactive"`` (time to first results) or ``"batch"``
+                (throughput over the whole result set, so fewer and larger
+                pages). **The default is** ``"batch"``, not ``None``: this
+                method is driven by scripts and automation, which read every
+                page and pay a fixed cost per round trip, and the shape that
+                suits a human watching a screen is the wrong one for them.
+                Pass ``None`` explicitly to send no mode at all and let the
+                server decide; that is the only way to omit the key, and it
+                is not what leaving the argument out does. A client that
+                puts a person in front of the results, such as the CLI,
+                should pass ``"interactive"`` rather than rely on this
+                default. It is a hint either way: the mode is enabled per
+                organization and the server may pick one itself, so read
+                ``searchMode`` off a page's ``stats`` to learn what the page
+                actually ran as. It applies to a paginated search only, and
+                a query that must process all data before it can answer -
+                GROUP BY, ORDER BY, an aggregation over every record - is
+                unaffected. Results and their ordering are the same either
+                way; only where the page boundaries fall changes. The mode
+                is submitted once and the continuation requests inherit it,
+                so it is never resent.
 
         Yields:
-            dict: Result records.
+            dict: Result records. A paginated page additionally reports what
+            it actually ran as in its ``stats``: ``searchMode`` (the applied
+            mode), ``pageSize`` (the soft per-page result cap) and
+            ``paginatedByteCap`` (the reply-byte ceiling). All three are
+            absent from a search that ran without pagination. ``pageSize``
+            is a target rather than a promise - a page ends below it on a
+            time limit, a byte limit or the end of the data, and slightly
+            above it because a page stops only once a whole batch of results
+            has arrived.
 
         Raises:
+            ValidationError: If ``mode`` is not one of ``SEARCH_MODES``.
             SearchError: On search failure. Includes query_id, region, and oid
                 for troubleshooting.
         """
+        # isinstance first: an unhashable value such as a list or a dict
+        # cannot be looked up in the set and would raise TypeError instead of
+        # the refusal the caller can act on.
+        if mode is not None and (not isinstance(mode, str) or mode not in SEARCH_MODES):
+            raise ValidationError(
+                f"mode must be one of {', '.join(sorted(SEARCH_MODES))} "
+                f"(got {mode!r})"
+            )
+
         search_url = self._get_search_url()
         oid = self._org.oid
         region = self._extract_region()
@@ -280,6 +346,10 @@ class Search:
         }
         if stream:
             body["stream"] = stream
+        # Only an explicit mode=None omits the key. The argument's own default
+        # is SEARCH_MODE_BATCH, so an unset mode still sends one.
+        if mode is not None:
+            body["mode"] = mode
 
         # Initiate search - wrap transport exceptions so the caller always
         # gets a SearchError with region/oid context for troubleshooting.

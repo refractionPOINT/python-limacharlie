@@ -6,13 +6,20 @@ All search errors should include query_id, region, oid, and query
 for troubleshooting when available.
 """
 
+import inspect
 import json
 import ssl
 import time
 from unittest.mock import MagicMock, patch, call
 import pytest
 
-from limacharlie.sdk.search import Search, _is_transient_poll_error
+from limacharlie.sdk.search import (
+    SEARCH_MODE_BATCH,
+    SEARCH_MODE_INTERACTIVE,
+    SEARCH_MODES,
+    Search,
+    _is_transient_poll_error,
+)
 from limacharlie.errors import (
     ApiError,
     AuthenticationError,
@@ -1013,3 +1020,380 @@ class TestGetLimits:
             search.get_limits()
 
         assert excinfo.value is original
+
+
+class TestSearchModeRequestBody:
+    """What ``mode`` puts on the wire, and what it leaves alone.
+
+    ``mode`` declares how the caller intends to consume the search, so it
+    belongs on the submission and nowhere else. These tests pin the request
+    bytes rather than the parsed body wherever the claim is about what an
+    existing caller sends.
+    """
+
+    def _single_page(self, mock_org, stats=None):
+        """Wire up one completed page, optionally carrying page stats."""
+        result = {"type": "events", "rows": [{"a": 1}]}
+        if stats is not None:
+            result["stats"] = stats
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-mode"},
+            {"results": [result], "completed": True},
+            {},  # DELETE cleanup
+        ]
+
+    def _post_body(self, mock_org):
+        """The raw bytes of the one POST that submitted the search."""
+        posts = [c for c in mock_org.client.request.call_args_list
+                 if c[0][0] == "POST"]
+        assert len(posts) == 1, f"expected exactly one POST, got {len(posts)}"
+        return posts[0][1]["raw_body"]
+
+    def test_leaving_the_argument_out_submits_batch(self, search, mock_org):
+        """The SDK default. Its callers are scripts that read every page and
+        pay per round trip, so they get the throughput shape rather than the
+        one tuned for a human watching a screen."""
+        self._single_page(mock_org)
+
+        list(search.execute("* | NEW_PROCESS | *", 1000, 2000, stream="event"))
+
+        assert self._post_body(mock_org) == json.dumps({
+            "oid": "test-oid",
+            "query": "* | NEW_PROCESS | *",
+            "startTime": "1000",
+            "endTime": "2000",
+            "paginated": True,
+            "stream": "event",
+            "mode": "batch",
+        }).encode()
+
+    def test_the_default_is_the_batch_constant_not_none(self):
+        """Pinned on the signature as well as through a call, because the two
+        are what a reader confuses: ``None`` is a meaningful value here, not
+        the default."""
+        default = inspect.signature(Search.execute).parameters["mode"].default
+        assert default == SEARCH_MODE_BATCH
+        assert default is not None
+
+    def test_an_explicit_none_sends_no_mode_at_all(self, search, mock_org):
+        """The escape hatch, and the only way to omit the key: the server is
+        left to decide. The body is byte-identical to one built before the
+        field existed, with no key rather than a null one."""
+        self._single_page(mock_org)
+
+        list(search.execute("* | NEW_PROCESS | *", 1000, 2000, stream="event",
+                            mode=None))
+
+        assert self._post_body(mock_org) == json.dumps({
+            "oid": "test-oid",
+            "query": "* | NEW_PROCESS | *",
+            "startTime": "1000",
+            "endTime": "2000",
+            "paginated": True,
+            "stream": "event",
+        }).encode()
+
+    def test_an_explicit_none_omits_the_key_rather_than_nulling_it(
+            self, search, mock_org):
+        self._single_page(mock_org)
+
+        list(search.execute("event", 1000, 2000, mode=None))
+
+        body = json.loads(self._post_body(mock_org))
+        assert "mode" not in body
+
+    def test_batch_is_sent_verbatim(self, search, mock_org):
+        self._single_page(mock_org)
+
+        list(search.execute("event", 1000, 2000, mode="batch"))
+
+        body = json.loads(self._post_body(mock_org))
+        assert body["mode"] == "batch"
+        assert isinstance(body["mode"], str)
+
+    def test_interactive_is_sent_when_asked_for_explicitly(self, search, mock_org):
+        """Explicit interactive is the caller's stated intent, not a default to
+        elide - it is sent, unlike an unset mode."""
+        self._single_page(mock_org)
+
+        list(search.execute("event", 1000, 2000, mode="interactive"))
+
+        assert json.loads(self._post_body(mock_org))["mode"] == "interactive"
+
+    def test_mode_adds_one_key_and_disturbs_nothing_else(self, search, mock_org):
+        self._single_page(mock_org)
+
+        list(search.execute("* | * | *", 1000, 2000, stream="detect", mode="batch"))
+
+        body = json.loads(self._post_body(mock_org))
+        assert body == {
+            "oid": "test-oid",
+            "query": "* | * | *",
+            "startTime": "1000",
+            "endTime": "2000",
+            "paginated": True,
+            "stream": "detect",
+            "mode": "batch",
+        }
+
+    def test_mode_is_not_sent_on_validate(self, search, mock_org):
+        """Validation does not run a search, so it has no consumption mode."""
+        mock_org.client.request.return_value = {"valid": True}
+
+        search.validate("event", start_time=1000, end_time=2000)
+
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert "mode" not in body
+
+
+class TestSearchModeValidation:
+    """Unrecognised modes are refused here rather than sent.
+
+    The server ignores a value it does not recognise and runs the search as
+    interactive, so a typo would otherwise produce no error and the wrong
+    mode. Refusing it client-side is the same treatment ``list_open_queries``
+    gives an unknown ``state``.
+
+    ``execute`` is a generator, so every one of its errors - a failed
+    submission, a missing queryId, this one - surfaces on the first
+    iteration rather than at the call. These tests iterate.
+    """
+
+    @pytest.mark.parametrize("bad", ["", "Batch", "BATCH", "bAtch", "Interactive",
+                                     "batch ", " batch", "batched", "fast", "none"])
+    def test_unrecognised_spelling_is_refused(self, search, mock_org, bad):
+        with pytest.raises(ValidationError):
+            list(search.execute("event", 1000, 2000, mode=bad))
+
+    @pytest.mark.parametrize("bad", [1, 0, True, False, 1.5, [], ["batch"],
+                                     {}, {"mode": "batch"}, object()])
+    def test_non_string_value_is_refused(self, search, mock_org, bad):
+        with pytest.raises(ValidationError):
+            list(search.execute("event", 1000, 2000, mode=bad))
+
+    def test_nothing_is_sent_when_the_mode_is_refused(self, search, mock_org):
+        """The refusal must cost no request - not a submission, and not the
+        DELETE that cleans one up."""
+        with pytest.raises(ValidationError):
+            list(search.execute("event", 1000, 2000, mode="Batch"))
+
+        mock_org.client.request.assert_not_called()
+
+    def test_the_message_names_what_was_given_and_what_is_accepted(
+            self, search, mock_org):
+        with pytest.raises(ValidationError) as excinfo:
+            list(search.execute("event", 1000, 2000, mode="turbo"))
+
+        message = str(excinfo.value)
+        assert "turbo" in message
+        assert "batch" in message
+        assert "interactive" in message
+
+    @pytest.mark.parametrize("good", ["interactive", "batch"])
+    def test_every_documented_mode_is_accepted(self, search, mock_org, good):
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-ok"},
+            {"results": [{"type": "events", "rows": []}], "completed": True},
+            {},
+        ]
+
+        list(search.execute("event", 1000, 2000, mode=good))
+
+        posts = [c for c in mock_org.client.request.call_args_list if c[0][0] == "POST"]
+        assert json.loads(posts[0][1]["raw_body"])["mode"] == good
+
+    def test_the_accepted_set_is_exactly_the_two_documented_modes(self):
+        assert SEARCH_MODES == {"interactive", "batch"}
+        assert SEARCH_MODE_INTERACTIVE == "interactive"
+        assert SEARCH_MODE_BATCH == "batch"
+
+
+class TestSearchModeIsSubmittedOnce:
+    """The mode rides on the submission; continuation pages inherit it."""
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_continuation_pages_do_not_resend_the_mode(self, mock_sleep, search, mock_org):
+        """Three pages, one POST. The GETs that fetch pages 2 and 3 carry a
+        token and nothing else - no body at all, so no mode to conflict with
+        the one the search was submitted with."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-pages"},
+            {"results": [{"type": "events", "rows": [{"a": 1}], "nextToken": "tok1"}],
+             "completed": True},
+            {"results": [{"type": "events", "rows": [{"a": 2}], "nextToken": "tok2"}],
+             "completed": True},
+            {"results": [{"type": "events", "rows": [{"a": 3}]}], "completed": True},
+            {},  # DELETE cleanup
+        ]
+
+        results = list(search.execute("event", 1000, 2000, mode="batch"))
+        assert len(results) == 3
+
+        calls = mock_org.client.request.call_args_list
+        posts = [c for c in calls if c[0][0] == "POST"]
+        gets = [c for c in calls if c[0][0] == "GET"]
+
+        assert len(posts) == 1
+        assert json.loads(posts[0][1]["raw_body"])["mode"] == "batch"
+
+        assert len(gets) == 3
+        assert gets[0][1].get("query_params") is None
+        assert gets[1][1]["query_params"] == {"token": "tok1"}
+        assert gets[2][1]["query_params"] == {"token": "tok2"}
+        for get in gets:
+            assert "raw_body" not in get[1]
+            assert "mode" not in (get[1].get("query_params") or {})
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_repolling_an_unfinished_page_does_not_resubmit(
+            self, mock_sleep, search, mock_org):
+        """A page that is not ready is re-polled with GET. Only the original
+        POST carries the mode."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-wait"},
+            {"results": [], "completed": False, "nextPollInMs": 500},
+            {"results": [{"type": "events", "rows": [{"a": 1}]}], "completed": True},
+            {},
+        ]
+
+        list(search.execute("event", 1000, 2000, mode="batch"))
+
+        posts = [c for c in mock_org.client.request.call_args_list if c[0][0] == "POST"]
+        assert len(posts) == 1
+
+    def test_resuming_from_a_token_submits_a_fresh_search_carrying_the_mode(
+            self, search, mock_org):
+        """``start_token`` opens a new search and hands the server a cursor, so
+        it is a submission and takes a mode like any other."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-resume"},
+            {"results": [{"type": "events", "rows": [{"a": 9}]}], "completed": True},
+            {},
+        ]
+
+        list(search.execute("event", 1000, 2000, mode="batch",
+                            start_token="tok-saved", start_page=4))
+
+        calls = mock_org.client.request.call_args_list
+        posts = [c for c in calls if c[0][0] == "POST"]
+        gets = [c for c in calls if c[0][0] == "GET"]
+
+        assert len(posts) == 1
+        assert json.loads(posts[0][1]["raw_body"])["mode"] == "batch"
+        # The saved token is not part of the submission - it is what the first
+        # continuation asks for.
+        assert "token" not in json.loads(posts[0][1]["raw_body"])
+        assert gets[0][1]["query_params"] == {"token": "tok-saved"}
+
+
+class TestSearchModePageStats:
+    """What each page reports it actually ran as.
+
+    ``execute`` yields the server's SearchResult untouched, so the three
+    pagination stats reach the caller exactly as sent, and a search that did
+    not paginate yields stats without them rather than with empty ones.
+    """
+
+    def test_a_page_reports_the_applied_mode_page_size_and_byte_cap(
+            self, search, mock_org):
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-stats"},
+            {"results": [{
+                "type": "events",
+                "rows": [{"a": 1}],
+                "stats": {
+                    "eventsMatched": 12,
+                    "eventsScanned": 340,
+                    "searchMode": "batch",
+                    "pageSize": 1000,
+                    "paginatedByteCap": 1048576,
+                },
+            }], "completed": True},
+            {},
+        ]
+
+        results = list(search.execute("event", 1000, 2000, mode="batch"))
+
+        stats = results[0]["stats"]
+        assert stats["searchMode"] == "batch"
+        assert stats["pageSize"] == 1000
+        assert stats["paginatedByteCap"] == 1048576
+        # Everything that was already there is still there.
+        assert stats["eventsMatched"] == 12
+        assert stats["eventsScanned"] == 340
+
+    def test_an_unpaginated_search_reports_none_of_the_three(self, search, mock_org):
+        """The server omits all three when the search did not paginate. The SDK
+        does not invent them."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-agg"},
+            {"results": [{
+                "type": "events",
+                "rows": [{"total": 7}],
+                "stats": {"eventsMatched": 7, "eventsScanned": 7},
+            }], "completed": True},
+            {},
+        ]
+
+        results = list(search.execute("event", 1000, 2000, mode="batch"))
+
+        stats = results[0]["stats"]
+        assert "searchMode" not in stats
+        assert "pageSize" not in stats
+        assert "paginatedByteCap" not in stats
+
+    def test_the_applied_mode_may_differ_from_the_requested_one(
+            self, search, mock_org):
+        """The mode is a hint: it is enabled per organization and the server may
+        pick one itself. The SDK reports what came back, it does not reconcile
+        it with what was asked for."""
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-hint"},
+            {"results": [{"type": "events", "rows": [{"a": 1}],
+                          "stats": {"searchMode": "interactive"}}],
+             "completed": True},
+            {},
+        ]
+
+        results = list(search.execute("event", 1000, 2000, mode="batch"))
+
+        assert results[0]["stats"]["searchMode"] == "interactive"
+
+    @patch("limacharlie.sdk.search.time.sleep")
+    def test_each_page_carries_its_own_stats(self, mock_sleep, search, mock_org):
+        mock_org.client.request.side_effect = [
+            {"queryId": "q-multi"},
+            {"results": [{"type": "events", "rows": [{"a": 1}], "nextToken": "t1",
+                          "stats": {"searchMode": "batch", "pageSize": 1000}}],
+             "completed": True},
+            {"results": [{"type": "events", "rows": [{"a": 2}],
+                          "stats": {"searchMode": "batch", "pageSize": 1000}}],
+             "completed": True},
+            {},
+        ]
+
+        results = list(search.execute("event", 1000, 2000, mode="batch"))
+
+        assert [r["stats"]["searchMode"] for r in results] == ["batch", "batch"]
+        assert [r["stats"]["pageSize"] for r in results] == [1000, 1000]
+
+    def test_results_are_yielded_unchanged_whatever_the_mode(self, search, mock_org):
+        """Same rows, same order, in both modes - only the page boundaries
+        move. Two runs over identical server responses must be identical."""
+        def responses():
+            return [
+                {"queryId": "q-same"},
+                {"results": [
+                    {"type": "events", "rows": [{"a": 1}, {"a": 2}]},
+                    {"type": "facets", "facets": [{"f": 1}]},
+                ], "completed": True},
+                {},
+            ]
+
+        mock_org.client.request.side_effect = responses()
+        interactive = list(search.execute("event", 1000, 2000, mode="interactive"))
+
+        mock_org.client.request.side_effect = responses()
+        batch = list(Search(mock_org).execute("event", 1000, 2000, mode="batch"))
+
+        assert interactive == batch

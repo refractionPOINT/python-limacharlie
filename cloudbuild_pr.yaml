@@ -493,7 +493,9 @@ steps:
       pip install ".[dev]" -q
 
       echo "--- Running integration tests ---"
-      pytest -s -v --durations=10 tests/integration/ --oid=${_OID} --key="$$_KEY"
+      # LC_TEST_SEARCH_MODE_E2E opts in to the live search-mode tests in
+      # tests/integration/test_search_mode_e2e.py, which start real searches.
+      LC_TEST_SEARCH_MODE_E2E=1 pytest -s -v --durations=10 tests/integration/ --oid=${_OID} --key="$$_KEY"
 
       echo "--- Integration tests passed ---"
   waitFor: ["-"]
