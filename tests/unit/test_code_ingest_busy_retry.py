@@ -116,8 +116,10 @@ class TestRetryAfterReachesTheError:
         # An HTTP-date 90 seconds after "now".
         assert parse_retry_after("Wed, 21 Oct 2015 07:29:30 GMT", now=1445412480.0) == 90
         assert parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT", now=1445412580.0) == 0
-        for garbage in (None, "", "-5", "soon", "1.5e3"):
+        for garbage in (None, "", "-5", "soon", "1.5e3", "\u00b2", "\u0663\u0660"):
             assert parse_retry_after(garbage) is None
+        # Past Python's integer-string limit: clamped, not a ValueError out of request().
+        assert parse_retry_after("9" * 5000) == 999_999_999
 
 
 class TestIngestRetriesBusy:
@@ -147,6 +149,9 @@ class TestIngestRetriesBusy:
         assert mock_urlopen.call_count == 4
         assert mock_sleep.call_count == 3
         assert e.value.retry_after == 1
+        # The hint names what happened, not a --retry flag that does not apply here.
+        assert "--retry" not in str(e.value)
+        assert "refused 4 times" in str(e.value)
 
     @patch.object(cloudsec_mod.time, "sleep")
     @patch("limacharlie.client.urlopen")

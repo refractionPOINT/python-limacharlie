@@ -13,8 +13,9 @@
   exponentially without one, and adds random jitter; at most 5 re-sends and
   10 minutes of waiting in total. `busy_retries=0` restores the old behaviour.
 - `RateLimitError.retry_after` is now filled from the response's `Retry-After`
-  header, and `Client.request` takes `retry_quota_errors=` to override the
-  client's `--retry` setting for one call.
+  header when the client raises on the first 429 (without `--retry`, or with
+  `Client.request(..., retry_quota_errors=False)`, which overrides the client's
+  `--retry` setting for one call).
 
 ### Cloud Security — SBOM route
 

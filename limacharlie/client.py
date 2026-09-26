@@ -86,7 +86,11 @@ def parse_retry_after(value: str | None, now: float | None = None) -> int | None
     value = value.strip()
     if not value:
         return None
-    if value.isdigit():
+    if value.isascii() and value.isdigit():
+        # Clamped here so a hostile or broken header can neither overflow the int
+        # parser (Python refuses very long digit strings) nor mean "forever".
+        if len(value) > 9:
+            return 999_999_999
         return int(value)
     try:
         from email.utils import parsedate_to_datetime

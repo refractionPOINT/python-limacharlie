@@ -3033,11 +3033,21 @@ class CloudSec:
                 # the attempts.
                 return self._post("code/ingest", body, raw_body=raw, retry_quota_errors=False)
             except RateLimitError as e:
-                if attempt >= busy_retries:
-                    raise
                 delay = _ingest_busy_delay(attempt, e.retry_after)
-                if waited + delay > _INGEST_BUSY_BUDGET_S:
-                    raise
+                if attempt >= busy_retries or waited + delay > _INGEST_BUSY_BUDGET_S:
+                    if attempt == 0:
+                        raise
+                    # Not the default "use --retry" hint: --retry does not change this
+                    # path, which has already backed off.
+                    raise RateLimitError(
+                        e.raw_message,
+                        retry_after=e.retry_after,
+                        suggestion=(
+                            f"The push was refused {attempt + 1} times over {waited:.0f}s. "
+                            "The organization has too many pushes in progress; push fewer "
+                            "at once, or retry this one later."),
+                        code=e.status_code,
+                    ) from e
                 self._org.client._debug(
                     f"code ingest refused (429), retrying in {delay:.1f}s "
                     f"({attempt + 1}/{busy_retries})")
