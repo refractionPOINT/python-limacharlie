@@ -38,6 +38,15 @@ def test_status_receipt_uses_only_scoped_selectors():
     )
 
 
+def test_preflight_accepts_one_map_above_original_50k_bound():
+    doc = json.loads(GOLDEN.read_bytes())
+    resource = doc["resources"][0]
+    doc["resources"] = [dict(resource, address=f"google_storage_bucket.bucket{i}", identity={"name": f"bucket{i}"}) for i in range(50_001)]
+    raw = json.dumps(doc, separators=(",", ":")).encode()
+    assert len(raw) < MAX_BYTES
+    assert validate_iac_map(raw) == raw
+
+
 def test_cli_waits_for_publication_and_resubmits_after_worker_loss(tmp_path):
     source = tmp_path / "map.json"
     source.write_bytes(GOLDEN.read_bytes())

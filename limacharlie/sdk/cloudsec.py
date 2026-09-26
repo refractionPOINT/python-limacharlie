@@ -2691,7 +2691,7 @@ class CloudSec:
         """Push a sanitized IaC map with the organization's write authorization.
 
         Args:
-            document: Locally extracted lc-iac-map/v1 JSON, at most 10 MiB.
+            document: Locally extracted lc-iac-map/v1 JSON, at most 20 MiB.
 
         Returns:
             dict: A receipt whose result.status is processing or published.

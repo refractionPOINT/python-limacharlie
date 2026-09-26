@@ -430,7 +430,7 @@ secret values, source snippets, outputs and arbitrary attributes are omitted.
 Unknown or unsupported inputs make coverage partial; partial/failed pushes cannot
 delete prior mappings. Raw state and plans are refused by the push command/API.
 
-Raw extraction input is limited to 64 MiB; sanitized uploads to 10 MiB, 50,000
+Raw extraction input is limited to 64 MiB; sanitized uploads to 20 MiB, 100,000
 resources, depth 8 and strings of 4 KiB. Push requires `cloudsec.set` for the selected
 organization and feature availability. The API limits pushes to 30/minute per
 identity and organization. Push returns a receipt with a content hash and

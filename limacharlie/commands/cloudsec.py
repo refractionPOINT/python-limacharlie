@@ -5068,7 +5068,7 @@ def code_iac_map_extract(input_path, source_kind, repository, commit, workspace,
 
 
 @code_iac_map.command("push")
-@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 10 MiB. Raw state/plans are refused.")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 20 MiB. Raw state/plans are refused.")
 @pass_context
 def code_iac_map_push(ctx, input_path) -> None:
     """Push only locally sanitized IaC JSON; requires cloudsec.set.
