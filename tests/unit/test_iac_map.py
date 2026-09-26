@@ -22,6 +22,43 @@ def test_shared_extractor_golden_and_server_tenant_route():
     org.client.request.assert_called_once_with("POST", "cloudsec/tenant-a/code/iac-map", raw_body=raw, content_type="application/json")
 
 
+def test_status_receipt_uses_only_scoped_selectors():
+    org = MagicMock(oid="tenant-a")
+    CloudSec(org).get_iac_map_status(
+        repository="owner/repo", provider="github", workspace="default",
+        source_kind="state_identity", hash="a" * 64,
+    )
+    org.client.request.assert_called_once_with(
+        "GET", "cloudsec/tenant-a/code/iac-map/status",
+        query_params=[
+            ("repository", "owner/repo"), ("provider", "github"),
+            ("workspace", "default"), ("source_kind", "state_identity"),
+            ("hash", "a" * 64),
+        ],
+    )
+
+
+def test_cli_waits_for_publication_and_resubmits_after_worker_loss(tmp_path):
+    source = tmp_path / "map.json"
+    source.write_bytes(GOLDEN.read_bytes())
+    client = MagicMock()
+    client.push_iac_map.side_effect = [
+        {"result": {"status": "processing", "hash": "a" * 64}},
+        {"result": {"status": "processing", "hash": "a" * 64}},
+    ]
+    client.get_iac_map_status.side_effect = [
+        {"status": "retryable"}, {"status": "published"},
+    ]
+    with patch("limacharlie.commands.cloudsec._get_cloudsec", return_value=client), \
+         patch("limacharlie.commands.cloudsec.time.sleep"), \
+         patch("limacharlie.commands.cloudsec._output") as output:
+        response = CliRunner().invoke(code_iac_map, ["push", "--input", str(source)])
+    assert response.exit_code == 0, response.output
+    assert client.push_iac_map.call_count == 2
+    assert client.get_iac_map_status.call_count == 2
+    assert output.call_args.args[1]["result"]["status"] == "published"
+
+
 @pytest.mark.parametrize("raw", [b'{"values":{"password":"SENSITIVE_CANARY"}}',
     b'{"schema":"x","schema":"y"}', b"[" * 5000, b" " * (MAX_BYTES + 1),
     b'{"token":"SENSITIVE_CANARY"}', b'"\\ud800"'])

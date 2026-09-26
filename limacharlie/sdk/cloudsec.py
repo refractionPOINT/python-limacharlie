@@ -2694,7 +2694,8 @@ class CloudSec:
             document: Locally extracted lc-iac-map/v1 JSON, at most 10 MiB.
 
         Returns:
-            dict: Reconcile counts, partial coverage, content hash and replay status.
+            dict: A receipt whose result.status is processing or published.
+            Poll get_iac_map_status before treating the map as visible.
 
         Raises:
             ValueError: If local preflight rejects the sanitized document.
@@ -2705,6 +2706,24 @@ class CloudSec:
         return self._org.client.request(
             "POST", f"cloudsec/{self.oid}/code/iac-map",
             raw_body=raw, content_type="application/json")
+
+    def get_iac_map_status(
+        self, *, repository: str, provider: str, workspace: str,
+        source_kind: str, hash: str,
+    ) -> dict[str, Any]:
+        """Read one map receipt under the organization's write authorization.
+
+        A retryable status means the same sanitized document can be submitted
+        again; superseded means a newer map replaced this receipt.
+        """
+        return self._org.client.request(
+            "GET", f"cloudsec/{self.oid}/code/iac-map/status",
+            query_params=[
+                ("repository", repository), ("provider", provider),
+                ("workspace", workspace), ("source_kind", source_kind),
+                ("hash", hash),
+            ],
+        )
 
     def push_code_provenance(self, document: bytes | str | dict[str, Any]) -> dict[str, Any]:
         """Push build provenance without changing signed document bytes.
