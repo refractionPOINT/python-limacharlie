@@ -53,7 +53,7 @@ def test_cli_waits_for_publication_and_resubmits_after_worker_loss(tmp_path):
     client = MagicMock()
     client.push_iac_map.side_effect = [
         {"result": {"status": "processing", "hash": "a" * 64}},
-        {"result": {"status": "processing", "hash": "a" * 64}},
+        {"result": {"status": "processing", "hash": "b" * 64}},
     ]
     client.get_iac_map_status.side_effect = [
         {"status": "retryable"}, {"status": "published"},
@@ -65,6 +65,7 @@ def test_cli_waits_for_publication_and_resubmits_after_worker_loss(tmp_path):
     assert response.exit_code == 0, response.output
     assert client.push_iac_map.call_count == 2
     assert client.get_iac_map_status.call_count == 2
+    assert client.get_iac_map_status.call_args_list[1].kwargs["hash"] == "b" * 64
     assert output.call_args.args[1]["result"]["status"] == "published"
 
 

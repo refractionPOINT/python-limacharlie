@@ -5110,14 +5110,20 @@ def code_iac_map_push(ctx, input_path) -> None:
             _output(ctx, result)
             return
         if status == "retryable":
-            retries += 1
-            if retries > 5:
+            if retries >= 5:
                 raise click.ClickException("IaC map worker interrupted repeatedly; retry the same push")
             result = cloudsec.push_iac_map(raw)
             receipt = result.get("result", {})
             if receipt.get("status") == "published":
                 _output(ctx, result)
                 return
+            if receipt.get("status") != "processing":
+                raise click.ClickException("IaC map resubmission returned an invalid receipt")
+            digest = receipt.get("hash")
+            if not isinstance(digest, str) or len(digest) != 64:
+                raise click.ClickException("IaC map resubmission is missing its hash")
+            selectors["hash"] = digest
+            retries += 1
         elif status == "superseded":
             raise click.ClickException("IaC map was superseded by a newer document")
         elif status != "processing":
