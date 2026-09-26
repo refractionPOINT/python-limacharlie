@@ -5055,7 +5055,7 @@ def code_iac_map_extract(input_path, source_kind, repository, commit, workspace,
     with tempfile.TemporaryFile() as output:
         try:
             result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output,
-                                    stderr=subprocess.DEVNULL, timeout=10, check=False,
+                                    stderr=subprocess.DEVNULL, timeout=120, check=False,
                                     env={"PATH": os.defpath})
             output.seek(0)
             raw = output.read(MAX_BYTES + 1)

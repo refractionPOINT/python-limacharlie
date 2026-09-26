@@ -96,7 +96,7 @@ def test_offline_extract_does_not_authenticate_or_inherit_tokens(tmp_path):
     source.write_text('{"values":{"secret":"SENSITIVE_CANARY"}}')
     def run(args, **kwargs):
         assert kwargs["env"] == {"PATH": __import__("os").defpath}
-        assert kwargs["timeout"] == 10
+        assert kwargs["timeout"] == 120
         assert args[0] == "/trusted/iac-map-extract"
         kwargs["stdout"].write(GOLDEN.read_bytes())
         return MagicMock(returncode=0)
