@@ -66,12 +66,14 @@ from __future__ import annotations
 
 import base64
 import json
+import random
 import re
+import time
 from typing import Any, TYPE_CHECKING
 from urllib.parse import quote as _quote
 from urllib.request import urlopen as _urlopen
 
-from ..errors import AuthenticationError
+from ..errors import AuthenticationError, RateLimitError
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -122,6 +124,41 @@ def _query_pairs(**params: Any) -> list[tuple[str, str]]:
         else:
             _add_scalar(pairs, key, value)
     return pairs
+
+
+# How a code-scan push backs off when it is told to come back later (429).
+#
+# A 429 on the ingest means the push was NOT processed: either the org already has as
+# many pushes running and queued on the ingest service as it may ("ingest_busy", which
+# carries a Retry-After), or the caller's per-identity request quota is spent. Both are
+# refused before the document is processed, so nothing was recorded and re-sending the
+# same push is safe. What matters is WHEN: a CI fan-out that is refused
+# together must not come back together, so every wait is jittered, and the whole thing
+# is bounded so a job that cannot get in fails instead of hanging.
+INGEST_BUSY_RETRIES = 5
+# The first backoff when the server gives no Retry-After, doubled per attempt up to the cap.
+_INGEST_BUSY_BASE_S = 5.0
+_INGEST_BUSY_CAP_S = 60.0
+# A Retry-After past this is clamped: one header must not park a CI job for an hour.
+_INGEST_RETRY_AFTER_MAX_S = 120.0
+# Jitter adds up to this fraction of the wait on top of it, never below it, so a
+# Retry-After is always honoured as a floor.
+_INGEST_JITTER = 0.5
+# The most a push waits in total across its retries. Past it, the 429 is raised.
+_INGEST_BUSY_BUDGET_S = 600.0
+
+
+def _ingest_busy_delay(attempt: int, retry_after: int | None, rand: Any = random) -> float:
+    """Seconds to wait before retry number ``attempt + 1`` of a refused push.
+
+    The exponential backoff, raised to the server's ``Retry-After`` when it
+    asks for longer (clamped to :data:`_INGEST_RETRY_AFTER_MAX_S`), plus up to
+    :data:`_INGEST_JITTER` of that on top.
+    """
+    delay = min(_INGEST_BUSY_CAP_S, _INGEST_BUSY_BASE_S * (2 ** attempt))
+    if retry_after is not None:
+        delay = max(delay, min(float(retry_after), _INGEST_RETRY_AFTER_MAX_S))
+    return delay + rand.uniform(0.0, delay * _INGEST_JITTER)
 
 
 def _inventory_account_selector(
@@ -772,14 +809,20 @@ class CloudSec:
         query_params: list[tuple[str, str]] | None = None,
         *,
         raw_response: bool = False,
+        raw_body: bytes | None = None,
+        retry_quota_errors: bool | None = None,
     ) -> Any:
+        kwargs: dict[str, Any] = {}
+        if retry_quota_errors is not None:
+            kwargs["retry_quota_errors"] = retry_quota_errors
         return self._org.client.request(
             "POST",
             f"cloudsec/{self.oid}/{path}",
             query_params=query_params or None,
-            raw_body=json.dumps(body).encode(),
+            raw_body=raw_body if raw_body is not None else json.dumps(body).encode(),
             content_type="application/json",
             raw_response=raw_response,
+            **kwargs,
         )
 
     # ------------------------------------------------------------------
@@ -2873,6 +2916,7 @@ class CloudSec:
         ref: str | None = None,
         default_branch: str | None = None,
         provider: str | None = None,
+        busy_retries: int = INGEST_BUSY_RETRIES,
     ) -> dict[str, Any]:
         """Push results your own pipeline produced for one repository.
 
@@ -2906,6 +2950,19 @@ class CloudSec:
                 sending for a repository LimaCharlie does not collect —
                 nothing else can state it there, and it is left unset rather
                 than guessed when you do not know it.
+            busy_retries: how many times to re-send the push when it is
+                refused with 429 — the organization already has as many
+                pushes in progress as it may (``error_code: "ingest_busy"``),
+                or the request quota is spent. Nothing was recorded for a
+                refused push, so re-sending it is safe. Each wait honours the
+                response's ``Retry-After`` (up to 120 seconds) as a floor, backs
+                off exponentially otherwise, and adds random jitter so a
+                refused CI fan-out does not come back as one burst; the waits
+                total at most 10 minutes. ``0`` raises on the first 429.
+
+        Raises:
+            RateLimitError: the push was still refused after ``busy_retries``
+                re-sends, or the next wait would pass the 10-minute budget.
 
         Returns:
             ``{"result": {...}}`` — what landed: ``findings``, the SoR
@@ -2964,7 +3021,29 @@ class CloudSec:
             body["default_branch"] = default_branch
         if provider is not None:
             body["provider"] = provider
-        return self._post("code/ingest", body)
+        # Serialized once: the document can be tens of megabytes, and a retry re-sends
+        # the same bytes.
+        raw = json.dumps(body).encode()
+        waited = 0.0
+        attempt = 0
+        while True:
+            try:
+                # The client's own 429 retry is off here: it would neither honour the
+                # Retry-After nor jitter, and stacked under this loop it would multiply
+                # the attempts.
+                return self._post("code/ingest", body, raw_body=raw, retry_quota_errors=False)
+            except RateLimitError as e:
+                if attempt >= busy_retries:
+                    raise
+                delay = _ingest_busy_delay(attempt, e.retry_after)
+                if waited + delay > _INGEST_BUSY_BUDGET_S:
+                    raise
+                self._org.client._debug(
+                    f"code ingest refused (429), retrying in {delay:.1f}s "
+                    f"({attempt + 1}/{busy_retries})")
+                time.sleep(delay)
+                waited += delay
+                attempt += 1
 
     def get_code_capabilities(self, *, repo: str | None = None) -> dict[str, Any]:
         """What each connected source-control organization may actually DO

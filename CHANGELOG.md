@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Cloud Security — code-scan pushes retry when the service is busy
+
+- `CloudSec.ingest_code_results` (and so `cloudsec code ingest` and
+  `cloudsec code scan --ingest`) now re-sends a push refused with HTTP 429 —
+  the organization already has as many pushes in progress as it may
+  (`error_code: "ingest_busy"`), or the request quota is spent. Nothing is
+  recorded for a refused push, so the re-send is safe. Each wait honours the
+  response's `Retry-After` (up to 120 seconds) as a floor, backs off
+  exponentially without one, and adds random jitter; at most 5 re-sends and
+  10 minutes of waiting in total. `busy_retries=0` restores the old behaviour.
+- `RateLimitError.retry_after` is now filled from the response's `Retry-After`
+  header, and `Client.request` takes `retry_quota_errors=` to override the
+  client's `--retry` setting for one call.
+
 ### Cloud Security — SBOM route
 
 - `CloudSec.get_code_sbom` / `download_code_sbom` (and `cloudsec code sbom`)
