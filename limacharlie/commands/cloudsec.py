@@ -1922,7 +1922,7 @@ def code_sbom(ctx, repo, provider, output_path) -> None:
 
     \b
     Examples:
-      limacharlie cloudsec code sbom --repo refractionPOINT/lc-appsec-fixtures
+      limacharlie cloudsec code sbom --repo acme/api
       limacharlie cloudsec code sbom --repo acme/api -o api-sbom.json.gz
     """
     cs = _get_cloudsec(ctx)
@@ -1973,7 +1973,7 @@ def code_rescan(ctx, repo, ref, provider) -> None:
 
     \b
     Examples:
-      limacharlie cloudsec code rescan refractionPOINT/lc-appsec-fixtures
+      limacharlie cloudsec code rescan acme/api
       limacharlie cloudsec code rescan api --ref refs/heads/main
     """
     cs = _get_cloudsec(ctx)
@@ -2720,9 +2720,8 @@ def _git_repo_key(root: str) -> str | None:
     last two segments: a flat-owner remote (GitHub, Bitbucket) is already
     exactly ``owner/name``, but a GitLab repository nested under a
     group/subgroup namespace publishes that whole path as its key
-    (``acme/platform/backend``, not ``platform/backend``) — go-cloudsec's
-    ``model.SplitRepoKey`` reads a nested-owner provider's key by cutting on
-    the LAST '/', so dropping any leading segment here would report a
+    (``acme/platform/backend``, not ``platform/backend``). The provider key
+    is read by cutting on the LAST '/', so dropping any leading segment here would report a
     DIFFERENT repository under a key that happens to still look valid."""
     url = _git(root, "config", "--get", "remote.origin.url")
     if not url:
@@ -3239,7 +3238,7 @@ def finding_list(ctx, has_iac_origin, iac_attributions, severities, finding_clas
       limacharlie cloudsec finding list --owner alice@corp.com
       limacharlie cloudsec finding list --unassigned
       limacharlie cloudsec finding list --sla breached --sort due_at
-      limacharlie cloudsec finding list --repo refractionPOINT/lc-appsec-fixtures
+      limacharlie cloudsec finding list --repo acme/api
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.list_findings(

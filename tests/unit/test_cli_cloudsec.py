@@ -2248,8 +2248,7 @@ class TestCloudSecCode:
 
     def test_git_repo_key_keeps_a_nested_gitlab_namespace_whole(self):
         """A GitLab repository nested under a group/subgroup namespace
-        publishes that WHOLE path as its key (go-cloudsec
-        model.SplitRepoKey cuts a nested-owner provider's key on the LAST
+        publishes that WHOLE path as its key (a nested-owner provider's key is cut on the LAST
         '/'). Keeping only the last two segments would silently attribute
         a local scan to a DIFFERENT repository than the one checked out —
         one dropping the group, sharing the same subgroup/name."""
