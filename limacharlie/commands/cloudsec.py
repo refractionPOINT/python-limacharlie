@@ -2152,20 +2152,16 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
     that package to that advisory's fixed version. There is deliberately no
     way to name a package or a version here.
 
-    It ACCEPTS and returns — cloning the repository in a sandbox, editing the
-    manifest and opening the pull request takes minutes. THE PULL REQUEST IS
-    THE RESULT; this response is only that the request was queued.
-
-    'accepted' does NOT mean a pull request exists. Each of these is a quiet
-    no-op: an org with no Code Actions App configured, or one whose App
-    lacks 'Contents: Read and write' (the write App is separate and opt-in —
-    the read-only connection App is never used to write); a finding whose
-    package is flagged malicious, where the fix is removal and credential
-    rotation rather than an upgrade; a finding with no published fixed
-    version; an ecosystem other than npm, pip, go or maven; a repository
-    outside the code_scanning policy scope or over the free-tier quota; a
-    package that already has an AutoFix pull request open; and a connection
-    at its daily AutoFix limit.
+    Requires cloudsec.respond; cloudsec.set alone gets missing_permission.
+    A click creates a remediation run with you as requester and approver.
+    'accepted' means the run exists, not that a pull request does. Use the
+    returned run_id with 'cloudsec remediation get' to follow its result.
+    Disabled remediation returns 'disabled'; an unavailable fix action
+    returns 'action_unavailable'; full mutation slots return 'capacity'.
+    An existing package PR or exhausted daily AutoFix limit fails the run
+    with 'autofix_pr_already_open' or 'autofix_budget_exhausted'. A merged PR
+    with no recorded deployment scope ends 'pr_merged_unverifiable'; a PR
+    closed without merge ends 'pr_closed'. Neither means verified.
 
     Lockfiles: for npm the package-lock.json IS rewritten by default. One
     read-only registry metadata document supplies the new version's resolved
@@ -2182,7 +2178,7 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
     \b
     Examples:
       limacharlie cloudsec code autofix fnd_2290bab86c1b4d0374d1e2666f64aeca
-      limacharlie cloudsec code autofix fnd_2290... --repo refractionPOINT/lc-appsec-fixtures
+      limacharlie cloudsec code autofix fnd_2290... --repo acme/api
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.autofix_code_finding(finding_id, repo=repo, provider=provider))

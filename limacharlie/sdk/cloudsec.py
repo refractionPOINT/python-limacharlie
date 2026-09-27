@@ -39,9 +39,9 @@ live, point-in-time assessment that keeps nothing. The v2 surface —
 immutable runs, append-only attestation revisions, a drift stream and
 deterministic exports.
 
-Reads require the ``cloudsec.get`` permission and writes require
-``cloudsec.set``; every route additionally requires the org to be
-subscribed to the ``ext-cloud-security`` extension (403 otherwise).
+Reads require ``cloudsec.get``. Most writes require ``cloudsec.set``;
+AutoFix and remediation decisions require ``cloudsec.respond``. Every route additionally requires the org to be
+subscribed to Cloud Security (403 otherwise).
 
 Provider credentials/config and the cloudsec policies are hive
 records (``cloudsec_provider``, ``cloudsec_policy``, ``cloudsec_query``
@@ -2647,24 +2647,24 @@ class CloudSec:
 
         Returns:
             ``{"accepted": bool, "finding_id": str, "repo": str,
-            "provider": str, "debounce_seconds": int}``.
+            "provider": str, "run_id": str, "state": str,
+            "replayed": bool, "run": dict}``.
 
         Note:
-            ``accepted`` does not mean a pull request exists. The request is
-            acknowledged immediately and handed to the collector replica
-            holding that connection, which clones the repository in a
-            sandbox, edits the manifest and opens the pull request — that
-            pull request is where the result appears. Each of these is a
-            quiet no-op from here: an organization with no Code Actions App
-            configured (the write App is separate and opt-in — the read-only
-            connection App is never used to write) or one whose App lacks
-            *Contents: Read and write*; a finding whose package is flagged
-            malicious (the remediation is removal and credential rotation,
-            not an upgrade) or for which no fixed version has been
-            published; an ecosystem other than npm, pip, go or maven; a
-            repository outside the ``code_scanning`` policy scope or over the
-            free-tier quota; a package that already has an AutoFix pull
-            request open; and a connection at its daily AutoFix limit.
+            Requires ``cloudsec.respond``; ``cloudsec.set`` alone gets 403
+            ``missing_permission``. The click creates a governed remediation
+            run with the caller as requester and approver. ``accepted`` means
+            the run was created, not that a pull request exists. Poll
+            :meth:`get_remediation` using ``run_id`` for its callback result.
+            Before creation, disabled remediation returns 503 ``disabled``;
+            an unavailable fix action returns 422 ``action_unavailable``;
+            exhausted active slots return 429 ``capacity``. An open pull
+            request for the package fails the run with
+            ``autofix_pr_already_open``; the connection's daily AutoFix cap
+            yields ``autofix_budget_exhausted``. A merged PR without a
+            recorded deployment in scope ends ``expired`` with
+            ``pr_merged_unverifiable``; a PR closed without merge ends with
+            ``pr_closed``. Neither is a verified fix.
 
             For **npm** the ``package-lock.json`` *is* rewritten by
             default: one read-only registry metadata document supplies the
