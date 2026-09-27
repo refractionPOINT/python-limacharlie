@@ -5055,7 +5055,7 @@ def code_iac_map_extract(input_path, source_kind, repository, commit, workspace,
     with tempfile.TemporaryFile() as output:
         try:
             result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output,
-                                    stderr=subprocess.DEVNULL, timeout=10, check=False,
+                                    stderr=subprocess.DEVNULL, timeout=120, check=False,
                                     env={"PATH": os.defpath})
             output.seek(0)
             raw = output.read(MAX_BYTES + 1)
@@ -5068,7 +5068,7 @@ def code_iac_map_extract(input_path, source_kind, repository, commit, workspace,
 
 
 @code_iac_map.command("push")
-@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 10 MiB. Raw state/plans are refused.")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 20 MiB. Raw state/plans are refused.")
 @pass_context
 def code_iac_map_push(ctx, input_path) -> None:
     """Push only locally sanitized IaC JSON; requires cloudsec.set.
@@ -5083,5 +5083,49 @@ def code_iac_map_push(ctx, input_path) -> None:
             raw = validate_iac_map(source.read(MAX_BYTES + 1))
     except (OSError, ValueError):
         raise click.ClickException("invalid sanitized IaC map; run cloudsec code iac-map extract first") from None
-    result = _get_cloudsec(ctx).push_iac_map(raw)
-    _output(ctx, result)
+    cloudsec = _get_cloudsec(ctx)
+    document = json.loads(raw)
+    result = cloudsec.push_iac_map(raw)
+    receipt = result.get("result", {})
+    if receipt.get("status") != "processing":
+        _output(ctx, result)
+        return
+    digest = receipt.get("hash")
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise click.ClickException("IaC map receipt is missing its hash; retry the push")
+    selectors = {
+        "repository": document["repository"]["name"],
+        "provider": document["repository"]["provider"],
+        "workspace": document["workspace"],
+        "source_kind": document["source_kind"],
+        "hash": digest,
+    }
+    deadline = time.monotonic() + 15 * 60
+    retries = 0
+    while time.monotonic() < deadline:
+        time.sleep(2)
+        status = cloudsec.get_iac_map_status(**selectors).get("status")
+        if status == "published":
+            receipt["status"] = "published"
+            _output(ctx, result)
+            return
+        if status == "retryable":
+            if retries >= 5:
+                raise click.ClickException("IaC map worker interrupted repeatedly; retry the same push")
+            result = cloudsec.push_iac_map(raw)
+            receipt = result.get("result", {})
+            if receipt.get("status") == "published":
+                _output(ctx, result)
+                return
+            if receipt.get("status") != "processing":
+                raise click.ClickException("IaC map resubmission returned an invalid receipt")
+            digest = receipt.get("hash")
+            if not isinstance(digest, str) or len(digest) != 64:
+                raise click.ClickException("IaC map resubmission is missing its hash")
+            selectors["hash"] = digest
+            retries += 1
+        elif status == "superseded":
+            raise click.ClickException("IaC map was superseded by a newer document")
+        elif status != "processing":
+            raise click.ClickException("IaC map status is unavailable; retry the same push")
+    raise click.ClickException("IaC map is still processing; retry the same push to check its status")

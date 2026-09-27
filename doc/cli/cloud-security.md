@@ -430,11 +430,16 @@ secret values, source snippets, outputs and arbitrary attributes are omitted.
 Unknown or unsupported inputs make coverage partial; partial/failed pushes cannot
 delete prior mappings. Raw state and plans are refused by the push command/API.
 
-Raw extraction input is limited to 64 MiB; sanitized uploads to 10 MiB, 50,000
+Raw extraction input is limited to 64 MiB; sanitized uploads to 20 MiB, 100,000
 resources, depth 8 and strings of 4 KiB. Push requires `cloudsec.set` for the selected
 organization and feature availability. The API limits pushes to 30/minute per
-identity and organization. A successful response describes reconciliation and
-coverage, not deployment or remediation verification. Keep raw files local; only
+identity and organization. Push returns a receipt with a content hash and
+`processing` or `published` status. The CLI polls until publication and
+resubmits the same document if an interrupted worker becomes retryable. The SDK
+returns the receipt immediately; call `CloudSec.get_iac_map_status` with the
+document's repository, provider, workspace and source kind plus the receipt
+hash. Only `published` means the map is visible. A successful receipt is not
+deployment or remediation verification. Keep raw files local; only
 `sanitized-map.json` belongs in the upload step. No collection credential is used
 for response actions.
 

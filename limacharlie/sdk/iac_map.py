@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import json
 import re
-import time
 import unicodedata
 
-MAX_BYTES = 10 * 1024 * 1024
+MAX_BYTES = 20 * 1024 * 1024
 EXTRACT_COMMAND = "limacharlie cloudsec code iac-map extract --input terraform.json --source-kind state_identity --repository owner/repo --commit FULL_COMMIT --workspace default"
 
 
@@ -74,13 +73,12 @@ def validate_iac_map(document: bytes | str) -> bytes:
                          parse_constant=lambda _: _refuse())
     except (ValueError, UnicodeError, RecursionError):
         _refuse()
-    deadline = time.monotonic() + 2
     stack = [obj]
     nodes = 0
     while stack:
         value = stack.pop()
         nodes += 1
-        if nodes > 2_000_000 or time.monotonic() > deadline:
+        if nodes > 4_000_000:
             _refuse()
         if isinstance(value, dict):
             if len(value) > 256:
@@ -88,7 +86,7 @@ def validate_iac_map(document: bytes | str) -> bytes:
             stack.extend(value.keys())
             stack.extend(value.values())
         elif isinstance(value, list):
-            if len(value) > 50_000:
+            if len(value) > 100_000:
                 _refuse()
             stack.extend(value)
         elif isinstance(value, str):
