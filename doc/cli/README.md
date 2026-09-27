@@ -14,9 +14,19 @@ Global options can appear anywhere on the command line:
 --filter EXPR       JMESPath expression to filter/transform output
 --wide / -W         Disable table value truncation (show full values)
 --debug             Print request details
+--debug-curl        Print curl commands with sensitive-header placeholders
 --quiet / -q        Suppress non-error output
 --env TEXT          Named environment from config file
 ```
+
+`--debug-curl` replaces Authorization, X-API-Key, Cookie and Set-Cookie values
+with required environment variables (`LC_TOKEN`, `LC_API_KEY`, `LC_COOKIE` and
+`LC_SET_COOKIE`). To replay a command, set each referenced variable to the complete
+header value; for example, `LC_TOKEN` includes the `Bearer ` prefix. Missing values
+stop the command before curl runs. Header names are matched without regard to case.
+
+URLs, request bodies and other headers are not redacted. Inspect debug output
+before sharing it, including when combining `--debug-curl` with `--debug`.
 
 ## Output Formats
 

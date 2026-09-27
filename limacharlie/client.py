@@ -183,8 +183,9 @@ class Client:
                 in debug output. Default False (truncate to
                 DEBUG_RESPONSE_BODY_LIMIT chars).
             debug_curl: When True, print a reproducible curl command for
-                each request to stderr. Sensitive header values are masked
-                with a $LC_TOKEN placeholder.
+                each request to stderr. Sensitive header values use environment-variable placeholders
+                (LC_TOKEN is the complete Authorization header). URLs and
+                bodies are not redacted; inspect output before sharing.
             debug_verbose: When True (default), print verbose request/response
                 details. Set to False when only curl output is desired
                 (--debug-curl without --debug).
@@ -314,13 +315,10 @@ class Client:
     def _debug_curl_cmd(self, verb: str, url: str, headers: dict[str, str], body: bytes | None) -> None:
         """Print a reproducible curl command for the request.
 
-        Outputs an actual runnable curl command with real header values
-        (including auth tokens) so the user can copy-paste and reproduce
-        the exact request. Uses shlex.quote() from the Python standard
-        library for shell-safe argument escaping.
-
-        Since this includes real tokens, the output is intended for local
-        debugging - not for sharing in tickets.
+        Sensitive header values are replaced with required environment variables.
+        LC_TOKEN contains the complete Authorization header value, including its
+        scheme. URLs, bodies and other headers remain verbatim: inspect output
+        before sharing. All literal arguments remain shell-quoted.
 
         Inspired by Apache libcloud's LoggingConnection._log_curl()
         (Apache 2.0 license).
@@ -337,8 +335,23 @@ class Client:
         elif verb != "GET":
             parts.append(f"-X {verb}")
 
+        secret_vars = {
+            "authorization": "LC_TOKEN",
+            "x-api-key": "LC_API_KEY",
+            "cookie": "LC_COOKIE",
+            "set-cookie": "LC_SET_COOKIE",
+        }
         for name, value in headers.items():
-            parts.append(f"-H {shlex.quote(f'{name}: {value}')}")
+            secret_var = secret_vars.get(name.lower())
+            if secret_var:
+                # Quote the literal prefix separately from the deliberately
+                # expanded variable. Shell expansion does not re-evaluate the
+                # variable's contents as commands, and an unset value fails closed.
+                prefix = shlex.quote(f"{name}: ")
+                placeholder = '${' + secret_var + ':?Set ' + secret_var + ' to the full header value}'
+                parts.append(f'-H {prefix}"{placeholder}"')
+            else:
+                parts.append(f"-H {shlex.quote(f'{name}: {value}')}")
 
         if body and verb in ("POST", "PUT", "PATCH"):
             try:
