@@ -326,8 +326,9 @@ or tag push can still report activity, but it does not alter the
 repository's findings; use `code pr-check` for a pull request. An omitted ref
 (including detached `HEAD`) retains the legacy assertion that the document
 describes the default branch. A branch claiming a default that conflicts with
-the stored branch records activity only; after a rename, make one ref-less
-push with the new `--default-branch` to restate it.
+the stored branch records activity only. After a rename, a repository created
+through ingest can restate it with one ref-less push and the new
+`--default-branch`; a connected repository uses the provider's next refresh.
 
 `code ingest` (and `code scan --ingest`) retries a push the service answers with HTTP 429, which means the organization already has as many pushes in progress as it may, or the request quota is spent. It waits at least the response's `Retry-After`, adds random jitter so a CI fan-out that was refused together does not come back together, and gives up after 5 retries or 10 minutes of waiting, exiting with the rate-limit error. A refused push recorded nothing, so the retry is safe.
 
