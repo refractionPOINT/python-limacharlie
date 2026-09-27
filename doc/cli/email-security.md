@@ -2,7 +2,7 @@
 
 # Email Security
 
-Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, standalone EML analysis, retro-hunts, custom-rule validation and backtest, the connection preflight, and the tenant purge.
+Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, standalone EML analysis, custom-rule validation and backtest, the connection preflight, and the tenant purge.
 
 Four permissions rather than the usual get/set pair, because the product asks to be trusted with four different things:
 
@@ -101,15 +101,13 @@ limacharlie mailsec action get <ACTION_ID>
 
 A sweep's `--reason` lands on the sweep's own record and on every member's audit row. Repeating a sweep is idempotent per member, so a double run collapses onto the rows it already wrote; `--attempt` is how you ask for a deliberate second run — a retry after a provider outage recorded *beside* what failed rather than over it. It is an opaque handle, at most 128 characters, refused rather than truncated. Neither field is part of the confirmation token, so adding either one after previewing does not invalidate it.
 
-## Reports, analysis, hunts & rules
+## Reports, analysis & rules
 
 ```bash
 limacharlie mailsec report list --status open
 limacharlie mailsec report resolve <REPORT_ID> --disposition benign
 limacharlie mailsec report reopen <REPORT_ID>
 limacharlie mailsec analyze --file suspect.eml --org-domain corp.example   # no ingest
-limacharlie mailsec hunt create --lcql "..." --dry-run
-limacharlie mailsec hunt remediate <HUNT_ID> --action quarantine_message --confirm <HUNT_ID>
 limacharlie mailsec rule validate --file rule.json --rule-id custom-lookalike
 limacharlie mailsec rule backtest --file rule.json --since 2026-08-01
 ```
@@ -141,3 +139,5 @@ You may not need it at all: the same data is deleted automatically 30 days after
 - [CLI Overview](README.md)
 - [Platform Administration](platform-admin.md) — `org delete`, audit, users
 - [Hive & Data Stores](hive-data.md) — the `mailsec_provider`, `mailsec_policy` and `dr-mail` hives
+
+Historical email searches use platform LCQL over `EMAIL_MESSAGE` events. Pass selected message UUIDs to `mailsec message bulk-action` for a preview, then repeat it with the selection-bound `--confirm` token; there is no separate MailSec hunt job API.

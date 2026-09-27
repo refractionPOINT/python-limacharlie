@@ -5,7 +5,7 @@ coverage screen, the message index and its drawer, the justified raw-EML
 download, analyst verdict revision and its history, bulk remediation across a
 caller-supplied selection, campaigns, sender profiles, the action audit trail,
 the abuse-mailbox report queue and its reopen, standalone EML analysis,
-retro-hunts, custom-rule validation and backtest, the provider connection
+custom-rule validation and backtest, the provider connection
 preflight, the served onboarding guide, and the irreversible tenant purge.
 
 Permissions, which are four rather than the usual get/set pair because mailsec
@@ -1096,63 +1096,6 @@ class Mailsec:
         not have to treat "already open" as a failure.
         """
         return self._post(f"reports/{_seg(report_id)}/reopen", {})
-
-    # ------------------------------------------------------------------
-    # Hunts
-    # ------------------------------------------------------------------
-
-    def create_hunt(
-        self,
-        *,
-        detect: dict[str, Any] | None = None,
-        lcql: str | None = None,
-        since: str | None = None,
-        until: str | None = None,
-        dry_run: bool | None = None,
-    ) -> dict[str, Any]:
-        """Start a retro-hunt over message history.
-
-        Args:
-            detect: A D&R detect block to match.
-            lcql: An LCQL query, as an alternative to ``detect``.
-            since: Lower time bound.
-            until: Upper time bound.
-            dry_run: Estimate cost and match count without running.
-        """
-        body: dict[str, Any] = {}
-        for key, val in (
-            ("detect", detect),
-            ("lcql", lcql),
-            ("since", since),
-            ("until", until),
-            ("dry_run", dry_run),
-        ):
-            if val is not None:
-                body[key] = val
-        return self._post("hunts", body)
-
-    def get_hunt(self, hunt_id: str) -> dict[str, Any]:
-        """A hunt's status and results."""
-        return self._get(f"hunts/{_seg(hunt_id)}")
-
-    def remediate_hunt(
-        self,
-        hunt_id: str,
-        action: str,
-        *,
-        confirm: str | None = None,
-        reason: str | None = None,
-    ) -> dict[str, Any]:
-        """Bulk-remediate a hunt's results. Requires ``mailsec.act``.
-
-        Like a campaign sweep, ``confirm`` is what turns a preview into an
-        execution.
-        """
-        body: dict[str, Any] = {"action": action}
-        for key, val in (("confirm", confirm), ("reason", reason)):
-            if val is not None:
-                body[key] = val
-        return self._post(f"hunts/{_seg(hunt_id)}/remediate", body)
 
     # ------------------------------------------------------------------
     # Custom rules

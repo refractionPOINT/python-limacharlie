@@ -104,7 +104,6 @@ PROFILES = {
             "case entity add", "case entity search",
             "mailsec message list", "mailsec message get", "mailsec message action",
             "mailsec message bulk-action", "mailsec campaign action",
-            "mailsec hunt create", "mailsec hunt remediate",
         ],
     },
     "fleet_management": {
@@ -274,7 +273,6 @@ PROFILES = {
             "mailsec analyze",
             "mailsec report list", "mailsec report get",
             "mailsec report resolve", "mailsec report reopen",
-            "mailsec hunt create", "mailsec hunt get", "mailsec hunt remediate",
             "mailsec rule validate", "mailsec rule backtest",
             "mailsec connection test",
             "mailsec onboarding",
