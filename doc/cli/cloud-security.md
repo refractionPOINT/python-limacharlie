@@ -318,9 +318,11 @@ limacharlie cloudsec code ingest --repo acme/api --source sarif --file report.sa
 
 Only a push for the known default branch can reconcile the repository's findings.
 An explicit branch without a stored default branch is refused for a connected
-repository or a new repository created through ingest. An existing ingest-created
-repository without a stored default records activity only, with
-`default_branch_unknown` in the response. A connected repository's default
+repository or a new repository created through ingest. A legacy ingest-created
+repository with prior findings or a scan stamp but no stored default records
+activity only, with `default_branch_unknown` in the response. A repository
+first seen through a pull request can establish its default on a later matching
+branch push. A connected repository's default
 branch is recorded from its source-control provider;
 older rows may need a collector refresh. Until then, omit `--ref` to assert
 that the document describes the default branch. `--default-branch` on the
