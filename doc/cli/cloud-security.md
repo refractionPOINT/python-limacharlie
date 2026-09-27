@@ -308,6 +308,27 @@ limacharlie cloudsec code autofix <FINDING_ID>         # open the upgrade PR
 limacharlie cloudsec code ingest --repo acme/api --source sarif --file report.sarif
 ```
 
+For a repository created through ingest, a CI push that names a branch should
+send its default branch too:
+
+```bash
+limacharlie cloudsec code ingest --repo acme/api --source sarif --file report.sarif \
+  --ref refs/heads/main --default-branch main
+```
+
+Only a push for the known default branch can reconcile the repository's findings.
+An explicit branch without a stored default branch is refused. A connected
+repository's default branch is recorded from its source-control provider;
+older rows may need a collector refresh. Until then, omit `--ref` to assert
+that the document describes the default branch. `--default-branch` on the
+same explicit push cannot establish that fact. A pull-request, feature-branch
+or tag push can still report activity, but it does not alter the
+repository's findings; use `code pr-check` for a pull request. An omitted ref
+(including detached `HEAD`) retains the legacy assertion that the document
+describes the default branch. A branch claiming a default that conflicts with
+the stored branch records activity only; after a rename, make one ref-less
+push with the new `--default-branch` to restate it.
+
 `code ingest` (and `code scan --ingest`) retries a push the service answers with HTTP 429, which means the organization already has as many pushes in progress as it may, or the request quota is spent. It waits at least the response's `Retry-After`, adds random jitter so a CI fan-out that was refused together does not come back together, and gives up after 5 retries or 10 minutes of waiting, exiting with the rate-limit error. A refused push recorded nothing, so the retry is safe.
 
 `code repos` reports `scan_status` as `scanned`, `partial` or `unknown`. `partial` means the scan tripped a limit, so the finding set is INCOMPLETE — not a clean bill. `unknown` means this view has no scan state and says so rather than guessing; `code status` is the authoritative view of the run.

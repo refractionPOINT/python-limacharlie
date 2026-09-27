@@ -2965,10 +2965,14 @@ class CloudSec:
             commit: the revision the document describes. Recorded, not
                 verified, and worth sending: it is what tells somebody
                 reading a finding which checkout produced it.
-            default_branch: the repository's shipping branch. Only worth
-                sending for a repository LimaCharlie does not collect —
-                nothing else can state it there, and it is left unset rather
-                than guessed when you do not know it.
+            ref: the branch or tag the document describes. Only the known
+                default branch may reconcile repository findings. Omit this
+                to assert a whole-repository scan for a connected repository
+                with no stored default branch.
+            default_branch: the repository's shipping branch. Send this with
+                an explicit branch ref for a repository created through
+                ingest. A connected repository with no stored default branch
+                cannot establish it from an explicit ref alone.
             busy_retries: how many times to re-send the push when it is
                 refused with 429 — the organization already has as many
                 pushes in progress as it may (``error_code: "ingest_busy"``),

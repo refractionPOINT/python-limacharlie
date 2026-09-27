@@ -2199,11 +2199,14 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
               help="Path to the document. A '.gz' file is sent compressed.")
 @click.option("--commit", default=None,
               help="The revision the document describes. Recorded, not verified.")
-@click.option("--ref", default=None, help="The branch or tag, for context.")
+@click.option("--ref", default=None,
+              help="The branch or tag the document describes. Only the default branch "
+                   "updates repository findings; omit this for a connected repository "
+                   "without a stored default branch.")
 @click.option("--default-branch", "default_branch", default=None,
-              help="The repository's shipping branch. Only worth sending for a "
-                   "repository LimaCharlie does not collect — nothing else can "
-                   "state it there.")
+              help="The repository's shipping branch. Send it with an explicit branch "
+                   "ref for a repository created through ingest; on a connected "
+                   "repository, an explicit ref alone cannot establish the default.")
 @click.option("--provider", default=None,
               help="Source-control provider the key belongs to (default github).")
 @click.option("--scanner-succeeded/--scanner-failed", "scanner_succeeded", default=None,
