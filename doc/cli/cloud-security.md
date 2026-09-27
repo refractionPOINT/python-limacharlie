@@ -323,8 +323,8 @@ older rows may need a collector refresh. Until then, omit `--ref` to assert
 that the document describes the default branch. `--default-branch` on the
 same explicit push cannot establish that fact. A pull-request, feature-branch
 or tag push can still report activity, but it does not alter the
-repository's findings; use `code pr-check` for a pull request. An omitted ref
-(including detached `HEAD`) retains the legacy assertion that the document
+repository's findings when the default is known; use `code pr-check` for a
+pull request. An omitted ref or literal `HEAD` retains the legacy assertion that the document
 describes the default branch. A branch claiming a default that conflicts with
 the stored branch records activity only. After a rename, a repository created
 through ingest can restate it with one ref-less push and the new
