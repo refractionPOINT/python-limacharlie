@@ -4,7 +4,7 @@
 
 Commands for the LimaCharlie Cloud Security surface: the merged, risk-ranked findings worklist (CSPM misconfigurations + attack paths + CIEM + code and container-image vulnerabilities), the cloud resource inventory and security graph, compliance assessment (live and audit-grade), the risk overview, CAASM (third-party asset attack surface), the AppSec code lane and container-image inventory, sensor↔cloud-asset resolution, finding triage, CSV exports, and the multi-org fleet overview.
 
-Reads require the `cloudsec.get` permission and writes require `cloudsec.set`. Every command requires the org to be subscribed to the `ext-cloud-security` extension:
+Reads require `cloudsec.get`. Most writes require `cloudsec.set`; AutoFix and remediation decisions require `cloudsec.respond`. Every command requires the org to be subscribed to the Cloud Security extension:
 
 ```bash
 limacharlie extension subscribe --name ext-cloud-security
@@ -343,7 +343,9 @@ through ingest can restate it with one ref-less push and the new
 
 `code fixes` pages differently from the rest of cloudsec: backend default 5, max 20, not the shared 1000-row cap.
 
-`code rescan` and `code autofix` ACCEPT and return; `accepted` means QUEUED, never that a scan ran or a pull request exists. Both are debounced, and each carries a set of quiet no-ops (policy scope, free-tier quota, daily caps, failure backoff, a paused connection) — read the outcome per repository with `code repos`, not from the response.
+`code rescan` accepts a debounced request; `accepted` does not prove a scan ran. Follow its outcome with `code repos`. `code autofix` requires `cloudsec.respond` and creates a governed `open_fix_pr` remediation run with the caller as requester and approver. Its response has `run_id`, `state`, `replayed`, and `run`, with no `debounce_seconds`. Use `cloudsec remediation get <run_id>` to follow the callback and PR. A second click before the PR opens returns the same run with `replayed: true`. A created run does not prove a PR exists or a fix is verified.
+
+AutoFix refuses a request before creating a run with 403 `missing_permission`, 503 `disabled`, 422 `action_unavailable`, or 429 `capacity`. An already open package PR or spent daily AutoFix budget fails the run with `autofix_pr_already_open` or `autofix_budget_exhausted`. After a PR merges, a run with no recorded deployment in scope ends `expired` with `pr_merged_unverifiable`; a PR closed without merge ends with `pr_closed`. Neither outcome is `verified`. A merged PR waiting for deployment evidence remains in `monitoring` but no longer uses a mutation slot. AutoFix has a smaller slot budget than containment actions.
 
 ### Pull-request checks
 
