@@ -365,7 +365,7 @@ class _LazyCommandGroup(click.Group):
 )
 @click.option("--debug", is_flag=True, default=False, help="Enable debug output (prints request/response details to stderr).")
 @click.option("--debug-full", is_flag=True, default=False, help="Like --debug but does not truncate response bodies.")
-@click.option("--debug-curl", is_flag=True, default=False, help="Print curl commands for each request (safe to share, secrets use $LC_TOKEN).")
+@click.option("--debug-curl", is_flag=True, default=False, help="Print curl commands with sensitive-header placeholders. URLs and bodies are not redacted; inspect before sharing.")
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-error output.")
 @click.option("--wide", "-W", is_flag=True, default=False, help="Disable table value truncation (show full values).")
 @click.option("--no-warnings", is_flag=True, default=False, help="Suppress advisory warnings (cost notices, memory hints, checkpoint suggestions).")

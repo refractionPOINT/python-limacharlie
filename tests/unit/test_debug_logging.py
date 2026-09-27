@@ -266,14 +266,42 @@ class TestDebugCurlCmd:
         assert "Content-Type: application/json" in combined
         assert "X-Custom: value" in combined
 
-    def test_includes_real_auth_token(self):
-        """Auth tokens should be included as-is for reproducibility."""
+    @pytest.mark.parametrize("header,var", [
+        ("Authorization", "LC_TOKEN"),
+        ("aUtHoRiZaTiOn", "LC_TOKEN"),
+        ("X-API-Key", "LC_API_KEY"),
+        ("Cookie", "LC_COOKIE"),
+        ("Set-Cookie", "LC_SET_COOKIE"),
+    ])
+    def test_sensitive_headers_never_print_values(self, header, var):
         client, log = _make_client(debug_curl=True)
-        headers = {"Authorization": "Bearer eyJhbGciOiJSUzI1NiJ9.payload.sig"}
-        client._debug_curl_cmd("GET", "https://x.com", headers, None)
+        secret = "Bearer unique-secret-not-for-logs"
+        client._debug_curl_cmd("GET", "https://x.com", {header: secret}, None)
         combined = "\n".join(log)
-        assert "Bearer eyJhbGciOiJSUzI1NiJ9.payload.sig" in combined
-        assert "$LC_TOKEN" not in combined
+        assert secret not in combined
+        assert "unique-secret" not in combined
+        assert "${" + var + ":?" in combined
+
+    def test_placeholder_expands_as_one_argument_without_execution(self, tmp_path):
+        import json
+        import os
+        import subprocess
+
+        client, log = _make_client(debug_curl=True)
+        client._debug_curl_cmd("GET", "https://x.com", {"Authorization": "original-secret"}, None)
+        marker = tmp_path / "must-not-exist"
+        value = f"Bearer $(touch {marker}) `touch {marker}` ' \" ; spaces"
+        # A shell function captures argv; no network request or real token is used.
+        script = "curl() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \"$@\"; };\n" + log[-1][log[-1].index("curl -i"):]
+        env = dict(os.environ, LC_TOKEN=value)
+        result = subprocess.run(["sh", "-c", script], env=env, text=True, capture_output=True, check=True)
+        args = json.loads(result.stdout)
+        assert args[args.index("-H") + 1] == "Authorization: " + value
+        assert not marker.exists()
+        del env["LC_TOKEN"]
+        missing = subprocess.run(["sh", "-c", script], env=env, text=True, capture_output=True)
+        assert missing.returncode != 0
+        assert missing.stdout == ""
 
     def test_includes_post_body(self):
         client, log = _make_client(debug_curl=True)
