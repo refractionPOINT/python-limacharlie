@@ -4,7 +4,7 @@ Commands for the ``/mailsec`` API surface: the coverage screen, the message
 index and its drawer, the justified raw-EML download, bulk remediation across a
 selection you name, campaigns and campaign-wide sweeps, sender profiles, the
 action audit trail, the abuse-mailbox report queue, standalone EML analysis,
-retro-hunts, custom-rule validation and backtest, the connection preflight, the
+custom-rule validation and backtest, the connection preflight, the
 served onboarding guide, and the irreversible tenant purge.
 
 Four permissions rather than the usual get/set pair, because mailsec asks to be
@@ -186,7 +186,7 @@ on all of them at once. Up to 500 per call — a larger selection is
 REFUSED, not truncated, because acting on the first 500 of 900 leaves
 the rest in inboxes nobody will look at. Split it yourself.
 
-TWO STEPS, like `campaign action` and `hunt remediate`:
+TWO STEPS, like `campaign action`:
 
   omit --confirm         preview only; nothing is changed
   --confirm <token>      execute the previewed selection
@@ -433,31 +433,6 @@ state is the point, not who raced to change it.
 
 Examples:
   limacharlie mailsec report reopen <report_id>
-"""
-
-_EXPLAIN_HUNT_CREATE = """\
-Start a retro-hunt over message history.
-
-Examples:
-  limacharlie mailsec hunt create --detect-file detect.json --since 2026-07-01
-  limacharlie mailsec hunt create --lcql "..." --dry-run
-"""
-
-_EXPLAIN_HUNT_GET = """\
-A hunt's status and results.
-
-Examples:
-  limacharlie mailsec hunt get <hunt_id>
-"""
-
-_EXPLAIN_HUNT_REMEDIATE = """\
-Bulk-remediate a hunt's results. Requires mailsec.act.
-
-Previews by default; --confirm executes, exactly like a campaign sweep.
-
-Examples:
-  limacharlie mailsec hunt remediate <hunt_id> --action quarantine_message
-  limacharlie mailsec hunt remediate <hunt_id> --action quarantine_message --confirm <hunt_id>
 """
 
 _EXPLAIN_RULE_VALIDATE = """\
@@ -939,7 +914,6 @@ def group() -> None:
       action get          One record from the action audit trail
       analyze             Parse and score an EML without ingesting it
       report ...          Abuse-mailbox report queue (list, get, resolve, reopen)
-      hunt ...            Retro-hunts (create, get, remediate)
       rule ...            Custom rule validation and backtest
       connection test     Provider connection preflight
       onboarding          Provider setup guide, with your values filled in
@@ -972,11 +946,6 @@ def action_group() -> None:
 @group.group("report")
 def report_group() -> None:
     """The abuse-mailbox report queue (list, get, resolve, reopen)."""
-
-
-@group.group("hunt")
-def hunt_group() -> None:
-    """Retro-hunts over message history."""
 
 
 @group.group("rule")
@@ -1292,8 +1261,7 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
     """Remediate a set of messages you name, in bulk (mailsec.act).
 
     \b
-    Previews unless --confirm is given, like `campaign action` and
-    `hunt remediate`. The preview prints its confirm token, which is
+    Previews unless --confirm is given, like `campaign action`. The preview prints its confirm token, which is
     bound to the action, the attempt and the exact selection: repeat all
     three on the execute. Up to 500 per call; a larger one is refused
     rather than truncated.
@@ -1589,68 +1557,6 @@ def report_reopen(ctx, report_id) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Hunts
-# ---------------------------------------------------------------------------
-
-@hunt_group.command("create")
-@click.option("--detect-file", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="JSON file holding a D&R detect block.")
-@click.option("--lcql", default=None, help="An LCQL query, as an alternative to --detect-file.")
-@click.option("--since", default=None, help="Lower time bound.")
-@click.option("--until", default=None, help="Upper time bound.")
-@click.option("--dry-run", is_flag=True, default=False, help="Estimate cost and matches without running.")
-@pass_context
-def hunt_create(ctx, detect_file, lcql, since, until, dry_run) -> None:
-    """Start a retro-hunt over message history.
-
-    \b
-    Example:
-      limacharlie mailsec hunt create --detect-file detect.json --since 2026-07-01
-    """
-    if not detect_file and not lcql:
-        raise click.UsageError("a hunt needs something to match: pass --detect-file or --lcql")
-    detect = _load_json_file(detect_file, "--detect-file") if detect_file else None
-    ms = _get_mailsec(ctx)
-    _output(ctx, ms.create_hunt(
-        detect=detect, lcql=lcql, since=since, until=until,
-        dry_run=True if dry_run else None,
-    ))
-
-
-@hunt_group.command("get")
-@click.argument("hunt_id")
-@pass_context
-def hunt_get(ctx, hunt_id) -> None:
-    """A hunt's status and results.
-
-    \b
-    Example:
-      limacharlie mailsec hunt get <hunt_id>
-    """
-    _output(ctx, _get_mailsec(ctx).get_hunt(hunt_id))
-
-
-@hunt_group.command("remediate")
-@click.argument("hunt_id")
-@click.option("--action", "action_name", required=True, help="The typed action to apply to the results.")
-@click.option("--confirm", default=None, help="Pass the hunt id to EXECUTE. Omit to preview.")
-@click.option("--reason", default=None, help="Recorded on every resulting audit row.")
-@pass_context
-def hunt_remediate(ctx, hunt_id, action_name, confirm, reason) -> None:
-    """Bulk-remediate a hunt's results (mailsec.act).
-
-    \b
-    Previews unless --confirm is given.
-
-    \b
-    Example:
-      limacharlie mailsec hunt remediate <hunt_id> --action quarantine_message --confirm <hunt_id>
-    """
-    ms = _get_mailsec(ctx)
-    _output(ctx, ms.remediate_hunt(hunt_id, action_name, confirm=confirm, reason=reason))
-
-
-# ---------------------------------------------------------------------------
 # Rules
 # ---------------------------------------------------------------------------
 
@@ -1807,9 +1713,6 @@ register_explain("mailsec.report.list", _EXPLAIN_REPORT_LIST)
 register_explain("mailsec.report.get", _EXPLAIN_REPORT_GET)
 register_explain("mailsec.report.resolve", _EXPLAIN_REPORT_RESOLVE)
 register_explain("mailsec.report.reopen", _EXPLAIN_REPORT_REOPEN)
-register_explain("mailsec.hunt.create", _EXPLAIN_HUNT_CREATE)
-register_explain("mailsec.hunt.get", _EXPLAIN_HUNT_GET)
-register_explain("mailsec.hunt.remediate", _EXPLAIN_HUNT_REMEDIATE)
 register_explain("mailsec.rule.validate", _EXPLAIN_RULE_VALIDATE)
 register_explain("mailsec.rule.backtest", _EXPLAIN_RULE_BACKTEST)
 register_explain("mailsec.connection.test", _EXPLAIN_CONNECTION_TEST)

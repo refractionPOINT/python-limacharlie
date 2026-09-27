@@ -751,7 +751,6 @@ class TestRouteCoverage:
             (lambda: ms.get_action("a"), "GET", f"mailsec/{OID}/actions/a"),
             (lambda: ms.list_reports(), "GET", f"mailsec/{OID}/reports"),
             (lambda: ms.get_report("r"), "GET", f"mailsec/{OID}/reports/r"),
-            (lambda: ms.get_hunt("h"), "GET", f"mailsec/{OID}/hunts/h"),
             (lambda: ms.get_onboarding(), "GET", f"mailsec/{OID}/onboarding"),
             (lambda: ms.analyze(eml="x"), "POST", f"mailsec/{OID}/analyze"),
             (lambda: ms.act_on_message("m", "a"), "POST", f"mailsec/{OID}/messages/m/actions"),
@@ -759,8 +758,6 @@ class TestRouteCoverage:
             (lambda: ms.act_on_campaign("c", "a"), "POST", f"mailsec/{OID}/campaigns/c/actions"),
             (lambda: ms.resolve_report("r", "benign"), "POST", f"mailsec/{OID}/reports/r/resolve"),
             (lambda: ms.reopen_report("r"), "POST", f"mailsec/{OID}/reports/r/reopen"),
-            (lambda: ms.create_hunt(lcql="q"), "POST", f"mailsec/{OID}/hunts"),
-            (lambda: ms.remediate_hunt("h", "a"), "POST", f"mailsec/{OID}/hunts/h/remediate"),
             (lambda: ms.validate_rule({}), "POST", f"mailsec/{OID}/rules/validate"),
             (lambda: ms.backtest_rule({}), "POST", f"mailsec/{OID}/rules/backtest"),
             (lambda: ms.test_connection("rec"), "POST", f"mailsec/{OID}/connections/rec/test"),
@@ -772,8 +769,8 @@ class TestRouteCoverage:
             (lambda: ms.prepare_tenant_purge(), "GET", f"mailsec/{OID}/tenant"),
             (lambda: ms.purge_tenant("tok"), "DELETE", f"mailsec/{OID}/tenant"),
         ]
-        # 30 gateway routes, 30 SDK methods.
-        assert len(calls) == 30
+        # 27 gateway routes, 27 SDK methods.
+        assert len(calls) == 27
         for fn, method, expected_url in calls:
             mock_org.client.request.reset_mock()
             fn()
