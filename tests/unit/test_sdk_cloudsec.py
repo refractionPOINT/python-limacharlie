@@ -493,18 +493,18 @@ class TestFleetOverview:
         client._uid = "user-1"
         client._oauth_creds = None
         client._jwt = "org-scoped-jwt"
-        client.mint_jwt.return_value = "multi-org-jwt"
+        client.mint_jwt.return_value = "thin-user-jwt"
         client.request.return_value = {"orgs": [], "next_cursor": ""}
         cs.get_fleet_overview(oids=["o1", "o2"], group="g1", limit=50, trend_days=90)
-        # A multi-org JWT is minted (pure mint, no client-state mutation)...
-        client.mint_jwt.assert_called_once_with()
+        # A thin user JWT avoids a huge all-org permission map in the header.
+        client.mint_jwt.assert_called_once_with(oid="-")
         client.refresh_jwt.assert_not_called()
         args, kwargs = client.request.call_args
         # ...and sent as a request-scoped Authorization header against the
         # NON-oid-scoped fleet path, bypassing the client's own JWT.
         assert args == ("GET", "cloudsec/fleet/overview")
         assert kwargs["is_no_auth"] is True
-        assert kwargs["extra_headers"] == {"Authorization": "Bearer multi-org-jwt"}
+        assert kwargs["extra_headers"] == {"Authorization": "Bearer thin-user-jwt"}
         assert kwargs["query_params"] == [
             ("oids", "o1"), ("oids", "o2"), ("group", "g1"),
             ("limit", "50"), ("trend_days", "90"),
@@ -516,12 +516,12 @@ class TestFleetOverview:
         client = mock_org.client
         client._uid = "user-1"
         client._oauth_creds = None
-        client.mint_jwt.return_value = "multi-org-jwt"
+        client.mint_jwt.return_value = "thin-user-jwt"
         client.request.return_value = {"orgs": [], "next_cursor": "c2"}
         cs.get_fleet_overview()
         cs.get_fleet_overview(cursor="c2")
         # One mint serves the whole paged sweep.
-        client.mint_jwt.assert_called_once_with()
+        client.mint_jwt.assert_called_once_with(oid="-")
         assert client.request.call_count == 2
 
     def test_fleet_overview_401_reminted_once(self, cs, mock_org):
@@ -535,9 +535,10 @@ class TestFleetOverview:
         ]
         out = cs.get_fleet_overview()
         assert out == {"orgs": []}
-        # The 401 re-minted the MULTI-ORG token (not the client's org-scoped
+        # The 401 re-minted the thin user token (not the client's org-scoped
         # refresh) and retried with it.
         assert client.mint_jwt.call_count == 2
+        assert all(call.kwargs == {"oid": "-"} for call in client.mint_jwt.call_args_list)
         assert client.request.call_args[1]["extra_headers"] == {
             "Authorization": "Bearer fresh-jwt",
         }
@@ -548,7 +549,7 @@ class TestFleetOverview:
         client = mock_org.client
         client._uid = "user-1"
         client._oauth_creds = None
-        client.mint_jwt.return_value = "multi-org-jwt"
+        client.mint_jwt.return_value = "thin-user-jwt"
         client.request.side_effect = AuthenticationError("401")
         with pytest.raises(AuthenticationError):
             cs.get_fleet_overview()

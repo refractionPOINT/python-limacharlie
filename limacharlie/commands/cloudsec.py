@@ -11,8 +11,9 @@ finding triage, the free-tier standing, and the cloudsec_policy
 authoring aids (vocabulary, autocomplete, and the "Simulate" matcher
 previews).
 
-Reads require the ``cloudsec.get`` permission and writes require
-``cloudsec.set``. Every command requires the org to be subscribed to
+Reads usually require ``cloudsec.get`` and writes usually require
+``cloudsec.set``. AutoFix and remediation writes require ``cloudsec.respond``;
+reading an IaC map receipt requires ``cloudsec.set``. Every command requires the org to be subscribed to
 the ``ext-cloud-security`` extension:
 
   limacharlie extension subscribe --name ext-cloud-security
@@ -811,7 +812,7 @@ The org set is every org your credentials can see — narrowed with
 where you hold cloudsec.get and that are subscribed to the
 cloud-security extension. Orgs failing either filter are silently
 excluded and counted in 'skipped'. With user-scoped credentials the
-CLI mints a temporary multi-org token for the call, so the fleet is
+CLI mints a temporary thin user token for the call, so the fleet is
 NOT limited to the configured --oid.
 
 Keyset-paginated by org (default 25, cap 100); the resolved org set
@@ -1626,8 +1627,9 @@ def group() -> None:
     """Cloud Security (CNAPP): findings, inventory, graph, compliance.
 
     Requires the org to be subscribed to the ext-cloud-security
-    extension. Reads need the 'cloudsec.get' permission; triage and
-    other writes need 'cloudsec.set'. Provider configs and policies
+    extension. Reads usually need 'cloudsec.get'; triage and most
+    other writes need 'cloudsec.set'. AutoFix and remediation writes
+    need 'cloudsec.respond', and IaC map status needs 'cloudsec.set'. Provider configs and policies
     are hive records (cloudsec_provider / cloudsec_policy hives).
 
     \b
@@ -2133,13 +2135,13 @@ def code_webhook(ctx, connection, url, secret) -> None:
 @code_group.command("autofix")
 @click.argument("finding_id")
 @click.option("--repo", default=None,
-              help="Narrow the search to one repository. A HINT, not an "
-                   "authorization — the finding id is what is acted on — but "
-                   "worth passing: without it the backend searches the "
-                   "in-scope repositories.")
+              help="Repository hint, validated by the gateway (no whitespace, "
+                   "bounded length). It is NOT forwarded: the repository is "
+                   "resolved from the finding itself, and the response reports "
+                   "the repository the run actually targets.")
 @click.option("--provider", default=None,
-              help="Source-control provider the repository belongs to "
-                   "(default github).")
+              help="Provider hint, validated but not forwarded; the finding "
+                   "decides the provider.")
 @pass_context
 def code_autofix(ctx, finding_id, repo, provider) -> None:
     """Open a pull request fixing a dependency finding.
@@ -2156,10 +2158,19 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
     A click creates a remediation run with you as requester and approver.
     'accepted' means the run exists, not that a pull request does. Use the
     returned run_id with 'cloudsec remediation get' to follow its result.
-    Disabled remediation returns 'disabled'; an unavailable fix action
-    returns 'action_unavailable'; full mutation slots return 'capacity'.
-    An existing package PR or exhausted daily AutoFix limit fails the run
-    with 'autofix_pr_already_open' or 'autofix_budget_exhausted'. A merged PR
+    Refused before a run exists: 404 'finding_not_found', 503 'disabled'
+    (remediation off) or 'unavailable' (retryable), 422 'action_unavailable',
+    429 'capacity' (active-run limit) or the per-identity request quota.
+    A run that cannot open a pull request ends 'failed' with a closed
+    'failure_reason', for example 'write_app_not_configured',
+    'write_app_lacks_contents', 'finding_not_autofixable',
+    'repository_not_connected', 'autofix_pr_already_open' or
+    'autofix_budget_exhausted'; read it with 'cloudsec remediation get'.
+    A major-version raise is proposed, never silent: the finding's code block
+    carries 'autofix_major_upgrade' with 'autofix_from_line' and
+    'autofix_to_line' before you ask, the pull request title says
+    '(major upgrade)', and the run's change.upgrade records the same verdict.
+    A merged PR
     with no recorded deployment scope ends 'pr_merged_unverifiable'; a PR
     closed without merge ends 'pr_closed'. Neither means verified.
 
@@ -5127,3 +5138,36 @@ def code_iac_map_push(ctx, input_path) -> None:
         elif status != "processing":
             raise click.ClickException("IaC map status is unavailable; retry the same push")
     raise click.ClickException("IaC map is still processing; retry the same push to check its status")
+
+
+@code_iac_map.command("status")
+@click.option("--repository", required=True, help="Repository owner/name from the sanitized map.")
+@click.option("--provider", required=True,
+              type=click.Choice(["github", "gitlab", "bitbucket"]),
+              help="Source-control provider from the sanitized map.")
+@click.option("--workspace", required=True, help="Workspace from the sanitized map.")
+@click.option("--source-kind", required=True,
+              type=click.Choice(["state_identity", "plan_desired"]),
+              help="Source kind from the sanitized map.")
+@click.option("--hash", "receipt_hash", required=True,
+              help="64-character lowercase content hash from the push receipt.")
+@pass_context
+def code_iac_map_status(ctx, repository, provider, workspace, source_kind,
+                        receipt_hash) -> None:
+    """Read one exact IaC map receipt; requires cloudsec.set.
+
+    A processing receipt is not yet visible. Retryable means the same sanitized
+    document may be pushed again; superseded means a newer map replaced it.
+    Only published means the map is visible. The command exits successfully
+    when the status read succeeds, so check the returned status before using
+    the map as evidence.
+    """
+    if len(receipt_hash) != 64 or any(c not in "0123456789abcdef" for c in receipt_hash):
+        raise click.BadParameter("must be 64 lowercase hexadecimal characters", param_hint="--hash")
+    response = _get_cloudsec(ctx).get_iac_map_status(
+        repository=repository, provider=provider, workspace=workspace,
+        source_kind=source_kind, hash=receipt_hash)
+    if not isinstance(response, dict) or response.get("status") not in (
+            "processing", "published", "retryable", "superseded") or response.get("hash") != receipt_hash:
+        raise click.ClickException("IaC map status response did not match the requested receipt")
+    _output(ctx, response)
