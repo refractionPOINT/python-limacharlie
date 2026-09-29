@@ -104,7 +104,10 @@ def test_cli_counts_agree_with_the_api_for_one_query():
 def test_coverage_percent_only_on_clean_lines():
     _, fx = _load("counts.json")
     lines = fx["code_coverage"]["coverage"]["lines"]
-    shown = {l["metric"]: coverage_percent(l) for l in lines}
+    # The fixture is a 2026-09-23 snapshot; score it while its window is live.
+    from datetime import datetime
+    sample_time = datetime.fromisoformat("2026-09-23T12:00:00+00:00").timestamp()
+    shown = {l["metric"]: coverage_percent(l, now=sample_time) for l in lines}
     assert shown["workloads_with_digest"] == pytest.approx(80.0)
     assert shown["remediation_outcomes"] == pytest.approx(60.0)
     # Unmeasured metrics are null, never 0 of 0, and never a percentage.
@@ -112,6 +115,21 @@ def test_coverage_percent_only_on_clean_lines():
     unmeasured = next(l for l in lines if l["metric"] == "pr_context_success")
     assert unmeasured["numerator"] is None and unmeasured["denominator"] is None
     assert unmeasured["reason"] and unmeasured["action"]
+
+
+def test_coverage_summary_keeps_tiers_and_rechecks_expired_window(monkeypatch):
+    _, fx = _load("counts.json")
+    line = next(l for l in fx["code_coverage"]["coverage"]["lines"]
+                if l["metric"] == "workloads_with_digest")
+    from datetime import datetime
+    after_window = datetime.fromisoformat("2026-09-24T00:00:00+00:00").timestamp()
+    monkeypatch.setattr("limacharlie.sdk.cloudsec.time.time", lambda: after_window)
+    row = coverage_summary({"coverage": {"lines": [line]}})[0]
+    assert row["breakdown"] == line["breakdown"]
+    assert row["percent"] is None
+    assert row["reason"] == "coverage_stale"
+    assert row["action"] == "wait_for_collection"
+    assert row["complete"] is False
 
 
 @pytest.mark.parametrize("fixture,metric,reason", [

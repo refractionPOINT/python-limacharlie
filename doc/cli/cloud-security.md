@@ -4,7 +4,7 @@
 
 Commands for the LimaCharlie Cloud Security surface: the merged, risk-ranked findings worklist (CSPM misconfigurations + attack paths + CIEM + code and container-image vulnerabilities), the cloud resource inventory and security graph, compliance assessment (live and audit-grade), the risk overview, CAASM (third-party asset attack surface), the AppSec code lane and container-image inventory, sensor↔cloud-asset resolution, finding triage, CSV exports, and the multi-org fleet overview.
 
-Reads require the `cloudsec.get` permission and writes require `cloudsec.set`. Every command requires the org to be subscribed to the `ext-cloud-security` extension:
+Reads usually require `cloudsec.get`. Most writes require `cloudsec.set`; AutoFix and remediation decisions require `cloudsec.respond`, and reading an IaC map receipt requires `cloudsec.set`. Every command requires the org to be subscribed to the Cloud Security extension:
 
 ```bash
 limacharlie extension subscribe --name ext-cloud-security
@@ -31,7 +31,7 @@ limacharlie cloudsec free-tier                    # tier + provider usage vs the
 
 ## Fleet (multi-org, MSSP)
 
-One posture row per authorized org, plus cross-tenant rollups on the first page. With user-scoped credentials the CLI mints a temporary multi-org token, so the fleet is not limited to the configured `--oid`.
+One posture row per authorized org, plus cross-tenant rollups on the first page. With user-scoped credentials the CLI mints a temporary thin user token; the gateway resolves its current org memberships, so the fleet is not limited to the configured `--oid` and the token remains small for users with many organizations.
 
 ```bash
 limacharlie cloudsec fleet overview
@@ -146,9 +146,8 @@ single incomplete package (or an incomplete sensor set) is supposed to exercise.
 
 `dormant`, the old spelling of `not_observed`, is decoded on read and never emitted.
 
-> This command needs a gateway route that is **not deployed yet**
-> (`POST /cloudsec/{oid}/findings/{id}/runtime-check`). Until it ships the command
-> fails the way any unknown route does, rather than answering from nothing.
+The gateway route is `POST /cloudsec/{oid}/findings/{id}/runtime-check`.
+Its availability also depends on the runtime-evidence feature in the selected datacenter.
 
 ## Attack paths & CIEM
 
@@ -293,6 +292,17 @@ Saved provider configs live in the `cloudsec_provider` hive:
 limacharlie hive set --hive-name cloudsec_provider --key my-gcp --input-file provider.json --enabled
 ```
 
+Collection, scanning and event-emission exclusions live in `cloudsec_policy`
+records with `policy_type: "exclusions"`; use the hive commands to manage them.
+`cloudsec policy vocabulary` reports the allowed matcher dimensions for each
+surface. Collection and scanning can match `provider`, `region` and
+`resource_type` (the resource kind in its URN). Emission can match `provider`
+but cannot match `region` or `resource_type`, because emitted events do not
+carry those fields. For collection only, `resource_types` (plural) narrows
+collector model types such as `DataStore`; it differs from the
+`resource_type` matcher. A collection exclusion removes matching inventory
+on the next sweep, so review its scope before saving it.
+
 ## Code Security: the hosted code lane
 
 The lane scans a connected source-control organization's repositories and emits findings into the SAME worklist the cloud collectors feed, so the findings themselves are read with `cloudsec finding list --repo <owner>/<name>`. The commands here are the repository-shaped views and triggers that worklist cannot give you.
@@ -337,13 +347,40 @@ through ingest can restate it with one ref-less push and the new
 
 `code ingest` (and `code scan --ingest`) retries a push the service answers with HTTP 429, which means the organization already has as many pushes in progress as it may, or the request quota is spent. It waits at least the response's `Retry-After`, adds random jitter so a CI fan-out that was refused together does not come back together, and gives up after 5 retries or 10 minutes of waiting, exiting with the rate-limit error. A refused push recorded nothing, so the retry is safe.
 
+`code sbom --repo <owner/name>` calls `GET /code/sbom?repo=...`; the repository
+key is a query value, not a path segment. Without `-o`, it returns a short-lived
+download link when available. No SBOM is a successful response with `sbom: null`
+and a reason; with `-o`, no SBOM exits nonzero and writes no file.
+
 `code repos` reports `scan_status` as `scanned`, `partial` or `unknown`. `partial` means the scan tripped a limit, so the finding set is INCOMPLETE — not a clean bill. `unknown` means this view has no scan state and says so rather than guessing; `code status` is the authoritative view of the run.
+
+`code status` reports each connection's last pass in `last_stats`, including an `outcome` of `complete`, `partial` or `failed`. `partial` means the pass ran and wrote results but could not cover some images for a stated reason; it is not a failure and not a clean bill. Images the pass could not pull are grouped in `last_stats.image_access[]` (`reason` is `image_registry_credential` or `image_registry_permission`, with `registry`, `registry_name`, `hosts`, an exact `images` count, `message`, `remedy` and `setup_path`), and each affected target carries `access_reason` and `remedy`. Only the registry's own refusal counts as an access problem; another fetch failure stays a failure with its own error.
+
+Private Docker Hub, Quay and GHCR images are pulled only with a registry credential you provide: a `cloudsec_policy` hive record with `policy_type: "registry_credential"` naming exactly one repository. The token itself lives in a `secret` hive record and is referenced, never inlined:
+
+```bash
+# token.json: {"secret": "<read-only access token>"}
+limacharlie hive set --hive-name secret --key hub-readonly --input-file token.json
+cat > registry-policy.json <<'JSON'
+{"policy_type": "registry_credential",
+ "registry_credential": {"registry": "dockerhub", "repository": "acme/private-image",
+                         "username": "readbot", "secret_ref": "hive://secret/hub-readonly"}}
+JSON
+limacharlie hive set --hive-name cloudsec_policy --key hub-private-image \
+  --input-file registry-policy.json --enabled
+```
+
+`registry` is `dockerhub`, `quay` or `ghcr`; `repository` is one lowercase `namespace/image` (a GHCR path may be deeper), `username` a registry account or robot name, and `secret_ref` must be `hive://secret/<name>` of an existing secret you can read. Use a read-only token. ECR and ACR images use the cloud connection's own read access instead (`setup_path` `integrations/<provider>`), scoped to one repository per pull.
 
 `code capabilities` covers **GitHub connections only** — a GitLab or Bitbucket connection scans with its own read-only token and has no write plane to detect, so it never appears, not even as `unknown`. Use `provider manifest` for those. A capability of `available` means the control MAY be offered, not that anything fires on its own.
 
 `code fixes` pages differently from the rest of cloudsec: backend default 5, max 20, not the shared 1000-row cap.
 
-`code rescan` and `code autofix` ACCEPT and return; `accepted` means QUEUED, never that a scan ran or a pull request exists. Both are debounced, and each carries a set of quiet no-ops (policy scope, free-tier quota, daily caps, failure backoff, a paused connection) — read the outcome per repository with `code repos`, not from the response.
+`code rescan` accepts a debounced request; `accepted` does not prove a scan ran. Follow its outcome with `code repos`. `code autofix` requires `cloudsec.respond` and creates a governed `open_fix_pr` remediation run with the caller as requester and approver. Its response has `run_id`, `state`, `replayed`, and `run`, with no `debounce_seconds`. Use `cloudsec remediation get <run_id>` to follow the callback and PR. A second click before the PR opens returns the same run with `replayed: true`. A created run does not prove a PR exists or a fix is verified.
+
+AutoFix refuses a request before creating a run with 403 `missing_permission`, 404 `finding_not_found`, 503 `disabled` or `unavailable` (retryable), 422 `action_unavailable`, or 429 `capacity` (active-run limit, or the per-identity request quota). `--repo` and `--provider` are validated hints that are not forwarded: the repository comes from the finding, and the response reports it. A run that cannot open a pull request ends `failed` with a closed `failure_reason`, such as `write_app_not_configured`, `write_app_lacks_contents`, `finding_not_autofixable`, `repository_not_connected`, `autofix_pr_already_open` (an open PR already exists for the package) or `autofix_budget_exhausted` (the connection's daily AutoFix limit); read it with `cloudsec remediation get`.
+
+A major-version raise is proposed and flagged, never silent. Before you click, the finding's `code` block carries `autofix_version` and, for a major raise, `autofix_major_upgrade`, `autofix_from_line` and `autofix_to_line`; the PR title reads `(major upgrade)`, and the run's `change.upgrade` (`major_upgrade`, `from_line`, `to_line`) records the same verdict once the executor opens the PR. Some raises are refused outright, for example a stale finding or a Go module major above v1. After a PR merges, a run with no recorded deployment in scope ends `expired` with `pr_merged_unverifiable`; a PR closed without merge ends with `pr_closed`. Neither outcome is `verified`. A merged PR waiting for deployment evidence remains in `monitoring` but no longer uses a mutation slot. AutoFix has a smaller slot budget than containment actions.
 
 ### Pull-request checks
 
@@ -374,6 +411,20 @@ Push rescans and pull-request checks are driven by the GitHub App's OWN webhook 
 
 Two outcomes need a human and cannot be fixed through the API: event subscriptions (Push, Pull request) must be ticked in the App's settings — a SUCCESSFUL call can still report `state: unavailable` with `reason: missing_events` — and an App whose webhook is not Active cannot have one created by GitHub's API (`reason: webhook_not_active`). A `timeout` MAY STILL HAVE BEEN APPLIED, so re-read the status rather than retrying blindly; `host_unavailable` is transient and the write is idempotent.
 
+The extension also provides `reset_code_webhook_rules`. The general extension
+request command is its CLI and SDK path:
+
+```bash
+limacharlie extension request --name ext-cloud-security \
+  --action reset_code_webhook_rules --data '{"missing_only":true}'
+```
+
+`missing_only` creates absent recipe rules without replacing edited ones.
+Omitting it restores extension-owned rules to their shipped content and enabled
+state; review that change before invoking it. This is an extension request,
+not a `/cloudsec` API route. It requires `ext.request`. The SDK equivalent is
+`Extensions(org).request("ext-cloud-security", "reset_code_webhook_rules", data={"missing_only": True}, unwrap=True)`.
+
 ## Container images
 
 ```bash
@@ -388,6 +439,23 @@ limacharlie cloudsec finding list --image-urn "<urn from image list>"
 An image is keyed on its **digest alone**, so one row is the same artifact everywhere it is stored — tags, registry and push time belong to the repository↔image MEMBERSHIP, not to the image. The placement filters on `image list` (`--repo-urn`, `--provider`, `--account`, `--registry`, `--tag`) therefore select images with AT LEAST ONE matching placement; the row still lists its other placements.
 
 `repositories`, `memberships`, `workloads` and `source_repositories` are BOUNDED SAMPLES of 100 with no pagination — the paired `*_count` is the truth, and only memberships carry a `_truncated` flag. To get past 100 placements, use `image list --repo-urn ...` instead.
+
+`image get` also returns a digest-bound `lineage` decision. Read its `tier`
+(`inferred`, `tool_emitted`, or `our_signed_push`), `status`, and `reason`
+together: `inferred` and `asserted` do not mean a verified build. The
+`digests_with_source` line in `code coverage` gives an explicit denominator
+and confidence-tier breakdown for running-digest source coverage. An OCI index
+may be the digest named by a provenance statement; do not replace it with a
+platform manifest digest or infer a build from an image label.
+
+Per-workload digest evidence is on each `inventory list --type KubeWorkload`
+or `--type ComputeInstance` row under `props.deployment` when collected. Each
+declared image has provider-observed `digests` or a specific `reason` such as
+`tag_only`, `revision_unavailable`, `provider_unreachable`, `not_running`, `malformed_digest`, `stale` or `other`.
+`running`, `read_complete`, and `observed_at` qualify the observation. A
+partial workload can have both resolved and unresolved images; the aggregate
+coverage count cannot substitute for the individual rows. Older rows with no
+`deployment` observation are unknown, not resolved.
 
 `--scanning-state` is the one image selector that is **not** repeatable: the backend would take several values, but the API forwards only one, so a second would be dropped without a word.
 
@@ -447,6 +515,9 @@ limacharlie cloudsec code iac-map extract --input terraform.json \
   --source-kind state_identity --repository owner/repo \
   --commit FULL_COMMIT --workspace default > sanitized-map.json
 limacharlie cloudsec code iac-map push --input sanitized-map.json
+limacharlie cloudsec code iac-map status --repository owner/repo \
+  --provider github --workspace default --source-kind state_identity \
+  --hash <64-character receipt hash>
 ```
 
 `FULL_COMMIT` is the full 40- or 64-character lowercase source revision. Use
@@ -469,6 +540,11 @@ hash. Only `published` means the map is visible. A successful receipt is not
 deployment or remediation verification. Keep raw files local; only
 `sanitized-map.json` belongs in the upload step. No collection credential is used
 for response actions.
+
+`status` reads one scoped receipt and exits zero when the read succeeds, even
+for `processing`, `retryable` or `superseded`; inspect the returned `status`.
+An invalid hash or mismatched response exits nonzero. A timed-out `push` exits
+nonzero, and the same sanitized document can be submitted again safely.
 
 SDK equivalent: `CloudSec(org).push_iac_map(sanitized_json_bytes)`, which performs local bounded preflight before its HTTP request.
 ### IaC provenance selectors (CS-02)
@@ -497,7 +573,6 @@ not a link to HEAD. These read-only clients do not fetch source URLs.
 Rollout requires the compatible gateway and graph reader before use; a disabled
 provenance server rejects the new selectors. Revert clients independently or omit
 the selectors; no schema rollback or feature enablement is performed by this CLI.
-Program: maximelb/claude-config#137, epic maximelb/claude-config#134.
 
 New-selector requests require an exact `applied_iac_filters` receipt in JSON.
 CSV responses carry a bounded first comment line with a base64url JSON receipt;
@@ -512,6 +587,9 @@ of presenting an unfiltered result. Selector-free calls remain unchanged.
 `lc-build-provenance/v1`, SLSA Provenance v1 or offline Sigstore bundle, bounded to
 1 MiB. The server assigns the authenticated tenant and signer context. A signature
 is verified only against configured tenant trust; failed verification is refused.
+For a multi-platform image, use the OCI index digest in the artifact's
+`kind: "oci"` and `digest` fields when the index is the artifact being claimed.
+The client sends the document unchanged and does not fetch or expand the index.
 Do not include raw source, credentials, environment variables or build output.
 
 `limacharlie cloudsec code provenance list --digest sha256:<64-hex>` reads
@@ -552,7 +630,8 @@ commit, remediation outcomes and six more metrics.
   0 of 0.
 - With `--summary`, a percentage appears only for a complete, fresh, untruncated
   count with a positive denominator. Otherwise the counts are shown with the
-  reason and the next action.
+  reason and the next action. The summary also keeps the server's `breakdown`,
+  observation and stale times, so confidence tiers and unknown reasons stay visible.
 
 ## Code impact
 
@@ -578,3 +657,24 @@ remediation runs.
   the run or its targets change. The token is a review step, not a secret. The
   server is the gate: it requires `cloudsec.respond` and refuses a decision whose
   generation or target digest no longer matches the run.
+
+Run `state` is one of `requested`, `planning`, `awaiting_approval`, `executing`,
+`monitoring`, `rejected`, `cancelled`, `expired`, `failed`, `verified`,
+`persists` or `regressed`. Only `verified` says the fix was confirmed (and it can later become
+`regressed`). `persists` means the old artifact is still running. The other
+ending states are not a claim that the finding is fixed:
+
+- `expired` with `failure: pr_merged_unverifiable`: the PR merged but the run had
+  no recorded deployment in scope to verify against.
+- `expired` with `failure: pr_closed`: the PR was closed without merging.
+- `expired` with `failure: deadline`: the monitoring window ended without
+  conclusive evidence.
+- `failed` carries a `failure` (for example `action_unavailable`,
+  `executor_error`, `dispatch_exhausted`) and, for `open_fix_pr`, a
+  `failure_reason` naming why no PR opened.
+- `expired` with `failure: window_ended`: a playbook run's window ended normally.
+- A merged PR waiting for deployment evidence stays in `monitoring`.
+
+`cancel` applies to `requested`, `planning`, `awaiting_approval` and `executing`
+runs; `approve` and `reject` only to `awaiting_approval`. A run created by the
+AutoFix button (`origin: autofix_button`) is requested and approved by the same person in one step.

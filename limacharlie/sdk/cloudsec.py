@@ -39,9 +39,9 @@ live, point-in-time assessment that keeps nothing. The v2 surface —
 immutable runs, append-only attestation revisions, a drift stream and
 deterministic exports.
 
-Reads require the ``cloudsec.get`` permission and writes require
-``cloudsec.set``; every route additionally requires the org to be
-subscribed to the ``ext-cloud-security`` extension (403 otherwise).
+Reads require ``cloudsec.get``. Most writes require ``cloudsec.set``;
+AutoFix and remediation decisions require ``cloudsec.respond``. Every route additionally requires the org to be
+subscribed to Cloud Security (403 otherwise).
 
 Provider credentials/config and the cloudsec policies are hive
 records (``cloudsec_provider``, ``cloudsec_policy``, ``cloudsec_query``
@@ -65,6 +65,7 @@ command.
 from __future__ import annotations
 
 import base64
+import datetime
 import json
 import random
 import re
@@ -720,7 +721,26 @@ def chain_stage_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def coverage_percent(line: dict[str, Any]) -> float | None:
+_WINDOWED_COVERAGE_METRICS = frozenset({
+    "workloads_with_digest", "workloads_fully_resolved", "digests_with_source",
+})
+
+
+def _coverage_window_stale(line: dict[str, Any], now: float) -> bool:
+    """Mirror the server's evidence-window gate after its response is received."""
+    if line.get("metric") not in _WINDOWED_COVERAGE_METRICS:
+        return False
+    try:
+        observed = datetime.datetime.fromisoformat(line["observed_at"].replace("Z", "+00:00"))
+        stale = datetime.datetime.fromisoformat(line["stale_at"].replace("Z", "+00:00"))
+        if observed.tzinfo is None or stale.tzinfo is None:
+            return True
+        return observed.timestamp() > now or stale.timestamp() <= now
+    except (KeyError, AttributeError, TypeError, ValueError, OverflowError):
+        return True
+
+
+def coverage_percent(line: dict[str, Any], *, now: float | None = None) -> float | None:
     """Return a coverage line's percentage, or None when none may be shown.
 
     A percentage is shown only for a measured, complete, untruncated line with
@@ -739,6 +759,8 @@ def coverage_percent(line: dict[str, Any]) -> float | None:
         return None
     if den <= 0 or num < 0 or num > den or not line.get("complete") or line.get("truncated") or line.get("reason"):
         return None
+    if _coverage_window_stale(line, time.time() if now is None else now):
+        return None
     return num * 100.0 / den
 
 
@@ -749,22 +771,30 @@ def coverage_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
         response: The ``get_code_coverage`` response.
 
     Returns:
-        list: ``[{"metric", "numerator", "denominator", "percent", "reason",
-        "action"}]`` with ``percent`` None whenever it may not be shown, and
-        numerator/denominator None when the metric is not measured.
+        list: One row per metric with counts, ``percent``, ``reason``,
+        ``action``, the server's ``breakdown`` and evidence-window fields.
+        ``percent`` is None whenever it may not be shown, and
+        numerator/denominator are None when the metric is not measured.
     """
     report = (response or {}).get("coverage") or {}
     rows = []
+    now = time.time()
     for line in report.get("lines") or []:
         if not isinstance(line, dict):
             continue
+        stale = _coverage_window_stale(line, now)
         rows.append({
             "metric": line.get("metric", ""),
             "numerator": line.get("numerator"),
             "denominator": line.get("denominator"),
-            "percent": coverage_percent(line),
-            "reason": line.get("reason", ""),
-            "action": line.get("action", ""),
+            "percent": coverage_percent(line, now=now),
+            "reason": line.get("reason") or ("coverage_stale" if stale else ""),
+            "action": line.get("action") or ("wait_for_collection" if stale else ""),
+            "breakdown": line.get("breakdown") or [],
+            "complete": bool(line.get("complete", False)) and not stale,
+            "truncated": bool(line.get("truncated", False)),
+            "observed_at": line.get("observed_at"),
+            "stale_at": line.get("stale_at"),
         })
     return rows
 
@@ -774,7 +804,7 @@ class CloudSec:
 
     def __init__(self, org: Organization) -> None:
         self._org = org
-        # Request-scoped multi-org JWT for the fleet route, cached across
+        # Request-scoped thin user JWT for the fleet route, cached across
         # calls (pagination) and re-minted on a 401. Never installed on the
         # client — the client's own token is not touched by fleet calls.
         self._fleet_jwt: str | None = None
@@ -2639,32 +2669,36 @@ class CloudSec:
         Args:
             finding_id: the id of an open dependency (SCA) finding, as
                 returned by :meth:`list_findings`.
-            repo: optional — narrows the search to one repository. It is a
-                hint, not an authorization: the finding id is what is acted
-                on.
-            provider: the source-control provider; defaults to ``github``
-                server-side.
+            repo: optional hint, validated by the gateway but not forwarded:
+                the repository is resolved from the finding itself and the
+                response reports it.
+            provider: optional hint, likewise validated but not forwarded.
 
         Returns:
             ``{"accepted": bool, "finding_id": str, "repo": str,
-            "provider": str, "debounce_seconds": int}``.
+            "provider": str, "run_id": str, "state": str,
+            "replayed": bool, "run": dict}``.
 
         Note:
-            ``accepted`` does not mean a pull request exists. The request is
-            acknowledged immediately and handed to the collector replica
-            holding that connection, which clones the repository in a
-            sandbox, edits the manifest and opens the pull request — that
-            pull request is where the result appears. Each of these is a
-            quiet no-op from here: an organization with no Code Actions App
-            configured (the write App is separate and opt-in — the read-only
-            connection App is never used to write) or one whose App lacks
-            *Contents: Read and write*; a finding whose package is flagged
-            malicious (the remediation is removal and credential rotation,
-            not an upgrade) or for which no fixed version has been
-            published; an ecosystem other than npm, pip, go or maven; a
-            repository outside the ``code_scanning`` policy scope or over the
-            free-tier quota; a package that already has an AutoFix pull
-            request open; and a connection at its daily AutoFix limit.
+            Requires ``cloudsec.respond``; ``cloudsec.set`` alone gets 403
+            ``missing_permission``. The click creates a governed remediation
+            run with the caller as requester and approver. ``accepted`` means
+            the run was created, not that a pull request exists. Poll
+            :meth:`get_remediation` using ``run_id`` for its callback result.
+            Before creation: 404 ``finding_not_found``; 503 ``disabled`` or
+            ``unavailable`` (retryable); 422 ``action_unavailable``; 429
+            ``capacity`` or the per-identity quota. A run that cannot open a
+            pull request ends ``failed`` with a closed ``failure_reason``
+            (``write_app_not_configured``, ``write_app_lacks_contents``,
+            ``finding_not_autofixable``, ``repository_not_connected``,
+            ``autofix_pr_already_open``, ``autofix_budget_exhausted``, ...).
+            A major-version raise is flagged: the finding's ``code`` block
+            carries ``autofix_major_upgrade``, ``autofix_from_line`` and
+            ``autofix_to_line``, and the run's ``change.upgrade`` records the
+            verdict. A merged PR without a
+            recorded deployment in scope ends ``expired`` with
+            ``pr_merged_unverifiable``; a PR closed without merge ends with
+            ``pr_closed``. Neither is a verified fix.
 
             For **npm** the ``package-lock.json`` *is* rewritten by
             default: one read-only registry metadata document supplies the
@@ -3781,11 +3815,12 @@ class CloudSec:
             cursor, limit: Keyset pagination (by org).
             trend_days: Days of score-trend window per org (default 30).
             all_orgs: When the client uses user-scoped credentials, mint
-                a multi-org JWT spanning every org the user can access
-                and send it on this request only (the fleet call is
+                a thin user JWT so the gateway can resolve the user's current
+                org memberships without an oversized permission map, and send
+                it on this request only (the fleet call is
                 otherwise limited to the single org the client's own JWT
                 is scoped to). The client's own token is never touched;
-                the multi-org token is cached across calls (pagination)
+                the thin user token is cached across calls (pagination)
                 and re-minted once on a 401. Ignored for org-scoped
                 (non-user) API keys.
 
@@ -3810,14 +3845,14 @@ class CloudSec:
                 "GET", "cloudsec/fleet/overview", query_params=qp or None,
             )
 
-        # Request-scoped multi-org token: sent as an explicit Authorization
+        # Request-scoped thin user token: sent as an explicit Authorization
         # header with is_no_auth so the client's own (org-scoped) JWT and its
         # 401-refresh machinery stay completely out of the call — a plain
         # request() retry would re-mint an ORG-scoped token and silently
-        # collapse the fleet to one org. A 401 re-mints the multi-org token
+        # collapse the fleet to one org. A 401 re-mints the thin user token
         # once and retries; a second 401 is a real auth failure.
         if self._fleet_jwt is None:
-            self._fleet_jwt = client.mint_jwt()
+            self._fleet_jwt = client.mint_jwt(oid="-")
         for attempt in range(2):
             try:
                 return client.request(
@@ -3832,7 +3867,7 @@ class CloudSec:
                 self._fleet_jwt = None
                 if attempt == 1:
                     raise
-                self._fleet_jwt = client.mint_jwt()
+                self._fleet_jwt = client.mint_jwt(oid="-")
         raise AssertionError("unreachable")
 
     # ------------------------------------------------------------------

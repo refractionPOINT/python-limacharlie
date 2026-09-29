@@ -69,6 +69,40 @@ def test_cli_waits_for_publication_and_resubmits_after_worker_loss(tmp_path):
     assert output.call_args.args[1]["result"]["status"] == "published"
 
 
+def test_cli_status_reads_exact_receipt_and_preserves_processing():
+    digest = "a" * 64
+    client = MagicMock()
+    client.get_iac_map_status.return_value = {"status": "processing", "hash": digest}
+    args = ["status", "--repository", "owner/repo", "--provider", "github",
+            "--workspace", "default", "--source-kind", "state_identity",
+            "--hash", digest]
+    with patch("limacharlie.commands.cloudsec._get_cloudsec", return_value=client), \
+         patch("limacharlie.commands.cloudsec._output") as output:
+        response = CliRunner().invoke(code_iac_map, args)
+    assert response.exit_code == 0, response.output
+    client.get_iac_map_status.assert_called_once_with(
+        repository="owner/repo", provider="github", workspace="default",
+        source_kind="state_identity", hash=digest)
+    assert output.call_args.args[1] == {"status": "processing", "hash": digest}
+
+
+def test_cli_status_refuses_wrong_or_invalid_receipt():
+    digest = "a" * 64
+    base = ["status", "--repository", "owner/repo", "--provider", "github",
+            "--workspace", "default", "--source-kind", "state_identity", "--hash"]
+    client = MagicMock()
+    with patch("limacharlie.commands.cloudsec._get_cloudsec", return_value=client):
+        invalid = CliRunner().invoke(code_iac_map, base + ["A" * 64])
+        assert invalid.exit_code != 0
+        client.get_iac_map_status.assert_not_called()
+        for payload in ({"status": "published", "hash": "b" * 64},
+                        {"status": "unknown", "hash": digest}):
+            client.get_iac_map_status.return_value = payload
+            response = CliRunner().invoke(code_iac_map, base + [digest])
+            assert response.exit_code != 0
+            assert "did not match" in response.output
+
+
 @pytest.mark.parametrize("raw", [b'{"values":{"password":"SENSITIVE_CANARY"}}',
     b'{"schema":"x","schema":"y"}', b"[" * 5000, b" " * (MAX_BYTES + 1),
     b'{"token":"SENSITIVE_CANARY"}', b'"\\ud800"'])

@@ -217,6 +217,7 @@ PROFILES = {
             "cloudsec code rescan", "cloudsec code autofix", "cloudsec code ingest", "cloudsec code scan",
             "cloudsec code pr-check", "cloudsec code webhook",
             "cloudsec code iac-map extract", "cloudsec code iac-map push",
+            "cloudsec code iac-map status",
 
             "cloudsec code provenance push", "cloudsec code provenance list",
             "cloudsec code impact", "cloudsec code coverage",

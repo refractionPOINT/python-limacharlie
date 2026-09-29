@@ -2248,8 +2248,7 @@ class TestCloudSecCode:
 
     def test_git_repo_key_keeps_a_nested_gitlab_namespace_whole(self):
         """A GitLab repository nested under a group/subgroup namespace
-        publishes that WHOLE path as its key (go-cloudsec
-        model.SplitRepoKey cuts a nested-owner provider's key on the LAST
+        publishes that WHOLE path as its key (a nested-owner provider's key is cut on the LAST
         '/'). Keeping only the last two segments would silently attribute
         a local scan to a DIFFERENT repository than the one checked out —
         one dropping the group, sharing the same subgroup/name."""
@@ -2384,11 +2383,11 @@ class TestCloudSecCode:
         """
         with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
             result, inst = _invoke(
-                ["cloudsec", "code", "rescan", "lc-appsec-fixtures"],
+                ["cloudsec", "code", "rescan", "api"],
                 cs_cls, {"accepted": True})
             assert result.exit_code == 0
             inst.rescan_code_repo.assert_called_once_with(
-                "lc-appsec-fixtures", ref=None, provider=None)
+                "api", ref=None, provider=None)
 
     def test_code_autofix_takes_the_finding_positionally(self):
         """'autofix <finding_id>' — the finding is the subject.
@@ -2400,8 +2399,9 @@ class TestCloudSecCode:
         with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
             result, inst = _invoke(
                 ["cloudsec", "code", "autofix", "fnd_" + "a" * 32],
-                cs_cls, {"accepted": True, "debounce_seconds": 10})
+                cs_cls, {"accepted": True, "run_id": "rem_example", "state": "requested", "replayed": False})
             assert result.exit_code == 0
+            assert "rem_example" in result.output
             inst.autofix_code_finding.assert_called_once_with(
                 "fnd_" + "a" * 32, repo=None, provider=None)
 
