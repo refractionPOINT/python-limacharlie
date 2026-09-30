@@ -427,13 +427,21 @@ class Mailsec:
         return self._get("messages", pairs)
 
     def get_message(self, msg_uuid: str) -> dict[str, Any]:
-        """Get the message index row and parsed Message Data Model (MDM).
+        """Get the message index row, analysis status, timing, and parsed MDM.
 
         ``mdm_source: stored`` serves the preserved MDM used to judge the
         message, including its original enrichments. ``eml_reparse`` is a
         fallback that parses the retained EML with today's parser and leaves
         enrichments absent. Expired content yields ``mdm: null`` and an
         ``mdm_unavailable_reason`` while the index row remains available.
+
+        The ``message.analysis`` block reports ``state`` (pending/complete),
+        outstanding ``pending`` lanes, terminal ``results`` and ``completed_at``.
+        Complete closes the initial analysis window; later evidence may still
+        change the verdict. A terminal failure is not a clean result.
+        ``message.timing`` separates provider lag, queue time, processing and
+        end-to-end latency in integer milliseconds. Unknown intervals are absent.
+        These blocks are null when no initial analysis record is available.
 
         Args:
             msg_uuid: Message UUID.

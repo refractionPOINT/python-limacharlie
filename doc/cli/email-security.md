@@ -253,3 +253,21 @@ You may not need it at all: the same data is deleted automatically 30 days after
 - [Hive & Data Stores](hive-data.md) — the `mailsec_provider`, `mailsec_policy` and `dr-mail` hives
 
 Historical email searches use platform LCQL over `EMAIL_MESSAGE` events. Pass selected message UUIDs to `mailsec message bulk-action` for a preview, then repeat it with the selection-bound `--confirm` token; there is no separate MailSec hunt job API.
+
+
+### Processing status and timing
+
+`limacharlie mailsec message get <msg_uuid> --output json` returns the processing
+status alongside the message. Inspect `message.analysis.state` (`pending` or
+`complete`), `pending`, `results`, and `completed_at`. Complete closes the initial
+analysis window; later evidence can still change the verdict. Results distinguish
+`completed`, `changed_verdict`, `skipped`, `shed`, `failed`, and `timed_out`.
+A failure or timeout does not mean the message is safe. A null analysis block means
+no recorded initial analysis state is available.
+
+`message.timing` contains the provider delivery, notification (when known), ingest,
+initial decision and completion instants, plus integer millisecond intervals:
+`provider_lag_ms`, `queue_ms`, `processing_ms`, `end_to_end_ms`, and `analysis_ms`.
+An absent interval is unknown; a measured zero is zero. `clock_skew: true` reports
+that a negative interval was clamped to zero. The sender's Date header is not used
+to calculate these intervals.
