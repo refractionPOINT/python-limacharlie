@@ -44,7 +44,7 @@ import click
 from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
-from ..sdk.mailsec import BULK_ACTIONS, Mailsec, normalize_bulk_selection
+from ..sdk.mailsec import BULK_ACTIONS, DISPOSITIONS, Mailsec, normalize_bulk_selection
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 from ._input_helpers import load_file, load_stdin
@@ -158,7 +158,7 @@ _EXPLAIN_MESSAGE_REVISE = """\
 Revise a message's verdict as an analyst. Requires mailsec.act.
 
 This records a human triage decision over the scorer's — it is a
-disposition, not a remediation — and appends to the message's verdict
+verdict revision — and appends to the message's verdict
 history rather than overwriting it. --rationale is required and audited:
 at least one, at most ten, each <= 280 characters.
 
@@ -179,7 +179,7 @@ _EXPLAIN_MESSAGE_REVISIONS = """\
 The verdict revision history for one message, oldest first.
 
 Each entry is who decided (mode/actor), the verdict they set, when, and
-the rationale they gave — the audit of how a message's disposition moved
+the rationale they gave — the audit of how a message's verdict moved
 over time.
 
 --limit bounds the history returned. Check revisions_truncated before
@@ -430,7 +430,7 @@ clicking at once is ordinary, and the second must not get an error for
 an outcome that already holds.
 
 Examples:
-  limacharlie mailsec report resolve <report_id> --disposition true_positive
+  limacharlie mailsec report resolve <report_id> --disposition malicious
 """
 
 _EXPLAIN_REPORT_REOPEN = """\
@@ -1063,6 +1063,7 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--campaign-id", default=None, help="Only members of this campaign.")
 @click.option("--state", multiple=True, help="Message state (repeatable).")
 @click.option("--direction", multiple=True, help="inbound|outbound|internal (repeatable).")
+@click.option("--disposition", default=None, type=click.Choice([*DISPOSITIONS, "none"]), help="Independent analyst/SOAR disposition; none selects untriaged.")
 @click.option("--lane", default=None, type=click.Choice(["live", "backfill"]),
               help="Processing lane. Cannot be combined with --mailbox, --sender-email or --campaign-id.")
 @click.option("--user-reported", is_flag=True, default=False, help="Only mail a person reported.")
@@ -1078,7 +1079,7 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--limit", default=None, type=int, help="Page size.")
 @pass_context
 def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, state,
-                 direction, lane, user_reported, no_user_reported, min_score, link_domain,
+                 direction, lane, disposition, user_reported, no_user_reported, min_score, link_domain,
                  attachment_sha256, q, since, until, cursor, limit) -> None:
     """The message index — the triage queue.
 
@@ -1092,6 +1093,8 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
     ms = _get_mailsec(ctx)
     try:
         lane_params = {"lane": lane} if lane is not None else {}
+        if disposition is not None:
+            lane_params["disposition"] = disposition
         result = ms.list_messages(
             verdict=list(verdict) or None,
             mailbox=mailbox,
@@ -1568,17 +1571,31 @@ def report_get(ctx, report_id) -> None:
 @report_group.command("resolve")
 @click.argument("report_id")
 @click.option("--disposition", required=True,
-              type=click.Choice(["true_positive", "false_positive", "benign"]),
+              type=click.Choice(DISPOSITIONS),
               help="What was decided. 'unknown' is deliberately not offered.")
+@click.option("--scope", type=click.Choice(["message", "campaign"]), default=None)
+@click.option("--action", type=click.Choice(BULK_ACTIONS), default=None)
+@click.option("--confirm", default=None, help="Token from remediation_preview; omit to preview without resolving.")
+@click.option("--reason", default="")
+@click.option("--force", is_flag=True, help=_FORCE_HELP)
 @pass_context
-def report_resolve(ctx, report_id, disposition) -> None:
+def report_resolve(ctx, report_id, disposition, scope, action, confirm, reason, force) -> None:
     """Close a report with a disposition (mailsec.set).
 
     \b
     Example:
-      limacharlie mailsec report resolve <report_id> --disposition true_positive
+      limacharlie mailsec report resolve <report_id> --disposition malicious
     """
-    _output(ctx, _get_mailsec(ctx).resolve_report(report_id, disposition))
+    if bool(scope) != bool(action):
+        raise click.UsageError("--scope and --action must be provided together")
+    if not scope and (confirm or reason or force):
+        raise click.UsageError("remediation flags require --scope and --action")
+    kwargs = {}
+    if scope:
+        kwargs["remediation"] = {"scope": scope, "action": action, "reason": reason, "force": force}
+        if confirm:
+            kwargs["remediation"]["confirm"] = confirm
+    _output(ctx, _get_mailsec(ctx).resolve_report(report_id, disposition, **kwargs))
 
 
 @report_group.command("reopen")
@@ -1759,3 +1776,52 @@ register_explain("mailsec.rule.validate", _EXPLAIN_RULE_VALIDATE)
 register_explain("mailsec.rule.backtest", _EXPLAIN_RULE_BACKTEST)
 register_explain("mailsec.connection.test", _EXPLAIN_CONNECTION_TEST)
 register_explain("mailsec.tenant.purge", _EXPLAIN_TENANT_PURGE)
+
+
+@message_group.command("disposition")
+@click.argument("msg_uuid")
+@click.option("--disposition", type=click.Choice(DISPOSITIONS), default=None)
+@click.option("--clear", is_flag=True, help="Remove the decision with attribution.")
+@click.option("--note", default="", help="Optional decision note (max 1024 characters).")
+@pass_context
+def message_disposition(ctx, msg_uuid, disposition, clear, note) -> None:
+    """Set or clear disposition independently of the verdict (mailsec.set)."""
+    try:
+        _output(ctx, _get_mailsec(ctx).set_disposition(msg_uuid, disposition, clear=clear, note=note))
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+
+@message_group.command("bulk-disposition")
+@click.option("--msg-uuids", multiple=True, help="Stable message ids (repeatable or comma-separated).")
+@click.option("--input", "input_file", default=None, type=click.Path(exists=True, dir_okay=False))
+@click.option("--disposition", type=click.Choice(DISPOSITIONS), default=None)
+@click.option("--clear", is_flag=True)
+@click.option("--note", default="")
+@pass_context
+def message_bulk_disposition(ctx, msg_uuids, input_file, disposition, clear, note) -> None:
+    """Set an independent disposition on at most 500 messages (mailsec.set)."""
+    try:
+        ids = _bulk_selection(msg_uuids, input_file)
+        result = _get_mailsec(ctx).set_bulk_disposition(ids, disposition, clear=clear, note=note)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+    _output(ctx, result)
+    if any(item.get("error") for item in result.get("results", [])):
+        ctx.exit(1)
+
+
+@message_group.command("release")
+@click.argument("msg_uuid")
+@click.option("--reason", required=True)
+@click.option("--mode", default="analyst", type=click.Choice(["analyst", "ai"]))
+@click.option("--force", is_flag=True, help=_FORCE_HELP)
+@pass_context
+def message_release(ctx, msg_uuid, reason, mode, force) -> None:
+    """Restore and classify a message as benign (mailsec.act)."""
+    try:
+        result = _get_mailsec(ctx).release_message(msg_uuid, reason=reason, mode=mode, force=force)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+    _output(ctx, result)
+    _note_force_required(ctx, result, "Re-run with --force to release it.", force)

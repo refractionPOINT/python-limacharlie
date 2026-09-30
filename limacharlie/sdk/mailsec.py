@@ -63,6 +63,8 @@ if TYPE_CHECKING:
 # the limit from a clear local error rather than from a 400 after the round
 # trip. These match the gateway's own validation: at least one line, at most
 # ten, each no longer than 280 characters.
+DISPOSITIONS = ("malicious", "spam", "graymail", "benign", "simulation")
+
 _MAX_RATIONALE_LINES = 10
 _MAX_RATIONALE_LEN = 280
 
@@ -339,6 +341,7 @@ class Mailsec:
         state: list[str] | None = None,
         direction: list[str] | None = None,
         lane: str | None = None,
+        disposition: str | None = None,
         user_reported: bool | None = None,
         min_score: int | None = None,
         link_domain: str | None = None,
@@ -364,6 +367,7 @@ class Mailsec:
             campaign_id: Only members of one campaign.
             state: Message lifecycle state (repeatable).
             direction: ``inbound``, ``outbound``, ``internal`` (repeatable).
+            disposition: Analyst/SOAR label or ``none`` for untriaged.
             lane: ``live`` or ``backfill``. Omit to include either processing
                 lane. Supported with time, verdict and IOC queries; combining
                 it with mailbox, sender_email or campaign_id is refused by
@@ -391,6 +395,8 @@ class Mailsec:
             ValueError: If non-empty ``q`` is too long or lacks a bounded-walk
                 companion filter.
         """
+        if disposition is not None and disposition not in (*DISPOSITIONS, "none"):
+            raise ValueError("invalid disposition filter")
         if q is not None:
             q = q.strip() or None
         if q:
@@ -422,6 +428,7 @@ class Mailsec:
             ("limit", limit),
             ("user_reported", user_reported),
             ("lane", lane),
+            ("disposition", disposition),
         ):
             _add_scalar(pairs, key, val)
         return self._get("messages", pairs)
@@ -509,6 +516,66 @@ class Mailsec:
                 "or use list_messages with campaign_id or time/IOC filters"
             )
         return self._get(f"messages/{_seg(msg_uuid)}/similar")
+
+    def set_disposition(self, msg_uuid: str, disposition: str | None = None, *, note: str = "", clear: bool = False) -> dict[str, Any]:
+        """Set or clear an analyst/SOAR decision without changing the verdict.
+
+        Args:
+            msg_uuid: Stable message identity.
+            disposition: Malicious, spam, graymail, benign, or simulation.
+            note: Optional decision note, at most 1024 characters.
+            clear: Remove the label while recording who cleared it.
+
+        Returns:
+            dict: Applied flag, decision sequence, and attributed decision.
+
+        Raises:
+            ValueError: If the value/note is invalid or clear conflicts with a value.
+        """
+        body = _disposition_body(disposition, note, clear)
+        return self._post(f"messages/{_seg(msg_uuid)}/disposition", body)
+
+    def set_bulk_disposition(self, msg_uuids: list[str], disposition: str | None = None, *, note: str = "", clear: bool = False) -> dict[str, Any]:
+        """Set one independent decision on a bounded selection of messages.
+
+        Args:
+            msg_uuids: One to 500 unique stable message identities.
+            disposition: Malicious, spam, graymail, benign, or simulation.
+            note: Optional decision note, at most 1024 characters.
+            clear: Remove the labels while recording attribution.
+
+        Returns:
+            dict: Per-message results, with partial failures reported explicitly.
+
+        Raises:
+            ValueError: If the selection or decision is invalid.
+        """
+        body = _disposition_body(disposition, note, clear)
+        if not 1 <= len(msg_uuids) <= 500 or len(set(msg_uuids)) != len(msg_uuids):
+            raise ValueError("msg_uuids must contain 1-500 unique message ids")
+        if any(not isinstance(i, str) or not i.strip() or len(i) > 36 for i in msg_uuids):
+            raise ValueError("invalid message id")
+        body["msg_uuids"] = msg_uuids
+        return self._post("messages/dispositions", body)
+
+    def release_message(self, msg_uuid: str, *, reason: str, mode: str = "analyst", force: bool = False) -> dict[str, Any]:
+        """Restore a message, revise its verdict and set disposition to benign.
+
+        Args:
+            msg_uuid: Stable message identity.
+            reason: Audited reason for releasing the message.
+            mode: Analyst or ai decision mode.
+            force: Override alert-only mode for this action.
+
+        Returns:
+            dict: Audited release outcome; alert_only means no changes were made.
+
+        Raises:
+            ValueError: If mode or reason is invalid.
+        """
+        if mode not in ("analyst", "ai") or not reason.strip() or len(reason) > 1024:
+            raise ValueError("release requires a bounded reason and analyst/ai mode")
+        return self._post(f"messages/{_seg(msg_uuid)}/actions", {"action": "release_message", "reason": reason, "mode": mode, "force": force})
 
     def act_on_message(
         self,
@@ -1111,26 +1178,28 @@ class Mailsec:
         """
         return self._get(f"reports/{_seg(report_id)}")
 
-    def resolve_report(self, report_id: str, disposition: str) -> dict[str, Any]:
-        """Close a report with a disposition. Requires ``mailsec.set``.
+    def resolve_report(self, report_id: str, disposition: str, *, remediation: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Resolve a report and classify its linked message independently of verdict.
 
         Args:
-            report_id: The report.
-            disposition: ``true_positive`` (it was malicious),
-                ``false_positive`` (we flagged it and it was fine), or
-                ``benign`` (it was never a threat). ``unknown`` is a real
-                stored value but is NOT resolvable by a human: as the outcome
-                of someone closing a report it means "I looked and decided
-                nothing", which is indistinguishable in the SLA numbers from
-                never having looked.
+            report_id: Report to resolve.
+            disposition: Malicious, spam, graymail, benign, or simulation.
+            remediation: Optional scope/action request. Without confirm, previews
+                the action and leaves the report open; pass the returned confirm
+                token to execute and resolve. Remediation requires mailsec.act.
 
         Returns:
-            The updated report plus ``already_resolved``. Resolving twice
-            succeeds and says so — two analysts clicking at once is ordinary,
-            and the second must not get a failure for an outcome that already
-            holds.
+            dict: Updated report, or remediation_preview without a resolution.
+
+        Raises:
+            ValueError: If disposition is outside the closed vocabulary.
         """
-        return self._post(f"reports/{_seg(report_id)}/resolve", {"disposition": disposition})
+        if disposition not in DISPOSITIONS:
+            raise ValueError("invalid disposition")
+        body: dict[str, Any] = {"disposition": disposition}
+        if remediation is not None:
+            body["remediation"] = remediation
+        return self._post(f"reports/{_seg(report_id)}/resolve", body)
 
     def reopen_report(self, report_id: str) -> dict[str, Any]:
         """Reopen a resolved report. Requires ``mailsec.set``.
@@ -1337,3 +1406,16 @@ class Mailsec:
                 )
             pairs.append(("reason", reason))
         return self._delete("tenant", pairs)
+
+
+def _disposition_body(disposition: str | None, note: str, clear: bool) -> dict[str, Any]:
+    if (clear and disposition is not None) or (not clear and disposition not in DISPOSITIONS):
+        raise ValueError("provide a valid disposition or clear=True")
+    if len(note) > 1024:
+        raise ValueError("note must contain at most 1024 characters")
+    body: dict[str, Any] = {"note": note}
+    if clear:
+        body["clear"] = True
+    else:
+        body["disposition"] = disposition
+    return body

@@ -267,6 +267,7 @@ PROFILES = {
             "mailsec message list", "mailsec message get", "mailsec message eml",
             "mailsec message similar", "mailsec message action",
             "mailsec message revise", "mailsec message revisions",
+ "mailsec message disposition", "mailsec message bulk-disposition", "mailsec message release",
             "mailsec message bulk-action", "mailsec message bulk-status",
             "mailsec campaign list", "mailsec campaign get", "mailsec campaign action",
             "mailsec sender get",
