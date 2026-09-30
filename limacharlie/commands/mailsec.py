@@ -209,10 +209,10 @@ WITHDRAW AT ANY TIME: `mailsec message withdraw-sample <msg_uuid>` or
 metadata.
 
 It is off by default. To opt in, save a mailsec_policy record of type
-sample_submission:
+sample_sharing:
 
-  echo '{"policy_type": "sample_submission", "enabled": true}' > opt-in.json
-  limacharlie hive set --hive-name mailsec_policy --key sample-submission \
+  echo '{"policy_type": "sample_sharing", "enabled": true}' > opt-in.json
+  limacharlie hive set --hive-name mailsec_policy --key sample-sharing \
       --input-file opt-in.json --enabled
 
 Nothing is ever submitted automatically, and only a person can submit:
@@ -227,9 +227,9 @@ call.
 
 Submitting changes no verdict and performs no remediation. Submitting a
 message that already has an active submission succeeds and reports
-skipped. A refusal is reported as result=failed with the reason (not
-opted in, no submissions store in this datacenter, or the message's raw
-copy is no longer stored), and this command exits non-zero.
+skipped. A refusal (not opted in, no submissions store in this
+datacenter, or the message's raw copy is no longer stored) is reported
+with the reason, and this command exits non-zero.
 
 Examples:
   limacharlie mailsec message submit-sample 0057db2b-... --category missed_threat --reason "credential phish we did not flag"
@@ -259,7 +259,7 @@ first. Requires mailsec.get.
 The response always carries two flags, so an empty list is never
 ambiguous:
   enabled     the organization has opted in (mailsec_policy record of
-              type sample_submission)
+              type sample_sharing)
   available   this datacenter has a submissions store
 
 Each submission shows the category and reason, who submitted it and
@@ -282,7 +282,8 @@ mailsec.get.
 
 `reviews` lists each time LimaCharlie staff opened the stored copy: a
 timestamp per access, never the reviewer's identity. An empty list means
-nobody has opened it. An unknown id is a 404.
+nobody has opened it. An unknown id is not an error: the response is
+{"submission": null, "reviews": []}.
 
 Examples:
   limacharlie mailsec submission get 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
@@ -295,8 +296,9 @@ Deletes LimaCharlie's stored copy and its metadata (a hard delete), then
 records the withdrawal in the audit trail. It cannot be undone: to share
 the message again, submit it again.
 
-An unknown, already-withdrawn or expired id is a 404. A second
-withdrawal never deletes anything twice.
+An unknown, already-withdrawn or expired id is not an error: the
+response is withdrawn:false (no action_id) and the command says so. A
+second withdrawal never deletes anything twice.
 
 Examples:
   limacharlie mailsec submission withdraw 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
@@ -721,9 +723,10 @@ def _note_sample_result(ctx: click.Context, result: Any, *, submitting: bool) ->
     """Say what a sample action did, on stderr, and fail loudly when it did not.
 
     A refused submission (not opted in, no store in this datacenter, raw copy
-    aged out) is an HTTP 200 carrying ``result: failed``, so it would otherwise
-    exit 0 and read like a success. It exits 1 here so a script cannot mistake
-    it for one. The response itself is printed untouched.
+    aged out) can come back as a response carrying ``result: failed`` rather
+    than as an API error, which would otherwise exit 0 and read like a success.
+    It exits 1 here so a script cannot mistake it for one. The response itself
+    is printed untouched.
     """
     if not isinstance(result, dict):
         return
@@ -752,7 +755,7 @@ def _note_submission_flags(ctx: click.Context, response: Any) -> None:
         note(ctx, "Sample submission is not available in this datacenter.")
     elif response.get("enabled") is False:
         note(ctx, "Sample submission is not enabled for this organization. Opt in with a "
-                  "mailsec_policy record of type sample_submission (see "
+                  "mailsec_policy record of type sample_sharing (see "
                   "`limacharlie mailsec message submit-sample --ai-help`).")
 
 
@@ -1896,10 +1899,17 @@ def submission_get(ctx, submission_id) -> None:
     """One submission and when LimaCharlie staff opened it (mailsec.get).
 
     \b
+    An unknown id prints {"submission": null} and a note; it is not an error.
+
+    \b
     Example:
       limacharlie mailsec submission get 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
     """
-    _output(ctx, _get_mailsec(ctx).get_submission(submission_id))
+    result = _get_mailsec(ctx).get_submission(submission_id)
+    _output(ctx, result)
+    if isinstance(result, dict) and result.get("submission") is None:
+        note(ctx, f"Submission {submission_id} was not found: it may never have existed, "
+                  f"or it was withdrawn or has expired.")
 
 
 @submission_group.command("withdraw")
@@ -1910,12 +1920,18 @@ def submission_withdraw(ctx, submission_id) -> None:
 
     \b
     Hard delete of the stored message and its metadata. Cannot be undone.
+    An unknown or already-withdrawn id deletes nothing and says so
+    (withdrawn: false); it is not an error.
 
     \b
     Example:
       limacharlie mailsec submission withdraw 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
     """
-    _output(ctx, _get_mailsec(ctx).withdraw_submission(submission_id))
+    result = _get_mailsec(ctx).withdraw_submission(submission_id)
+    _output(ctx, result)
+    if isinstance(result, dict) and result.get("withdrawn") is False:
+        note(ctx, f"Nothing was deleted: submission {submission_id} was not found or was "
+                  f"already withdrawn (or has expired).")
 
 
 # ---------------------------------------------------------------------------

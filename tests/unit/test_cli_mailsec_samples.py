@@ -166,6 +166,15 @@ class TestSubmissionGroup:
             assert result.exit_code == 2
             request.assert_not_called()
 
+    def test_get_of_an_unknown_id_is_a_note_not_an_error(self):
+        result, _ = invoke(
+            "submission", "get", SID, returns={"submission": None, "reviews": []},
+        )
+        assert result.exit_code == 0, result.stderr
+        assert json.loads(result.stdout) == {"submission": None, "reviews": []}
+        assert "not found" in result.stderr
+        assert SID in result.stderr
+
     def test_get(self):
         result, request = invoke(
             "submission", "get", SID,
@@ -183,6 +192,17 @@ class TestSubmissionGroup:
         assert result.exit_code == 0, result.stderr
         assert request.call_args.args == ("DELETE", f"mailsec/{OID}/submissions/{SID}")
         assert json.loads(result.stdout)["withdrawn"] is True
+        assert result.stderr == ""
+
+    def test_withdraw_of_an_unknown_or_already_withdrawn_id_says_so(self):
+        result, _ = invoke(
+            "submission", "withdraw", SID,
+            returns={"withdrawn": False, "submission_id": SID},
+        )
+        assert result.exit_code == 0, result.stderr
+        assert json.loads(result.stdout) == {"withdrawn": False, "submission_id": SID}
+        assert "Nothing was deleted" in result.stderr
+        assert "already withdrawn" in result.stderr
 
     def test_ai_help_is_registered_for_every_command(self):
         for path in (

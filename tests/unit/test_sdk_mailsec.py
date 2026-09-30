@@ -1067,6 +1067,12 @@ class TestSampleSubmission:
         assert args[0] == "DELETE"
         assert args[1] == f"mailsec/{OID}/submissions/abc123"
 
+    def test_unknown_submission_is_returned_as_is_not_raised(self, ms, mock_org):
+        mock_org.client.request.return_value = {"submission": None, "reviews": []}
+        assert ms.get_submission("nope") == {"submission": None, "reviews": []}
+        mock_org.client.request.return_value = {"withdrawn": False, "submission_id": "nope"}
+        assert ms.withdraw_submission("nope") == {"withdrawn": False, "submission_id": "nope"}
+
     def test_submission_id_is_escaped_as_one_path_segment(self, ms, mock_org):
         ms.withdraw_submission("a/../b")
         args, _ = mock_org.client.request.call_args

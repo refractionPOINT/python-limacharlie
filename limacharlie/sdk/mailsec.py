@@ -1328,7 +1328,7 @@ class Mailsec:
     # ------------------------------------------------------------------
     #
     # An organization can opt in (``mailsec_policy`` record of type
-    # ``sample_submission``, ``{"enabled": true}``; off by default) to let its
+    # ``sample_sharing``, ``{"enabled": true}``; off by default) to let its
     # analysts copy ONE message at a time to LimaCharlie so detection quality
     # can improve. Nothing is ever submitted automatically. The copy is the
     # message's original bytes, compressed and encrypted, kept in a
@@ -1347,7 +1347,7 @@ class Mailsec:
         """Copy ONE message to LimaCharlie to help improve detection.
 
         Requires ``mailsec.act`` and an organization that has opted in
-        (``mailsec_policy`` record of type ``sample_submission``). This sends
+        (``mailsec_policy`` record of type ``sample_sharing``). This sends
         the message's original bytes (attachments included) and the metadata
         listed below to a LimaCharlie-owned store in the organization's own
         datacenter. It is explicit, one message per call, and never done
@@ -1376,11 +1376,10 @@ class Mailsec:
         Returns:
             The action record. ``result: ok`` and ``skipped`` carry
             ``submission_id``; ``skipped`` means this message already has an
-            active submission. ``result: failed`` carries ``error`` with the
-            stable reason (not opted in, no submissions store in this
-            datacenter, or the message's raw copy is no longer stored): a
-            refused submission is an HTTP 200 with ``failed`` inside, not an
-            exception.
+            active submission. A refusal (not opted in, no submissions store
+            in this datacenter, or the message's raw copy is no longer
+            stored) is reported like any other failed action, with the reason
+            in ``error``; check ``result`` as well as catching exceptions.
 
         Raises:
             ValueError: If ``category`` is not one of the three, or ``reason``
@@ -1494,7 +1493,8 @@ class Mailsec:
             ``{"submission": {...}, "reviews": [{"ts": ...}]}``. ``reviews``
             lists each time LimaCharlie staff opened the stored copy: a count
             and timestamps only, never the reviewer's identity. An unknown id
-            is a 404 error.
+            is not an error: it returns ``{"submission": None, "reviews": []}``,
+            so branch on ``submission`` being ``None``.
         """
         return self._get(f"submissions/{_seg(submission_id)}")
 
@@ -1508,9 +1508,12 @@ class Mailsec:
             submission_id: The submission id (from :meth:`list_submissions`).
 
         Returns:
-            ``{"withdrawn": true, "submission_id": ..., "action_id": ...}``.
-            An unknown, already-withdrawn or expired id is a 404 error: a
-            second withdrawal never deletes anything twice.
+            ``{"withdrawn": true, "submission_id": ..., "action_id": ...}``
+            when a copy was deleted. An unknown, already-withdrawn or expired
+            id is not an error: it returns ``{"withdrawn": false,
+            "submission_id": ...}`` with no ``action_id``, so a second
+            withdrawal is harmless and never deletes anything twice. Check
+            ``withdrawn``.
         """
         return self._delete(f"submissions/{_seg(submission_id)}")
 
