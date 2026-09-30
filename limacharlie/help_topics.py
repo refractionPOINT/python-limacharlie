@@ -626,9 +626,238 @@ Related commands: billing, org
 
 
 # ---------------------------------------------------------------------------
+# Product onboarding guides
+# ---------------------------------------------------------------------------
+
+HELP_TOPICS["cloud-security"] = """\
+Cloud Security
+==============
+
+Cloud Security connects your cloud, identity, and SaaS providers and turns their
+inventory into findings, attack paths, access reviews, and compliance reports.
+Code Security uses the same subscription and findings worklist.
+
+Start with one provider and a small scope:
+  1. Authenticate: limacharlie auth login
+  2. Find your organization UUID: limacharlie org list
+  3. Select it: limacharlie auth use-org <OID>
+  4. Enable: limacharlie extension subscribe --name ext-cloud-security
+  5. Follow the provider-specific credential and permission guide:
+     https://docs.limacharlie.io/cloud-security/provider-setup/
+  6. Store credentials in the secret hive. Reference that secret from your
+     cloudsec_provider record as hive://secret/<key>.
+  7. Preflight your prepared provider JSON before saving:
+     limacharlie cloudsec provider test --input-file provider.json
+  8. Save the validated connection and enable it:
+     limacharlie hive set --hive-name cloudsec_provider --key pilot --input-file provider.json --enabled
+  9. Check collection and then review findings:
+     limacharlie cloudsec scan-status
+     limacharlie cloudsec finding list --severity CRITICAL --severity HIGH
+
+Access: cloudsec.get reads the product; cloudsec.set changes ordinary product
+state; cloudsec.respond governs AutoFix and remediation decisions. Connection
+setup also requires cloudsec_provider.* and secret.* hive permissions; policy,
+saved-query, and code-rule records use cloudsec.get/set. Refresh authentication
+after access changes.
+
+A successful save is not proof of complete collection. Read scan-status for
+permission failures and coverage gaps, and provider manifest for supported
+resource types. An empty worklist during the first sweep is not an all-clear.
+List commands return a page; keep filters unchanged when reusing --cursor.
+Commands offering --all can walk every page. cloudsec free-tier shows limits.
+
+Next: limacharlie help code-security
+Commands: limacharlie help discover --profile cloud_security
+Quick reference: limacharlie help cheatsheet --name cloud-security
+"""
+
+HELP_TOPICS["code-security"] = """\
+Code Security
+=============
+
+Code Security scans repositories and container images and connects code risk to
+cloud resources and running workloads where evidence supports that connection.
+It uses the Cloud Security subscription, permissions, and finding worklist.
+
+First scan:
+  1. Follow https://docs.limacharlie.io/cloud-security/code-security/getting-started/
+     to connect GitHub, GitLab, or Bitbucket in cloudsec_provider and configure
+     a cloudsec_policy record of type code_scanning. Keep the initial scope small.
+  2. Check scanning, provider capabilities, and the indexed repositories:
+     limacharlie cloudsec code status
+     limacharlie cloudsec code capabilities
+     limacharlie cloudsec code repos
+  3. Trigger a scan for a connected repository:
+     limacharlie cloudsec code rescan owner/repository
+  4. Inspect findings, scan coverage, and image inventory:
+     limacharlie cloudsec finding list --repo owner/repository
+     limacharlie cloudsec code coverage
+     limacharlie cloudsec image list
+
+Bring your own scanner: cloudsec code ingest accepts supported scan results;
+use its --help for the supported formats and required repository/commit fields.
+cloudsec code provenance push accepts build evidence. cloudsec code iac-map
+extract creates a sanitized map locally; never upload raw Terraform state or
+plan JSON. Push the sanitized map and inspect its receipt with iac-map status.
+
+Read finding chain and code impact for code-to-cloud evidence. Unknown, stale,
+conflicting, or unmatched evidence is a coverage gap, never proof of safety.
+Some capabilities depend on your provider and deployment; inspect capabilities
+before configuring PR checks or AutoFix. AutoFix and containment follow a
+governed remediation run; inspect the result and its verification before closure.
+
+Commands: limacharlie help discover --profile cloud_security
+Quick reference: limacharlie help cheatsheet --name code-security
+"""
+
+HELP_TOPICS["email-security"] = """\
+Email Security (MailSec)
+=======================
+
+Email Security connects Microsoft 365 or Google Workspace without changing MX
+records. It judges messages, explains verdicts, groups campaigns, and supports
+analyst remediation and user reports.
+
+Pilot onboarding:
+  1. Authenticate, find your organization UUID, and select it:
+     limacharlie auth login
+     limacharlie org list
+     limacharlie auth use-org <OID>
+  2. Enable: limacharlie extension subscribe --name ext-email-security
+  3. Read the provider setup instructions:
+     limacharlie mailsec onboarding --provider m365
+     limacharlie mailsec onboarding --provider gworkspace
+     https://docs.limacharlie.io/email-security/provider-setup/microsoft-365/
+     https://docs.limacharlie.io/email-security/provider-setup/google-workspace/
+  4. Save the provider credential in the secret hive, then create an enabled
+     mailsec_provider record referencing hive://secret/<key>. Set explicit pilot
+     addresses in scope.include_addresses; empty include lists cover all
+     discovered mailboxes. Google Workspace also needs domain-wide delegation
+     and Pub/Sub configuration, not just a service-account key.
+  5. Test the SAVED connection by record name:
+     limacharlie mailsec connection test pilot
+  6. Check coverage and the first messages:
+     limacharlie mailsec coverage
+     limacharlie mailsec message list
+     limacharlie mailsec message get <MSG_UUID>
+
+Access: mailsec.get reads structured mail; mailsec.set changes triage state and
+rules; mailsec.act remediates provider mail, revises verdicts, and tests
+connections. Original-byte downloads require both mailsec.get and mailsec.get.eml
+with an audited justification. Setup additionally needs
+mailsec_provider.* and secret.* hive permissions; mailsec_policy and dr-mail
+records use mailsec.get/set.
+
+Start in alert_only and review coverage before enabling automated actions.
+Manual provider actions in alert_only require an explicit --force override;
+the action audit trail records the outcome. Bulk and campaign actions first
+preview the selection, then require the returned --confirm token to execute.
+Raw EML can be binary: write it with message eml --out-file suspect.eml and
+--justification "incident investigation". message get serves the judged parsed
+message when available and identifies any fallback or unavailable content.
+
+mailsec analyze checks a local EML without ingesting it. Historical hunts use
+the platform search commands; there is no separate mailsec hunt job command.
+List results are paginated: reuse --cursor with the same filters to continue.
+
+Commands: limacharlie help discover --profile email_security
+Quick reference: limacharlie help cheatsheet --name email-security
+"""
+
+# ---------------------------------------------------------------------------
 # Cheatsheets registry
 # ---------------------------------------------------------------------------
 CHEATSHEETS = {}
+
+CHEATSHEETS["cloud-security"] = """\
+Cloud Security Cheatsheet
+=========================
+
+# Set --oid <OID> on commands or select the organization once
+limacharlie auth use-org <OID>
+limacharlie extension subscribe --name ext-cloud-security
+
+# Validate and enable a prepared provider record (see the onboarding topic)
+limacharlie cloudsec provider test --input-file provider.json
+limacharlie hive set --hive-name cloudsec_provider --key pilot --input-file provider.json --enabled
+
+# Verify collection and inspect supported coverage
+limacharlie cloudsec scan-status
+limacharlie cloudsec provider manifest --type gcp
+limacharlie cloudsec free-tier
+
+# Read findings and inventory
+limacharlie cloudsec finding list --severity CRITICAL --severity HIGH
+limacharlie cloudsec finding facets
+limacharlie cloudsec inventory list --provider gcp
+limacharlie cloudsec overview
+
+# Inspect one finding and set its analyst disposition
+limacharlie cloudsec finding get <FINDING_ID>
+limacharlie cloudsec finding resolve <FINDING_ID> --kind mitigated --reason "configuration corrected"
+
+Full onboarding: limacharlie help cloud-security
+"""
+
+CHEATSHEETS["code-security"] = """\
+Code Security Cheatsheet
+========================
+
+# After connecting your SCM provider and enabling code_scanning policy
+limacharlie cloudsec code capabilities
+limacharlie cloudsec code status
+limacharlie cloudsec code repos
+limacharlie cloudsec code rescan owner/repository
+limacharlie cloudsec finding list --repo owner/repository
+limacharlie cloudsec finding chain <FINDING_ID>
+limacharlie cloudsec code coverage
+limacharlie cloudsec image list
+
+# Build evidence, sanitized IaC mapping, and scanner-result ingestion
+limacharlie cloudsec code provenance push --help
+limacharlie cloudsec code iac-map extract --help
+limacharlie cloudsec code iac-map push --help
+limacharlie cloudsec code ingest --help
+
+# Governed fixes: inspect capabilities and run outcomes before acting
+limacharlie cloudsec code autofix --help
+limacharlie cloudsec remediation list
+
+Full onboarding: limacharlie help code-security
+"""
+
+CHEATSHEETS["email-security"] = """\
+Email Security Cheatsheet
+=========================
+
+# Enable the product and read the provider setup guide
+limacharlie extension subscribe --name ext-email-security
+limacharlie mailsec onboarding --provider m365
+limacharlie mailsec onboarding --provider gworkspace
+
+# After saving the credential and enabled mailsec_provider record
+limacharlie mailsec connection test pilot
+limacharlie mailsec coverage
+limacharlie mailsec message list
+limacharlie mailsec message list --verdict suspicious --verdict malicious
+limacharlie mailsec message get <MSG_UUID>
+limacharlie mailsec message similar <MSG_UUID>
+limacharlie mailsec message revisions <MSG_UUID>
+
+# Save original bytes with a justification, or analyze a local EML
+limacharlie mailsec message eml <MSG_UUID> --justification "incident investigation" --out-file suspect.eml
+limacharlie mailsec analyze --file suspect.eml
+
+# Revise a verdict, then explicitly remediate (alert_only needs --force)
+limacharlie mailsec message revise <MSG_UUID> --verdict malicious --rationale "confirmed credential harvest"
+limacharlie mailsec message action <MSG_UUID> --action quarantine_message --reason "confirmed phishing"
+
+# Read campaign and user-report queues
+limacharlie mailsec campaign list
+limacharlie mailsec report list --status open
+
+Full onboarding: limacharlie help email-security
+"""
 
 CHEATSHEETS["common-operations"] = """\
 Common Operations Cheatsheet

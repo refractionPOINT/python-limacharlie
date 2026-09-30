@@ -10,6 +10,18 @@ pip install limacharlie
 
 The `--output toon` format needs the optional `toon` extra (`pip install 'limacharlie[toon]'`); everything else works with the install above. See [Output Formats](cli/README.md#output-formats) for the uv caveat.
 
+### Security products
+
+Install or upgrade the CLI with the normal package release:
+
+```bash
+python -m pip install --upgrade limacharlie
+limacharlie mailsec --help
+limacharlie cloudsec code --help
+```
+
+Use the [Cloud Security](cli/cloud-security.md) and [Email Security](cli/email-security.md) references, or `limacharlie help cloud-security`, `limacharlie help code-security`, and `limacharlie help email-security`, for onboarding.
+
 Docker:
 
 ```bash

@@ -208,7 +208,7 @@ PROFILES = {
         ],
     },
     "cloud_security": {
-        "description": "Cloud posture, identity, findings, attack paths, and vulnerability management",
+        "description": "Cloud and Code Security: onboarding, posture, identity, findings, code-to-cloud risk, and remediation",
         "commands": [
             "cloudsec overview", "cloudsec changes", "cloudsec risk-trend", "cloudsec scan-status",
             "cloudsec topology", "cloudsec free-tier",
@@ -246,7 +246,7 @@ PROFILES = {
             "cloudsec resolve sensors", "cloudsec resolve assets",
             "cloudsec caasm assets", "cloudsec caasm coverage", "cloudsec caasm policy get",
             "cloudsec caasm policy set", "cloudsec caasm ingest",
-            "cloudsec provider manifest", "cloudsec provider test",
+            "cloudsec provider manifest", "cloudsec provider test", "cloudsec provider m365-certificate",
             "cloudsec policy vocabulary", "cloudsec policy suggest",
             "cloudsec simulate resources", "cloudsec simulate findings",
             "cloudsec export findings", "cloudsec export inventory",
@@ -261,7 +261,7 @@ PROFILES = {
         ],
     },
     "email_security": {
-        "description": "Email security: mail triage queue, verdicts, campaigns, remediation, and reports",
+        "description": "Email security: provider onboarding, mailbox coverage, mail triage, verdicts, campaigns, remediation, and reports",
         "commands": [
             "mailsec coverage",
             "mailsec message list", "mailsec message get", "mailsec message eml",
@@ -363,6 +363,6 @@ def format_discovery(profile_name: str | None = None) -> str:
         lines.append(f"  Commands: {len(info['commands'])}")
         lines.append("")
 
-    lines.append("Use 'limacharlie discover --profile <name>' for command details.")
+    lines.append("Use 'limacharlie help discover --profile <name>' for command details.")
     lines.append("Use 'limacharlie help <topic>' for concept guides.")
     return "\n".join(lines)

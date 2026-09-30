@@ -188,7 +188,11 @@ cs.test_provider({"provider_type": "gcp", "credentials": "hive://secret/gcp-sa"}
 cs.get_provider_manifests(provider_type="gcp")
 ```
 
-The Cloud Security (CNAPP) surface: findings (CSPM + attack paths + CIEM) with their facet and shared-fix rollups, resource inventory, security graph queries, compliance, the identity access population, DSPM stores and facets, CAASM ingest/coverage, sensor↔asset resolution, free-tier standing, fleet overview, and CSV exports. See [CLI: cloudsec](../cli/cloud-security.md) for the command-line equivalents.
+The Cloud Security (CNAPP) surface also includes Code Security: repository and container-image scans, build provenance, sanitized IaC mapping, code-to-cloud impact, runtime evidence, and governed remediation. Availability depends on the provider and deployment. See [Security Products](security-products.md) for SDK onboarding and [CLI: cloudsec](../cli/cloud-security.md) for the command-line equivalents.
+
+## Mailsec
+
+`limacharlie.sdk.mailsec.Mailsec` wraps Email Security onboarding, provider tests, coverage, messages, justified EML downloads, verdict revisions, campaigns, remediation, and user reports. See [Security Products](security-products.md#email-security) for setup, examples, and pagination, and [CLI: mailsec](../cli/email-security.md) for complete workflows.
 
 ## See Also
 

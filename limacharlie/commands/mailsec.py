@@ -64,6 +64,11 @@ cannot subscribe is reported as visibly broken rather than omitted,
 so the number is a coverage statement an admin can act on instead of
 a count of whatever happened to work.
 
+Use --since/--until for a specific range, or --window-days for days
+back from now. These forms cannot be combined. Explicit windows are
+recomputed and rate-limited; the default 24-hour window is cached.
+volume.truncated means the requested period exceeds retained messages.
+
 Examples:
   limacharlie mailsec coverage
   limacharlie mailsec coverage --window-days 30
@@ -72,6 +77,11 @@ Examples:
 _EXPLAIN_MESSAGE_LIST = """\
 The message index — the triage queue. Repeatable filters OR within a
 key and AND across keys.
+
+--lane live selects newly arriving mail; --lane backfill selects history
+judged during onboarding. Omit it for either. The lane filter works with
+time, verdict and IOC queries, but the server refuses it alongside
+--mailbox, --sender-email or --campaign-id (lane_unsupported).
 
 --user-reported is worth knowing about: a human taking the trouble to
 report a message is the strongest signal this product gets, and it
@@ -85,17 +95,15 @@ Examples:
 """
 
 _EXPLAIN_MESSAGE_GET = """\
-One message: the index row plus the re-parsed MDM (the drawer).
+One message: the index row plus the parsed Message Data Model (MDM).
 
-The MDM is re-parsed from the stored raw copy rather than read from
-the index, and the response says which path produced it. Enrichments
-are deliberately absent rather than recomputed — they were resolved
-against sender profiles as they existed at ingest, and synthesising
-today's values would show you a reputation the verdict was never
-based on.
+mdm_source=stored serves the preserved MDM the engine judged, with its
+original enrichments. eml_reparse falls back to parsing the retained raw
+copy with today's parser and leaves enrichments absent. Expired content
+returns mdm:null with mdm_unavailable_reason; the index row can still exist.
 
-An unknown id returns a null message, not an error: the index has a
-35-day TTL, so a miss is normal.
+An unknown id returns a null message, not an error. The message index is
+retained for at most 35 days; your retention policy can shorten that window.
 
 Examples:
   limacharlie mailsec message get 0057db2b-3a06-5aab-b3be-c1e6c15dcf10
@@ -115,8 +123,9 @@ Examples:
 """
 
 _EXPLAIN_MESSAGE_SIMILAR = """\
-Messages clustered with this one — "who else got this", answered from
-a single message.
+Recent messages sharing a clustering key with this one. These are
+candidates, not necessarily members of the same campaign. Each row
+names its matching keys, and the response states the lookback window.
 
 Examples:
   limacharlie mailsec message similar 0057db2b-...
@@ -172,6 +181,9 @@ The verdict revision history for one message, oldest first.
 Each entry is who decided (mode/actor), the verdict they set, when, and
 the rationale they gave — the audit of how a message's disposition moved
 over time.
+
+--limit bounds the history returned. Check revisions_truncated before
+treating the result as a complete audit export; this route has no cursor.
 
 Examples:
   limacharlie mailsec message revisions 0057db2b-...
@@ -484,16 +496,15 @@ Examples:
 """
 
 _EXPLAIN_ONBOARDING = """\
-The setup guide for connecting a mail provider, with this org's own
-values already substituted in.
-
-Served by the backend rather than written into the docs so the
-identifiers you must paste - the service account, the topic, the
-subscription - are the real ones for this deployment rather than
-placeholders you have to translate.
+Fetch current provider scopes and setup steps. Workspace uses resources
+in your own Google Cloud project. Supply --project-id and --sa-email to
+fill those values into its setup commands; --topic and --subscription
+override the suggested names. Without substitutions the guide contains
+placeholders. Fetching it creates no resources.
 
 Examples:
   limacharlie mailsec onboarding --provider gworkspace
+  limacharlie mailsec onboarding --provider gworkspace --project-id your-project --sa-email mailsec@your-project.iam.gserviceaccount.com
   limacharlie mailsec onboarding --provider m365
 """
 
@@ -969,15 +980,24 @@ def tenant_group() -> None:
 
 @group.command("coverage")
 @click.option("--window-days", default=None, type=int, help="Days of volume to summarise.")
+@click.option("--since", default=None, help="Start of the volume window (RFC3339 or unix seconds).")
+@click.option("--until", default=None, help="End of the volume window (RFC3339 or unix seconds).")
 @pass_context
-def coverage(ctx, window_days) -> None:
+def coverage(ctx, window_days, since, until) -> None:
     """Mailbox coverage and analysed volume.
 
     \b
     Example:
       limacharlie mailsec coverage --window-days 30
     """
-    _output(ctx, _get_mailsec(ctx).get_coverage(window_days=window_days))
+    if window_days is not None and (since is not None or until is not None):
+        raise click.UsageError("--window-days cannot be combined with --since or --until")
+    kwargs = {"window_days": window_days}
+    if since is not None:
+        kwargs["since"] = since
+    if until is not None:
+        kwargs["until"] = until
+    _output(ctx, _get_mailsec(ctx).get_coverage(**kwargs))
 
 
 @group.command("analyze")
@@ -1011,15 +1031,24 @@ def analyze(ctx, eml_file, org_domains, direction) -> None:
 @group.command("onboarding")
 @click.option("--provider", default=None, type=click.Choice(["m365", "gworkspace"]),
               help="Which provider's guide to fetch.")
+@click.option("--project-id", default=None, help="Your Google Cloud project for Workspace setup commands.")
+@click.option("--sa-email", default=None, help="Your Workspace service account email for setup commands.")
+@click.option("--topic", default=None, help="Override the suggested Workspace Pub/Sub topic name.")
+@click.option("--subscription", default=None, help="Override the suggested Workspace pull subscription name.")
 @pass_context
-def onboarding(ctx, provider) -> None:
-    """Provider setup guide, with this org's own values filled in.
+def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None:
+    """Provider setup guide; supply Workspace values for copyable commands.
 
     \b
     Example:
       limacharlie mailsec onboarding --provider gworkspace
     """
-    _output(ctx, _get_mailsec(ctx).get_onboarding(provider=provider))
+    kwargs = {"provider": provider}
+    for key, value in (("project_id", project_id), ("sa_email", sa_email),
+                       ("topic", topic), ("subscription", subscription)):
+        if value is not None:
+            kwargs[key] = value
+    _output(ctx, _get_mailsec(ctx).get_onboarding(**kwargs))
 
 
 # ---------------------------------------------------------------------------
@@ -1034,6 +1063,8 @@ def onboarding(ctx, provider) -> None:
 @click.option("--campaign-id", default=None, help="Only members of this campaign.")
 @click.option("--state", multiple=True, help="Message state (repeatable).")
 @click.option("--direction", multiple=True, help="inbound|outbound|internal (repeatable).")
+@click.option("--lane", default=None, type=click.Choice(["live", "backfill"]),
+              help="Processing lane. Cannot be combined with --mailbox, --sender-email or --campaign-id.")
 @click.option("--user-reported", is_flag=True, default=False, help="Only mail a person reported.")
 @click.option("--no-user-reported", is_flag=True, default=False, help="Only mail nobody reported.")
 @click.option("--min-score", default=None, type=int, help="Only messages at or above this score.")
@@ -1047,7 +1078,7 @@ def onboarding(ctx, provider) -> None:
 @click.option("--limit", default=None, type=int, help="Page size.")
 @pass_context
 def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, state,
-                 direction, user_reported, no_user_reported, min_score, link_domain,
+                 direction, lane, user_reported, no_user_reported, min_score, link_domain,
                  attachment_sha256, q, since, until, cursor, limit) -> None:
     """The message index — the triage queue.
 
@@ -1060,6 +1091,7 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
     """
     ms = _get_mailsec(ctx)
     try:
+        lane_params = {"lane": lane} if lane is not None else {}
         result = ms.list_messages(
             verdict=list(verdict) or None,
             mailbox=mailbox,
@@ -1068,6 +1100,7 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
             campaign_id=campaign_id,
             state=list(state) or None,
             direction=list(direction) or None,
+            **lane_params,
             user_reported=_tri_state(user_reported, no_user_reported, "user-reported"),
             min_score=min_score,
             link_domain=link_domain,
@@ -1087,7 +1120,7 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
 @click.argument("msg_uuid")
 @pass_context
 def message_get(ctx, msg_uuid) -> None:
-    """One message: the index row plus the re-parsed MDM.
+    """One message: the index row plus the preserved or re-parsed MDM.
 
     \b
     Example:
@@ -1148,23 +1181,29 @@ def message_eml(ctx, msg_uuid, justification, out_path, to_terminal) -> None:
 
 @message_group.command("similar")
 @click.argument("msg_uuid")
-@click.option("--cursor", default=None, help="Keyset token from a previous page.")
-@click.option("--limit", default=None, type=int, help="Page size.")
+@click.option("--cursor", default=None, hidden=True)
+@click.option("--limit", default=None, type=int, hidden=True)
 @pass_context
 def message_similar(ctx, msg_uuid, cursor, limit) -> None:
-    """Messages clustered with this one — who else got it.
+    """Recent messages sharing clustering keys; candidates for investigation.
 
     \b
     Example:
       limacharlie mailsec message similar 0057db2b-...
     """
-    _output(ctx, _get_mailsec(ctx).list_similar_messages(msg_uuid, cursor=cursor, limit=limit))
+    if cursor is not None or limit is not None:
+        raise click.UsageError(
+            "similar messages are not paginated; omit --cursor and --limit, "
+            "or use message list with --campaign-id or time/IOC filters"
+        )
+    _output(ctx, _get_mailsec(ctx).list_similar_messages(msg_uuid))
 
 
 @message_group.command("action")
 @click.argument("msg_uuid")
 @click.option("--action", "action_name", required=True,
-              help="quarantine_message|trash_message|restore_message|banner_message|unbanner_message")
+              help="quarantine_message|trash_message|move_to_spam|restore_message|banner_message|"
+                   "unbanner_message|submit_to_triage|crawl_link")
 @click.option("--reason", default=None, help="Recorded on the audit row.")
 @click.option("--attempt", default=None, help="Caller-supplied idempotency token.")
 @click.option("--banner", default=None, hidden=True, help=_DEPRECATED_BANNER_HELP)
@@ -1214,15 +1253,18 @@ def message_revise(ctx, msg_uuid, verdict, rationale, score) -> None:
 
 @message_group.command("revisions")
 @click.argument("msg_uuid")
+@click.option("--limit", default=None, type=click.IntRange(1, 1000),
+              help="Maximum revisions to return; inspect revisions_truncated for incomplete history.")
 @pass_context
-def message_revisions(ctx, msg_uuid) -> None:
+def message_revisions(ctx, msg_uuid, limit) -> None:
     """The verdict revision history for a message, oldest first.
 
     \b
     Example:
       limacharlie mailsec message revisions 0057db2b-...
     """
-    _output(ctx, _get_mailsec(ctx).list_revisions(msg_uuid))
+    kwargs = {"limit": limit} if limit is not None else {}
+    _output(ctx, _get_mailsec(ctx).list_revisions(msg_uuid, **kwargs))
 
 
 @message_group.command("bulk-action")

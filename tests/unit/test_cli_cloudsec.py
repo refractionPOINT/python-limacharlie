@@ -48,7 +48,7 @@ def _invoke(args, mock_cs_cls, return_value=None, stdin=None):
             "resolve_sensors", "resolve_assets",
             "list_caasm_assets", "list_caasm_coverage",
             "get_caasm_policy", "set_caasm_policy", "caasm_ingest",
-            "test_provider", "get_provider_manifests", "get_fleet_overview",
+            "test_provider", "mint_m365_certificate", "get_provider_manifests", "get_fleet_overview",
             "get_policy_vocabulary", "suggest_policy_values",
             "simulate_resource_match", "simulate_finding_match",
             "list_code_repos", "get_code_status", "get_code_sbom",
@@ -958,6 +958,7 @@ class TestExport:
                 exploit_band=None, grain=None, cause=None,
                 source=None, owner=None, sla=None,
                 reachable=None, kev=None, q=None, sort=None, order=None,
+                max_rows=None, cursor=None,
             )
 
     def test_export_findings_to_file(self, tmp_path):
@@ -982,6 +983,7 @@ class TestExport:
                 has_iac_origin=None,
                 resource_type="Bucket", provider="gcp", account=None,
                 region=None, q=None, account_empty=None,
+                max_rows=None, cursor=None,
             )
 
     def test_export_compliance(self):
@@ -1110,6 +1112,7 @@ class TestInventoryAllAccounts:
                 has_iac_origin=None,
                 resource_type=None, provider=None, account=None,
                 region=None, q=None, account_empty=None,
+                max_rows=None, cursor=None,
             )
 
     def test_export_account_empty_flag(self):
@@ -1123,6 +1126,7 @@ class TestInventoryAllAccounts:
                 has_iac_origin=None,
                 resource_type=None, provider=None, account=None,
                 region=None, q=None, account_empty=True,
+                max_rows=None, cursor=None,
             )
 
     def test_account_scope_flags_are_mutually_exclusive(self):
@@ -2027,7 +2031,7 @@ class TestCloudSecCode:
         cmd = cap["cmd"]
         assert cmd[0] == "docker"
         assert cs_mod.DEFAULT_CODE_SCANNER_IMAGE in cmd
-        assert cs_mod.DEFAULT_CODE_SCANNER_IMAGE.endswith(":v0.16.0")
+        assert cs_mod.DEFAULT_CODE_SCANNER_IMAGE.endswith(":v0.24.0")
         assert "--default-rules" in cmd and "--rules-file" not in cmd
         # The pinned image is known to take the flags, so no hint is attached.
         assert cap["usage_hint"] is None
@@ -2982,3 +2986,123 @@ class TestProvenanceCommands:
             result, instance = _invoke(["cloudsec", "code", "provenance", "push", "-f", str(document)], mock)
         assert result.exit_code != 0
         instance.push_code_provenance.assert_not_called()
+
+
+class TestProductContractUpdates:
+    def test_m365_certificate_writes_only_public_der(self, tmp_path):
+        import base64
+        path = tmp_path / "connection.cer"
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(["cloudsec", "provider", "m365-certificate", "my-entra",
+                                    "--client-id", "application-guid", "--replace", "--out", str(path)],
+                                   cls, {"certificate": base64.b64encode(b"public DER").decode(),
+                                         "credentials": "hive://secret/cloudsec-m365-my-entra"})
+        assert result.exit_code == 0, result.output
+        inst.mint_m365_certificate.assert_called_once_with("my-entra", client_id="application-guid", replace=True)
+        assert path.read_bytes() == b"public DER"
+        assert json.loads(result.output)["credentials"].startswith("hive://secret/")
+
+    def test_m365_certificate_default_does_not_replace(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(["cloudsec", "provider", "m365-certificate", "my-entra"], cls)
+        assert result.exit_code == 0, result.output
+        inst.mint_m365_certificate.assert_called_once_with("my-entra", client_id=None, replace=False)
+
+    def test_m365_invalid_certificate_does_not_clobber_output(self, tmp_path):
+        path = tmp_path / "connection.cer"
+        path.write_bytes(b"existing")
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, _ = _invoke(["cloudsec", "provider", "m365-certificate", "my-entra", "--out", str(path)],
+                                cls, {"certificate": "not-base64"})
+        assert result.exit_code != 0
+        assert path.read_bytes() == b"existing"
+
+    @pytest.mark.parametrize("walk_all", [False, True])
+    def test_image_lineage_filters_reach_every_page(self, walk_all):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            args = ["cloudsec", "image", "list", "--lineage-status", "unknown", "--lineage-status", "asserted"]
+            result, inst = _invoke(args + (["--all"] if walk_all else []), cls)
+        assert result.exit_code == 0, result.output
+        method = inst.iter_container_images if walk_all else inst.list_container_images
+        assert method.call_args.kwargs["lineage_status"] == ["unknown", "asserted"]
+
+    def test_bad_lineage_status_fails_before_authentication(self):
+        p1, p2, p3 = _patches()
+        with p1 as client, p2, p3:
+            result = CliRunner().invoke(cli, ["cloudsec", "image", "list", "--lineage-status", "verfied"])
+        assert result.exit_code != 0
+        client.assert_not_called()
+
+    @pytest.mark.parametrize("flag,value", [("--lineage-facet", True), ("--no-lineage-facet", False)])
+    def test_image_lineage_facets(self, flag, value):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(["cloudsec", "image", "repo-facets", flag], cls)
+        assert result.exit_code == 0, result.output
+        assert inst.get_image_repo_facets.call_args.kwargs["lineage_facet"] is value
+
+    def test_caasm_empty_posture_survives_cli_parsing(self):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(["cloudsec", "caasm", "assets", "--kind", "device", "--source", "okta",
+                                    "--posture-encryption", "", "--posture-managed", "managed",
+                                    "--posture-screen-lock", "enabled", "--posture-compromised", "false",
+                                    "--sort", "last_seen", "--cursor", "c2"], cls)
+        assert result.exit_code == 0, result.output
+        assert inst.list_caasm_assets.call_args.kwargs["posture_encryption"] == [""]
+        assert inst.list_caasm_assets.call_args.kwargs["sort"] == "last_seen"
+        assert inst.list_caasm_assets.call_args.kwargs["cursor"] == "c2"
+        assert inst.list_caasm_assets.call_args.kwargs["source"] == ["okta"]
+
+    @pytest.mark.parametrize("resource", ["findings", "inventory"])
+    def test_csv_resume_cursor_requires_chunk_size_before_authentication(self, resource):
+        p1, p2, p3 = _patches()
+        with p1 as client, p2, p3:
+            result = CliRunner().invoke(cli, ["cloudsec", "export", resource, "--cursor", "c2"])
+        assert result.exit_code != 0
+        assert "--max-rows" in result.output
+        client.assert_not_called()
+
+    @pytest.mark.parametrize("resource", ["findings", "inventory"])
+    def test_csv_chunk_options_reach_sdk(self, resource):
+        p1, p2, p3 = _patches()
+        with p1, p2, p3 as cls:
+            result, inst = _invoke(["cloudsec", "export", resource, "--max-rows", "2000", "--cursor", "c2"], cls)
+        assert result.exit_code == 0, result.output
+        assert result.output == "col_a,col_b\n1,2\n"
+        method = getattr(inst, "export_" + resource + "_csv")
+        assert method.call_args.kwargs["max_rows"] == 2000
+        assert method.call_args.kwargs["cursor"] == "c2"
+
+
+@pytest.mark.parametrize("exit_code", [125, 126, 127])
+def test_docker_start_error_gives_actionable_scanner_access_hint(exit_code):
+    from limacharlie.commands.cloudsec import _run
+    import click
+    with patch("limacharlie.commands.cloudsec.subprocess.run", return_value=MagicMock(returncode=exit_code)):
+        with pytest.raises(click.ClickException, match="registry access.*--image.*--binary"):
+            _run(["docker", "run", "scanner"], 60, container="test-scanner")
+
+
+@pytest.mark.parametrize("provider", ["gitlab", "bitbucket"])
+def test_scm_pr_check_can_omit_base_sha(provider):
+    p1, p2, p3 = _patches()
+    with p1, p2, p3 as cls:
+        result, inst = _invoke(["cloudsec", "code", "pr-check", "acme/api", "--pr", "42", "--provider", provider,
+                                "--head-sha", "b" * 40, "--action", "synchronize"], cls)
+    assert result.exit_code == 0, result.output
+    assert inst.check_pull_request.call_args.args == ("acme/api", 42, None, "b" * 40, "synchronize")
+
+
+def test_github_pr_check_requires_base_before_authentication():
+    p1, p2, p3 = _patches()
+    with p1 as client, p2, p3:
+        result = CliRunner().invoke(cli, ["cloudsec", "code", "pr-check", "acme/api", "--pr", "42",
+                                         "--head-sha", "b" * 40, "--action", "opened"])
+    assert result.exit_code != 0
+    assert "--base-sha" in result.output
+    client.assert_not_called()
