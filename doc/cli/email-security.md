@@ -4,7 +4,7 @@
 
 Install or upgrade with `python -m pip install --upgrade limacharlie`. See [installation](../getting-started.md#installation) for setup.
 
-Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, standalone EML analysis, custom-rule validation and backtest, the connection preflight, and the tenant purge.
+Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, customer sample submission, standalone EML analysis, custom-rule validation and backtest, the connection preflight, and the tenant purge.
 
 Four permissions rather than the usual get/set pair, because the product asks to be trusted with four different things:
 
@@ -12,7 +12,7 @@ Four permissions rather than the usual get/set pair, because the product asks to
 |---|---|
 | `mailsec.get` | Read the product's own view: the queue, the drawer, campaigns, senders, the audit trail |
 | `mailsec.set` | Change detection behaviour and triage state |
-| `mailsec.act` | Remediate live mail, revise verdicts and test provider connections |
+| `mailsec.act` | Remediate live mail, revise verdicts, submit and withdraw samples, and test provider connections |
 | `mailsec.get.eml` | Download original message bytes; also requires `mailsec.get` and a logged justification |
 
 Connection testing and verdict revision require `mailsec.act`. Connection records
@@ -196,6 +196,32 @@ limacharlie mailsec action get <ACTION_ID>
 ```
 
 A sweep's `--reason` lands on the sweep's own record and on every member's audit row. Repeating a sweep is idempotent per member, so a double run collapses onto the rows it already wrote; `--attempt` is how you ask for a deliberate second run — a retry after a provider outage recorded *beside* what failed rather than over it. It is an opaque handle, at most 128 characters, refused rather than truncated. Neither field is part of the confirmation token, so adding either one after previewing does not invalidate it.
+
+## Sample submission
+
+An organization can opt in to let its analysts copy **one message at a time** to LimaCharlie so detection can improve. It is off by default, never automatic, and only a person can do it: D&R rules, automations and the AI agent are refused.
+
+**Submitting sends the message to LimaCharlie.** The original message (attachments included) is stored, compressed and encrypted, in a LimaCharlie-owned bucket in the same datacenter as your Email Security data, with a metadata row: the message id, your category and reason, your identity, the time, the verdict, score and matched rule ids at that time, the sender, subject, mailbox address and size. It is deleted automatically after 400 days. Only LimaCharlie staff working on detection quality can open it, through a tool that records every access; `submission get` shows you how many times and when. **Withdraw at any time**: the stored copy and its metadata are deleted.
+
+Opt in with a `mailsec_policy` record of type `sample_submission`:
+
+```bash
+echo '{"policy_type": "sample_submission", "enabled": true}' > opt-in.json
+limacharlie hive set --hive-name mailsec_policy --key sample-submission --input-file opt-in.json --enabled
+```
+
+Submitting and withdrawing need `mailsec.act`; listing and reading need `mailsec.get`. `--category` and `--reason` are both required (reason: 1 to 1024 characters, kept with the submission). The categories are `missed_threat` (we called it benign or unknown and it is a threat), `false_positive` (we flagged it and it is legitimate) and `other`.
+
+```bash
+limacharlie mailsec message submit-sample <MSG_UUID> --category missed_threat --reason "credential phish we did not flag"
+limacharlie mailsec message withdraw-sample <MSG_UUID>
+limacharlie mailsec submission list
+limacharlie mailsec submission list --category false_positive --since 2026-09-01T00:00:00Z --limit 100
+limacharlie mailsec submission get <SUBMISSION_ID>       # includes when LimaCharlie staff opened it
+limacharlie mailsec submission withdraw <SUBMISSION_ID>
+```
+
+A refused submission (the organization has not opted in, the datacenter has no submissions store, or the message's raw copy is no longer stored) comes back as `result: failed` with an `error`; the command prints the reason and exits non-zero. Submitting a message that already has an active submission returns `result: skipped` with the existing `submission_id`. `submission list` always returns `enabled` (the organization opted in) and `available` (the datacenter has a store), so an empty list can be told apart from a feature that is off. It is paginated: pass `next_cursor` back as `--cursor`, verbatim, until it is empty; `--limit` is 1 to 200. `reviews` in `submission get` is one timestamp per time LimaCharlie staff opened the copy, never the reviewer's identity. Withdrawing an unknown, already-withdrawn or expired submission is a 404.
 
 ## Reports, analysis & rules
 

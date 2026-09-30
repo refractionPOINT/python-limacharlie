@@ -161,7 +161,7 @@ limacharlie schema dr create
 | [Hive & Data Stores](hive-data.md) | hive, secret, lookup, playbook, note, sop, adapter, cloud-sensor, extension |
 | [Infrastructure](infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
-| [Email Security](email-security.md) | mailsec (onboarding, coverage, triage, EML, remediation, campaigns, reports, rules, tenant purge) |
+| [Email Security](email-security.md) | mailsec (onboarding, coverage, triage, EML, remediation, campaigns, reports, sample submission, rules, tenant purge) |
 | [Other Commands](other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover, case |
 
 ## See Also
