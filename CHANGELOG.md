@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Email Security — branded warning banners
+
+- `mailsec message action` and `mailsec message bulk-action` take `--text`
+  (SDK: `text=`), the plain-text wording for one `banner_message` (at most 512
+  characters, no `<` or `>`); the server refuses it on other actions.
+- New `mailsec banner preview --file banner.json [--verdict V] [--text T]`
+  (SDK `Mailsec.preview_banner`) renders a candidate `banners` policy exactly as
+  recipients would see it, with the validator's reason when it would be refused.
+- The deprecated, ignored `--banner` flag and `banner=` argument are removed.
+  Needs an API release that serves `POST /banner/preview` and the `text` field.
+
 ### Cloud Security — code-scan pushes retry when the service is busy
 
 - `CloudSec.ingest_code_results` (and so `cloudsec code ingest` and

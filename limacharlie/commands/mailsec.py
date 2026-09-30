@@ -554,27 +554,11 @@ Examples:
 # Helpers
 # ---------------------------------------------------------------------------
 
-_DEPRECATED_BANNER_HELP = (
-    "DEPRECATED and ignored. The warning banner is rendered by the server from the "
-    "organization's mailsec_policy record of type 'banners'; set the wording there."
+_BANNER_TEXT_HELP = (
+    "banner_message only: plain-text wording for THIS banner (at most 512 characters, no < or >), "
+    "replacing the organization's default and per-verdict wording. The look of the banner comes from "
+    "the organization's mailsec_policy record of type 'banners'."
 )
-
-
-def _note_banner_is_ignored(ctx: click.Context, banner: str | None) -> None:
-    """Say out loud that --banner went nowhere.
-
-    The flag used to carry HTML that was spliced into the recipient's mailbox
-    verbatim. It is now rendered by the server from the org's `banners` policy
-    record, escaped into a fixed template. The flag is kept, hidden and ignored
-    for one release so an existing runbook does not start failing on an unknown
-    option — but silently discarding what an operator typed is how a person ends
-    up believing they configured something they did not.
-    """
-    if not banner:
-        return
-    note(ctx, "--banner is deprecated and ignored: the banner's wording comes from the "
-              "organization's mailsec_policy record of type 'banners' "
-              "(limacharlie hive get --hive-name mailsec_policy ...)")
 
 
 def _output(ctx: click.Context, data: Any) -> None:
@@ -926,6 +910,7 @@ def group() -> None:
       analyze             Parse and score an EML without ingesting it
       report ...          Abuse-mailbox report queue (list, get, resolve, reopen)
       rule ...            Custom rule validation and backtest
+      banner preview      Render a candidate warning banner without saving it
       connection test     Provider connection preflight
       onboarding          Provider setup guide, with your values filled in
       tenant purge        Permanently delete all of this org's Email Security
@@ -962,6 +947,11 @@ def report_group() -> None:
 @group.group("rule")
 def rule_group() -> None:
     """Custom detection rules: validate and backtest."""
+
+
+@group.group("banner")
+def banner_group() -> None:
+    """The warning banner: preview a candidate policy before saving it."""
 
 
 @group.group("connection")
@@ -1206,20 +1196,20 @@ def message_similar(ctx, msg_uuid, cursor, limit) -> None:
                    "unbanner_message|submit_to_triage|crawl_link")
 @click.option("--reason", default=None, help="Recorded on the audit row.")
 @click.option("--attempt", default=None, help="Caller-supplied idempotency token.")
-@click.option("--banner", default=None, hidden=True, help=_DEPRECATED_BANNER_HELP)
+@click.option("--text", default=None, help=_BANNER_TEXT_HELP)
 @click.option("--force", is_flag=True, default=False, help=_FORCE_HELP)
 @pass_context
-def message_action(ctx, msg_uuid, action_name, reason, attempt, banner, force) -> None:
+def message_action(ctx, msg_uuid, action_name, reason, attempt, text, force) -> None:
     """Remediate one message at the provider (mailsec.act).
 
     \b
     Example:
       limacharlie mailsec message action 0057db2b-... --action quarantine_message --reason "phish"
+      limacharlie mailsec message action 0057db2b-... --action banner_message --text "Verify by phone first"
     """
-    _note_banner_is_ignored(ctx, banner)
     ms = _get_mailsec(ctx)
     result = ms.act_on_message(
-        msg_uuid, action_name, reason=reason, attempt=attempt, force=force,
+        msg_uuid, action_name, reason=reason, attempt=attempt, text=text, force=force,
     )
     _output(ctx, result)
     _note_force_required(ctx, result, "Re-run with --force to perform it.", force)
@@ -1279,7 +1269,7 @@ def message_revisions(ctx, msg_uuid, limit) -> None:
 @click.option("--attempt", default=None,
               help="Idempotency token. It is part of the confirmation, so a NEW attempt over the "
                    "same selection is a deliberate second run rather than a re-run of the first.")
-@click.option("--banner", default=None, hidden=True, help=_DEPRECATED_BANNER_HELP)
+@click.option("--text", default=None, help=_BANNER_TEXT_HELP + " Applies to the execute (with --confirm).")
 @click.option("--reason", default=None,
               help="Why you are doing this. Recorded on the job's audit row and on every message's, "
                    "the same way `message action --reason` records one. It is NOT part of the "
@@ -1298,7 +1288,7 @@ def message_revisions(ctx, msg_uuid, limit) -> None:
 @click.option("--poll-interval", default=3, type=click.IntRange(min=1),
               help="Seconds between polls (default: 3).")
 @pass_context
-def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner, reason, confirm,
+def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, text, reason, confirm,
                         force, wait, timeout, poll_interval) -> None:
     """Remediate a set of messages you name, in bulk (mailsec.act).
 
@@ -1322,7 +1312,6 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
     # preview and the execute would be a second chance to disagree with the set
     # the operator just approved, which is exactly what the token exists to catch.
     selection = _bulk_selection(msg_uuids, input_file)
-    _note_banner_is_ignored(ctx, banner)
     ms = _get_mailsec(ctx)
 
     if not confirm:
@@ -1332,6 +1321,8 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
             # could end up in the token, which would mean rewording a
             # justification invalidated a selection somebody already approved.
             note(ctx, "--reason applies to the execute, not the preview; pass it again with --confirm")
+        if text:
+            note(ctx, "--text applies to the execute, not the preview; pass it again with --confirm")
         if force:
             # Same shape as --reason: the preview endpoint takes no force, and
             # the token it mints is valid for a forced execute as it is.
@@ -1342,7 +1333,7 @@ def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, banner
         return
 
     accepted = ms.bulk_action_execute(
-        action_name, selection, confirm, attempt=attempt, reason=reason, force=force,
+        action_name, selection, confirm, attempt=attempt, reason=reason, text=text, force=force,
     )
     bulk_id = accepted.get("bulk_id")
     if not accepted.get("accepted") or not bulk_id:
@@ -1619,6 +1610,31 @@ def rule_validate(ctx, rule_file, rule_id) -> None:
     """
     rule = _load_json_file(rule_file, "--file")
     _output(ctx, _get_mailsec(ctx).validate_rule(rule, rule_id=rule_id))
+
+
+@banner_group.command("preview")
+@click.option("--file", "banner_file", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="JSON file holding the candidate banners policy fields (title, color, text, "
+                   "logo_url, logo_alt, variants); omit policy_type.")
+@click.option("--verdict", default=None,
+              type=click.Choice(["malicious", "suspicious", "graymail", "benign", "unknown"]),
+              help="Preview the per-verdict variant for this verdict.")
+@click.option("--text", default=None, help="Preview a banner_message action's own wording.")
+@pass_context
+def banner_preview(ctx, banner_file, verdict, text) -> None:
+    """Render a candidate warning banner without saving it (mailsec.get).
+
+    \b
+    Uses the same validation the mailsec_policy hive applies on save and the
+    same renderer recipients' banners come from: `html` is what they get, and
+    valid:false carries the reason a save would be refused.
+
+    \b
+    Example:
+      limacharlie mailsec banner preview --file banner.json --verdict malicious
+    """
+    banner = _load_json_file(banner_file, "--file")
+    _output(ctx, _get_mailsec(ctx).preview_banner(banner, verdict=verdict, text=text))
 
 
 @rule_group.command("backtest")

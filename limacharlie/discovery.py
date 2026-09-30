@@ -274,7 +274,7 @@ PROFILES = {
             "mailsec analyze",
             "mailsec report list", "mailsec report get",
             "mailsec report resolve", "mailsec report reopen",
-            "mailsec rule validate", "mailsec rule backtest",
+            "mailsec rule validate", "mailsec rule backtest", "mailsec banner preview",
             "mailsec connection test",
             "mailsec onboarding",
             "mailsec tenant purge",

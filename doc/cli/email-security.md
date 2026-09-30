@@ -163,7 +163,11 @@ limacharlie mailsec message action <MSG_UUID> --action restore_message
 
 Single-message actions also include `move_to_spam`, `banner_message`,
 `unbanner_message`, `submit_to_triage` and `crawl_link`. Banners use the organization's
-`banners` policy, with optional provider scopes required by Workspace. Triage
+`banners` policy (title, colour, logo and per-verdict wording), with optional provider
+scopes required by Workspace. `--text "..."` on `banner_message` (single or bulk) replaces
+the wording for that banner only: plain text, at most 512 characters, no `<` or `>`.
+Preview a candidate banner policy before saving it with
+`limacharlie mailsec banner preview --file banner.json --verdict malicious`. Triage
 submission records an `EMAIL_ACTION` for a configured AI trigger to consume;
 it does not itself start an agent session. Link crawling requests analysis and
 can spend the organization's analysis budget. Inspect action results rather
