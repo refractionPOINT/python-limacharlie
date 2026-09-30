@@ -9,7 +9,7 @@
   `mailsec message submit-sample <msg_uuid> --category missed_threat|false_positive|other --reason "..."`,
   `mailsec message withdraw-sample <msg_uuid>`, and
   `mailsec submission list|get|withdraw`. An organization that has opted in
-  (a `mailsec_policy` record of type `sample_submission`) can copy one message
+  (a `mailsec_policy` record of type `sample_sharing`) can copy one message
   at a time to LimaCharlie to help improve detection; the copy is deleted after
   400 days or as soon as it is withdrawn, and `submission get` shows when
   LimaCharlie staff opened it. Category and reason are checked locally, a
