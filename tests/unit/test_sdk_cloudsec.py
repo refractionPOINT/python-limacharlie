@@ -1503,3 +1503,84 @@ class TestCodeProvenance:
         with pytest.raises(TypeError):
             cs.push_code_provenance(document)
         mock_org.client.request.assert_not_called()
+
+
+class TestProductContractUpdates:
+    def test_m365_certificate_stays_org_scoped_and_preserves_replace(self, cs, mock_org):
+        cs.mint_m365_certificate("my-entra", client_id="application-guid", replace=True)
+        path, body = _post_call(mock_org)
+        assert path == f"cloudsec/{OID}/providers/m365/certificate"
+        assert body == {"connection": "my-entra", "client_id": "application-guid", "replace": True}
+
+    def test_m365_certificate_is_idempotent_by_default(self, cs, mock_org):
+        cs.mint_m365_certificate("my-entra")
+        _, body = _post_call(mock_org)
+        assert body == {"connection": "my-entra", "replace": False}
+
+    def test_lineage_filter_requires_server_receipt_and_normalizes_or_values(self, cs, mock_org):
+        mock_org.client.request.return_value = {"images": [], "applied_lineage_status": ["asserted", "unknown"]}
+        cs.list_container_images(lineage_status=["unknown", " asserted ", "unknown"], cursor="page2")
+        _, pairs = _get_call(mock_org)
+        assert pairs == [("lineage_status", "asserted"), ("lineage_status", "unknown"), ("cursor", "page2")]
+
+    @pytest.mark.parametrize("receipt", [None, [], ["inferred"], "unknown"])
+    def test_lineage_filter_refuses_unacknowledged_result(self, cs, mock_org, receipt):
+        mock_org.client.request.return_value = {"images": [], "applied_lineage_status": receipt}
+        with pytest.raises(RuntimeError, match="not acknowledged"):
+            cs.list_container_images(lineage_status=["unknown"])
+
+    @pytest.mark.parametrize("selector", [[], [""], ["verfied"], "unknown", [None]])
+    def test_invalid_lineage_filter_never_widens_request(self, cs, mock_org, selector):
+        with pytest.raises(ValueError, match="lineage_status"):
+            cs.list_container_images(lineage_status=selector)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_lineage_facets_preserve_explicit_boolean(self, cs, mock_org, value):
+        cs.get_image_repo_facets(lineage_facet=value, provider=["aws"])
+        _, pairs = _get_call(mock_org)
+        assert pairs == [("provider", "aws"), ("lineage_facet", str(value).lower())]
+
+    def test_caasm_posture_empty_is_unreported_not_unfiltered(self, cs, mock_org):
+        cs.list_caasm_assets(kind=["device"], source=["okta", "ms_graph"],
+                             posture_encryption=["", "encrypted"], posture_managed=["managed"],
+                             posture_screen_lock=["enabled"], posture_compromised=["false"],
+                             sort="last_seen", cursor="c2", limit=10)
+        _, pairs = _get_call(mock_org)
+        assert pairs == [("kind", "device"), ("source", "okta"), ("source", "ms_graph"),
+                         ("posture_encryption", ""), ("posture_encryption", "encrypted"),
+                         ("posture_screen_lock", "enabled"), ("posture_compromised", "false"),
+                         ("posture_managed", "managed"), ("sort", "last_seen"),
+                         ("cursor", "c2"), ("limit", "10")]
+
+    @pytest.mark.parametrize("method", ["export_findings_csv", "export_inventory_csv"])
+    def test_chunked_csv_preserves_resume_cursor_and_filter(self, cs, mock_org, method):
+        mock_org.client.request.return_value = "name\nexample\n# next_cursor=c3\n"
+        result = getattr(cs, method)(q="example", max_rows=2000, cursor="c2")
+        _, pairs = _get_call(mock_org)
+        assert pairs == [("q", "example"), ("max_rows", "2000"), ("cursor", "c2"), ("format", "csv")]
+        assert result.endswith("# next_cursor=c3\n")
+        assert mock_org.client.request.call_args.kwargs["raw_response"] is True
+
+    @pytest.mark.parametrize("method", ["export_findings_csv", "export_inventory_csv"])
+    @pytest.mark.parametrize("args", [{"max_rows": 0}, {"max_rows": 100001}, {"max_rows": True},
+                                     {"max_rows": 1.5}, {"cursor": "c2"}])
+    def test_invalid_export_chunk_never_resumes_at_wrong_position(self, cs, mock_org, method, args):
+        with pytest.raises(ValueError):
+            getattr(cs, method)(**args)
+        mock_org.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("provider", ["gitlab", "bitbucket"])
+def test_scm_pr_check_resolves_base_without_caller_sha(cs, mock_org, provider):
+    cs.check_pull_request("acme/api", 42, head_sha="b" * 40, action="synchronize", provider=provider)
+    _, body = _post_call(mock_org)
+    assert "base_sha" not in body
+    assert body["head_sha"] == "b" * 40
+    assert body["provider"] == provider
+
+
+def test_github_pr_check_requires_base_before_http(cs, mock_org):
+    with pytest.raises(ValueError, match="base_sha"):
+        cs.check_pull_request("acme/api", 42, head_sha="b" * 40, action="opened")
+    mock_org.client.request.assert_not_called()

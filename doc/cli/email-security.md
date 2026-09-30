@@ -2,6 +2,9 @@
 
 # Email Security
 
+This reference describes the development CLI. The current PyPI release, `5.6.2`,
+does not include `mailsec`; follow the [security product CLI installation guide](../getting-started.md#security-product-development-cli) before using these commands.
+
 Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, standalone EML analysis, custom-rule validation and backtest, the connection preflight, and the tenant purge.
 
 Four permissions rather than the usual get/set pair, because the product asks to be trusted with four different things:
@@ -10,8 +13,15 @@ Four permissions rather than the usual get/set pair, because the product asks to
 |---|---|
 | `mailsec.get` | Read the product's own view: the queue, the drawer, campaigns, senders, the audit trail |
 | `mailsec.set` | Change detection behaviour and triage state |
-| `mailsec.act` | Remediate live mail at the provider |
-| `mailsec.get.eml` | Take the original bytes of somebody's mail out of the building; requires a logged justification |
+| `mailsec.act` | Remediate live mail, revise verdicts and test provider connections |
+| `mailsec.get.eml` | Download original message bytes; also requires `mailsec.get` and a logged justification |
+
+Connection testing and verdict revision require `mailsec.act`. Connection records
+have separate `mailsec_provider.*` permissions: creating a provider and enabling
+its record require `mailsec_provider.set` and `mailsec_provider.set.mtd`.
+Policy and `dr-mail` writes use `mailsec.set`. Creating and enabling the credential
+secret requires `secret.set` and `secret.set.mtd`. Report resolution and reopening
+use `mailsec.set`.
 
 `mailsec tenant purge` is the exception: it is Owner-level, and needs `mailsec.act` **and** `billing.ctrl` **and** `user.ctrl` — the same trio `org delete` asks for.
 
@@ -27,15 +37,73 @@ Every command supports `--ai-help` for a detailed description with examples.
 
 ## Coverage & onboarding
 
+Start by selecting your organization with the global `--oid` option, or your
+configured default. Subscribe to the extension, then fetch the provider's current
+setup guide. For Workspace, supplying your Google Cloud project and service account
+fills those values into the returned commands; reading the guide creates no resources.
+
 ```bash
 limacharlie mailsec coverage --window-days 30   # mailboxes protected vs not
+limacharlie mailsec coverage --since 2026-09-01T00:00:00Z --until 2026-09-02T00:00:00Z
 limacharlie mailsec onboarding --provider gworkspace
+limacharlie mailsec onboarding --provider gworkspace --project-id your-project --sa-email mailsec@your-project.iam.gserviceaccount.com
 limacharlie mailsec onboarding --provider m365
-limacharlie mailsec connection test gws-exp     # post-save credential preflight
-limacharlie mailsec connection test gws-exp --include-watch
+limacharlie mailsec connection test workspace-mail     # post-save credential preflight
+limacharlie mailsec connection test workspace-mail --include-watch
 ```
 
 `coverage` reports the mailboxes that are NOT protected rather than omitting them, so the number is a coverage statement an admin can act on. `connection test` takes the `mailsec_provider` RECORD NAME, never a credential.
+
+`--topic` and `--subscription` on `onboarding` override the suggested Workspace
+Pub/Sub names. Workspace needs domain-wide delegation and a topic and pull
+subscription in the service account's own Google Cloud project. Microsoft 365 uses
+an Entra application with admin-consented application permissions. Follow the
+returned scopes, including optional capabilities, before saving a connection.
+
+For example, after creating the Microsoft application, save a secret file whose
+`secret` value is the serialized credential JSON:
+
+```json
+{"secret":"{\"tenant_id\":\"YOUR_TENANT_ID\",\"client_id\":\"YOUR_CLIENT_ID\",\"client_secret\":\"YOUR_CLIENT_SECRET\"}"}
+```
+
+Save the connection body as `connection.json`:
+
+```json
+{
+  "provider": "m365",
+  "credentials": "hive://secret/m365-mail",
+  "scope": {"include_addresses": ["pilot@corp.example"]},
+  "ingest": {"mode": "push", "backfill_days": 14}
+}
+```
+
+```bash
+limacharlie secret set --key m365-mail --input-file credential-secret.json --enabled
+limacharlie hive set --hive-name mailsec_provider --key m365-mail --input-file connection.json --enabled
+limacharlie mailsec connection test m365-mail
+limacharlie mailsec coverage
+limacharlie mailsec message list --mailbox pilot@corp.example
+```
+
+Hive records are disabled by default, so `--enabled` is essential. The example
+protects one pilot mailbox; an empty include list covers all discovered mailboxes.
+Workspace uses `provider: gworkspace`, a service-account credential with
+`admin_email`, explicit `ingest.mode: push`, and `features.pubsub_topic` and
+`features.pubsub_subscription` containing full resource names from its setup guide.
+The default backfill is 14 days; explicit `backfill_days: 0` disables it. Backfill
+judges historical mail without emitting live message events or performing automatic
+remediation. New organizations have no automatic remediation configured; add an
+automation policy deliberately after validating coverage and verdicts.
+
+An optional capability can be unavailable while the connection still works. Read
+each diagnostic check's `required`, `status` and `remediation` fields. `--include-watch`
+establishes a real Workspace watch. Coverage confirms ongoing protection after the
+credential test; investigate any unprotected or error mailboxes it reports.
+
+Coverage defaults to a cached 24-hour volume window. Explicit windows are
+recomputed and rate-limited. Use `--window-days` or `--since`/`--until`, never both;
+`volume.truncated` means the requested period exceeds retained message history.
 
 ## The triage queue
 
@@ -45,19 +113,36 @@ Repeatable filters are OR within a key and AND across keys. Cursors are opaque a
 limacharlie mailsec message list --verdict suspicious --verdict malicious
 limacharlie mailsec message list --mailbox cfo@corp.example --since 2026-08-01
 limacharlie mailsec message list --user-reported
+limacharlie mailsec message list --lane backfill --since 2026-09-01T00:00:00Z
 limacharlie mailsec message list --link-domain evil.example         # IOC pivot
 limacharlie mailsec message list --attachment-sha256 <SHA256>
 limacharlie mailsec message list --search "invoice overdue" --since 2026-08-01
 limacharlie mailsec message get <MSG_UUID>                          # the drawer
 limacharlie mailsec message similar <MSG_UUID>                      # who else got this
 limacharlie mailsec message revisions <MSG_UUID>                    # verdict history
+limacharlie mailsec message revisions <MSG_UUID> --limit 1000
 ```
 
-An unknown message id returns a null message rather than an error: the index has a 35-day TTL, so a miss is normal.
+`--lane live` selects newly arriving mail and `--lane backfill` selects onboarding
+history; omitting it includes either. Lane works with time, verdict and IOC queries.
+Combining it with `--mailbox`, `--sender-email` or `--campaign-id` returns
+`lane_unsupported`. Keep the lane and other filters unchanged when following cursors.
+
+An unknown message id returns a null message rather than an error. The message
+index is retained for at most 35 days; the organization's retention policy can
+shorten that period. The drawer normally serves the preserved MDM and original
+enrichments (`mdm_source: stored`). Its raw-EML fallback (`eml_reparse`) omits
+enrichments; expired content returns `mdm: null` and `mdm_unavailable_reason`.
+
+`message similar` returns bounded clustering-key neighbours, not necessarily the
+same campaign, and has no pagination. Read each candidate's `matched_keys` and
+the response's lookback windows. Use `message list --campaign-id` for a paginated
+campaign membership query. Revision history also has no cursor: inspect
+`revisions_truncated` before treating it as a complete audit export.
 
 ## Raw EML
 
-A different privilege from opening the drawer, because it takes a person's actual mail out of the building. `--justification` is required and is written to the access audit with your identity.
+A different privilege from opening the drawer, because it takes a person's actual mail out of the building. Downloading requires both `mailsec.get` and `mailsec.get.eml`. `--justification` is required and is written to the access audit with your identity.
 
 These are the sender's own bytes, unmodified, so the command **refuses to write them to a terminal**: a hostile message carrying ANSI escape sequences would repaint your screen. Give it `--out-file`, or pipe it. Redirects and pipes are unaffected; `--to-terminal` overrides the refusal if you really want the bytes on screen. The check happens before the download, so a refusal records no access.
 
@@ -76,6 +161,14 @@ limacharlie mailsec message action <MSG_UUID> --action quarantine_message --reas
 limacharlie mailsec message action <MSG_UUID> --action quarantine_message --reason "confirmed phish" --force
 limacharlie mailsec message action <MSG_UUID> --action restore_message
 ```
+
+Single-message actions also include `move_to_spam`, `banner_message`,
+`unbanner_message`, `submit_to_triage` and `crawl_link`. Banners use the organization's
+`banners` policy, with optional provider scopes required by Workspace. Triage
+submission records an `EMAIL_ACTION` for a configured AI trigger to consume;
+it does not itself start an agent session. Link crawling requests analysis and
+can spend the organization's analysis budget. Inspect action results rather
+than assuming an accepted request changed message placement.
 
 Bulk remediation is two-step: without `--confirm` it previews, and the preview's `confirm` token is derived from the normalized selection, so it can only execute what you previewed. Up to 500 messages per call — a larger selection is refused, not truncated.
 
@@ -113,6 +206,26 @@ limacharlie mailsec rule backtest --file rule.json --since 2026-08-01
 ```
 
 `rule backtest` reports `precision: null` — not `0` — when nothing it matched has an analyst disposition yet, and counts what it could not examine, so a precision figure whose denominator silently shrank is visible as one.
+
+Validation and backtesting do not save a rule. Save an accepted rule with
+`hive set --hive-name dr-mail --key <RULE_ID> --input-file rule.json --enabled`.
+An invalid rule returns `valid: false` with its reason; check that field even
+when the request succeeds. To disable a vendor rule, set its metadata disabled
+instead of deleting it: vendor pack releases can recreate deleted vendor rules.
+
+Additional extension workflows use the generic CLI (requires `ext.request`):
+
+```bash
+limacharlie extension request --name ext-email-security --action restore_default_rules
+limacharlie extension request --name ext-email-security --action get_dlp_pack
+```
+
+`restore_default_rules` creates missing defaults without overwriting existing
+records. `get_dlp_pack` only returns the opt-in outbound DLP definitions; it does
+not install them. Install the returned lookup records before their `dr-general`
+rules and preserve each record's `usr_mtd.enabled` setting, or use the console's
+installation flow. Outbound mail is observation only; DLP detections do not stop
+delivery or remediate sent messages.
 
 ## Tenant purge
 

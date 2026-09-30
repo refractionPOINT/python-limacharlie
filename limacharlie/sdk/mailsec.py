@@ -294,22 +294,34 @@ class Mailsec:
     # Coverage
     # ------------------------------------------------------------------
 
-    def get_coverage(self, *, window_days: int | None = None) -> dict[str, Any]:
+    def get_coverage(
+        self, *, window_days: int | None = None,
+        since: str | None = None, until: str | None = None,
+    ) -> dict[str, Any]:
         """Coverage and volume for the org: mailboxes protected vs not, and
         what was analysed over the window.
 
         Args:
             window_days: Days of volume to summarise (server default applies
-                when omitted).
+                when omitted). Cannot be combined with since or until.
+            since: Start of the volume window (RFC3339 or unix seconds).
+            until: End of the volume window (RFC3339 or unix seconds).
 
         Returns:
             The coverage summary, including the mailbox states that are NOT
             protected — a mailbox we cannot subscribe is reported as broken
             rather than omitted, so the number is a coverage statement rather
             than a count of what happened to work.
+
+        Raises:
+            ValueError: If window_days is combined with since or until.
         """
+        if window_days is not None and (since is not None or until is not None):
+            raise ValueError("window_days cannot be combined with since or until")
         pairs: list[tuple[str, str]] = []
         _add_scalar(pairs, "window_days", window_days)
+        _add_scalar(pairs, "since", since)
+        _add_scalar(pairs, "until", until)
         return self._get("coverage", pairs)
 
     # ------------------------------------------------------------------
@@ -326,6 +338,7 @@ class Mailsec:
         campaign_id: str | None = None,
         state: list[str] | None = None,
         direction: list[str] | None = None,
+        lane: str | None = None,
         user_reported: bool | None = None,
         min_score: int | None = None,
         link_domain: str | None = None,
@@ -351,6 +364,10 @@ class Mailsec:
             campaign_id: Only members of one campaign.
             state: Message lifecycle state (repeatable).
             direction: ``inbound``, ``outbound``, ``internal`` (repeatable).
+            lane: ``live`` or ``backfill``. Omit to include either processing
+                lane. Supported with time, verdict and IOC queries; combining
+                it with mailbox, sender_email or campaign_id is refused by
+                the server with ``lane_unsupported``.
             user_reported: Tri-state. ``True`` only reported mail, ``False``
                 only unreported, ``None`` (default) either. A human reporting
                 a message is the strongest signal the product gets, so this
@@ -404,22 +421,27 @@ class Mailsec:
             ("cursor", cursor),
             ("limit", limit),
             ("user_reported", user_reported),
+            ("lane", lane),
         ):
             _add_scalar(pairs, key, val)
         return self._get("messages", pairs)
 
     def get_message(self, msg_uuid: str) -> dict[str, Any]:
-        """One message: the index row plus the re-parsed MDM (the drawer).
+        """Get the message index row and parsed Message Data Model (MDM).
 
-        The MDM is not stored in Spanner — the index row is a summary and the
-        raw bytes live in object storage — so the drawer re-parses the stored
-        EML and says which path produced it (``mdm_source``). Enrichments are
-        deliberately ABSENT rather than recomputed: they were resolved against
-        sender profiles as they existed at ingest, and synthesising today's
-        values would show a reputation the verdict was never based on.
+        ``mdm_source: stored`` serves the preserved MDM used to judge the
+        message, including its original enrichments. ``eml_reparse`` is a
+        fallback that parses the retained EML with today's parser and leaves
+        enrichments absent. Expired content yields ``mdm: null`` and an
+        ``mdm_unavailable_reason`` while the index row remains available.
 
-        An unknown id returns ``{"message": None}`` rather than an error: the
-        index has a 35-day TTL, so a miss is a normal outcome.
+        Args:
+            msg_uuid: Message UUID.
+
+        Returns:
+            Message detail, or ``{"message": None}`` for an unknown or
+            expired UUID. Message-index retention is at most 35 days and may
+            be shortened by the organization's retention policy.
         """
         return self._get(f"messages/{_seg(msg_uuid)}")
 
@@ -465,12 +487,28 @@ class Mailsec:
         cursor: str | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        """Messages clustered with this one — the campaign view from a single
-        message, which is how "who else got this" is answered."""
-        pairs: list[tuple[str, str]] = []
-        _add_scalar(pairs, "cursor", cursor)
-        _add_scalar(pairs, "limit", limit)
-        return self._get(f"messages/{_seg(msg_uuid)}/similar", pairs)
+        """Get recent messages sharing clustering keys with this message.
+
+        These are candidates, not necessarily members of the same campaign.
+        The response names matched keys and its lookback windows. The route
+        is not paginated; the old cursor and limit arguments were ignored
+        by the server and are now refused when supplied.
+
+        Args:
+            msg_uuid: Message UUID.
+            cursor: Unsupported legacy parameter; leave unset.
+            limit: Unsupported legacy parameter; leave unset.
+
+        Raises:
+            ValueError: If cursor or limit is supplied. Use list_messages
+                with campaign_id or time/IOC filters for a paginated search.
+        """
+        if cursor is not None or limit is not None:
+            raise ValueError(
+                "similar messages are not paginated; omit cursor and limit, "
+                "or use list_messages with campaign_id or time/IOC filters"
+            )
+        return self._get(f"messages/{_seg(msg_uuid)}/similar")
 
     def act_on_message(
         self,
@@ -590,15 +628,25 @@ class Mailsec:
             body["score"] = score
         return self._post(f"messages/{_seg(msg_uuid)}/verdict", body)
 
-    def list_revisions(self, msg_uuid: str) -> dict[str, Any]:
+    def list_revisions(self, msg_uuid: str, *, limit: int | None = None) -> dict[str, Any]:
         """The verdict revision history for one message, oldest first.
 
         Requires ``mailsec.get``. Every entry carries its ``seq``, the
         ``mode`` and ``actor`` that decided it, the ``verdict`` it set, its
         ``decided_at`` time, and the ``rationale`` given — the audit of how a
         message's disposition moved over time, read from the bottom up.
+
+        Args:
+            msg_uuid: Message UUID.
+            limit: Maximum revisions to return (1–1000 at the gateway).
+
+        Returns:
+            Revision entries and ``revisions_truncated``. There is no cursor;
+            a truncated response is an incomplete history.
         """
-        return self._get(f"messages/{_seg(msg_uuid)}/revisions")
+        pairs: list[tuple[str, str]] = []
+        _add_scalar(pairs, "limit", limit)
+        return self._get(f"messages/{_seg(msg_uuid)}/revisions", pairs)
 
     # ------------------------------------------------------------------
     # Bulk remediation by message id
@@ -1178,17 +1226,33 @@ class Mailsec:
             body["include_watch"] = True
         return self._post(f"connections/{_seg(record)}/test", body)
 
-    def get_onboarding(self, *, provider: str | None = None) -> dict[str, Any]:
-        """The setup guide for connecting a mail provider, with this org's own
-        values already substituted in.
+    def get_onboarding(
+        self, *, provider: str | None = None, project_id: str | None = None,
+        sa_email: str | None = None, topic: str | None = None,
+        subscription: str | None = None,
+    ) -> dict[str, Any]:
+        """Get the provider setup guide with optional Workspace substitutions.
 
-        Served by the backend rather than written into the docs or the web app
-        so that the identifiers a customer must paste — the service account,
-        the topic, the subscription — are the real ones for this deployment
-        rather than placeholders a reader has to translate.
+        The backend supplies current scopes and setup steps. Workspace
+        commands contain placeholders until the customer supplies their own
+        project and service account; this read creates no provider resources.
+
+        Args:
+            provider: ``gworkspace`` (default) or ``m365``.
+            project_id: Customer's Google Cloud project ID.
+            sa_email: Customer's service account email address.
+            topic: Workspace Pub/Sub topic name override.
+            subscription: Workspace Pub/Sub subscription name override.
+
+        Returns:
+            Current provider scopes, setup steps and Workspace setup script.
         """
         pairs: list[tuple[str, str]] = []
         _add_scalar(pairs, "provider", provider)
+        _add_scalar(pairs, "project_id", project_id)
+        _add_scalar(pairs, "sa_email", sa_email)
+        _add_scalar(pairs, "topic", topic)
+        _add_scalar(pairs, "subscription", subscription)
         return self._get("onboarding", pairs)
 
     # ------------------------------------------------------------------

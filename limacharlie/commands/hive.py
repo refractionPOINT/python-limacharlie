@@ -102,6 +102,10 @@ def _record_from_input(key: str, data: Any) -> HiveRecord:
 
 # Known hive types supported by LimaCharlie.
 _KNOWN_HIVE_TYPES = [
+    "cloudsec_provider",
+    "cloudsec_policy",
+    "cloudsec_query",
+    "cloudsec_code_rule",
     "mailsec_provider",
     "mailsec_policy",
     "dr-mail",
@@ -714,7 +718,9 @@ List all known hive type names that can be used with hive commands.
 
 Hives are key-value stores that hold different types of configuration
 data for a LimaCharlie organization.  Each hive type stores a specific
-kind of data.  Known types: dr-general, dr-managed, dr-service, fp,
+kind of data. Cloud Security uses cloudsec_provider, cloudsec_policy,
+cloudsec_query, and cloudsec_code_rule. Email Security uses mailsec_provider,
+mailsec_policy, and dr-mail. Other known types: dr-general, dr-managed, dr-service, fp,
 cloud_sensor, extension_config, yara, lookup, secret, query, playbook,
 ai_agent, ai_skill, ai_memory, external_adapter, sop, org_notes.
 

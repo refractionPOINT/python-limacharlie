@@ -2,9 +2,14 @@
 
 # Cloud Security (CNAPP) & Code Security
 
+Install the [security-product development CLI](../getting-started.md#security-product-development-cli)
+for the command surface below. The published PyPI 5.6.2 package predates these
+Code Security commands; new options become available after this change is merged.
+
 Commands for the LimaCharlie Cloud Security surface: the merged, risk-ranked findings worklist (CSPM misconfigurations + attack paths + CIEM + code and container-image vulnerabilities), the cloud resource inventory and security graph, compliance assessment (live and audit-grade), the risk overview, CAASM (third-party asset attack surface), the AppSec code lane and container-image inventory, sensor↔cloud-asset resolution, finding triage, CSV exports, and the multi-org fleet overview.
 
-Reads usually require `cloudsec.get`. Most writes require `cloudsec.set`; AutoFix and remediation decisions require `cloudsec.respond`, and reading an IaC map receipt requires `cloudsec.set`. Every command requires the org to be subscribed to the Cloud Security extension:
+Reads usually require `cloudsec.get`. Local `code scan` without ingestion and
+`code iac-map extract` work offline; they do not require a subscription or API key. Most writes require `cloudsec.set`; AutoFix and remediation decisions require `cloudsec.respond`, and reading an IaC map receipt requires `cloudsec.set`. API commands require the org to be subscribed to the Cloud Security extension:
 
 ```bash
 limacharlie extension subscribe --name ext-cloud-security
@@ -13,6 +18,10 @@ limacharlie extension subscribe --name ext-cloud-security
 Provider credentials and the cloudsec policies are hive records — manage them with the hive commands (`limacharlie hive list cloudsec_provider`, `... cloudsec_policy`, `... cloudsec_query`, `... cloudsec_code_rule`).
 
 Every command supports `--ai-help` for a detailed description with examples.
+
+For `code pr-check`, GitHub requires `--base-sha`; GitLab.com and Bitbucket
+Cloud may omit it because the provider resolves the base. Supply `--head-sha`
+and `--action` for every provider. `--action edited` is GitHub-only.
 
 ## Overview & posture
 
@@ -249,7 +258,21 @@ Tenant → management group → subscription → resource group → resource con
 
 ## CSV exports
 
-The server walks the full filtered set (no pagination), capped at 100k rows; a trailing `#` comment row marks a truncated export.
+By default the server walks the full filtered set, capped at 100k rows; a trailing
+`#` comment row marks a truncated export. For findings and inventory, use
+`--max-rows` to export in bounded requests. The size is rounded up to full
+1000-row pages. If more rows remain, the CSV ends with `# next_cursor=<token>`;
+pass that token to the next request with the same size, filters and sort. A chunk
+without a continuation comment is the end. Each chunk includes its own header.
+
+```bash
+limacharlie cloudsec export findings --max-rows 2000 -o findings-1.csv
+limacharlie cloudsec export findings --max-rows 2000 --cursor "<token>" -o findings-2.csv
+```
+
+`--cursor` requires `--max-rows` so a resumed request cannot silently restart the
+export. CSV comments can also report truncation or a mid-stream error; inspect
+them before treating an export as complete.
 
 ```bash
 limacharlie cloudsec export findings -o findings.csv --severity CRITICAL
@@ -270,11 +293,21 @@ limacharlie cloudsec resolve assets "lcrn:...instance/web-1"  # asset -> sensors
 
 ```bash
 limacharlie cloudsec caasm assets -q laptop --limit 50
+limacharlie cloudsec caasm assets --kind device --source ms_graph --posture-encryption ""
+limacharlie cloudsec caasm assets --sort last_seen
 limacharlie cloudsec caasm coverage --status open --severity HIGH
 limacharlie cloudsec caasm policy get
 limacharlie cloudsec caasm policy set --input-file policy.yaml
 limacharlie cloudsec caasm ingest --source okta --records-file users.json
 ```
+
+Asset selectors `--kind`, `--source`, `--posture-encryption`,
+`--posture-screen-lock`, `--posture-compromised` and `--posture-managed` are
+repeatable: values within a selector are OR'd, selectors are AND'd. Use the posture
+values your sources report; an empty value selects assets where no source reported
+that fact. Unreported posture never means compliant. `--sort urn` is the stable
+walk order; `--sort last_seen` shows the newest observations first. Follow
+`next_cursor` until absent, including after short pages.
 
 Ingest sources today: `sentinelone`, `crowdstrike`, `defender`, `okta`, `entraid`, `ms_graph`, `wiz` (the registry grows and is validated server-side).
 
@@ -284,7 +317,19 @@ Ingest sources today: `sentinelone`, `crowdstrike`, `defender`, `okta`, `entraid
 limacharlie cloudsec provider test --input-file provider.yaml   # credential preflight (ephemeral)
 limacharlie cloudsec provider manifest                          # coverage manifests, all providers
 limacharlie cloudsec provider manifest --type gcp
+limacharlie cloudsec provider m365-certificate my-entra --client-id "<application-id>" --out connection.cer
 ```
+
+For Entra/Microsoft 365 certificate authentication, `m365-certificate` requires
+both `cloudsec.set` and `secret.set`. It stores the private key in the organization's
+secret store and returns only the public certificate and a `credentials` Hive
+reference. Upload `connection.cer` under **Certificates & secrets → Certificates**
+in your Entra app registration, then use the returned reference as `credentials`
+in the provider record. Grant the app the provider permissions before running
+`provider test`. Repeating generation returns the same certificate.
+`--replace` replaces the stored key pair immediately. An existing connection may
+stop authenticating until you upload the replacement public certificate to the
+Entra app registration.
 
 Saved provider configs live in the `cloudsec_provider` hive:
 
@@ -372,7 +417,11 @@ limacharlie hive set --hive-name cloudsec_policy --key hub-private-image \
 
 `registry` is `dockerhub`, `quay` or `ghcr`; `repository` is one lowercase `namespace/image` (a GHCR path may be deeper), `username` a registry account or robot name, and `secret_ref` must be `hive://secret/<name>` of an existing secret you can read. Use a read-only token. ECR and ACR images use the cloud connection's own read access instead (`setup_path` `integrations/<provider>`), scoped to one repository per pull.
 
-`code capabilities` covers **GitHub connections only** — a GitLab or Bitbucket connection scans with its own read-only token and has no write plane to detect, so it never appears, not even as `unknown`. Use `provider manifest` for those. A capability of `available` means the control MAY be offered, not that anything fires on its own.
+`code capabilities` reports GitHub connections. GitLab.com and Bitbucket Cloud
+connections also appear when their workflow support is enabled in your deployment;
+an absent connection does not mean repository scanning is off. Use
+`provider manifest` for collection coverage. A capability of `available` means the
+control can be offered, not that anything fires on its own.
 
 `code fixes` pages differently from the rest of cloudsec: backend default 5, max 20, not the shared 1000-row cap.
 
@@ -429,9 +478,10 @@ not a `/cloudsec` API route. It requires `ext.request`. The SDK equivalent is
 
 ```bash
 limacharlie cloudsec image repos --with-findings --sort risk
-limacharlie cloudsec image repo-facets
+limacharlie cloudsec image repo-facets --lineage-facet
 limacharlie cloudsec image list --findings with --running --sort risk
 limacharlie cloudsec image list --tag latest --registry gcr.io --all
+limacharlie cloudsec image list --lineage-status unknown --lineage-status ambiguous --all
 limacharlie cloudsec image get sha256:<64 hex>
 limacharlie cloudsec finding list --image-urn "<urn from image list>"
 ```
@@ -439,6 +489,14 @@ limacharlie cloudsec finding list --image-urn "<urn from image list>"
 An image is keyed on its **digest alone**, so one row is the same artifact everywhere it is stored — tags, registry and push time belong to the repository↔image MEMBERSHIP, not to the image. The placement filters on `image list` (`--repo-urn`, `--provider`, `--account`, `--registry`, `--tag`) therefore select images with AT LEAST ONE matching placement; the row still lists its other placements.
 
 `repositories`, `memberships`, `workloads` and `source_repositories` are BOUNDED SAMPLES of 100 with no pagination — the paired `*_count` is the truth, and only memberships carry a `_truncated` flag. To get past 100 placements, use `image list --repo-urn ...` instead.
+
+`image list --lineage-status` accepts repeatable `verified`, `asserted`,
+`inferred`, `ambiguous` and `unknown` selectors. They select the effective
+source-lineage state, separately from image-signature status (`--signed`). A stale
+decision counts as `unknown`. The SDK checks `applied_lineage_status`; an older
+server that cannot acknowledge the filter raises an error instead of returning an
+unfiltered page. `image repo-facets --lineage-facet` adds exact digest-global
+`lineage_statuses` counts; repository selectors do not narrow those counts.
 
 `image get` also returns a digest-bound `lineage` decision. Read its `tier`
 (`inferred`, `tool_emitted`, or `our_signed_push`), `status`, and `reason`
@@ -502,7 +560,11 @@ A rule set document holds one entry per rule file, where each `rules` value is a
 
 Before the scan starts, the CLI refuses a document the scanner would not accept: unknown fields, a version other than 1, a record without a unique non-empty `key` or a `rules` object, more than 32 MiB, or no rules at all. The scanner checks each rule, then reports and skips any rule it cannot load.
 
-**Scanner version.** The default image is pinned to scanner v0.16.0. A `--image` or `--binary` running `sast` must be v0.16.0 or newer, because older scanners reject the rule-set flags. That failure is a usage error (exit 2), and the CLI's error message names the version you need. A scan without `sast` passes no rule-set flag, so it still runs on older scanners.
+**Scanner version and access.** The default image is pinned to scanner v0.24.0.
+Pulling the default image requires registry access. If it is unavailable to your
+account, use an accessible scanner image with `--image` or an installed
+`scanner-agent` with `--binary`; do not assume an organization API key grants
+container-registry access. A `--image` or `--binary` running `sast` must be v0.16.0 or newer, because older scanners reject the rule-set flags. That failure is a usage error (exit 2), and the CLI's error message names the version you need. A scan without `sast` passes no rule-set flag, so it still runs on older scanners.
 
 ### Sanitized IaC maps
 

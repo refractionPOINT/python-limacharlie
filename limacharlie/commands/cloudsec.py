@@ -65,7 +65,7 @@ from ..discovery import register_explain
 # compiled into the binary) or `--rules-file` (a rule set document). Older scanners reject both
 # flags, which is why MIN_RULES_SCANNER_VERSION is named in the error a custom --image/--binary
 # gets when it does.
-DEFAULT_CODE_SCANNER_IMAGE = "gcr.io/legion-212720/github.com/refractionpoint/lc-code-scanner:v0.16.0"
+DEFAULT_CODE_SCANNER_IMAGE = "gcr.io/legion-212720/github.com/refractionpoint/lc-code-scanner:v0.24.0"
 MIN_RULES_SCANNER_VERSION = "v0.16.0"
 
 # The hive an organization's static-analysis rules live in, one Opengrep rule file per record,
@@ -744,7 +744,10 @@ _EXPLAIN_CAASM_ASSETS = """\
 The merged third-party asset inventory: every device/identity the
 org's connected tools (EDR / IdP / MDM / scanners) report,
 entity-resolved to one row per real asset with per-source
-provenance in props.
+provenance in props. Filter with repeatable --kind, --source and
+--posture-encryption/--posture-screen-lock/--posture-compromised/--posture-managed.
+An empty posture value selects unreported facts, not compliant assets.
+--sort last_seen shows newest observations first; urn is the stable default.
 
 Examples:
   limacharlie cloudsec caasm assets
@@ -845,7 +848,9 @@ _EXPLAIN_EXPORT_FINDINGS = """\
 Export the (filtered) findings worklist as CSV. The server walks the
 FULL filtered set (no pagination), capped at 100k rows — a trailing
 '#' comment row marks a truncated export. Takes the same filters as
-'finding list'.
+'finding list'. Use --max-rows to bound each request and resume with
+--cursor from the trailing '# next_cursor=<token>' row. Keep filters unchanged.
+Without --max-rows the export starts at the beginning.
 
 Examples:
   limacharlie cloudsec export findings -o findings.csv
@@ -855,7 +860,9 @@ Examples:
 _EXPLAIN_EXPORT_INVENTORY = """\
 Export the (filtered) cloud resource inventory as CSV. The server
 walks the full filtered set (no pagination), capped at 100k rows.
-Takes the same filters as 'inventory list'.
+Takes the same filters as 'inventory list'. Use --max-rows to bound each request
+and resume with --cursor from its trailing '# next_cursor=<token>' row.
+Keep filters unchanged; --cursor requires --max-rows.
 
 Examples:
   limacharlie cloudsec export inventory -o inventory.csv
@@ -1053,6 +1060,14 @@ register_explain("cloudsec.caasm.coverage", _EXPLAIN_CAASM_COVERAGE)
 register_explain("cloudsec.caasm.policy.get", _EXPLAIN_CAASM_POLICY_GET)
 register_explain("cloudsec.caasm.policy.set", _EXPLAIN_CAASM_POLICY_SET)
 register_explain("cloudsec.caasm.ingest", _EXPLAIN_CAASM_INGEST)
+register_explain("cloudsec.provider.m365-certificate", """Generate an Entra/Microsoft 365 connection certificate; requires cloudsec.set
+and secret.set. The private key stays in the organization secret store.
+Repeat calls return the existing certificate. --replace updates the stored key pair
+immediately; existing authentication may stop until the new certificate is uploaded.
+Use --out connection.cer to save the public certificate, upload it to your Entra
+app registration, and put the returned credentials reference in cloudsec_provider.
+Example: limacharlie cloudsec provider m365-certificate my-entra --out connection.cer
+""")
 register_explain("cloudsec.provider.test", _EXPLAIN_PROVIDER_TEST)
 register_explain("cloudsec.provider.manifest", _EXPLAIN_PROVIDER_MANIFEST)
 register_explain("cloudsec.policy.vocabulary", _EXPLAIN_POLICY_VOCABULARY)
@@ -1843,16 +1858,16 @@ def code_status(ctx) -> None:
 @click.option("--repo", default=None,
               help="Narrow to the connection covering one repository "
                    "('<owner>/<name>' as 'code repos' returns it). Omit "
-                   "to list every GitHub connection.")
+                   "to list enabled workflow connections.")
 @pass_context
 def code_capabilities(ctx, repo) -> None:
     """What each source-control connection may actually DO: scanning, PR
     checks, PR comments, dependency AutoFix.
 
-    Covers GitHub connections only — a GitLab or Bitbucket connection scans
-    with its own read-only token and has no write plane to detect, so it
-    never appears here (not even as 'unknown'); 'cloudsec provider
-    manifest' is the coverage view for those.
+    GitHub connections are always reported. GitLab.com and Bitbucket Cloud
+    connections appear when their workflow support is enabled in this
+    deployment; absence does not mean repository scanning is off. Use
+    'cloudsec provider manifest' to inspect collection coverage.
 
     A capability of 'available' means the control MAY be offered, not that
     it fires on its own: 'pr_checks' reading 'available' says the
@@ -1985,13 +2000,8 @@ def code_rescan(ctx, repo, ref, provider) -> None:
 @click.argument("repo")
 @click.option("--pr", required=True, type=int,
               help="The pull-request number.")
-@click.option("--base-sha", required=True,
-              help="A FULL commit id (40 or 64 hex characters). Still "
-                   "required, but NOT authoritative: the lane takes the base "
-                   "from the provider, because a caller-chosen base decides "
-                   "what the diff is measured from and a base equal to the "
-                   "head would make any pull request look like it introduced "
-                   "nothing.")
+@click.option("--base-sha", default=None,
+              help="Full base commit id. Required for GitHub; optional for GitLab.com and Bitbucket Cloud. The provider resolves the authoritative base.")
 @click.option("--head-sha", required=True,
               help="The FULL commit id of the head. A branch or tag name is "
                    "refused: the check is published ON the commit, and a ref "
@@ -2023,8 +2033,8 @@ def code_pr_check(ctx, repo, pr, base_sha, head_sha, action, prev_base_sha,
 
     REPO is '<owner>/<name>', the bare repository name, or its urn.
 
-    The lane scans the pull request's base and head and publishes a GitHub
-    check run on the head commit reporting only what is NEW in it; the
+    The lane scans the pull request's base and head and publishes a provider
+    check on the head commit reporting only what is NEW in it; the
     repository's own findings stay on 'cloudsec code repos'. Its normal
     caller is the shipped D&R rule on the org's source-control webhook —
     this is the same door for a CI job.
@@ -2060,6 +2070,11 @@ def code_pr_check(ctx, repo, pr, base_sha, head_sha, action, prev_base_sha,
       limacharlie cloudsec code pr-check acme/api --pr 42 --action edited \\
         --base-sha <new-base> --head-sha <head> --prev-base-sha <old-base>
     """
+    selected_provider = (provider or "github").strip().lower()
+    if selected_provider not in ("gitlab", "bitbucket") and not base_sha:
+        raise click.UsageError("--base-sha is required for GitHub pull-request checks")
+    if selected_provider in ("gitlab", "bitbucket") and action == "edited":
+        raise click.UsageError("--action edited is GitHub-only")
     if action == "edited" and not prev_base_sha:
         raise click.UsageError(
             "--action edited needs --prev-base-sha: an edited pull request is "
@@ -2174,17 +2189,13 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
     with no recorded deployment scope ends 'pr_merged_unverifiable'; a PR
     closed without merge ends 'pr_closed'. Neither means verified.
 
-    Lockfiles: for npm the package-lock.json IS rewritten by default. One
-    read-only registry metadata document supplies the new version's resolved
-    URL and integrity digest; it is left stale only where the code_scanning
-    policy sets 'autofix_registry_access: false', where the lock is a
-    yarn.lock or pnpm-lock.yaml, or where the entry could not be rewritten
-    safely. For go the go.sum is NOT regenerated — it hashes a module zip
-    nobody downloaded — and only matters where the tree has one. pip
-    (requirements.txt) and maven have no lockfile, so those changes are
-    complete. Wherever a lock is left stale the pull request says so
-    prominently and names the command to run; trust the pull request over
-    this summary.
+    Lockfiles: npm lockfiles (package-lock.json, npm-shrinkwrap.json,
+    yarn.lock and pnpm-lock.yaml) are updated when supported. An unsupported
+    yarn or pnpm rewrite is refused before a job runs. A package-lock that
+    cannot be updated (for example with autofix_registry_access false) is
+    flagged lockfile_stale with the command to run. For go, go.sum is updated
+    from verified checksum-database entries; a missing or uncompletable go.sum
+    refuses the fix. Review the PR's recorded outcome and limitations.
 
     \b
     Examples:
@@ -2403,7 +2414,7 @@ def code_coverage(ctx, summary) -> None:
 @click.option("--ingest/--no-ingest", "do_ingest", default=False,
               help="Push the report to LimaCharlie when the scan finishes.")
 @click.option("--image", "image", default=None,
-              help="Scanner image to run (default: the published lc-code-scanner).")
+              help="Scanner image to run. The default requires registry access; use an image you can pull or --binary.")
 @click.option("--binary", "binary", default=None,
               help="Run this scanner-agent binary instead of the container.")
 @click.option("-o", "--output", "output_path", default=None,
@@ -2445,7 +2456,9 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
     nothing is duplicated.
 
     The scanner runs in a container by default; --binary runs an already
-    installed scanner-agent instead. Nothing about the checkout leaves your
+    installed scanner-agent instead. The default image requires registry
+    access; supply --image with an accessible scanner image or --binary
+    if you cannot pull it. Nothing about the checkout leaves your
     machine except the report.
 
     STATIC ANALYSIS RULES. The scanner has no rules of its own. When sast is
@@ -2899,6 +2912,11 @@ def _run(cmd: list[str], timeout_s: int, *, env: dict | None = None,
                 pass
         raise click.ClickException(
             "the scan did not finish within %d seconds" % timeout_s)
+    if container and proc.returncode in (125, 126, 127):
+        raise click.ClickException(
+            "Docker could not start the scanner (exit %d). Check the Docker error "
+            "and registry access, or use --image with an accessible scanner image "
+            "or --binary with an installed scanner-agent." % proc.returncode)
     if proc.returncode != 0:
         # The agent's exit codes are a closed vocabulary and it prints a
         # machine-readable line before a fatal exit, so the caller is pointed at
@@ -3035,10 +3053,12 @@ def image_repos(ctx, q, providers, accounts, registries, regions,
 
 
 @image_group.command("repo-facets")
+@click.option("--lineage-facet/--no-lineage-facet", default=None,
+              help="Include digest-global effective lineage counts. Repository filters do not narrow them.")
 @_image_repo_filter_options
 @pass_context
 def image_repo_facets(ctx, q, providers, accounts, registries, regions,
-                      has_findings, has_images, scanning_state) -> None:
+                      has_findings, has_images, scanning_state, lineage_facet) -> None:
     """Cross-filtered facet counts for the image-repository list.
 
     Takes the same selectors as 'image repos' (this endpoint has no
@@ -3066,10 +3086,14 @@ def image_repo_facets(ctx, q, providers, accounts, registries, regions,
         has_findings=has_findings,
         has_images=has_images,
         scanning_state=scanning_state,
+        lineage_facet=lineage_facet,
     ))
 
 
 @image_group.command("list")
+@click.option("--lineage-status", "lineage_statuses", multiple=True,
+              type=click.Choice(["verified", "asserted", "inferred", "ambiguous", "unknown"]),
+              help="Effective source-lineage status; repeatable (OR). Stale decisions match unknown.")
 @click.option("-q", "--search", "q", default=None,
               help="Substring over the image name and urn, and the joined "
                    "repository path, registry host and tags.")
@@ -3109,7 +3133,7 @@ def image_repo_facets(ctx, q, providers, accounts, registries, regions,
 @_paging_options
 @pass_context
 def image_list(ctx, q, repo_urns, providers, accounts, registries, tags,
-               findings, running, signed, sort, order, walk_all, cursor,
+               findings, running, signed, lineage_statuses, sort, order, walk_all, cursor,
                limit) -> None:
     """List container images, keyed by digest.
 
@@ -3142,6 +3166,7 @@ def image_list(ctx, q, repo_urns, providers, accounts, registries, tags,
         findings=findings,
         running=running,
         signed=signed,
+        lineage_status=list(lineage_statuses) or None,
         sort=sort,
         order=order,
     )
@@ -4565,10 +4590,19 @@ def caasm_group() -> None:
 
 
 @caasm_group.command("assets")
+@click.option("--kind", "kinds", multiple=True, help="Asset kind, for example device or user; repeatable (OR).")
+@click.option("--source", "sources", multiple=True, help="Observing tool; repeatable (OR).")
+@click.option("--posture-encryption", multiple=True, help="Reported encryption value; repeatable. Empty selects unreported.")
+@click.option("--posture-screen-lock", multiple=True, help="Reported screen-lock value; repeatable. Empty selects unreported.")
+@click.option("--posture-compromised", multiple=True, help="Reported compromised value; repeatable. Empty selects unreported.")
+@click.option("--posture-managed", multiple=True, help="Reported managed value; repeatable. Empty selects unreported.")
+@click.option("--sort", default=None, type=click.Choice(["urn", "last_seen"]),
+              help="Stable urn order (default) or newest observation first.")
 @click.option("-q", "--search", "q", default=None, help="Substring filter over asset urn/name.")
 @_paging_options
 @pass_context
-def caasm_assets(ctx, q, cursor, limit) -> None:
+def caasm_assets(ctx, q, kinds, sources, posture_encryption, posture_screen_lock,
+                 posture_compromised, posture_managed, sort, cursor, limit) -> None:
     """The merged third-party asset inventory.
 
     \b
@@ -4576,7 +4610,14 @@ def caasm_assets(ctx, q, cursor, limit) -> None:
       limacharlie cloudsec caasm assets -q laptop --limit 50
     """
     cs = _get_cloudsec(ctx)
-    _output(ctx, cs.list_caasm_assets(q=q, cursor=cursor, limit=limit))
+    _output(ctx, cs.list_caasm_assets(
+        q=q, kind=list(kinds) or None, source=list(sources) or None,
+        posture_encryption=list(posture_encryption) or None,
+        posture_screen_lock=list(posture_screen_lock) or None,
+        posture_compromised=list(posture_compromised) or None,
+        posture_managed=list(posture_managed) or None, sort=sort,
+        cursor=cursor, limit=limit,
+    ))
 
 
 @caasm_group.command("coverage")
@@ -4711,6 +4752,44 @@ def provider_manifest(ctx, provider_type) -> None:
     """
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.get_provider_manifests(provider_type=provider_type))
+
+
+@provider_group.command("m365-certificate")
+@click.argument("connection")
+@click.option("--client-id", default=None, help="Entra application's client id (GUID).")
+@click.option("--replace", is_flag=True, default=False,
+              help="Replace the stored key pair immediately. Existing authentication may stop until you upload the new public certificate.")
+@click.option("--out", "output_path", default=None, type=click.Path(dir_okay=False),
+              help="Save the public DER certificate as a .cer file for Entra upload.")
+@pass_context
+def provider_m365_certificate(ctx, connection, client_id, replace, output_path) -> None:
+    """Generate an Entra/Microsoft 365 connection certificate.
+
+    Requires cloudsec.set and secret.set. The private key stays in the
+    organization's secret store. Repeat calls return the existing certificate.
+    Upload the public certificate to your Entra app registration and use the
+    returned credentials reference in your cloudsec_provider record.
+
+    \b
+    Example:
+      limacharlie cloudsec provider m365-certificate my-entra --out connection.cer
+    """
+    result = _get_cloudsec(ctx).mint_m365_certificate(
+        connection, client_id=client_id, replace=replace,
+    )
+    if output_path:
+        try:
+            certificate = base64.b64decode(result["certificate"], validate=True)
+            if not certificate:
+                raise ValueError("empty certificate")
+        except (KeyError, TypeError, ValueError):
+            raise click.ClickException("server did not return a valid public certificate") from None
+        try:
+            with open(output_path, "wb") as destination:
+                destination.write(certificate)
+        except OSError as error:
+            raise click.ClickException("cannot write public certificate: %s" % error) from error
+    _output(ctx, result)
 
 
 @provider_group.command("test")
@@ -4893,6 +4972,13 @@ def _emit_csv(ctx: click.Context, csv_text: str, output_path: str | None) -> Non
         click.echo(csv_text, nl=False)
 
 
+def _export_chunk_options(f):
+    f = click.option("--max-rows", default=None, type=click.IntRange(1, 100000),
+                     help="Bound findings/inventory CSV to roughly this many rows, rounded to 1000-row pages. Read the trailing next_cursor comment.")(f)
+    return click.option("--cursor", default=None,
+                        help="Resume token from a bounded export; requires --max-rows and unchanged filters.")(f)
+
+
 def _export_output_option(f):
     return click.option(
         "-o", "--output-file", "output_path", default=None,
@@ -4911,6 +4997,7 @@ def export_group() -> None:
 
 
 @export_group.command("findings")
+@_export_chunk_options
 @_finding_filter_options
 @click.option("--cause", default=None,
               help="Exact shared-fix cause key, as 'cloudsec finding causes' "
@@ -4922,7 +5009,7 @@ def export_group() -> None:
 def export_findings(ctx, has_iac_origin, iac_attributions, severities, finding_classes, statuses, accounts, repos,
                     image_urns, fix_states, exploit_bands, grains,
                     source, owners, unassigned, sla_states, reachable, kev, q,
-                    cause, sort, order, output_path) -> None:
+                    cause, sort, order, output_path, max_rows, cursor) -> None:
     """Export the (filtered) findings worklist as CSV.
 
     \b
@@ -4931,6 +5018,8 @@ def export_findings(ctx, has_iac_origin, iac_attributions, severities, finding_c
       limacharlie cloudsec export findings --severity CRITICAL --status open
       limacharlie cloudsec export findings --owner alice@corp.com
     """
+    if cursor and max_rows is None:
+        raise click.UsageError("--cursor requires --max-rows for a resumable export")
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_findings_csv(
         has_iac_origin=has_iac_origin,
@@ -4953,15 +5042,17 @@ def export_findings(ctx, has_iac_origin, iac_attributions, severities, finding_c
         q=q,
         sort=sort,
         order=order,
+        max_rows=max_rows, cursor=cursor,
     ), output_path)
 
 
 @export_group.command("inventory")
+@_export_chunk_options
 @_inventory_filter_options
 @_export_output_option
 @pass_context
 def export_inventory(ctx, has_iac_origin, resource_type, provider, account, region, q,
-                     all_accounts, account_empty, output_path) -> None:
+                     all_accounts, account_empty, output_path, max_rows, cursor) -> None:
     """Export the (filtered) cloud resource inventory as CSV.
 
     \b
@@ -4969,10 +5060,13 @@ def export_inventory(ctx, has_iac_origin, resource_type, provider, account, regi
       limacharlie cloudsec export inventory -o inventory.csv
       limacharlie cloudsec export inventory --provider okta
     """
+    if cursor and max_rows is None:
+        raise click.UsageError("--cursor requires --max-rows for a resumable export")
     cs = _get_cloudsec(ctx)
     _emit_csv(ctx, cs.export_inventory_csv(
         resource_type=resource_type, provider=provider, account=account,
         region=region, q=q, has_iac_origin=has_iac_origin,
+        max_rows=max_rows, cursor=cursor,
         account_empty=_inventory_account_empty(
             account, all_accounts, account_empty),
     ), output_path)

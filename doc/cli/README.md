@@ -115,19 +115,22 @@ limacharlie sensor list -W             # All columns untruncated
 
 ```bash
 # List all commands grouped by use-case
-limacharlie discover
-limacharlie discover --profile detection_engineering
-limacharlie discover --profile incident_response
+limacharlie help discover
+limacharlie help discover --profile cloud_security
+limacharlie help discover --profile email_security
 
 # Concept guides
 limacharlie help d&r-rules
 limacharlie help hive
 limacharlie help lcql
+limacharlie help cloud-security
+limacharlie help code-security
+limacharlie help email-security
 
 # Quick-reference cheat sheets
-limacharlie cheatsheet common-operations
-limacharlie cheatsheet detection-engineering
-limacharlie cheatsheet incident-response
+limacharlie help cheatsheet --name cloud-security
+limacharlie help cheatsheet --name code-security
+limacharlie help cheatsheet --name email-security
 
 # Detailed explanation of any command
 limacharlie dr create --ai-help
@@ -147,7 +150,7 @@ limacharlie schema dr create
 | [Hive & Data Stores](hive-data.md) | hive, secret, lookup, playbook, note, sop, adapter, cloud-sensor, extension |
 | [Infrastructure](infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
-| [Email Security](email-security.md) | mailsec (triage queue, EML, remediation, campaigns, reports, hunts, rules, tenant purge) |
+| [Email Security](email-security.md) | mailsec (onboarding, coverage, triage, EML, remediation, campaigns, reports, rules, tenant purge) |
 | [Other Commands](other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover, case |
 
 ## See Also

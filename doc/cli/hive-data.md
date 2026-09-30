@@ -16,6 +16,22 @@ limacharlie hive delete --hive-name secret --key my-key --confirm
 
 The flag is `--hive-name`; `--category` does not exist and never has.
 
+### Security product configuration
+
+`limacharlie hive list-types` includes the product configuration hives:
+
+| Hive | Purpose |
+|---|---|
+| `cloudsec_provider` | Cloud, identity, SaaS, and source-control connections |
+| `cloudsec_policy` | Cloud posture and Code Security policies |
+| `cloudsec_query` | Saved Cloud Security graph queries |
+| `cloudsec_code_rule` | Enabled Code Security rules, including editable defaults and custom rules |
+| `mailsec_provider` | Microsoft 365 and Google Workspace mail connections |
+| `mailsec_policy` | Email Security policies |
+| `dr-mail` | Email detection and verdict rules |
+
+Store provider credentials in `secret` records and reference them with `hive://secret/<key>`. New records default to disabled; use `--enabled` when ready. See the [Cloud Security](cloud-security.md) and [Email Security](email-security.md) onboarding guides before creating connections.
+
 ### Expiry
 
 A record can expire. `usr_mtd.expiry` is a Unix epoch in **milliseconds** (`0` = never),

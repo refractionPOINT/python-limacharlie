@@ -60,6 +60,8 @@ org = Organization(client)
 | `AI` | `limacharlie.sdk.ai` | AI-assisted rule/query generation |
 | `Billing` | `limacharlie.sdk.billing` | Billing and usage details |
 | `Cases` | `limacharlie.sdk.cases` | SOC case management, investigation tracking, reporting |
+| `CloudSec` | `limacharlie.sdk.cloudsec` | Cloud and Code Security: posture, findings, repositories, images, and remediation |
+| `Mailsec` | `limacharlie.sdk.mailsec` | Email Security: onboarding, coverage, messages, verdicts, remediation, and reports |
 
 ## Raw API Requests
 
@@ -106,6 +108,7 @@ status, data = client.raw_request("GET", f"orgs/{client.oid}",
 | [Search & Insight](search-insight.md) | LCQL queries, IOC search, enrichment |
 | [Streaming](streaming.md) | Spout, Firehose |
 | [Configuration Sync](configs.md) | Infrastructure-as-code |
+| [Security Products](security-products.md) | Cloud Security, Code Security, Email Security, setup, and pagination |
 | [Other Classes](other-classes.md) | Extensions, Artifacts, Payloads, Outputs, AI, Billing, Cases |
 
 ## See Also

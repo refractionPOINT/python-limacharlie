@@ -18,7 +18,7 @@ standing, and the multi-org fleet overview
 
 The AppSec code lane additionally exposes what each connected
 source-control organization may actually DO
-(:meth:`CloudSec.get_code_capabilities` — GitHub connections only), the
+(:meth:`CloudSec.get_code_capabilities`), the
 dependency-upgrade queue (:meth:`CloudSec.get_code_fixes`), the
 registry-backed container-image inventory
 (:meth:`CloudSec.list_image_repos`, :meth:`CloudSec.list_container_images`,
@@ -78,6 +78,29 @@ from ..errors import AuthenticationError, RateLimitError
 
 if TYPE_CHECKING:
     from .organization import Organization
+
+
+_LINEAGE_STATUSES = frozenset(("verified", "asserted", "inferred", "ambiguous", "unknown"))
+
+
+def _lineage_values(values: list[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    if not isinstance(values, (list, tuple)) or not values:
+        raise ValueError("lineage_status must be a non-empty list of effective lineage states")
+    if any(not isinstance(value, str) or value.strip() not in _LINEAGE_STATUSES for value in values):
+        raise ValueError("invalid lineage_status: use verified, asserted, inferred, ambiguous or unknown")
+    return sorted({value.strip() for value in values})
+
+
+def _validate_csv_chunk(max_rows: int | None, cursor: str | None) -> None:
+    if max_rows is not None and (
+        isinstance(max_rows, bool) or not isinstance(max_rows, int)
+        or not 1 <= max_rows <= 100000
+    ):
+        raise ValueError("max_rows must be an integer between 1 and 100000")
+    if cursor and max_rows is None:
+        raise ValueError("resuming a CSV export with cursor requires max_rows")
 
 
 def _add_pairs(
@@ -2483,9 +2506,9 @@ class CloudSec:
         self,
         repo: str,
         pr: int,
-        base_sha: str,
-        head_sha: str,
-        action: str,
+        base_sha: str | None = None,
+        head_sha: str | None = None,
+        action: str | None = None,
         *,
         prev_base_sha: str | None = None,
         base_ref: str | None = None,
@@ -2495,7 +2518,7 @@ class CloudSec:
         """Ask the code lane what a pull request INTRODUCES, as a check run.
 
         The lane scans the pull request's base and head and publishes a
-        GitHub check run on the head commit reporting only what is NEW in
+        provider check on the head commit reporting only what is NEW in
         it; the repository's own findings stay on
         :meth:`list_code_repos`. Its normal caller is the shipped D&R rule
         on the org's source-control webhook, but this is a plain
@@ -2505,16 +2528,18 @@ class CloudSec:
             repo: The repository — ``"<owner>/<name>"``, its bare name, or
                 its canonical urn.
             pr: The pull-request number.
-            base_sha: A FULL commit id. Still required, but NOT
-                authoritative: the lane takes the base from the provider,
+            base_sha: A FULL commit id. Required for GitHub, optional for
+                GitLab.com and Bitbucket Cloud. Never authoritative: the lane
+                takes the base from the provider,
                 because a caller-chosen base decides what the diff is
                 measured from and a base equal to the head would make any
                 pull request look like it introduced nothing.
-            head_sha: The FULL commit id of the head. A branch or tag name
+            head_sha: The FULL commit id of the head (Bitbucket also accepts
+                12-39 hexadecimal characters). A branch or tag name
                 is refused — the check is published ON the commit, and a
                 ref would let it be attached to a commit nobody proposed.
             action: REQUIRED. The webhook action: ``opened``,
-                ``synchronize``, ``reopened`` or ``edited``. Every other
+                ``synchronize``, ``reopened`` or ``edited`` (GitHub only). Every other
                 pull-request event leaves what the pull request introduces
                 untouched and is refused — and so is an ABSENT action: the
                 collection host checks membership of that closed set
@@ -2536,6 +2561,10 @@ class CloudSec:
             base_ref: Optional branch the pull request targets.
             head_ref: Optional branch the pull request comes from.
             provider: Source-control provider; defaults to ``github``.
+
+        Raises:
+            TypeError: If head_sha or action is missing.
+            ValueError: If GitHub lacks base_sha or another provider uses edited.
 
         Returns:
             ``{"accepted": bool, "repo": str, "pr": int, "provider": str,
@@ -2566,12 +2595,20 @@ class CloudSec:
             The verdict is the check run's conclusion, set by the policy's
             ``gating.fail_on``.
         """
+        selected_provider = (provider or "github").strip().lower()
+        if not head_sha or not action:
+            raise TypeError("head_sha and action are required")
+        if selected_provider not in ("gitlab", "bitbucket") and not base_sha:
+            raise ValueError("base_sha is required for GitHub pull-request checks")
+        if selected_provider in ("gitlab", "bitbucket") and action == "edited":
+            raise ValueError("edited is a GitHub-only action")
         body: dict[str, Any] = {
             "repo": repo,
             "pr": pr,
-            "base_sha": base_sha,
             "head_sha": head_sha,
         }
+        if base_sha is not None:
+            body["base_sha"] = base_sha
         body["action"] = action
         for key, value in (
             ("prev_base_sha", prev_base_sha),
@@ -2700,19 +2737,16 @@ class CloudSec:
             ``pr_merged_unverifiable``; a PR closed without merge ends with
             ``pr_closed``. Neither is a verified fix.
 
-            For **npm** the ``package-lock.json`` *is* rewritten by
-            default: one read-only registry metadata document supplies the
-            new version's resolved URL and integrity digest. It is left
-            stale only where the ``code_scanning`` policy sets
-            ``autofix_registry_access: false``, where the lock is a
-            ``yarn.lock``/``pnpm-lock.yaml``, or where the entry could not
-            be rewritten safely. For **go** the ``go.sum`` is *not*
-            regenerated — it hashes a module zip nobody downloaded — and
-            only where the tree has one. For **pip**
-            (``requirements.txt``) and **maven** there is no lockfile, so
-            the change is complete. Wherever a lock is left stale the pull
-            request says so prominently and names the command to run; trust
-            the pull request over this summary.
+            For **npm**, lockfiles beside the manifest (package-lock.json,
+            npm-shrinkwrap.json, yarn.lock or pnpm-lock.yaml) are updated
+            when supported. A yarn or pnpm lock that cannot be rewritten
+            safely is refused before a job runs. A package-lock that cannot
+            be updated, for example when ``autofix_registry_access`` is false,
+            is flagged ``lockfile_stale`` with the command to run in the PR.
+            For **go**, ``go.sum`` is updated from verified checksum-database
+            entries; a missing or uncompletable go.sum refuses the fix instead
+            of opening a PR that does not build. Trust the PR's recorded
+            outcome and limitations when reviewing the proposed fix.
         """
         body: dict[str, Any] = {"finding_id": finding_id}
         if repo:
@@ -3117,12 +3151,10 @@ class CloudSec:
         for the AppSec code lane: repository scanning, PR checks, PR
         comments, and dependency AutoFix pull requests.
 
-        This only covers **GitHub** connections. A GitLab or Bitbucket
-        connection scans with its own read-only token and holds no write
-        plane to detect (no PR checks, no PR comments, no AutoFix pull
-        requests), so it never appears here — not even as an ``unknown``
-        entry. Use ``cloudsec provider manifest`` for what a GitLab or
-        Bitbucket connection actually collects.
+        GitHub connections are always reported. GitLab.com and Bitbucket
+        Cloud connections appear when their workflow support is enabled in
+        this deployment; absence does not mean repository scanning is off.
+        Use ``cloudsec provider manifest`` to inspect collection coverage.
 
         A capability reading ``available`` means the control MAY be
         offered, never that anything fires on its own: a ``pr_checks``
@@ -3132,7 +3164,7 @@ class CloudSec:
         Args:
             repo: Narrow to the one connection covering a single repository
                 (``"<owner>/<name>"`` as :meth:`list_code_repos` returns
-                it). Omit to list every GitHub connection.
+                it). Omit to list enabled workflow connections.
 
         Returns:
             ``{"connections": [{"connection", "org", "provider", "mode",
@@ -3321,6 +3353,7 @@ class CloudSec:
         has_findings: bool | None = None,
         has_images: bool | None = None,
         scanning_state: str | None = None,
+        lineage_facet: bool | None = None,
     ) -> dict[str, Any]:
         """Cross-filtered facet counts for the image-repository list.
 
@@ -3328,10 +3361,18 @@ class CloudSec:
         paging, which this endpoint ignores), so the rail describes the
         population that list returns.
 
+        Args:
+            q, provider, account, registry, region, has_findings, has_images,
+                scanning_state: See :meth:`list_image_repos`.
+            lineage_facet: Include digest-global effective lineage counts.
+                Repository selectors do not constrain these counts.
+
         Returns:
             ``{"total": int, "providers": [{"value", "count"}, ...],
             "accounts": [...], "registries": [...],
-            "scanning_states": [...]}``.
+            "scanning_states": [...]}``. With ``lineage_facet=True``, also
+            includes ``lineage_statuses`` matching the image lineage filters;
+            stale decisions count as ``unknown``.
 
         Note:
             Each faceted dimension excludes its OWN selector so the rail
@@ -3349,6 +3390,7 @@ class CloudSec:
             q=q, provider=provider, account=account, registry=registry,
             region=region, has_findings=has_findings,
             has_images=has_images, scanning_state=scanning_state,
+            lineage_facet=lineage_facet,
         ))
 
     def list_container_images(
@@ -3363,6 +3405,7 @@ class CloudSec:
         findings: str | None = None,
         running: bool | None = None,
         signed: bool | None = None,
+        lineage_status: list[str] | None = None,
         sort: str | None = None,
         order: str | None = None,
         cursor: str | None = None,
@@ -3396,6 +3439,10 @@ class CloudSec:
                 provider reports it: an image whose status is UNKNOWN
                 matches NEITHER ``True`` nor ``False``, and the field is
                 not echoed back in the row.
+            lineage_status: Effective source-lineage states, OR'd:
+                ``verified``, ``asserted``, ``inferred``, ``ambiguous`` or
+                ``unknown``. Stale decisions match ``unknown``. This is
+                separate from image-signature status.
             sort: ``name`` (the default), ``risk`` or ``pushed``. An
                 unrecognised key is silently coerced to ``name``.
             order: ``asc`` or ``desc`` (default ``asc`` for ``name``,
@@ -3403,12 +3450,16 @@ class CloudSec:
             cursor: Keyset-pagination token from a previous page.
             limit: Page size (default 100, max 1000).
 
+        Raises:
+            ValueError: If lineage_status contains an invalid state.
+            RuntimeError: If the server does not acknowledge the lineage filter.
+
         Returns:
             ``{"images": [{"urn", "digest", "name", "open_findings",
             "findings_by_severity", "top_severity", "workload_count",
             "built_from_repo_count", "repository_count", "repositories",
             "repositories_truncated", "first_seen", "last_seen",
-            "scanner_provenance", "registry_observed"}, ...],
+            "scanner_provenance", "registry_observed", "lineage"}, ...],
             "next_cursor": str, "total": int, "coverage": {...}}``.
 
             ``urn`` is what :meth:`list_findings` takes as ``image_urn``.
@@ -3437,12 +3488,20 @@ class CloudSec:
             rollup rebuilt once per collection pass, so they describe the
             last rebuild rather than this instant.
         """
-        return self._get("code/images", _query_pairs(
+        lineage_status = _lineage_values(lineage_status)
+        response = self._get("code/images", _query_pairs(
             q=q, repo_urn=repo_urn, provider=provider, account=account,
             registry=registry, tag=tag, findings=findings,
-            running=running, signed=signed, sort=sort, order=order,
+            running=running, signed=signed, lineage_status=lineage_status,
+            sort=sort, order=order,
             cursor=cursor, limit=limit,
         ))
+        if lineage_status is not None and (
+            not isinstance(response, dict)
+            or response.get("applied_lineage_status") != lineage_status
+        ):
+            raise RuntimeError("lineage_status was not acknowledged by this server version")
+        return response
 
     def iter_container_images(self, **selectors: Any):
         """Yield every matching container image, page by page.
@@ -3618,16 +3677,39 @@ class CloudSec:
         self,
         *,
         q: str | None = None,
+        kind: list[str] | None = None,
+        source: list[str] | None = None,
+        posture_encryption: list[str] | None = None,
+        posture_screen_lock: list[str] | None = None,
+        posture_compromised: list[str] | None = None,
+        posture_managed: list[str] | None = None,
+        sort: str | None = None,
         cursor: str | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
         """The merged third-party asset inventory (EDR/IdP/MDM/scanner sources).
 
+        Args:
+            q: Substring search over asset identifiers.
+            kind: Asset kinds, OR'd (for example ``device`` or ``user``).
+            source: Observing tool identifiers, OR'd.
+            posture_encryption, posture_screen_lock, posture_compromised,
+                posture_managed: Reported posture values, OR'd. An empty
+                string selects assets where no source reported the fact.
+            sort: ``urn`` (stable default) or ``last_seen`` (newest first).
+            cursor: Opaque cursor from the previous page.
+            limit: Page size. Follow ``next_cursor`` until absent.
+
         Returns:
             ``{"resources": [...], "next_cursor": str}``.
         """
         return self._get("caasm/assets", _query_pairs(
-            q=q, cursor=cursor, limit=limit,
+            q=q, kind=kind, source=source,
+            posture_encryption=posture_encryption,
+            posture_screen_lock=posture_screen_lock,
+            posture_compromised=posture_compromised,
+            posture_managed=posture_managed, sort=sort,
+            cursor=cursor, limit=limit,
         ))
 
     def list_caasm_coverage(
@@ -3760,6 +3842,35 @@ class CloudSec:
             never "none configured".
         """
         return self._get("free-tier")
+
+    def mint_m365_certificate(
+        self, connection: str, *, client_id: str | None = None,
+        replace: bool = False,
+    ) -> dict[str, Any]:
+        """Generate a connection's Microsoft 365 certificate credential.
+
+        Requires both ``cloudsec.set`` and ``secret.set``. The private key is
+        stored in the organization's secret store and never returned. Repeat
+        calls return the existing public certificate unless replacing it.
+
+        Args:
+            connection: The ``cloudsec_provider`` record name, also used to
+                name the managed secret. The connection may be saved later.
+            client_id: Optional Entra application's client id (GUID).
+            replace: Replace the stored key pair immediately. An existing
+                connection may stop authenticating until you upload the new
+                public certificate to the Entra app registration.
+
+        Returns:
+            dict: ``created``, ``credentials`` (a Hive secret reference),
+            ``secret_name``, ``certificate`` (base64 DER), ``certificate_pem``,
+            ``thumbprint`` and certificate validity timestamps. Upload the
+            public certificate to the Entra application's certificates.
+        """
+        body: dict[str, Any] = {"connection": connection, "replace": replace}
+        if client_id is not None:
+            body["client_id"] = client_id
+        return self._post("providers/m365/certificate", body)
 
     def test_provider(self, provider: dict[str, Any]) -> dict[str, Any]:
         """Preflight a cloud provider configuration before saving it.
@@ -3903,6 +4014,8 @@ class CloudSec:
         q: str | None = None,
         sort: str | None = None,
         order: str | None = None,
+        max_rows: int | None = None,
+        cursor: str | None = None,
     ) -> str:
         """Export the (filtered) findings worklist as CSV text.
 
@@ -3912,6 +4025,14 @@ class CloudSec:
         Takes the same filter selectors as :meth:`list_findings`; the
         server walks the full filtered set (no pagination), capped at
         100k rows.
+
+        Args:
+            max_rows: Bound this export to roughly this many rows (1-100000,
+                rounded up to full 1000-row pages). A remaining page is
+                indicated by a trailing ``# next_cursor=<token>`` row.
+            cursor: Resume token from a bounded export; requires max_rows.
+                Keep all filter and sort selectors unchanged when resuming.
+            Other selectors: See the corresponding list method.
 
         Returns:
             The CSV document as a string.
@@ -3925,6 +4046,8 @@ class CloudSec:
             source=source, reachable=reachable, kev=kev, q=q,
             sort=sort, order=order,
         )
+        _validate_csv_chunk(max_rows, cursor)
+        pairs.extend(_query_pairs(max_rows=max_rows, cursor=cursor))
         pairs.append(("format", "csv"))
         return self._get("findings", pairs, raw_response=True)
 
@@ -3939,12 +4062,22 @@ class CloudSec:
         q: str | None = None,
         account_empty: bool | None = None,
         account_unscoped: bool | None = None,
+        max_rows: int | None = None,
+        cursor: str | None = None,
     ) -> str:
         """Export the (filtered) cloud resource inventory as CSV text.
 
         Takes the same filter selectors as :meth:`list_inventory`; the
         server walks the full filtered set (no pagination), capped at
         100k rows.
+
+        Args:
+            max_rows: Bound this export to roughly this many rows (1-100000,
+                rounded up to full 1000-row pages). A remaining page is
+                indicated by a trailing ``# next_cursor=<token>`` row.
+            cursor: Resume token from a bounded export; requires max_rows.
+                Keep all filter and sort selectors unchanged when resuming.
+            Other selectors: See the corresponding list method.
 
         Returns:
             The CSV document as a string.
@@ -3956,6 +4089,8 @@ class CloudSec:
             region=region, q=q, has_iac_origin=has_iac_origin,
             **selector,
         )
+        _validate_csv_chunk(max_rows, cursor)
+        pairs.extend(_query_pairs(max_rows=max_rows, cursor=cursor))
         pairs.append(("format", "csv"))
         return self._get("inventory", pairs, raw_response=True)
 

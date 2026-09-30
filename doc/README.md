@@ -18,7 +18,7 @@
 | [Hive & Data Stores](cli/hive-data.md) | hive, secret, lookup, playbook, note, sop, adapter, cloud-sensor, extension |
 | [Infrastructure](cli/infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cli/cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
-| [Email Security](cli/email-security.md) | mailsec (triage queue, EML, remediation, campaigns, reports, hunts, rules, tenant purge) |
+| [Email Security](cli/email-security.md) | mailsec (onboarding, coverage, triage, EML, remediation, campaigns, reports, rules, tenant purge) |
 | [Other Commands](cli/other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover |
 
 ## SDK Reference
@@ -34,6 +34,7 @@
 | [Search & Insight](sdk/search-insight.md) | Search (LCQL), Insight (IOC) |
 | [Streaming](sdk/streaming.md) | Spout, Firehose |
 | [Configuration Sync](sdk/configs.md) | Configs (IaC) |
+| [Security Products](sdk/security-products.md) | CloudSec, Mailsec, onboarding, and pagination |
 | [Other Classes](sdk/other-classes.md) | Extensions, Artifacts, Payloads, Outputs, AI, Billing, CloudSec, etc. |
 
 ## External Resources
