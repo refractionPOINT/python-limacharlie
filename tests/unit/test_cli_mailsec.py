@@ -380,3 +380,27 @@ class TestForce:
             result = CliRunner().invoke(cli, ["mailsec", *path, "--help"], terminal_width=10000)
             assert result.exit_code == 0, result.output
             assert expected in " ".join(result.output.split()), path
+
+
+def test_provider_visibility_commands_preserve_coverage_and_validate_status():
+    for command, method, status in [
+        ("provider-quarantine", "list_provider_quarantine", "failed"),
+        ("release-request", "list_release_requests", "requested"),
+    ]:
+        with (
+            patch("limacharlie.commands.mailsec.Client"),
+            patch("limacharlie.commands.mailsec.Organization"),
+            patch("limacharlie.commands.mailsec.Mailsec") as factory,
+        ):
+            api = MagicMock()
+            factory.return_value = api
+            getattr(api, method).return_value = {"coverage": [{"state": "not_granted"}], "next_cursor": "opaque"}
+            args = ["--oid", "11111111-2222-3333-4444-555555555555", "--output", "json", "mailsec", command, "list"]
+            result = CliRunner().invoke(cli, args + ["--status", status, "--connection", "m365", "--cursor", "opaque+/=", "--limit", "25"])
+            assert result.exit_code == 0, result.output
+            assert json.loads(result.output)["coverage"][0]["state"] == "not_granted"
+            getattr(api, method).assert_called_once_with(connection="m365", status=status, since=None, until=None, cursor="opaque+/=", limit=25)
+            result = CliRunner().invoke(cli, args + ["--status", "unknown"])
+            assert result.exit_code == 2
+            result = CliRunner().invoke(cli, args + ["--limit", "1001"])
+            assert result.exit_code == 2

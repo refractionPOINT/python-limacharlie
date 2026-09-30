@@ -1045,6 +1045,59 @@ class Mailsec:
     # Abuse-mailbox report queue
     # ------------------------------------------------------------------
 
+    def list_provider_quarantine(
+        self, *, connection: str | None = None, status: str | None = None,
+        since: str | int | None = None, until: str | int | None = None,
+        cursor: str | None = None, limit: int | None = None,
+    ) -> dict[str, Any]:
+        """List Microsoft provider delivery observations and coverage.
+
+        Args:
+            connection: Optional connection record name.
+            status: quarantined, filteredAsSpam or failed (case sensitive).
+            since: Inclusive provider timestamp, RFC3339 or Unix seconds.
+            until: Exclusive provider timestamp, RFC3339 or Unix seconds.
+            cursor: Opaque cursor; keep filters unchanged between pages.
+            limit: Page size, maximum 1000.
+
+        Returns:
+            dict: provider_quarantine, next_cursor and coverage. Failed means
+            delivery failed, not hosted quarantine. An empty list with
+            unavailable coverage does not establish that nothing was blocked.
+        """
+        pairs: list[tuple[str, str]] = []
+        for key, val in (("connection", connection), ("status", status),
+                         ("since", since), ("until", until),
+                         ("cursor", cursor), ("limit", limit)):
+            _add_scalar(pairs, key, val)
+        return self._get("provider-quarantine", pairs)
+
+    def list_release_requests(
+        self, *, connection: str | None = None, status: str | None = None,
+        since: str | int | None = None, until: str | int | None = None,
+        cursor: str | None = None, limit: int | None = None,
+    ) -> dict[str, Any]:
+        """List Microsoft quarantine release activity and coverage.
+
+        Args:
+            connection: Optional connection record name.
+            status: requested, released or denied (lowercase).
+            since: Inclusive provider timestamp, RFC3339 or Unix seconds.
+            until: Exclusive provider timestamp, RFC3339 or Unix seconds.
+            cursor: Opaque cursor; keep filters unchanged between pages.
+            limit: Page size, maximum 1000.
+
+        Returns:
+            dict: release_requests, next_cursor and coverage. This method
+            observes requests and release/denial history; it approves nothing.
+        """
+        pairs: list[tuple[str, str]] = []
+        for key, val in (("connection", connection), ("status", status),
+                         ("since", since), ("until", until),
+                         ("cursor", cursor), ("limit", limit)):
+            _add_scalar(pairs, key, val)
+        return self._get("release-requests", pairs)
+
     def list_reports(
         self,
         *,

@@ -264,6 +264,7 @@ PROFILES = {
         "description": "Email security: provider onboarding, mailbox coverage, mail triage, verdicts, campaigns, remediation, and reports",
         "commands": [
             "mailsec coverage",
+            "mailsec provider-quarantine list", "mailsec release-request list",
             "mailsec message list", "mailsec message get", "mailsec message eml",
             "mailsec message similar", "mailsec message action",
             "mailsec message revise", "mailsec message revisions",
