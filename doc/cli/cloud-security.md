@@ -2,9 +2,7 @@
 
 # Cloud Security (CNAPP) & Code Security
 
-Install the [security-product development CLI](../getting-started.md#security-product-development-cli)
-for the command surface below. The published PyPI 5.6.2 package predates these
-Code Security commands; new options become available after this change is merged.
+Install or upgrade with `python -m pip install --upgrade limacharlie`. See [installation](../getting-started.md#installation) for setup.
 
 Commands for the LimaCharlie Cloud Security surface: the merged, risk-ranked findings worklist (CSPM misconfigurations + attack paths + CIEM + code and container-image vulnerabilities), the cloud resource inventory and security graph, compliance assessment (live and audit-grade), the risk overview, CAASM (third-party asset attack surface), the AppSec code lane and container-image inventory, sensor↔cloud-asset resolution, finding triage, CSV exports, and the multi-org fleet overview.
 

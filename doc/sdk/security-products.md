@@ -4,7 +4,7 @@
 
 Use `CloudSec` for both Cloud Security and Code Security, and `Mailsec` for Email Security. Both take an authenticated `Organization`; its UUID determines which tenant every request addresses.
 
-This reference describes the development SDK. As of September 30, 2026, the latest PyPI release, `5.6.2`, does not include `Mailsec` or the Code Security command group. See [installation](../getting-started.md#security-product-development-cli) before following those examples.
+Install or upgrade with `python -m pip install --upgrade limacharlie`. See [installation](../getting-started.md#installation) for setup.
 
 ```python
 from limacharlie.client import Client

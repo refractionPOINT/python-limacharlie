@@ -2,8 +2,7 @@
 
 # Email Security
 
-This reference describes the development CLI. The current PyPI release, `5.6.2`,
-does not include `mailsec`; follow the [security product CLI installation guide](../getting-started.md#security-product-development-cli) before using these commands.
+Install or upgrade with `python -m pip install --upgrade limacharlie`. See [installation](../getting-started.md#installation) for setup.
 
 Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, standalone EML analysis, custom-rule validation and backtest, the connection preflight, and the tenant purge.
 
