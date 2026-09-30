@@ -841,3 +841,129 @@ class TestTenantPurge:
         ms.purge_tenant("tok", reason="x" * 1024)
         _, kwargs = mock_org.client.request.call_args
         assert ("reason", "x" * 1024) in kwargs["query_params"]
+
+
+class TestSampleSubmission:
+    """Customer sample submission copies one message to LimaCharlie, so the
+    closed category vocabulary and the reason bounds are enforced locally:
+    a typo is a local error rather than a request that was sent."""
+
+    def test_submit_posts_the_action_with_category_and_reason(self, ms, mock_org):
+        ms.submit_sample("msg-1", "missed_threat", "credential phish we did not flag")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/messages/msg-1/actions"
+        assert body == {
+            "action": "submit_sample",
+            "category": "missed_threat",
+            "reason": "credential phish we did not flag",
+        }
+
+    def test_submit_forwards_attempt_only_when_given(self, ms, mock_org):
+        ms.submit_sample("msg-1", "other", "x", attempt="retry-1")
+        _, body = _post_call(mock_org)
+        assert body["attempt"] == "retry-1"
+        ms.submit_sample("msg-1", "other", "x")
+        _, body = _post_call(mock_org)
+        assert "attempt" not in body
+
+    @pytest.mark.parametrize("category", ["missed_threat", "false_positive", "other"])
+    def test_all_three_categories_are_accepted(self, ms, mock_org, category):
+        ms.submit_sample("msg-1", category, "why")
+        _, body = _post_call(mock_org)
+        assert body["category"] == category
+
+    @pytest.mark.parametrize("category", ["", "phish", "MISSED_THREAT", None])
+    def test_unknown_category_is_refused_and_nothing_is_sent(self, ms, mock_org, category):
+        with pytest.raises(ValueError, match="category must be one of"):
+            ms.submit_sample("msg-1", category, "why")
+        mock_org.client.request.assert_not_called()
+
+    def test_reason_is_trimmed_before_sending(self, ms, mock_org):
+        ms.submit_sample("msg-1", "other", "  padded  ")
+        _, body = _post_call(mock_org)
+        assert body["reason"] == "padded"
+
+    @pytest.mark.parametrize("reason", [None, "", "   \n\t"])
+    def test_blank_or_missing_reason_is_refused(self, ms, mock_org, reason):
+        with pytest.raises(ValueError, match="needs a reason"):
+            ms.submit_sample("msg-1", "other", reason)
+        mock_org.client.request.assert_not_called()
+
+    def test_reason_at_the_limit_is_allowed_and_one_over_is_refused(self, ms, mock_org):
+        ms.submit_sample("msg-1", "other", "x" * 1024)
+        _, body = _post_call(mock_org)
+        assert len(body["reason"]) == 1024
+        mock_org.client.request.reset_mock()
+        with pytest.raises(ValueError, match="at most 1024"):
+            ms.submit_sample("msg-1", "other", "x" * 1025)
+        mock_org.client.request.assert_not_called()
+
+    def test_the_bound_applies_after_trimming(self, ms, mock_org):
+        ms.submit_sample("msg-1", "other", "  " + "x" * 1024 + "  ")
+        _, body = _post_call(mock_org)
+        assert len(body["reason"]) == 1024
+
+    def test_act_on_message_will_not_send_submit_sample(self, ms, mock_org):
+        # It would skip the category and reason the server requires.
+        with pytest.raises(ValueError, match="submit_sample"):
+            ms.act_on_message("msg-1", "submit_sample", reason="why")
+        mock_org.client.request.assert_not_called()
+
+    def test_withdraw_sample_posts_the_action(self, ms, mock_org):
+        ms.withdraw_sample("msg-1")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/messages/msg-1/actions"
+        assert body == {"action": "withdraw_sample"}
+
+    def test_withdraw_sample_reason_is_optional_trimmed_and_bounded(self, ms, mock_org):
+        ms.withdraw_sample("msg-1", reason=" sent by mistake ", attempt="a1")
+        _, body = _post_call(mock_org)
+        assert body == {"action": "withdraw_sample", "reason": "sent by mistake", "attempt": "a1"}
+        ms.withdraw_sample("msg-1", reason="   ")
+        _, body = _post_call(mock_org)
+        assert "reason" not in body
+        with pytest.raises(ValueError, match="at most 1024"):
+            ms.withdraw_sample("msg-1", reason="x" * 1025)
+
+    def test_list_submissions_defaults_send_no_query(self, ms, mock_org):
+        ms.list_submissions()
+        url, qp = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/submissions"
+        assert qp is None
+
+    def test_list_submissions_forwards_filters_and_cursor_verbatim(self, ms, mock_org):
+        ms.list_submissions(
+            category="false_positive", since="2026-09-01T00:00:00Z",
+            until="2026-09-30T00:00:00Z", limit=200, cursor="opaque+/=",
+        )
+        _, qp = _get_call(mock_org)
+        assert dict(qp) == {
+            "category": "false_positive", "since": "2026-09-01T00:00:00Z",
+            "until": "2026-09-30T00:00:00Z", "limit": "200", "cursor": "opaque+/=",
+        }
+
+    @pytest.mark.parametrize("limit", [0, -1, 201, True])
+    def test_list_submissions_limit_bounds(self, ms, mock_org, limit):
+        with pytest.raises(ValueError, match="between 1 and 200"):
+            ms.list_submissions(limit=limit)
+        mock_org.client.request.assert_not_called()
+
+    def test_list_submissions_refuses_unknown_category(self, ms, mock_org):
+        with pytest.raises(ValueError, match="category must be one of"):
+            ms.list_submissions(category="phish")
+        mock_org.client.request.assert_not_called()
+
+    def test_get_and_withdraw_submission_routes(self, ms, mock_org):
+        ms.get_submission("abc123")
+        url, qp = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/submissions/abc123"
+        assert qp is None
+        ms.withdraw_submission("abc123")
+        args, _ = mock_org.client.request.call_args
+        assert args[0] == "DELETE"
+        assert args[1] == f"mailsec/{OID}/submissions/abc123"
+
+    def test_submission_id_is_escaped_as_one_path_segment(self, ms, mock_org):
+        ms.withdraw_submission("a/../b")
+        args, _ = mock_org.client.request.call_args
+        assert args[1] == f"mailsec/{OID}/submissions/a%2F..%2Fb"

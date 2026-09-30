@@ -856,6 +856,12 @@ limacharlie mailsec message action <MSG_UUID> --action quarantine_message --reas
 limacharlie mailsec campaign list
 limacharlie mailsec report list --status open
 
+# Opt-in only: copy ONE message to LimaCharlie to improve detection, then list
+# or withdraw it (withdrawing deletes LimaCharlie's copy)
+limacharlie mailsec message submit-sample <MSG_UUID> --category missed_threat --reason "phish we did not flag"
+limacharlie mailsec submission list
+limacharlie mailsec submission withdraw <SUBMISSION_ID>
+
 Full onboarding: limacharlie help email-security
 """
 

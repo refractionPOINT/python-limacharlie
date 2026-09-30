@@ -3,8 +3,8 @@
 Commands for the ``/mailsec`` API surface: the coverage screen, the message
 index and its drawer, the justified raw-EML download, bulk remediation across a
 selection you name, campaigns and campaign-wide sweeps, sender profiles, the
-action audit trail, the abuse-mailbox report queue, standalone EML analysis,
-custom-rule validation and backtest, the connection preflight, the
+action audit trail, the abuse-mailbox report queue, customer sample submission,
+standalone EML analysis, custom-rule validation and backtest, the connection preflight, the
 served onboarding guide, and the irreversible tenant purge.
 
 Four permissions rather than the usual get/set pair, because mailsec asks to be
@@ -44,7 +44,7 @@ import click
 from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
-from ..sdk.mailsec import BULK_ACTIONS, Mailsec, normalize_bulk_selection
+from ..sdk.mailsec import BULK_ACTIONS, SAMPLE_CATEGORIES, Mailsec, normalize_bulk_selection
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 from ._input_helpers import load_file, load_stdin
@@ -187,6 +187,118 @@ treating the result as a complete audit export; this route has no cursor.
 
 Examples:
   limacharlie mailsec message revisions 0057db2b-...
+"""
+
+_EXPLAIN_MESSAGE_SUBMIT_SAMPLE = """\
+Copy ONE message to LimaCharlie so detection can improve. Requires
+mailsec.act, and the organization must have opted in first.
+
+THIS SENDS THE MESSAGE TO LIMACHARLIE. The original message, attachments
+included, is copied (compressed and encrypted) to a LimaCharlie-owned
+store in the same datacenter as your Email Security data, together with
+the category and reason you give, your identity, the time, the verdict,
+score and matched rule ids, the sender, subject, mailbox address and
+size. It is kept for 400 days and then deleted automatically. Only
+LimaCharlie staff working on detection quality can open it, through a
+tool that records every access; `mailsec submission get` shows how many
+times and when. No other customer can see it.
+
+WITHDRAW AT ANY TIME: `mailsec message withdraw-sample <msg_uuid>` or
+`mailsec submission withdraw <submission_id>` deletes the copy and its
+metadata.
+
+It is off by default. To opt in, save a mailsec_policy record of type
+sample_submission:
+
+  echo '{"policy_type": "sample_submission", "enabled": true}' > opt-in.json
+  limacharlie hive set --hive-name mailsec_policy --key sample-submission \
+      --input-file opt-in.json --enabled
+
+Nothing is ever submitted automatically, and only a person can submit:
+D&R rules, automations and the AI agent are refused. One message per
+call.
+
+--category (required):
+  missed_threat    we called it benign or unknown and it is a threat
+  false_positive   we flagged it and it is legitimate
+  other
+--reason (required, 1 to 1024 characters) is kept with the submission.
+
+Submitting changes no verdict and performs no remediation. Submitting a
+message that already has an active submission succeeds and reports
+skipped. A refusal is reported as result=failed with the reason (not
+opted in, no submissions store in this datacenter, or the message's raw
+copy is no longer stored), and this command exits non-zero.
+
+Examples:
+  limacharlie mailsec message submit-sample 0057db2b-... --category missed_threat --reason "credential phish we did not flag"
+  limacharlie mailsec message submit-sample 0057db2b-... --category false_positive --reason "internal newsletter"
+"""
+
+_EXPLAIN_MESSAGE_WITHDRAW_SAMPLE = """\
+Withdraw the sample submitted from this message. Requires mailsec.act.
+
+Deletes LimaCharlie's stored copy of the message and its metadata (a
+hard delete), then records the withdrawal in the audit trail. Only a
+person can withdraw; automation is refused. --reason is optional, at
+most 1024 characters.
+
+If you have the submission id rather than the message id, use
+`limacharlie mailsec submission withdraw <submission_id>`.
+
+Examples:
+  limacharlie mailsec message withdraw-sample 0057db2b-...
+  limacharlie mailsec message withdraw-sample 0057db2b-... --reason "sent by mistake"
+"""
+
+_EXPLAIN_SUBMISSION_LIST = """\
+The samples this organization has submitted to LimaCharlie, newest
+first. Requires mailsec.get.
+
+The response always carries two flags, so an empty list is never
+ambiguous:
+  enabled     the organization has opted in (mailsec_policy record of
+              type sample_submission)
+  available   this datacenter has a submissions store
+
+Each submission shows the category and reason, who submitted it and
+when, when it expires (400 days after submission), the verdict, score
+and matched rules at the time, and review_count / last_reviewed_at: how
+often LimaCharlie staff have opened the stored copy.
+
+--limit is 1 to 200 (default 50). Pass next_cursor back as --cursor,
+verbatim, to read the next page; an empty next_cursor means the last.
+
+Examples:
+  limacharlie mailsec submission list
+  limacharlie mailsec submission list --category missed_threat --since 2026-09-01T00:00:00Z
+  limacharlie mailsec submission list --limit 200 --cursor <next_cursor>
+"""
+
+_EXPLAIN_SUBMISSION_GET = """\
+One submission, and who at LimaCharlie has looked at it. Requires
+mailsec.get.
+
+`reviews` lists each time LimaCharlie staff opened the stored copy: a
+timestamp per access, never the reviewer's identity. An empty list means
+nobody has opened it. An unknown id is a 404.
+
+Examples:
+  limacharlie mailsec submission get 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
+"""
+
+_EXPLAIN_SUBMISSION_WITHDRAW = """\
+Withdraw a submission by id. Requires mailsec.act.
+
+Deletes LimaCharlie's stored copy and its metadata (a hard delete), then
+records the withdrawal in the audit trail. It cannot be undone: to share
+the message again, submit it again.
+
+An unknown, already-withdrawn or expired id is a 404. A second
+withdrawal never deletes anything twice.
+
+Examples:
+  limacharlie mailsec submission withdraw 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
 """
 
 _EXPLAIN_MESSAGE_BULK_ACTION = """\
@@ -620,6 +732,45 @@ _BULK_FORCE_RERUN = (
 )
 
 
+def _note_sample_result(ctx: click.Context, result: Any, *, submitting: bool) -> None:
+    """Say what a sample action did, on stderr, and fail loudly when it did not.
+
+    A refused submission (not opted in, no store in this datacenter, raw copy
+    aged out) is an HTTP 200 carrying ``result: failed``, so it would otherwise
+    exit 0 and read like a success. It exits 1 here so a script cannot mistake
+    it for one. The response itself is printed untouched.
+    """
+    if not isinstance(result, dict):
+        return
+    outcome = result.get("result")
+    if outcome == "failed":
+        note(ctx, f"Not {'submitted' if submitting else 'withdrawn'}: "
+                  f"{result.get('error') or 'the action failed'}")
+        ctx.exit(1)
+    if not submitting:
+        return
+    sid = result.get("submission_id")
+    if outcome == "skipped":
+        note(ctx, "This message already has an active submission; nothing was sent again.")
+    else:
+        note(ctx, "A copy of this message was sent to LimaCharlie. It is kept for 400 days "
+                  "and deleted automatically after that.")
+    if sid:
+        note(ctx, f"Withdraw it at any time: limacharlie mailsec submission withdraw {sid}")
+
+
+def _note_submission_flags(ctx: click.Context, response: Any) -> None:
+    """Explain an empty submissions list that comes from a switch, not from nothing sent."""
+    if not isinstance(response, dict):
+        return
+    if response.get("available") is False:
+        note(ctx, "Sample submission is not available in this datacenter.")
+    elif response.get("enabled") is False:
+        note(ctx, "Sample submission is not enabled for this organization. Opt in with a "
+                  "mailsec_policy record of type sample_submission (see "
+                  "`limacharlie mailsec message submit-sample --ai-help`).")
+
+
 def _get_mailsec(ctx: click.Context) -> Mailsec:
     client = Client(
         oid=ctx.obj.oid,
@@ -923,6 +1074,8 @@ def group() -> None:
       campaign ...        Campaigns and campaign-wide sweeps
       sender get          A sender's history with this org
       action get          One record from the action audit trail
+      submission ...      Samples you chose to copy to LimaCharlie (list, get,
+                          withdraw); send one with `message submit-sample`
       analyze             Parse and score an EML without ingesting it
       report ...          Abuse-mailbox report queue (list, get, resolve, reopen)
       rule ...            Custom rule validation and backtest
@@ -936,7 +1089,7 @@ def group() -> None:
 @group.group("message")
 def message_group() -> None:
     """The message index, drawer, raw EML, similar mail, actions, verdict revision,
-    and bulk remediation across a selection you name."""
+    sample submission, and bulk remediation across a selection you name."""
 
 
 @group.group("campaign")
@@ -952,6 +1105,11 @@ def sender_group() -> None:
 @group.group("action")
 def action_group() -> None:
     """The action audit trail."""
+
+
+@group.group("submission")
+def submission_group() -> None:
+    """Samples this org copied to LimaCharlie (list, get, withdraw)."""
 
 
 @group.group("report")
@@ -1223,6 +1381,66 @@ def message_action(ctx, msg_uuid, action_name, reason, attempt, banner, force) -
     )
     _output(ctx, result)
     _note_force_required(ctx, result, "Re-run with --force to perform it.", force)
+
+
+@message_group.command("submit-sample")
+@click.argument("msg_uuid")
+@click.option("--category", required=True, type=click.Choice(list(SAMPLE_CATEGORIES)),
+              help="missed_threat: we called it benign and it is a threat. "
+                   "false_positive: we flagged it and it is legitimate. other.")
+@click.option("--reason", required=True,
+              help="Why you are submitting it (1 to 1024 characters). Kept with the submission.")
+@click.option("--attempt", default=None, help="Caller-supplied idempotency token.")
+@pass_context
+def message_submit_sample(ctx, msg_uuid, category, reason, attempt) -> None:
+    """Copy ONE message to LimaCharlie to improve detection (mailsec.act).
+
+    \b
+    THIS SENDS THE MESSAGE TO LIMACHARLIE: the original message
+    (attachments included), your reason and identity, and the verdict
+    snapshot are stored, encrypted, in a LimaCharlie-owned store in your
+    datacenter for 400 days. Only LimaCharlie staff working on detection
+    quality can open it, and every access is recorded and shown in
+    `mailsec submission get`. The organization must have opted in.
+    Withdraw at any time with `mailsec message withdraw-sample` or
+    `mailsec submission withdraw`, which deletes the copy.
+
+    \b
+    Example:
+      limacharlie mailsec message submit-sample 0057db2b-... --category missed_threat --reason "credential phish we did not flag"
+    """
+    ms = _get_mailsec(ctx)
+    try:
+        result = ms.submit_sample(msg_uuid, category, reason, attempt=attempt)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--reason")
+    _output(ctx, result)
+    _note_sample_result(ctx, result, submitting=True)
+
+
+@message_group.command("withdraw-sample")
+@click.argument("msg_uuid")
+@click.option("--reason", default=None, help="Optional note for the audit row (at most 1024 characters).")
+@click.option("--attempt", default=None, help="Caller-supplied idempotency token.")
+@pass_context
+def message_withdraw_sample(ctx, msg_uuid, reason, attempt) -> None:
+    """Withdraw the sample submitted from a message (mailsec.act).
+
+    \b
+    Deletes LimaCharlie's stored copy of the message and its metadata.
+    If you have the submission id, use `mailsec submission withdraw`.
+
+    \b
+    Example:
+      limacharlie mailsec message withdraw-sample 0057db2b-...
+    """
+    ms = _get_mailsec(ctx)
+    try:
+        result = ms.withdraw_sample(msg_uuid, reason=reason, attempt=attempt)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--reason")
+    _output(ctx, result)
+    _note_sample_result(ctx, result, submitting=False)
 
 
 @message_group.command("revise")
@@ -1525,6 +1743,66 @@ def action_get(ctx, action_id) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Sample submissions
+# ---------------------------------------------------------------------------
+
+@submission_group.command("list")
+@click.option("--category", default=None, type=click.Choice(list(SAMPLE_CATEGORIES)),
+              help="Only this category.")
+@click.option("--since", default=None, help="Lower time bound (RFC3339).")
+@click.option("--until", default=None, help="Upper time bound (RFC3339).")
+@click.option("--limit", default=None, type=click.IntRange(1, 200), help="Page size (1-200, default 50).")
+@click.option("--cursor", default=None, help="next_cursor from a previous page, passed back verbatim.")
+@pass_context
+def submission_list(ctx, category, since, until, limit, cursor) -> None:
+    """Samples this org copied to LimaCharlie, newest first (mailsec.get).
+
+    \b
+    The response always says whether the org has opted in (enabled) and
+    whether this datacenter can store samples (available).
+
+    \b
+    Example:
+      limacharlie mailsec submission list --category missed_threat
+    """
+    ms = _get_mailsec(ctx)
+    result = ms.list_submissions(
+        category=category, since=since, until=until, limit=limit, cursor=cursor,
+    )
+    _output(ctx, result)
+    _note_submission_flags(ctx, result)
+
+
+@submission_group.command("get")
+@click.argument("submission_id")
+@pass_context
+def submission_get(ctx, submission_id) -> None:
+    """One submission and when LimaCharlie staff opened it (mailsec.get).
+
+    \b
+    Example:
+      limacharlie mailsec submission get 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
+    """
+    _output(ctx, _get_mailsec(ctx).get_submission(submission_id))
+
+
+@submission_group.command("withdraw")
+@click.argument("submission_id")
+@pass_context
+def submission_withdraw(ctx, submission_id) -> None:
+    """Withdraw a submission: delete LimaCharlie's copy (mailsec.act).
+
+    \b
+    Hard delete of the stored message and its metadata. Cannot be undone.
+
+    \b
+    Example:
+      limacharlie mailsec submission withdraw 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
+    """
+    _output(ctx, _get_mailsec(ctx).withdraw_submission(submission_id))
+
+
+# ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
 
@@ -1744,6 +2022,8 @@ register_explain("mailsec.message.similar", _EXPLAIN_MESSAGE_SIMILAR)
 register_explain("mailsec.message.action", _EXPLAIN_MESSAGE_ACTION)
 register_explain("mailsec.message.revise", _EXPLAIN_MESSAGE_REVISE)
 register_explain("mailsec.message.revisions", _EXPLAIN_MESSAGE_REVISIONS)
+register_explain("mailsec.message.submit-sample", _EXPLAIN_MESSAGE_SUBMIT_SAMPLE)
+register_explain("mailsec.message.withdraw-sample", _EXPLAIN_MESSAGE_WITHDRAW_SAMPLE)
 register_explain("mailsec.message.bulk-action", _EXPLAIN_MESSAGE_BULK_ACTION)
 register_explain("mailsec.message.bulk-status", _EXPLAIN_MESSAGE_BULK_STATUS)
 register_explain("mailsec.campaign.list", _EXPLAIN_CAMPAIGN_LIST)
@@ -1751,6 +2031,9 @@ register_explain("mailsec.campaign.get", _EXPLAIN_CAMPAIGN_GET)
 register_explain("mailsec.campaign.action", _EXPLAIN_CAMPAIGN_ACTION)
 register_explain("mailsec.sender.get", _EXPLAIN_SENDER_GET)
 register_explain("mailsec.action.get", _EXPLAIN_ACTION_GET)
+register_explain("mailsec.submission.list", _EXPLAIN_SUBMISSION_LIST)
+register_explain("mailsec.submission.get", _EXPLAIN_SUBMISSION_GET)
+register_explain("mailsec.submission.withdraw", _EXPLAIN_SUBMISSION_WITHDRAW)
 register_explain("mailsec.report.list", _EXPLAIN_REPORT_LIST)
 register_explain("mailsec.report.get", _EXPLAIN_REPORT_GET)
 register_explain("mailsec.report.resolve", _EXPLAIN_REPORT_RESOLVE)
