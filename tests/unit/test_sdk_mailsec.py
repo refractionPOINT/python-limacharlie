@@ -387,10 +387,10 @@ class TestReports:
         assert ("status", "triaging") in qp
 
     def test_resolve_sends_disposition(self, ms, mock_org):
-        ms.resolve_report("rep-1", "true_positive")
+        ms.resolve_report("rep-1", "malicious")
         url, body = _post_call(mock_org)
         assert url == f"mailsec/{OID}/reports/rep-1/resolve"
-        assert body == {"disposition": "true_positive"}
+        assert body == {"disposition": "malicious"}
 
     def test_reopen_sends_empty_body(self, ms, mock_org):
         ms.reopen_report("rep-1")
@@ -858,3 +858,47 @@ class TestProviderVisibility:
         assert url == f"mailsec/{OID}/{path}"
         assert dict(pairs) == {"connection": "m365", "status": status, "since": "2026-09-01T00:00:00Z", "until": "2026-09-02T00:00:00Z", "cursor": "opaque+/=", "limit": "25"}
         assert result == response
+
+class TestDispositionFeedback:
+    @pytest.mark.parametrize("value", ["malicious", "spam", "graymail", "benign", "simulation"])
+    def test_valid_values_forward_without_changing_verdict(self, ms, mock_org, value):
+        ms.set_disposition("msg-1", value, note="reviewed")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/messages/msg-1/disposition"
+        assert body == {"disposition": value, "note": "reviewed"}
+        ms.resolve_report("rep-1", value)
+        assert _post_call(mock_org)[1] == {"disposition": value}
+
+    @pytest.mark.parametrize("value", ["true_positive", "false_positive", "unknown", "suspicious", ""])
+    def test_obsolete_values_refuse_before_transport(self, ms, mock_org, value):
+        with pytest.raises(ValueError):
+            ms.set_disposition("msg-1", value)
+        with pytest.raises(ValueError):
+            ms.resolve_report("rep-1", value)
+        mock_org.client.request.assert_not_called()
+
+    def test_clear_and_unicode_note_bounds(self, ms, mock_org):
+        ms.set_disposition("msg-1", clear=True, note="é" * 1024)
+        assert _post_call(mock_org)[1] == {"clear": True, "note": "é" * 1024}
+        mock_org.client.request.reset_mock()
+        for kwargs in [{"note": "é" * 1025}, {"clear": True}]:
+            with pytest.raises(ValueError):
+                ms.set_disposition("msg-1", "benign", **kwargs)
+        mock_org.client.request.assert_not_called()
+
+    def test_bulk_refuses_oversized_and_duplicate_inputs(self, ms, mock_org):
+        for ids in [[], ["msg-1", "msg-1"], [str(i) for i in range(501)], [" "], ["x" * 37]]:
+            with pytest.raises(ValueError):
+                ms.set_bulk_disposition(ids, "spam")
+        mock_org.client.request.assert_not_called()
+        ms.set_bulk_disposition(["msg-1", "msg-2"], "spam")
+        assert _post_call(mock_org)[1]["msg_uuids"] == ["msg-1", "msg-2"]
+
+    def test_filter_release_and_remediation_contract(self, ms, mock_org):
+        ms.list_messages(disposition="none")
+        assert ("disposition", "none") in _get_call(mock_org)[1]
+        ms.release_message("msg-1", reason="reviewed", mode="ai", force=True)
+        assert _post_call(mock_org)[1] == {"action": "release_message", "reason": "reviewed", "mode": "ai", "force": True}
+        remediation = {"scope": "message", "action": "quarantine_message"}
+        ms.resolve_report("rep-1", "malicious", remediation=remediation)
+        assert _post_call(mock_org)[1] == {"disposition": "malicious", "remediation": remediation}

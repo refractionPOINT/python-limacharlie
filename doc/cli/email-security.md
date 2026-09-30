@@ -298,3 +298,37 @@ admin consent. Message trace also requires Microsoft's documented Exchange
 service-principal prerequisite; activity requires unified audit logging. Missing
 grants report `not_granted`. Pending, stale or error coverage must be checked
 before treating an empty list as evidence that no messages were blocked.
+
+## Disposition and release
+
+Disposition is an analyst decision independent of the engine verdict. Values are
+`malicious`, `spam`, `graymail`, `benign`, and `simulation`. Notes support up to
+1024 characters. Use `none` to filter messages awaiting a decision.
+
+```bash
+limacharlie mailsec message disposition <MSG_UUID> --disposition spam --note "Reviewed"
+limacharlie mailsec message disposition <MSG_UUID> --clear
+limacharlie mailsec message list --disposition none
+limacharlie mailsec message bulk-disposition --input-file ids.json --disposition simulation
+limacharlie mailsec message release <MSG_UUID> --reason "Confirmed safe" --mode analyst
+```
+
+Bulk disposition accepts 1–500 unique message IDs and reports individual errors.
+A benign disposition repairs sender flagged history; malicious contributes once.
+Neither changes the engine verdict nor triggers policy automations.
+Release restores placement and records a benign verdict and disposition together.
+It requires `mailsec.act`; alert-only organizations must explicitly add `--force`.
+Retrying the same successful release does not add another verdict revision.
+
+Report resolution uses the same dispositions and needs `mailsec.set`. Optional
+remediation additionally requires `mailsec.act` and uses preview then confirmation:
+
+```bash
+limacharlie mailsec report resolve <REPORT_ID> --disposition malicious --scope message --action quarantine_message
+limacharlie mailsec report resolve <REPORT_ID> --disposition malicious --scope message --action quarantine_message --confirm <TOKEN> --reason "Confirmed threat"
+```
+
+Scope can be `message` or `campaign`. Preview keeps the report open, as do failed,
+withheld, or partial remediation attempts. Successful resolution classifies the
+linked original without changing its engine verdict. Report detail shows
+`resolution_reply_status`; an ambiguous provider send is not automatically retried.
