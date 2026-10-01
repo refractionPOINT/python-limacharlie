@@ -303,7 +303,8 @@ before treating an empty list as evidence that no messages were blocked.
 
 Disposition is an analyst decision independent of the engine verdict. Values are
 `malicious`, `spam`, `graymail`, `benign`, and `simulation`. Notes support up to
-1024 characters. Use `none` to filter messages awaiting a decision.
+1024 characters. Use `none` to filter messages awaiting a decision. Message list and
+detail return `disposition: null` when no decision is set or it was cleared.
 
 ```bash
 limacharlie mailsec message disposition <MSG_UUID> --disposition spam --note "Reviewed"
@@ -313,7 +314,10 @@ limacharlie mailsec message bulk-disposition --input-file ids.json --disposition
 limacharlie mailsec message release <MSG_UUID> --reason "Confirmed safe" --mode analyst
 ```
 
-Bulk disposition accepts 1–500 unique message IDs and reports individual errors.
+Bulk disposition accepts 1–500 unique message IDs and returns one ordered outcome per ID.
+A missing message reports its own error without affecting the others. An error starting
+with `not confirmed, retry the same decision` means the outcome is unknown; repeating the
+same request is safe because identical decisions are no-ops.
 A benign disposition repairs sender flagged history; malicious contributes once.
 Neither changes the engine verdict nor triggers policy automations.
 Release restores placement and records a benign verdict and disposition together.
