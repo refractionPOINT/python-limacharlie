@@ -269,7 +269,7 @@ ambiguous:
 Each submission shows the category and reason, who submitted it and
 when, when it expires (400 days after submission), the verdict, score
 and matched rules at the time, and review_count / last_reviewed_at: how
-often the submission has been accessed the stored copy.
+often the stored copy has been accessed and when.
 
 --limit is 1 to 200 (default 50). Pass next_cursor back as --cursor,
 verbatim, to read the next page; an empty next_cursor means the last.
