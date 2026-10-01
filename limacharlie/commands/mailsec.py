@@ -1564,13 +1564,16 @@ def report_get(ctx, report_id) -> None:
 @click.option("--disposition", required=True,
               type=click.Choice(DISPOSITIONS),
               help="What was decided. 'unknown' is deliberately not offered.")
-@click.option("--scope", type=click.Choice(["message", "campaign"]), default=None)
+@click.option("--scope", type=click.Choice(["message", "group", "campaign"]), default=None)
 @click.option("--action", type=click.Choice(BULK_ACTIONS), default=None)
 @click.option("--confirm", default=None, help="Token from remediation_preview; omit to preview without resolving.")
+@click.option("--attempt", default=None, help="Required UUID for group scope, reused for preview, confirmation and polling.")
+@click.option("--wait", is_flag=True, help="Wait for the group preview or confirmed resolution; timeout leaves the durable job running.")
+@click.option("--timeout", type=click.IntRange(1, 300), default=300, show_default=True)
 @click.option("--reason", default="")
 @click.option("--force", is_flag=True, help=_FORCE_HELP)
 @pass_context
-def report_resolve(ctx, report_id, disposition, scope, action, confirm, reason, force) -> None:
+def report_resolve(ctx, report_id, disposition, scope, action, confirm, attempt, wait, timeout, reason, force) -> None:
     """Close a report with a disposition (mailsec.set).
 
     \b
@@ -1579,14 +1582,22 @@ def report_resolve(ctx, report_id, disposition, scope, action, confirm, reason, 
     """
     if bool(scope) != bool(action):
         raise click.UsageError("--scope and --action must be provided together")
-    if not scope and (confirm or reason or force):
+    if not scope and (confirm or reason or force or attempt):
         raise click.UsageError("remediation flags require --scope and --action")
+    if wait and scope != "group":
+        raise click.UsageError("--wait requires --scope group")
     kwargs = {}
     if scope:
         kwargs["remediation"] = {"scope": scope, "action": action, "reason": reason, "force": force}
+        if attempt:
+            kwargs["remediation"]["attempt"] = attempt
         if confirm:
             kwargs["remediation"]["confirm"] = confirm
-    _output(ctx, _get_mailsec(ctx).resolve_report(report_id, disposition, **kwargs))
+    ms = _get_mailsec(ctx)
+    result = ms.wait_for_report_resolution(report_id, disposition, timeout=timeout, **kwargs) if wait else ms.resolve_report(report_id, disposition, **kwargs)
+    _output(ctx, result)
+    if wait and result.get("wait_timed_out"):
+        ctx.exit(2)
 
 
 @report_group.command("reopen")

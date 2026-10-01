@@ -52,6 +52,7 @@ import binascii
 import json
 import time
 import warnings
+import uuid
 from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as _quote
 
@@ -1218,7 +1219,10 @@ class Mailsec:
             report_id: Report to resolve.
             disposition: Malicious, spam, graymail, benign, or simulation.
             remediation: Optional scope/action request. Without confirm, previews
-                the action and leaves the report open; pass the returned confirm
+                the action and leaves the report open. Group scope requires a UUID
+                attempt reused through preview, confirmation and polling; its
+                job may return remediation_pending until completed. Only the
+                reported original is classified. Pass the returned confirm
                 token to execute and resolve. Remediation requires mailsec.act.
 
         Returns:
@@ -1231,8 +1235,52 @@ class Mailsec:
             raise ValueError("invalid disposition")
         body: dict[str, Any] = {"disposition": disposition}
         if remediation is not None:
-            body["remediation"] = remediation
+            if remediation.get("scope") == "group":
+                try:
+                    uuid.UUID(remediation.get("attempt", ""))
+                except (ValueError, TypeError, AttributeError):
+                    raise ValueError("group remediation requires a UUID attempt reused through preview, confirmation and polling") from None
+            body["remediation"] = dict(remediation)
         return self._post(f"reports/{_seg(report_id)}/resolve", body)
+
+    def wait_for_report_resolution(self, report_id: str, disposition: str, *, remediation: dict[str, Any], timeout: int = 300, poll_interval: int = 2) -> dict[str, Any]:
+        """Wait for a group preview or confirmed report resolution.
+
+        Args:
+            report_id: Report identifier.
+            disposition: The same disposition used for the preview.
+            remediation: Group action, UUID attempt and unchanged parameters;
+                include confirm to execute and resolve, omit to prepare only.
+            timeout: Maximum polling window, 1 to 300 seconds.
+            poll_interval: Seconds between polls, 1 to 30.
+
+        Returns:
+            dict: Preview with job and confirmation, or resolved report.
+                wait_timed_out means the durable job continues; repeat with the
+                same attempt and confirmation to resume. HTTP errors propagate.
+
+        Raises:
+            ValueError: If bounds or group parameters are invalid.
+        """
+        if remediation.get("scope") != "group" or not 1 <= timeout <= 300 or not 1 <= poll_interval <= 30:
+            raise ValueError("requires group remediation and bounded timeout/poll interval")
+        frozen = dict(remediation)
+        deadline = time.monotonic() + timeout
+        for _ in range(302):
+            result = self.resolve_report(report_id, disposition, remediation=frozen)
+            if result.get("report", {}).get("status") == "resolved" or result.get("already_resolved") is True:
+                return result
+            preview = result.get("remediation_preview", {})
+            if not frozen.get("confirm") and preview.get("job", {}).get("phase") == "ready" and preview.get("confirmation"):
+                return result
+            job = (result.get("remediation") or preview).get("job", {})
+            if job.get("phase") not in ("preparing", "running"):
+                raise ValueError("incomplete group remediation outcome; report remains open")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {**result, "wait_timed_out": True}
+            time.sleep(min(poll_interval, remaining))
+        return {**result, "wait_timed_out": True}
 
     def reopen_report(self, report_id: str) -> dict[str, Any]:
         """Reopen a resolved report. Requires ``mailsec.set``.
