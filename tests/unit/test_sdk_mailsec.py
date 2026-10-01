@@ -906,6 +906,13 @@ class TestDispositionFeedback:
 class TestGroupReportResolution:
     request = {"scope": "group", "action": "quarantine_message", "attempt": "11111111-1111-4111-8111-111111111111"}
 
+    @pytest.mark.parametrize("phase", ["running", "done"])
+    def test_repeated_preview_recovers_confirmation(self, phase, ms, mock_org):
+        preview = {"report": {"status": "open"}, "remediation_preview": {"job": {"phase": phase}, "confirmation": "token"}}
+        mock_org.client.request.return_value = preview
+        assert ms.wait_for_report_resolution("r", "malicious", remediation=self.request) == preview
+        mock_org.client.request.assert_called_once()
+
     def test_group_attempt_is_required(self, ms, mock_org):
         with pytest.raises(ValueError, match="UUID attempt"):
             ms.resolve_report("r", "malicious", remediation={"scope": "group"})
