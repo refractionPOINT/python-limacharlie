@@ -1237,7 +1237,7 @@ class Mailsec:
         return self._get("submissions", pairs)
 
     def get_submission(self, submission_id: str) -> dict[str, Any]:
-        """One submission, and who at LimaCharlie has opened it.
+        """One submission and its recorded staff review accesses.
 
         Requires ``mailsec.get``.
 
@@ -1246,8 +1246,10 @@ class Mailsec:
 
         Returns:
             ``{"submission": {...}, "reviews": [{"ts": ...}]}``. ``reviews``
-            lists each time LimaCharlie staff opened the stored copy: a count
-            and timestamps only, never the reviewer's identity. An unknown id
+            lists up to200 access-attempt timestamps, oldest first, never the reviewer's
+            identity. Access is recorded before decryption and can include failures.
+            ``reviews_truncated`` identifies a partial history; ``review_count`` and
+            ``last_reviewed_at`` in the submission include all accesses. An unknown id
             is not an error: it returns ``{"submission": None, "reviews": []}``,
             so branch on ``submission`` being ``None``.
         """
@@ -1264,8 +1266,9 @@ class Mailsec:
 
         Returns:
             ``{"withdrawn": true, "submission_id": ..., "action_id": ...}``
-            when a copy was deleted. An unknown, already-withdrawn or expired
-            id is not an error: it returns ``{"withdrawn": false,
+            when a copy was deleted. Withdrawal remains available after opt-out or
+            provider disconnect, and expired copies are cleaned up if metadata remains.
+            An unknown or already-deleted id returns ``{"withdrawn": false,
             "submission_id": ...}`` with no ``action_id``, so a second
             withdrawal is harmless and never deletes anything twice. Check
             ``withdrawn``.
