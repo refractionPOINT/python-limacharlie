@@ -287,3 +287,13 @@ Scope can be `message` or `campaign`. Preview keeps the report open, as do faile
 withheld, or partial remediation attempts. Successful resolution classifies the
 linked original without changing its engine verdict. Report detail shows
 `resolution_reply_status`; an ambiguous provider send is not automatically retried.
+
+
+For report remediation across copies of the same message, use `--scope group`
+with a UUID `--attempt` reused through preview, confirmation and polling.
+Unconfirmed requests return `remediation_preview: {job, confirmation}`; confirmed
+requests may return `remediation_pending: true`. Add `--wait` (maximum 300
+seconds) to poll for a ready preview or a resolved report. Timeout exits with
+code 2, retaining the job; repeat with the same attempt and confirmation to
+resume. A failed or withheld job needs a new attempt and fresh confirmation.
+Only the reported original is classified; every selected copy is remediated.

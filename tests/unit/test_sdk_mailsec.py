@@ -885,3 +885,39 @@ class TestDispositionFeedback:
         remediation = {"scope": "message", "action": "quarantine_message"}
         ms.resolve_report("rep-1", "malicious", remediation=remediation)
         assert _post_call(mock_org)[1] == {"disposition": "malicious", "remediation": remediation}
+
+class TestGroupReportResolution:
+    request = {"scope": "group", "action": "quarantine_message", "attempt": "11111111-1111-4111-8111-111111111111"}
+
+    def test_group_attempt_is_required(self, ms, mock_org):
+        with pytest.raises(ValueError, match="UUID attempt"):
+            ms.resolve_report("r", "malicious", remediation={"scope": "group"})
+        mock_org.client.request.assert_not_called()
+
+    def test_wait_preserves_frozen_preview_and_confirmation(self, ms, mock_org):
+        ready = {"report": {"status": "open"}, "remediation_preview": {"job": {"phase": "ready"}, "confirmation": "token"}}
+        preparing = {"report": {"status": "open"}, "remediation_preview": {"job": {"phase": "preparing"}}}
+        mock_org.client.request.side_effect = [preparing, ready]
+        with patch("limacharlie.sdk.mailsec.time.sleep"):
+            assert ms.wait_for_report_resolution("r", "malicious", remediation=self.request) == ready
+        bodies = [json.loads(call.kwargs["raw_body"]) for call in mock_org.client.request.call_args_list]
+        assert bodies[0] == bodies[1] == {"disposition": "malicious", "remediation": self.request}
+        mock_org.client.request.reset_mock()
+        running = {"report": {"status": "open"}, "remediation_pending": True, "remediation": {"job": {"phase": "running"}}}
+        resolved = {"report": {"status": "resolved"}}
+        mock_org.client.request.side_effect = [running, resolved]
+        with patch("limacharlie.sdk.mailsec.time.sleep"):
+            assert ms.wait_for_report_resolution("r", "malicious", remediation={**self.request, "confirm": "token"}) == resolved
+        bodies = [json.loads(call.kwargs["raw_body"]) for call in mock_org.client.request.call_args_list]
+        assert bodies[0] == bodies[1]
+        assert bodies[0]["remediation"]["confirm"] == "token"
+
+    def test_timeout_returns_job_and_unknown_is_refused(self, ms, mock_org):
+        pending = {"report": {"status": "open"}, "remediation_pending": True, "remediation": {"job": {"phase": "running", "job_id": "job"}}}
+        mock_org.client.request.return_value = pending
+        with patch("limacharlie.sdk.mailsec.time.monotonic", side_effect=[0, 2]):
+            result = ms.wait_for_report_resolution("r", "malicious", remediation={**self.request, "confirm": "token"}, timeout=1)
+        assert result["wait_timed_out"] is True and result["remediation"]["job"]["job_id"] == "job"
+        mock_org.client.request.return_value = {"report": {"status": "open"}}
+        with pytest.raises(ValueError, match="incomplete"):
+            ms.wait_for_report_resolution("r", "malicious", remediation=self.request)
