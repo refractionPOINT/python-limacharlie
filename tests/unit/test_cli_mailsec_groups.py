@@ -76,3 +76,22 @@ def test_group_disposition_preview_freezes_note_and_clear_without_execution():
     result, ms = invoke("preview", GID, "--action", "set_disposition", "--disposition", "true_positive")
     assert result.exit_code != 0
     ms.prepare_group_action.assert_not_called()
+
+
+def test_group_list_forwards_every_copy_filter():
+    result, ms = invoke("list", "--mailbox", "copy@example.invalid", "--sender-email", "sender@example.invalid",
+                        "--sender-root-domain", "example.invalid", "--campaign-id", JOB, "--group-id", GID,
+                        "--link-domain", "linked.invalid", "--attachment-sha256", "b" * 64,
+                        "--state", "delivered", "--state", "quarantined", "--direction", "inbound",
+                        "--direction", "internal", "--min-score", "70", "--lane", "live", "--q", "literal 50%",
+                        "--since", "2026-10-01T00:00:00Z", "--until", "2026-10-02T00:00:00Z",
+                        "--verdict", "malicious", "--severity", "critical", "--disposition", "none",
+                        "--user-reported", "false", "--all", "--cursor", "opaque", "--limit", "5")
+    assert result.exit_code == 0, result.output
+    ms.list_groups.assert_called_once_with(
+        verdict=["malicious"], severity=["critical"], disposition=["none"], user_reported=False, all_groups=True,
+        since="2026-10-01T00:00:00Z", until="2026-10-02T00:00:00Z", cursor="opaque", limit=5,
+        mailbox="copy@example.invalid", sender_email="sender@example.invalid", sender_domain="example.invalid",
+        campaign_id=JOB, group_id=GID, link_domain="linked.invalid", attachment_sha256="b" * 64,
+        state=["delivered", "quarantined"], direction=["inbound", "internal"], min_score=70, lane="live", q="literal 50%",
+    )

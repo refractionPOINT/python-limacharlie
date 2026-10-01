@@ -375,6 +375,21 @@ similar messages. Groups carry separate engine verdict/severity and analyst
 disposition summaries. The default group list is the flagged triage queue; use
 `--all` to include other groups. Aggregates expose an `as_of` timestamp.
 
+Group listing accepts every message-list filter, with the same names and encoding:
+`--search`/`--q`, `--mailbox`, `--sender-email`, `--sender-domain`/`--sender-root-domain`,
+`--campaign-id`, `--group-id`, `--link-domain`, `--attachment-sha256`, repeatable
+`--state`, `--direction`, `--verdict`, `--severity`, `--disposition` (including `none`),
+`--min-score`, `--lane`, `--user-reported true|false`, `--since` and `--until`.
+A group is returned only when **one recipient copy matches every active filter**.
+Filtered order follows that group's newest matching copy; summary badges still
+cover all copies. Search and lane have the same bounds/refusals as message lists.
+
+Continue through short or empty pages while `next_cursor` is present. Filtered
+cursors pin a snapshot for 50 minutes; restart on expiry or changing filters.
+`group_filter_too_broad` asks for narrower selectors rather than dropping filters.
+Exact `matched_copies` counts are omitted to bound per-page cost. Group actions
+always act on **all copies frozen at preview**, including copies outside list filters.
+
 ```bash
 limacharlie mailsec group list --severity high --severity critical --disposition none
 limacharlie mailsec group get <group_id>
