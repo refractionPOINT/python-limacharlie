@@ -844,3 +844,17 @@ class TestTenantPurge:
         ms.purge_tenant("tok", reason="x" * 1024)
         _, kwargs = mock_org.client.request.call_args
         assert ("reason", "x" * 1024) in kwargs["query_params"]
+
+class TestProviderVisibility:
+    @pytest.mark.parametrize("method,path,status", [
+        ("list_provider_quarantine", "provider-quarantine", "filteredAsSpam"),
+        ("list_release_requests", "release-requests", "denied"),
+    ])
+    def test_tenant_filters_and_opaque_cursor_reach_the_transport(self, ms, mock_org, method, path, status):
+        response = {path.replace("-", "_"): [], "coverage": [{"state": "not_granted"}], "next_cursor": "next"}
+        mock_org.client.request.return_value = response
+        result = getattr(ms, method)(connection="m365", status=status, since="2026-09-01T00:00:00Z", until="2026-09-02T00:00:00Z", cursor="opaque+/=", limit=25)
+        url, pairs = _get_call(mock_org)
+        assert url == f"mailsec/{OID}/{path}"
+        assert dict(pairs) == {"connection": "m365", "status": status, "since": "2026-09-01T00:00:00Z", "until": "2026-09-02T00:00:00Z", "cursor": "opaque+/=", "limit": "25"}
+        assert result == response

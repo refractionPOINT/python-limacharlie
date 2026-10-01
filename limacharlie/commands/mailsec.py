@@ -1775,3 +1775,53 @@ register_explain("mailsec.rule.validate", _EXPLAIN_RULE_VALIDATE)
 register_explain("mailsec.rule.backtest", _EXPLAIN_RULE_BACKTEST)
 register_explain("mailsec.connection.test", _EXPLAIN_CONNECTION_TEST)
 register_explain("mailsec.tenant.purge", _EXPLAIN_TENANT_PURGE)
+
+
+@group.group("provider-quarantine")
+def provider_quarantine_group() -> None:
+    """Microsoft provider delivery filtering and quarantine observations."""
+
+
+@provider_quarantine_group.command("list")
+@click.option("--connection", default=None, help="Connection record name.")
+@click.option("--status", type=click.Choice(["quarantined", "filteredAsSpam", "failed"]), default=None)
+@click.option("--since", default=None, help="Inclusive timestamp, RFC3339 or Unix seconds.")
+@click.option("--until", default=None, help="Exclusive timestamp, RFC3339 or Unix seconds.")
+@click.option("--cursor", default=None, help="Opaque cursor; keep filters unchanged.")
+@click.option("--limit", type=click.IntRange(1, 1000), default=None)
+@pass_context
+def provider_quarantine_list(ctx, connection, status, since, until, cursor, limit) -> None:
+    """List provider observations with independent permission and freshness coverage.
+
+    Failed means delivery failed, not quarantined. Unavailable coverage is not
+    evidence that Microsoft blocked no messages.
+    """
+    _output(ctx, _get_mailsec(ctx).list_provider_quarantine(
+        connection=connection, status=status, since=since, until=until,
+        cursor=cursor, limit=limit,
+    ))
+
+
+@group.group("release-request")
+def release_request_group() -> None:
+    """Microsoft hosted-quarantine release requests and release activity."""
+
+
+@release_request_group.command("list")
+@click.option("--connection", default=None, help="Connection record name.")
+@click.option("--status", type=click.Choice(["requested", "released", "denied"]), default=None)
+@click.option("--since", default=None, help="Inclusive timestamp, RFC3339 or Unix seconds.")
+@click.option("--until", default=None, help="Exclusive timestamp, RFC3339 or Unix seconds.")
+@click.option("--cursor", default=None, help="Opaque cursor; keep filters unchanged.")
+@click.option("--limit", type=click.IntRange(1, 1000), default=None)
+@pass_context
+def release_request_list(ctx, connection, status, since, until, cursor, limit) -> None:
+    """Observe release requests and releases/denials; this command approves nothing."""
+    _output(ctx, _get_mailsec(ctx).list_release_requests(
+        connection=connection, status=status, since=since, until=until,
+        cursor=cursor, limit=limit,
+    ))
+
+
+register_explain("mailsec.provider-quarantine.list", "Microsoft provider delivery observations. Inspect coverage before interpreting an empty list. Requires optional ExchangeMessageTrace.Read.All consent.")
+register_explain("mailsec.release-request.list", "Microsoft hosted-quarantine release activity. This command observes requests and never approves a release. Requires optional ActivityFeed.Read consent and unified audit logging.")

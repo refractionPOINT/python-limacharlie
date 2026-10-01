@@ -275,3 +275,26 @@ initial decision and completion instants, plus integer millisecond intervals:
 An absent interval is unknown; a measured zero is zero. `clock_skew: true` reports
 that a negative interval was clamped to zero. The sender's Date header is not used
 to calculate these intervals.
+
+## Microsoft provider quarantine visibility
+
+```bash
+limacharlie mailsec provider-quarantine list --status quarantined --output yaml
+limacharlie mailsec release-request list --status requested --output yaml
+```
+
+Both commands require `mailsec.get` and return `coverage` alongside rows and an
+opaque `next_cursor`. Keep filters unchanged when passing `--cursor`. Both accept
+`--connection`, `--since`, `--until`, and `--limit` (1–1000).
+
+Provider delivery statuses are `quarantined`, `filteredAsSpam`, and `failed`.
+A failed delivery is not a quarantine verdict. Release activity statuses are
+`requested`, `released`, and `denied`. These commands observe Microsoft activity;
+they do not approve or perform release.
+
+Optional Microsoft application permissions are `ExchangeMessageTrace.Read.All`
+in Microsoft Graph and `ActivityFeed.Read` in Office 365 Management APIs, with
+admin consent. Message trace also requires Microsoft's documented Exchange
+service-principal prerequisite; activity requires unified audit logging. Missing
+grants report `not_granted`. Pending, stale or error coverage must be checked
+before treating an empty list as evidence that no messages were blocked.
