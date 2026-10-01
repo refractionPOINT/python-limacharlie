@@ -276,12 +276,14 @@ Examples:
 """
 
 _EXPLAIN_SUBMISSION_GET = """\
-One submission, and who at LimaCharlie has looked at it. Requires
+One submission and its recorded staff review accesses. Requires
 mailsec.get.
 
-`reviews` lists each time LimaCharlie staff opened the stored copy: a
-timestamp per access, never the reviewer's identity. An empty list means
-nobody has opened it. An unknown id is not an error: the response is
+`reviews` lists recorded staff review accesses: a timestamp per attempt,
+never the reviewer's identity. Access is recorded before decryption, so
+failed attempts can be included. At most 200 timestamps are returned;
+reviews_truncated identifies a partial list, while the total count and
+latest-review time remain complete. An unknown id is not an error: the response is
 {"submission": null, "reviews": []}.
 
 Examples:
@@ -295,9 +297,10 @@ Deletes LimaCharlie's stored copy and its metadata (a hard delete), then
 records the withdrawal in the audit trail. It cannot be undone: to share
 the message again, submit it again.
 
-An unknown, already-withdrawn or expired id is not an error: the
-response is withdrawn:false (no action_id) and the command says so. A
-second withdrawal never deletes anything twice.
+An unknown or already-deleted id returns withdrawn:false (no action_id),
+and the command says so. An expired submission is still cleaned up if
+its metadata remains. Withdrawal works after opt-out or provider disconnect.
+A second withdrawal never deletes anything twice.
 
 Examples:
   limacharlie mailsec submission withdraw 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
