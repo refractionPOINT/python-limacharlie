@@ -229,6 +229,10 @@ Common actions for built-in extensions:
 Example:
   limacharlie extension request --name ext-zeek --action status
   limacharlie extension request --name my-ext --action run --data '{"key": "value"}'
+  limacharlie extension request --name my-ext --action run --impersonate
+
+Use --impersonate when an action requires your permissions. It forwards your
+authenticated identity to the extension; it grants no additional permissions.
 """
 register_explain("extension.request", _EXPLAIN_REQUEST)
 
@@ -237,14 +241,15 @@ register_explain("extension.request", _EXPLAIN_REQUEST)
 @click.option("--name", required=True, help="Extension name.")
 @click.option("--action", required=True, help="Action to invoke.")
 @click.option("--data", default=None, help="JSON string with request data.")
+@click.option("--impersonate", is_flag=True, help="Authorize the extension action with your authenticated permissions.")
 @pass_context
-def request(ctx, name, action, data) -> None:
+def request(ctx, name, action, data, impersonate) -> None:
     parsed_data = None
     if data is not None:
         parsed_data = json.loads(data)
     org = _get_org(ctx)
     extensions = Extensions(org)
-    result = extensions.request(name, action, data=parsed_data)
+    result = extensions.request(name, action, data=parsed_data, is_impersonated=impersonate)
     _output(ctx, result)
 
 
