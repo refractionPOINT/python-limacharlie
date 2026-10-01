@@ -121,3 +121,32 @@ class TestReportReopen:
         )
         assert result.exit_code == 0, result.output
         mailsec.reopen_report.assert_called_once_with("rep-1")
+
+class TestDispositionCommands:
+    def test_set_clear_release_and_filter_reach_sdk(self):
+        result, sdk = _invoke("mailsec", "message", "disposition", "msg-1", "--disposition", "spam", "--note", "reviewed", sdk_returns={"set_disposition": {"applied": True}})
+        assert result.exit_code == 0, result.output
+        sdk.set_disposition.assert_called_once_with("msg-1", "spam", clear=False, note="reviewed")
+        result, sdk = _invoke("mailsec", "message", "disposition", "msg-1", "--clear", sdk_returns={"set_disposition": {"applied": True}})
+        assert result.exit_code == 0, result.output
+        sdk.set_disposition.assert_called_once_with("msg-1", None, clear=True, note="")
+        result, sdk = _invoke("mailsec", "message", "release", "msg-1", "--reason", "reviewed", "--mode", "ai", "--force", sdk_returns={"release_message": {"result": "ok"}})
+        assert result.exit_code == 0, result.output
+        sdk.release_message.assert_called_once_with("msg-1", reason="reviewed", mode="ai", force=True)
+
+    def test_report_remediation_preview_and_confirmation_forward(self):
+        result, sdk = _invoke("mailsec", "report", "resolve", "rep-1", "--disposition", "malicious", "--scope", "message", "--action", "quarantine_message", "--confirm", "token", "--force", sdk_returns={"resolve_report": {"report": {"status": "resolved"}}})
+        assert result.exit_code == 0, result.output
+        sdk.resolve_report.assert_called_once_with("rep-1", "malicious", remediation={"scope": "message", "action": "quarantine_message", "confirm": "token", "reason": "", "force": True})
+        result, _ = _invoke("mailsec", "report", "resolve", "rep-1", "--disposition", "malicious", "--scope", "message")
+        assert result.exit_code != 0 and "provided together" in result.output
+
+class TestReportGroupWait:
+    def test_wait_reuses_explicit_attempt(self):
+        result, sdk = _invoke("mailsec", "report", "resolve", "rep-1", "--disposition", "malicious", "--scope", "group", "--action", "quarantine_message", "--attempt", "11111111-1111-4111-8111-111111111111", "--confirm", "token", "--wait", sdk_returns={"wait_for_report_resolution": {"report": {"status": "resolved"}}})
+        assert result.exit_code == 0, result.output
+        sdk.wait_for_report_resolution.assert_called_once_with("rep-1", "malicious", timeout=300, remediation={"scope": "group", "action": "quarantine_message", "reason": "", "force": False, "attempt": "11111111-1111-4111-8111-111111111111", "confirm": "token"})
+
+    def test_wait_timeout_is_nonzero(self):
+        result, _ = _invoke("mailsec", "report", "resolve", "rep-1", "--disposition", "malicious", "--scope", "group", "--action", "quarantine_message", "--attempt", "11111111-1111-4111-8111-111111111111", "--wait", sdk_returns={"wait_for_report_resolution": {"report": {"status": "open"}, "wait_timed_out": True}})
+        assert result.exit_code == 2, result.output
