@@ -973,16 +973,19 @@ def _group_wait_output(ctx, ms, job_id, preparing, timeout, poll_interval) -> No
 
 @message_groups.command("preview")
 @click.argument("group_id")
-@click.option("--action", "action_name", required=True, type=click.Choice(BULK_ACTIONS))
+@click.option("--action", "action_name", required=True, type=click.Choice((*BULK_ACTIONS, "set_disposition")))
 @click.option("--preview-id", default=None, help="UUID for retrying the identical frozen request; printed before preparation.")
 @click.option("--reason", default=None, help="Audited justification, frozen before confirmation.")
 @click.option("--text", default=None, help="Plain-text banner override, at most 512 characters, frozen before confirmation.")
+@click.option("--disposition", type=click.Choice(("malicious", "spam", "graymail", "benign", "simulation")), help="Frozen analyst disposition; requires mailsec.act and mailsec.set.")
+@click.option("--note", "disposition_note", default=None, help="Frozen disposition note, at most 1024 characters.")
+@click.option("--clear", is_flag=True, help="Clear dispositions of the frozen copies.")
 @click.option("--force", is_flag=True, help="Explicitly override alert-only mode; frozen in this preview.")
 @click.option("--wait/--no-wait", default=True, help="Wait for a complete preview (default). Never executes it.")
 @click.option("--timeout", default=300, type=click.IntRange(1, 3600))
 @click.option("--poll-interval", default=3, type=click.IntRange(1, 60))
 @pass_context
-def groups_preview(ctx, group_id, action_name, preview_id, reason, text, force, wait, timeout, poll_interval) -> None:
+def groups_preview(ctx, group_id, action_name, preview_id, reason, text, force, disposition, disposition_note, clear, wait, timeout, poll_interval) -> None:
     """Prepare every recipient copy; confirmation is issued only after complete paging.
 
     Reuse --preview-id when retrying the same action/force/reason/text. Copies delivered
@@ -991,7 +994,7 @@ def groups_preview(ctx, group_id, action_name, preview_id, reason, text, force, 
     preview_id = preview_id or str(uuid.uuid4())
     note(ctx, f"Preview identity: {preview_id}. Reuse it with identical parameters on retry.")
     ms = _get_mailsec(ctx)
-    status = ms.prepare_group_action(group_id, action_name, preview_id, force=force, reason=reason, text=text)
+    status = ms.prepare_group_action(group_id, action_name, preview_id, force=force, reason=reason, text=text, disposition=disposition, note=disposition_note, clear=clear)
     job_id = status.get("job", {}).get("job_id")
     if not job_id:
         _output(ctx, status)

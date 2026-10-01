@@ -26,7 +26,7 @@ def invoke(*args, phase="ready", withheld=0):
 def test_preview_never_executes_and_freezes_fields():
     result, ms = invoke("preview", GID, "--action", "banner_message", "--preview-id", JOB, "--text", "Review", "--reason", "Fixture", "--force")
     assert result.exit_code == 0, result.output
-    ms.prepare_group_action.assert_called_once_with(GID, "banner_message", JOB, force=True, reason="Fixture", text="Review")
+    ms.prepare_group_action.assert_called_once_with(GID, "banner_message", JOB, force=True, reason="Fixture", text="Review", disposition=None, note=None, clear=False)
     ms.confirm_group_action.assert_not_called()
     assert json.loads(result.stdout)["job"]["phase"] == "ready"
     assert JOB in result.stderr
@@ -63,3 +63,16 @@ def test_group_filters_and_severity_choices():
     result, ms = invoke("list", "--severity", "urgent")
     assert result.exit_code != 0
     ms.list_groups.assert_not_called()
+
+
+def test_group_disposition_preview_freezes_note_and_clear_without_execution():
+    result, ms = invoke("preview", GID, "--action", "set_disposition", "--preview-id", JOB, "--disposition", "benign", "--note", "Reviewed synthetic copies", "--no-wait")
+    assert result.exit_code == 0, result.output
+    ms.prepare_group_action.assert_called_once_with(GID, "set_disposition", JOB, force=False, reason=None, text=None, disposition="benign", note="Reviewed synthetic copies", clear=False)
+    ms.confirm_group_action.assert_not_called()
+    result, ms = invoke("preview", GID, "--action", "set_disposition", "--preview-id", JOB, "--clear", "--no-wait")
+    assert result.exit_code == 0, result.output
+    assert ms.prepare_group_action.call_args.kwargs["clear"] is True
+    result, ms = invoke("preview", GID, "--action", "set_disposition", "--disposition", "true_positive")
+    assert result.exit_code != 0
+    ms.prepare_group_action.assert_not_called()

@@ -102,3 +102,29 @@ def test_message_group_and_severity_filters_forward_and_narrow_search(client):
     ms.list_messages(severity=["critical"], q="fixture")
     with pytest.raises(ValueError):
         ms.list_messages(severity=["high", "critical"], q="fixture")
+
+
+@pytest.mark.parametrize("disposition", ["malicious", "spam", "graymail", "benign", "simulation"])
+def test_group_disposition_uses_the_same_durable_preview(client, disposition):
+    ms, transport = client
+    ms.prepare_group_action(GID, "set_disposition", JOB, disposition=disposition, note="Reviewed synthetic copies")
+    assert json.loads(transport.request.call_args.kwargs["raw_body"]) == {"action": "set_disposition", "preview_id": JOB, "disposition": disposition, "note": "Reviewed synthetic copies"}
+    ms.prepare_group_action(GID, "set_disposition", JOB, clear=True)
+    assert json.loads(transport.request.call_args.kwargs["raw_body"]) == {"action": "set_disposition", "preview_id": JOB, "clear": True}
+
+
+@pytest.mark.parametrize("action, params", [
+    ("set_disposition", {}),
+    ("set_disposition", {"disposition": "true_positive"}),
+    ("set_disposition", {"disposition": "benign", "clear": True}),
+    ("set_disposition", {"disposition": "benign", "force": True}),
+    ("set_disposition", {"disposition": "benign", "reason": "provider override"}),
+    ("set_disposition", {"disposition": "benign", "note": "x" * 1025}),
+    ("set_disposition", {"disposition": "benign", "note": "\ud800"}),
+    ("trash_message", {"disposition": "benign"}),
+])
+def test_invalid_group_disposition_refused_before_transport(client, action, params):
+    ms, transport = client
+    with pytest.raises(ValueError):
+        ms.prepare_group_action(GID, action, JOB, **params)
+    transport.request.assert_not_called()

@@ -1043,28 +1043,52 @@ class Mailsec:
     def prepare_group_action(
         self, group_id: str, action: str, preview_id: str, *,
         force: bool = False, reason: str | None = None, text: str | None = None,
+        disposition: str | None = None, note: str | None = None, clear: bool = False,
     ) -> dict[str, Any]:
         """Freeze all recipient copies and parameters in a durable preview job.
 
         Args:
             group_id: Message-group identity.
-            action: Remediation action name.
+            action: Remediation action name, or set_disposition (requires mailsec.act and mailsec.set).
             preview_id: Caller-minted UUID; reuse it when retrying identical parameters.
             force: Explicit override of organization alert-only mode.
             reason: Audited reason, frozen before confirmation.
             text: Optional plain-text banner override, frozen before confirmation.
+            disposition: One of malicious, spam, graymail, benign or simulation.
+            note: Disposition note of at most 1024 UTF-8 characters.
+            clear: Clear every frozen copy's disposition instead of setting a value.
 
         Returns:
             dict: Job initially preparing; no token until every member is snapshotted.
 
         Raises:
-            ValueError: If either identity is malformed.
-            TypeError: If force is not a boolean.
+            ValueError: If an identity or the frozen disposition parameters are invalid.
+            TypeError: If force/clear is not a boolean or note is not text.
         """
+        _check_force(force)
+        if not isinstance(clear, bool):
+            raise TypeError("clear must be a boolean")
+        if action == "set_disposition":
+            if force or reason or text:
+                raise ValueError("set_disposition does not accept provider remediation parameters")
+            if clear == (disposition is not None):
+                raise ValueError("provide one disposition or clear=True")
+            if disposition is not None and disposition not in {"malicious", "spam", "graymail", "benign", "simulation"}:
+                raise ValueError("invalid disposition")
+            if note is not None:
+                if not isinstance(note, str):
+                    raise TypeError("note must be text")
+                note.encode("utf-8")
+                if len(note) > 1024:
+                    raise ValueError("note must be at most 1024 characters")
+        elif disposition is not None or note is not None or clear:
+            raise ValueError("disposition parameters require set_disposition")
         body: dict[str, Any] = {"action": action, "preview_id": _group_job_identity(preview_id)}
         if _check_force(force):
             body["force"] = True
-        for key, value in (("reason", reason), ("text", text)):
+        if clear:
+            body["clear"] = True
+        for key, value in (("reason", reason), ("text", text), ("disposition", disposition), ("note", note)):
             if value is not None:
                 body[key] = value
         return self._post(f"groups/{_group_identity(group_id)}/actions/preview", body)

@@ -359,6 +359,7 @@ limacharlie mailsec group list --severity high --severity critical --disposition
 limacharlie mailsec group get <group_id>
 limacharlie mailsec message list --group-id <group_id> --severity high
 limacharlie mailsec group preview <group_id> --action quarantine_message --reason "Incident review"
+limacharlie mailsec group preview <group_id> --action set_disposition --disposition benign --note "Reviewed every selected copy"
 limacharlie mailsec group status <job_id>
 limacharlie mailsec group confirm <job_id> --confirmation <complete_preview_token>
 ```
@@ -376,3 +377,5 @@ Both preview and confirmation wait by default, with a bounded `--timeout` and
 error leaves the job intact. Inspect it with `group status`; execution resumes
 across worker handover. Failed or withheld recipient outcomes return a nonzero
 CLI exit code. Repeated confirmation adopts the same execution.
+
+Group classification uses the same complete preview and confirmation as remediation, with both `mailsec.act` and `mailsec.set`. Choose `malicious`, `spam`, `graymail`, `benign` or `simulation`, or use `--clear`. A disposition note is limited to1024 characters. The decision applies to copies frozen in that preview; later recipient copies retain their independent disposition. It preserves engine verdicts and severity. Provider overrides (`--force`, `--reason`, `--text`) do not apply to `set_disposition`.
