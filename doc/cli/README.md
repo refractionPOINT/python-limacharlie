@@ -28,6 +28,17 @@ stop the command before curl runs. Header names are matched without regard to ca
 URLs, request bodies and other headers are not redacted. Inspect debug output
 before sharing it, including when combining `--debug-curl` with `--debug`.
 
+## Extension requests
+
+Some extension actions require the caller's authenticated permissions. Use
+`--impersonate` to forward your identity through the SDK's caller authorization
+path. This grants the extension no additional permissions; requests omit that
+identity unless you select the flag.
+
+```bash
+limacharlie extension request --name my-ext --action run --impersonate --data '{"key":"value"}'
+```
+
 ## Output Formats
 
 All commands support `--output` to control the format:
