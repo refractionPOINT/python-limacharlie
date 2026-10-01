@@ -1238,7 +1238,7 @@ class Mailsec:
             if result.get("report", {}).get("status") == "resolved" or result.get("already_resolved") is True:
                 return result
             preview = result.get("remediation_preview", {})
-            if not frozen.get("confirm") and preview.get("job", {}).get("phase") == "ready" and preview.get("confirmation"):
+            if not frozen.get("confirm") and preview.get("job", {}).get("phase") in ("ready", "running", "done") and preview.get("confirmation"):
                 return result
             job = (result.get("remediation") or preview).get("job", {})
             if job.get("phase") not in ("preparing", "running"):
