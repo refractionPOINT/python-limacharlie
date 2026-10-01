@@ -1361,9 +1361,8 @@ class Mailsec:
         a row with the message id, your category and reason, your identity,
         the time, the verdict, score and matched rule ids at that time, the
         sender, subject, mailbox address and size. Retention is 400 days, then
-        deleted automatically. Only LimaCharlie staff working on detection
-        quality can open a submission, through a tool that records every
-        access; :meth:`get_submission` shows how many times and when. Withdraw
+        deleted automatically. Submitted messages are used by LimaCharlie to improve detection.
+        Access is restricted and every access is recorded; :meth:`get_submission` shows how many times and when. Withdraw
         at any time with :meth:`withdraw_sample` or
         :meth:`withdraw_submission`: the copy and its metadata are deleted.
 
@@ -1485,7 +1484,7 @@ class Mailsec:
         return self._get("submissions", pairs)
 
     def get_submission(self, submission_id: str) -> dict[str, Any]:
-        """One submission and its recorded staff review accesses.
+        """One submission and its recorded accesses.
 
         Requires ``mailsec.get``.
 

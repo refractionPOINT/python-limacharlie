@@ -199,9 +199,8 @@ included, is copied (compressed and encrypted) to a LimaCharlie-owned
 store in the same datacenter as your Email Security data, together with
 the category and reason you give, your identity, the time, the verdict,
 score and matched rule ids, the sender, subject, mailbox address and
-size. It is kept for 400 days and then deleted automatically. Only
-LimaCharlie staff working on detection quality can open it, through a
-tool that records every access; `mailsec submission get` shows how many
+size. It is kept for 400 days and then deleted automatically. Submitted messages are used by LimaCharlie to improve detection.
+Access is restricted and every access is recorded; `mailsec submission get` shows how many
 times and when. No other customer can see it.
 
 WITHDRAW AT ANY TIME: `mailsec message withdraw-sample <msg_uuid>` or
@@ -270,7 +269,7 @@ ambiguous:
 Each submission shows the category and reason, who submitted it and
 when, when it expires (400 days after submission), the verdict, score
 and matched rules at the time, and review_count / last_reviewed_at: how
-often LimaCharlie staff have opened the stored copy.
+often the submission has been accessed the stored copy.
 
 --limit is 1 to 200 (default 50). Pass next_cursor back as --cursor,
 verbatim, to read the next page; an empty next_cursor means the last.
@@ -282,14 +281,14 @@ Examples:
 """
 
 _EXPLAIN_SUBMISSION_GET = """\
-One submission and its recorded staff review accesses. Requires
+One submission and its recorded accesses. Requires
 mailsec.get.
 
-`reviews` lists recorded staff review accesses: a timestamp per attempt,
+`reviews` lists recorded accesses: a timestamp per attempt,
 never the reviewer's identity. Access is recorded before decryption, so
 failed attempts can be included. At most 200 timestamps are returned;
 reviews_truncated identifies a partial list, while the total count and
-latest-review time remain complete. An unknown id is not an error: the response is
+latest access time remain complete. An unknown id is not an error: the response is
 {"submission": null, "reviews": []}.
 
 Examples:
@@ -1525,8 +1524,8 @@ def message_submit_sample(ctx, msg_uuid, category, reason, attempt) -> None:
     THIS SENDS THE MESSAGE TO LIMACHARLIE: the original message
     (attachments included), your reason and identity, and the verdict
     snapshot are stored, encrypted, in a LimaCharlie-owned store in your
-    datacenter for 400 days. Only LimaCharlie staff working on detection
-    quality can open it, and every access is recorded and shown in
+    datacenter for 400 days. Submitted messages are used by LimaCharlie to
+    improve detection. Access is restricted and every access is recorded in
     `mailsec submission get`. The organization must have opted in.
     Withdraw at any time with `mailsec message withdraw-sample` or
     `mailsec submission withdraw`, which deletes the copy.
@@ -1904,7 +1903,7 @@ def submission_list(ctx, category, since, until, limit, cursor) -> None:
 @click.argument("submission_id")
 @pass_context
 def submission_get(ctx, submission_id) -> None:
-    """One submission and when LimaCharlie staff opened it (mailsec.get).
+    """One submission and when LimaCharlie accessed it (mailsec.get).
 
     \b
     An unknown id prints {"submission": null} and a note; it is not an error.
