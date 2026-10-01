@@ -23,7 +23,7 @@
   (a `mailsec_policy` record of type `sample_sharing`) can copy one message
   at a time to LimaCharlie to help improve detection; the copy is deleted after
   400 days or as soon as it is withdrawn, and `submission get` shows when
-  LimaCharlie staff opened it. Category and reason are checked locally, a
+  the stored copy was accessed. Category and reason are checked locally, a
   refused submission exits non-zero, and `Mailsec.act_on_message` refuses
   `submit_sample` so the category and reason cannot be skipped. Needs an API
   release that serves the new routes.

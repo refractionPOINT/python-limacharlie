@@ -196,7 +196,7 @@ def _check_sample_reason(reason: Any, *, required: bool) -> str:
         if required:
             raise ValueError(
                 "a sample submission needs a reason: it is kept with the submission "
-                "so the person reviewing it knows why you sent it"
+                "to record why you sent it"
             )
         return ""
     if not isinstance(reason, str):
@@ -205,7 +205,7 @@ def _check_sample_reason(reason: Any, *, required: bool) -> str:
     if required and not text:
         raise ValueError(
             "a sample submission needs a reason: it is kept with the submission "
-            "so the person reviewing it knows why you sent it"
+            "to record why you sent it"
         )
     if len(text) > _MAX_SAMPLE_REASON_LEN:
         raise ValueError(
@@ -1493,8 +1493,8 @@ class Mailsec:
 
         Returns:
             ``{"submission": {...}, "reviews": [{"ts": ...}]}``. ``reviews``
-            lists up to200 access-attempt timestamps, oldest first, never the reviewer's
-            identity. Access is recorded before decryption and can include failures.
+            lists up to 200 access-attempt timestamps, oldest first, never who
+            accessed it. Access is recorded before decryption and can include failures.
             ``reviews_truncated`` identifies a partial history; ``review_count`` and
             ``last_reviewed_at`` in the submission include all accesses. An unknown id
             is not an error: it returns ``{"submission": None, "reviews": []}``,

@@ -285,7 +285,7 @@ One submission and its recorded accesses. Requires
 mailsec.get.
 
 `reviews` lists recorded accesses: a timestamp per attempt,
-never the reviewer's identity. Access is recorded before decryption, so
+never who accessed it. Access is recorded before decryption, so
 failed attempts can be included. At most 200 timestamps are returned;
 reviews_truncated identifies a partial list, while the total count and
 latest access time remain complete. An unknown id is not an error: the response is
