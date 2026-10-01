@@ -50,6 +50,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 import time
 import warnings
 import uuid
@@ -207,6 +208,20 @@ def _add_scalar(pairs: list[tuple[str, str]], key: str, value: Any) -> None:
         pairs.append((key, str(value)))
 
 
+
+
+def _group_identity(value: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ValueError("group_id must be a lowercase SHA-256 identity")
+    return value
+
+
+def _group_job_identity(value: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", value):
+        raise ValueError("job/preview identity must be a lowercase UUID")
+    return value
+
+
 class Mailsec:
     """Email Security client for LimaCharlie."""
 
@@ -308,6 +323,8 @@ class Mailsec:
         self,
         *,
         verdict: list[str] | None = None,
+        severity: list[str] | None = None,
+        group_id: str | None = None,
         mailbox: str | None = None,
         sender_email: str | None = None,
         sender_domain: str | None = None,
@@ -339,6 +356,8 @@ class Mailsec:
                 ``sender_root_domain``; the Python name is retained for
                 compatibility with existing callers.
             campaign_id: Only members of one campaign.
+            group_id: Only recipient copies in one message group.
+            severity: Rule impact (informational, low, medium, high, critical), repeatable.
             state: Message lifecycle state (repeatable).
             direction: ``inbound``, ``outbound``, ``internal`` (repeatable).
             disposition: Analyst/SOAR label or ``none`` for untriaged.
@@ -376,15 +395,17 @@ class Mailsec:
         if q:
             if len(q) > 512:
                 raise ValueError("q must be at most 512 code points")
-            bounded = any((since, mailbox, sender_email, campaign_id, link_domain, attachment_sha256))
+            bounded = any((since, mailbox, sender_email, campaign_id, group_id, link_domain, attachment_sha256))
             single_verdict = verdict is not None and len(verdict) == 1 and bool(verdict[0].strip())
-            if not bounded and not single_verdict:
+            single_severity = severity is not None and len(severity) == 1 and bool(severity[0].strip())
+            if not bounded and not single_verdict and not single_severity:
                 raise ValueError(
                     "q requires since, mailbox, sender_email, campaign_id, "
-                    "link_domain, attachment_sha256, or exactly one verdict"
+                    "group_id, link_domain, attachment_sha256, or exactly one verdict/severity"
                 )
         pairs: list[tuple[str, str]] = []
         _add_pairs(pairs, "verdict", verdict)
+        _add_pairs(pairs, "severity", severity)
         _add_pairs(pairs, "state", state)
         _add_pairs(pairs, "direction", direction)
         for key, val in (
@@ -392,6 +413,7 @@ class Mailsec:
             ("sender_email", sender_email),
             ("sender_root_domain", sender_domain),
             ("campaign_id", campaign_id),
+            ("group_id", group_id),
             ("min_score", min_score),
             ("link_domain", link_domain),
             ("attachment_sha256", attachment_sha256),
@@ -938,6 +960,181 @@ class Mailsec:
             if remaining <= 0:
                 return status
             time.sleep(min(poll_interval, remaining))
+
+    # ------------------------------------------------------------------
+    # Message groups and durable all-recipient actions
+    # ------------------------------------------------------------------
+
+    def list_groups(
+        self, *, verdict: list[str] | None = None, severity: list[str] | None = None,
+        disposition: list[str] | None = None, user_reported: bool | None = None,
+        all_groups: bool = False, since: str | None = None, until: str | None = None,
+        cursor: str | None = None, limit: int | None = None,
+    ) -> dict[str, Any]:
+        """List the flagged message-group queue, ordered by last seen.
+
+        Args:
+            verdict: Repeatable engine verdict filter.
+            severity: Repeatable severity filter.
+            disposition: Repeatable analyst disposition filter, including none.
+            user_reported: True or false to constrain reports; None is unconstrained.
+            all_groups: Include groups outside the flagged queue.
+            since: Earliest last-seen time, RFC3339 or unix seconds.
+            until: Exclusive latest last-seen time.
+            cursor: Opaque cursor bound to the complete filter set.
+            limit: Page size.
+
+        Returns:
+            dict: Groups, next_cursor and materialized as_of timestamps.
+        """
+        pairs: list[tuple[str, str]] = []
+        for key, values in (("verdict", verdict), ("severity", severity), ("disposition", disposition)):
+            _add_pairs(pairs, key, values)
+        _add_scalar(pairs, "user_reported", user_reported)
+        if not isinstance(all_groups, bool):
+            raise TypeError("all_groups must be a boolean")
+        if all_groups:
+            _add_scalar(pairs, "all", True)
+        for key, value in (("since", since), ("until", until), ("cursor", cursor), ("limit", limit)):
+            _add_scalar(pairs, key, value)
+        return self._get("groups", pairs)
+
+    def get_group(self, group_id: str) -> dict[str, Any]:
+        """Read one consistent aggregate of every recipient copy.
+
+        Args:
+            group_id: The deterministic message-group identity.
+
+        Returns:
+            dict: Group with exact recipient/message counts and an as_of timestamp.
+
+        Raises:
+            ValueError: If group_id is not a lowercase SHA-256 identity.
+        """
+        return self._get(f"groups/{_group_identity(group_id)}")
+
+    def prepare_group_action(
+        self, group_id: str, action: str, preview_id: str, *,
+        force: bool = False, reason: str | None = None, text: str | None = None,
+        disposition: str | None = None, note: str | None = None, clear: bool = False,
+    ) -> dict[str, Any]:
+        """Freeze all recipient copies and parameters in a durable preview job.
+
+        Args:
+            group_id: Message-group identity.
+            action: Remediation action name, or set_disposition (requires mailsec.act and mailsec.set).
+            preview_id: Caller-minted UUID; reuse it when retrying identical parameters.
+            force: Explicit override of organization alert-only mode.
+            reason: Audited reason, frozen before confirmation.
+            text: Optional plain-text banner override, frozen before confirmation.
+            disposition: One of malicious, spam, graymail, benign or simulation.
+            note: Disposition note of at most 1024 UTF-8 characters.
+            clear: Clear every frozen copy's disposition instead of setting a value.
+
+        Returns:
+            dict: Job initially preparing; no token until every member is snapshotted.
+
+        Raises:
+            ValueError: If an identity or the frozen disposition parameters are invalid.
+            TypeError: If force/clear is not a boolean or note is not text.
+        """
+        _check_force(force)
+        if not isinstance(clear, bool):
+            raise TypeError("clear must be a boolean")
+        if action == "set_disposition":
+            if force or reason or text:
+                raise ValueError("set_disposition does not accept provider remediation parameters")
+            if clear == (disposition is not None):
+                raise ValueError("provide one disposition or clear=True")
+            if disposition is not None and disposition not in {"malicious", "spam", "graymail", "benign", "simulation"}:
+                raise ValueError("invalid disposition")
+            if note is not None:
+                if not isinstance(note, str):
+                    raise TypeError("note must be text")
+                note.encode("utf-8")
+                if len(note) > 1024:
+                    raise ValueError("note must be at most 1024 characters")
+        elif disposition is not None or note is not None or clear:
+            raise ValueError("disposition parameters require set_disposition")
+        body: dict[str, Any] = {"action": action, "preview_id": _group_job_identity(preview_id)}
+        if _check_force(force):
+            body["force"] = True
+        if clear:
+            body["clear"] = True
+        for key, value in (("reason", reason), ("text", text), ("disposition", disposition), ("note", note)):
+            if value is not None:
+                body[key] = value
+        return self._post(f"groups/{_group_identity(group_id)}/actions/preview", body)
+
+    def get_group_action(self, job_id: str) -> dict[str, Any]:
+        """Read preparation/execution progress for a durable group action.
+
+        Args:
+            job_id: Durable job UUID.
+
+        Returns:
+            dict: Job phase, frozen membership/outcome counts and token when ready.
+
+        Raises:
+            ValueError: If job_id is malformed.
+        """
+        return self._get(f"group-actions/{_group_job_identity(job_id)}")
+
+    def confirm_group_action(self, job_id: str, confirmation: str) -> dict[str, Any]:
+        """Execute a completed preview as its original authenticated actor.
+
+        Args:
+            job_id: Durable job UUID.
+            confirmation: Token from the completely prepared preview.
+
+        Returns:
+            dict: Running job; repeated confirmation adopts the same execution.
+
+        Raises:
+            ValueError: If job_id or the token is malformed.
+        """
+        if not isinstance(confirmation, str) or not re.fullmatch(r"[0-9a-f]{64}", confirmation):
+            raise ValueError("confirmation must be the complete preview's token")
+        return self._post(f"group-actions/{_group_job_identity(job_id)}/confirm", {"confirmation": confirmation})
+
+    def wait_for_group_action(
+        self, job_id: str, *, preparing: bool = False, timeout: int = 300,
+        poll_interval: int = 3,
+    ) -> dict[str, Any]:
+        """Poll boundedly for a ready preview or completed execution.
+
+        Args:
+            job_id: Durable job UUID.
+            preparing: Stop at ready when True; otherwise wait for done or failed.
+            timeout: Maximum seconds, from 1 to 3600.
+            poll_interval: Seconds between polls, from 1 to 60.
+
+        Returns:
+            dict: Last status; a nonterminal phase means the deadline expired.
+
+        Raises:
+            ValueError: If polling bounds or job identity are invalid.
+            RuntimeError: If the server returns an unknown or missing phase.
+        """
+        _group_job_identity(job_id)
+        if type(timeout) is not int or not 1 <= timeout <= 3600:
+            raise ValueError("timeout must be an integer from 1 to 3600 seconds")
+        if type(poll_interval) is not int or not 1 <= poll_interval <= 60:
+            raise ValueError("poll_interval must be an integer from 1 to 60 seconds")
+        deadline = time.monotonic() + timeout
+        terminal = {"done", "failed"} | ({"ready", "running"} if preparing else set())
+        for _ in range(timeout // poll_interval + 2):
+            status = self.get_group_action(job_id)
+            phase = status.get("job", {}).get("phase")
+            if phase not in {"preparing", "ready", "running", "done", "failed"}:
+                raise RuntimeError("group action returned an unknown or missing phase")
+            if phase in terminal:
+                return status
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return status
+            time.sleep(min(poll_interval, remaining))
+        return status
 
     # ------------------------------------------------------------------
     # Campaigns

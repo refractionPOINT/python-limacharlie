@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from typing import Any
 
 import click
@@ -904,6 +905,7 @@ def group() -> None:
       coverage            Mailbox coverage and analysed volume
       message ...         The triage queue, drawer, raw EML, similar, actions,
                           revise, and bulk remediation of a selection
+      group ...           Flagged groups, aggregate details and durable all-recipient actions
       campaign ...        Campaigns and campaign-wide sweeps
       sender get          A sender's history with this org
       action get          One record from the action audit trail
@@ -916,6 +918,122 @@ def group() -> None:
       tenant purge        Permanently delete all of this org's Email Security
                           data (two-step, irreversible, Owner-level)
     """
+
+
+@group.group("group")
+def message_groups() -> None:
+    """Flagged message groups and resumable actions on every recipient copy."""
+
+
+@message_groups.command("list")
+@click.option("--verdict", multiple=True, type=click.Choice(["malicious", "suspicious", "graymail", "benign", "unknown", "error"]))
+@click.option("--severity", multiple=True, type=click.Choice(["informational", "low", "medium", "high", "critical"]))
+@click.option("--disposition", multiple=True, type=click.Choice(["malicious", "spam", "graymail", "benign", "simulation", "none"]))
+@click.option("--user-reported", default=None, type=click.Choice(["true", "false"]))
+@click.option("--all", "all_groups", is_flag=True, help="Include groups outside the flagged triage queue.")
+@click.option("--since", default=None, help="Earliest last-seen time (RFC3339 or unix seconds).")
+@click.option("--until", default=None, help="Exclusive latest last-seen time.")
+@click.option("--cursor", default=None, help="Opaque cursor; keep all filters unchanged.")
+@click.option("--limit", default=None, type=click.IntRange(1, 500), help="Page size.")
+@pass_context
+def groups_list(ctx, verdict, severity, disposition, user_reported, all_groups, since, until, cursor, limit) -> None:
+    """List the flagged-group triage queue, newest last-seen first."""
+    _output(ctx, _get_mailsec(ctx).list_groups(
+        verdict=list(verdict) or None, severity=list(severity) or None,
+        disposition=list(disposition) or None,
+        user_reported=None if user_reported is None else user_reported == "true",
+        all_groups=all_groups, since=since, until=until, cursor=cursor, limit=limit,
+    ))
+
+
+@message_groups.command("get")
+@click.argument("group_id")
+@pass_context
+def groups_get(ctx, group_id) -> None:
+    """Read exact message/recipient counts, placement and disposition summaries."""
+    _output(ctx, _get_mailsec(ctx).get_group(group_id))
+
+
+def _group_wait_output(ctx, ms, job_id, preparing, timeout, poll_interval) -> None:
+    try:
+        status = ms.wait_for_group_action(job_id, preparing=preparing, timeout=timeout, poll_interval=poll_interval)
+    except Exception:
+        note(ctx, f"Job {job_id} is unaffected; inspect it with: limacharlie mailsec group status {job_id}")
+        raise
+    _output(ctx, status)
+    job = status.get("job", {})
+    phase = job.get("phase")
+    if phase == "failed" or (preparing and phase not in {"ready", "running", "done"}) or (not preparing and phase != "done"):
+        note(ctx, f"Job {job_id} has not completed successfully; inspect its status.")
+        ctx.exit(1)
+    if not preparing and (job.get("failed", 0) or job.get("withheld", 0)):
+        note(ctx, "Some recipient copies failed or were withheld by alert-only mode. Check job totals before continuing.")
+        ctx.exit(1)
+
+
+@message_groups.command("preview")
+@click.argument("group_id")
+@click.option("--action", "action_name", required=True, type=click.Choice((*BULK_ACTIONS, "set_disposition")))
+@click.option("--preview-id", default=None, help="UUID for retrying the identical frozen request; printed before preparation.")
+@click.option("--reason", default=None, help="Audited justification, frozen before confirmation.")
+@click.option("--text", default=None, help="Plain-text banner override, at most 512 characters, frozen before confirmation.")
+@click.option("--disposition", type=click.Choice(("malicious", "spam", "graymail", "benign", "simulation")), help="Frozen analyst disposition; requires mailsec.act and mailsec.set.")
+@click.option("--note", "disposition_note", default=None, help="Frozen disposition note, at most 1024 characters.")
+@click.option("--clear", is_flag=True, help="Clear dispositions of the frozen copies.")
+@click.option("--force", is_flag=True, help="Explicitly override alert-only mode; frozen in this preview.")
+@click.option("--wait/--no-wait", default=True, help="Wait for a complete preview (default). Never executes it.")
+@click.option("--timeout", default=300, type=click.IntRange(1, 3600))
+@click.option("--poll-interval", default=3, type=click.IntRange(1, 60))
+@pass_context
+def groups_preview(ctx, group_id, action_name, preview_id, reason, text, force, disposition, disposition_note, clear, wait, timeout, poll_interval) -> None:
+    """Prepare every recipient copy; confirmation is issued only after complete paging.
+
+    Reuse --preview-id when retrying the same action/force/reason/text. Copies delivered
+    after the frozen snapshot are excluded. No mailbox action occurs before confirmation.
+    """
+    preview_id = preview_id or str(uuid.uuid4())
+    note(ctx, f"Preview identity: {preview_id}. Reuse it with identical parameters on retry.")
+    ms = _get_mailsec(ctx)
+    status = ms.prepare_group_action(group_id, action_name, preview_id, force=force, reason=reason, text=text, disposition=disposition, note=disposition_note, clear=clear)
+    job_id = status.get("job", {}).get("job_id")
+    if not job_id:
+        _output(ctx, status)
+        raise click.ClickException("Preview returned no durable job ID; no execution was confirmed.")
+    note(ctx, f"Group action job: {job_id}")
+    if wait:
+        _group_wait_output(ctx, ms, job_id, True, timeout, poll_interval)
+    else:
+        _output(ctx, status)
+
+
+@message_groups.command("status")
+@click.argument("job_id")
+@pass_context
+def groups_status(ctx, job_id) -> None:
+    """Read durable preview/execution progress and outcome counts."""
+    _output(ctx, _get_mailsec(ctx).get_group_action(job_id))
+
+
+@message_groups.command("confirm")
+@click.argument("job_id")
+@click.option("--confirmation", required=True, help="Token from the complete preview; must use the actor that prepared it.")
+@click.option("--wait/--no-wait", default=True, help="Wait for recipient outcomes (default), or return the accepted job.")
+@click.option("--timeout", default=300, type=click.IntRange(1, 3600))
+@click.option("--poll-interval", default=3, type=click.IntRange(1, 60))
+@pass_context
+def groups_confirm(ctx, job_id, confirmation, wait, timeout, poll_interval) -> None:
+    """Execute the frozen preview; repeat confirmation safely adopts the same job.
+
+    The action, force, reason, text and recipient snapshot cannot change here. Polls
+    are bounded; a timeout leaves the resumable job running and prints its handle.
+    """
+    ms = _get_mailsec(ctx)
+    status = ms.confirm_group_action(job_id, confirmation)
+    note(ctx, f"Group action job: {job_id}")
+    if wait:
+        _group_wait_output(ctx, ms, job_id, False, timeout, poll_interval)
+    else:
+        _output(ctx, status)
 
 
 @group.group("message")
@@ -1051,6 +1169,8 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--sender-email", default=None, help="Sender address (exact).")
 @click.option("--sender-domain", default=None, help="Sender registrable root domain.")
 @click.option("--campaign-id", default=None, help="Only members of this campaign.")
+@click.option("--group-id", default=None, help="Restrict to recipient copies of one message group.")
+@click.option("--severity", multiple=True, type=click.Choice(["informational","low","medium","high","critical"]), help="Rule impact (repeatable).")
 @click.option("--state", multiple=True, help="Message state (repeatable).")
 @click.option("--direction", multiple=True, help="inbound|outbound|internal (repeatable).")
 @click.option("--disposition", default=None, type=click.Choice([*DISPOSITIONS, "none"]), help="Independent analyst/SOAR disposition; none selects untriaged.")
@@ -1068,7 +1188,7 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--cursor", default=None, help="Keyset token from a previous page.")
 @click.option("--limit", default=None, type=int, help="Page size.")
 @pass_context
-def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, state,
+def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, group_id, severity, state,
                  direction, lane, disposition, user_reported, no_user_reported, min_score, link_domain,
                  attachment_sha256, q, since, until, cursor, limit) -> None:
     """The message index — the triage queue.
@@ -1094,6 +1214,8 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
             state=list(state) or None,
             direction=list(direction) or None,
             **lane_params,
+            **({"group_id":group_id} if group_id else {}),
+            **({"severity":list(severity)} if severity else {}),
             user_reported=_tri_state(user_reported, no_user_reported, "user-reported"),
             min_score=min_score,
             link_domain=link_domain,
@@ -1901,3 +2023,9 @@ def message_release(ctx, msg_uuid, reason, mode, force) -> None:
         raise click.UsageError(str(exc)) from exc
     _output(ctx, result)
     _note_force_required(ctx, result, "Re-run with --force to release it.", force)
+
+register_explain("mailsec.group.list", "List the flagged message-group queue with severity, verdict, disposition and report filters. Counts carry as_of timestamps; keep filters unchanged while paging.")
+register_explain("mailsec.group.get", "Read exact counts and summaries for every recipient copy, including a representative message and campaign. Use message list --group-id to page instances.")
+register_explain("mailsec.group.preview", "Freeze all copies and action parameters in a resumable job. Reuse --preview-id for retries. Preparation never executes; wait for ready and inspect its counts/token before confirming.")
+register_explain("mailsec.group.status", "Read preparing|ready|running|done|failed, snapshot membership and success/skipped/withheld/failed counts. Preparing jobs have no confirmation token.")
+register_explain("mailsec.group.confirm", "Execute the completely prepared snapshot using its token and original actor. Frozen parameters cannot change. Repeated confirmation adopts the same job; timeouts leave it running.")
