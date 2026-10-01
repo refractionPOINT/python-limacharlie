@@ -1347,7 +1347,10 @@ class Mailsec:
         """Copy ONE message to LimaCharlie to help improve detection.
 
         Requires ``mailsec.act`` and an organization that has opted in
-        (``mailsec_policy`` record of type ``sample_sharing``). This sends
+        (``mailsec_policy`` record of type ``sample_sharing``). Enabling
+        sharing requires the organization Owner (``mailsec.set``,
+        ``billing.ctrl`` and ``user.ctrl``); anyone with ``mailsec.set`` can
+        turn it off with an active, nonexpiring ``enabled: false`` record. This sends
         the message's original bytes (attachments included) and the metadata
         listed below to a LimaCharlie-owned store in the organization's own
         datacenter. It is explicit, one message per call, and never done

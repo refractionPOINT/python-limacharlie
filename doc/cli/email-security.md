@@ -203,7 +203,11 @@ An organization can opt in to let its analysts copy **one message at a time** to
 
 **Submitting sends the message to LimaCharlie.** The original message (attachments included) is stored, compressed and encrypted, in a LimaCharlie-owned bucket in the same datacenter as your Email Security data, with a metadata row: the message id, your category and reason, your identity, the time, the verdict, score and matched rule ids at that time, the sender, subject, mailbox address and size. It is deleted automatically after 400 days. Only LimaCharlie staff working on detection quality can open it, through a tool that records every access; `submission get` shows you how many times and when. **Withdraw at any time**: the stored copy and its metadata are deleted.
 
-Opt in with a `mailsec_policy` record of type `sample_sharing`:
+The organization Owner can opt in with a `mailsec_policy` record of type
+`sample_sharing` (`mailsec.set`, `billing.ctrl` and `user.ctrl` for the organization).
+Anyone with `mailsec.set` can opt out by writing `enabled: false` on an active
+record without expiry. Deleting, disabling or expiring a sharing record requires
+Owner authority because an earlier enabled record can become effective.
 
 ```bash
 echo '{"policy_type": "sample_sharing", "enabled": true}' > opt-in.json

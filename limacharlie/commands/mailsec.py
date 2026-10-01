@@ -208,12 +208,17 @@ WITHDRAW AT ANY TIME: `mailsec message withdraw-sample <msg_uuid>` or
 `mailsec submission withdraw <submission_id>` deletes the copy and its
 metadata.
 
-It is off by default. To opt in, save a mailsec_policy record of type
-sample_sharing:
+It is off by default. The organization Owner can opt in by saving a
+mailsec_policy record of type sample_sharing (mailsec.set, billing.ctrl
+and user.ctrl for this organization):
 
   echo '{"policy_type": "sample_sharing", "enabled": true}' > opt-in.json
   limacharlie hive set --hive-name mailsec_policy --key sample-sharing \
       --input-file opt-in.json --enabled
+
+Anyone with mailsec.set can opt out: write enabled:false on an active
+record without expiry. Removing, disabling or expiring the record needs
+Owner authority because an earlier enabled record could become effective.
 
 Nothing is ever submitted automatically, and only a person can submit:
 D&R rules, automations and the AI agent are refused. One message per
