@@ -307,21 +307,28 @@ class TestPreviewToExecuteBinding:
         assert result.exit_code == 0, result.stderr
         ms.bulk_action_preview.assert_not_called()
 
-    def test_the_banner_flag_is_ignored_and_said_so(self):
-        """--banner used to carry HTML that was spliced into up to 500 mailboxes
-        verbatim. The banner is rendered by the server from the org's `banners`
-        policy record now. The flag is accepted and ignored for one release so an
-        existing runbook does not start failing on an unknown option — and the
-        command SAYS it was ignored, because silently discarding what an operator
-        typed is how somebody ends up believing they configured something."""
+    def test_text_reaches_the_execute_and_not_the_preview(self):
+        """The wording override is part of what is executed, not of what is
+        approved: the preview takes none, the execute carries it, and the
+        command says so when it is given on a preview."""
         result, ms = _invoke(
+            "mailsec", "message", "bulk-action", "--action", "banner_message",
+            "--msg-uuids", U_A, "--confirm", TOKEN, "--text", "Verify by phone first",
+            sdk_returns=_HAPPY,
+        )
+        assert result.exit_code == 0, result.stderr
+        assert ms.bulk_action_execute.call_args.kwargs["text"] == "Verify by phone first"
+        assert "banner" not in ms.bulk_action_execute.call_args.kwargs
+
+    def test_the_old_banner_flag_is_gone(self):
+        """--banner carried caller HTML into up to 500 mailboxes. It is removed,
+        not ignored: an unknown option fails loudly instead of being discarded."""
+        result, _ = _invoke(
             "mailsec", "message", "bulk-action", "--action", "banner_message",
             "--msg-uuids", U_A, "--confirm", TOKEN, "--banner", "<b>caution</b>",
             sdk_returns=_HAPPY,
         )
-        assert result.exit_code == 0, result.stderr
-        assert "banner" not in ms.bulk_action_execute.call_args.kwargs
-        assert "--banner is deprecated and ignored" in result.stderr + result.stdout
+        assert result.exit_code != 0
 
 
 class TestSelectionAssembly:

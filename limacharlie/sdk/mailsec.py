@@ -204,33 +204,6 @@ def _add_scalar(pairs: list[tuple[str, str]], key: str, value: Any) -> None:
         pairs.append((key, str(value)))
 
 
-def _warn_banner_is_ignored(banner: str | None) -> None:
-    """Warn once per call that a caller-supplied banner goes nowhere.
-
-    The banner used to travel on the request and was spliced into the
-    recipient's mailbox verbatim, so any caller holding ``mailsec.act`` chose
-    HTML that ran in someone else's mail client. It is now rendered by the
-    server from the organization's ``mailsec_policy`` record of type
-    ``banners``, escaped into a fixed template.
-
-    The argument is kept and IGNORED rather than rejected, for one release: an
-    existing script keeps working and simply gets the organization's configured
-    banner, which is what it wanted. The warning is what stops that from being a
-    silent change — a field that quietly stops meaning anything is worse than
-    one that says so.
-    """
-    if banner is None:
-        return
-    warnings.warn(
-        "mailsec: the `banner` argument is deprecated and ignored. The warning banner is "
-        "rendered by the server from the organization's mailsec_policy record of type "
-        "'banners' (its `text`), so that no caller can inject markup into a user's mailbox. "
-        "Set the wording there instead; this argument will be removed.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
-
-
 class Mailsec:
     """Email Security client for LimaCharlie."""
 
@@ -525,7 +498,7 @@ class Mailsec:
         *,
         reason: str | None = None,
         attempt: str | None = None,
-        banner: str | None = None,
+        text: str | None = None,
         force: bool = False,
     ) -> dict[str, Any]:
         """Remediate one message at the provider. Requires ``mailsec.act``.
@@ -540,12 +513,14 @@ class Mailsec:
                 ``restore_message``, ``banner_message``, ``unbanner_message``.
             reason: Free-text justification recorded on the audit row.
             attempt: Caller-supplied idempotency token.
-            banner: DEPRECATED and ignored. The warning banner used to be
-                chosen by the caller and was spliced into the mailbox verbatim;
-                it is now rendered by the server from the organization's
+            text: ``banner_message`` only: plain-text wording for this one
+                banner, replacing the organization's default and per-verdict
+                wording (title, colour and logo stay the organization's). At
+                most 512 characters; ``<``, ``>`` and control characters are
+                refused by the server, and other actions refuse it. The banner
+                itself is always rendered by the server from the organization's
                 ``mailsec_policy`` record of type ``banners`` into a fixed,
-                escaped template, so no caller can put markup in a user's mail.
-                Passing it warns and sends nothing; set the wording in policy.
+                escaped template: no caller supplies markup.
             force: Perform the action even if the organization is in
                 alert-only mode (no automation in enforce mode). The override
                 is recorded in the audit trail. Sent only when ``True``.
@@ -558,10 +533,9 @@ class Mailsec:
             ``ok``. ``force_required: true`` accompanies it: re-sending with
             ``force=True`` performs the action.
         """
-        _warn_banner_is_ignored(banner)
         _check_force(force)
         body: dict[str, Any] = {"action": action}
-        for key, val in (("reason", reason), ("attempt", attempt)):
+        for key, val in (("reason", reason), ("attempt", attempt), ("text", text)):
             if val is not None:
                 body[key] = val
         if force:
@@ -736,7 +710,7 @@ class Mailsec:
         confirm: str,
         *,
         attempt: str | None = None,
-        banner: str | None = None,
+        text: str | None = None,
         reason: str | None = None,
         force: bool = False,
     ) -> dict[str, Any]:
@@ -769,10 +743,9 @@ class Mailsec:
                 enough; passing a different set is refused rather than acted on.
             confirm: The token from :meth:`bulk_action_preview`.
             attempt: The same attempt the preview used, when one was used.
-            banner: DEPRECATED and ignored — see :meth:`act_on_message`. Every
-                member's banner is rendered by the server from the
-                organization's ``banners`` policy record, so the batch carries
-                no banner at all.
+            text: ``banner_message`` only — see :meth:`act_on_message`. One
+                plain-text wording applied to every member's banner. Like
+                ``reason`` it is not part of the confirmation.
             reason: Free-text justification, recorded on the job's audit row AND
                 on every message's, exactly as :meth:`act_on_message` records it
                 for one. It is deliberately NOT part of the confirmation, so
@@ -809,9 +782,8 @@ class Mailsec:
             "msg_uuids": normalize_bulk_selection(msg_uuids),
             "confirm": confirm,
         }
-        _warn_banner_is_ignored(banner)
         _check_force(force)
-        for key, val in (("attempt", attempt), ("reason", reason)):
+        for key, val in (("attempt", attempt), ("reason", reason), ("text", text)):
             if val is not None:
                 body[key] = val
         if force:
@@ -1180,6 +1152,36 @@ class Mailsec:
         if rule_id is not None:
             body["rule_id"] = rule_id
         return self._post("rules/validate", body)
+
+    def preview_banner(
+        self,
+        banner: dict[str, Any],
+        *,
+        verdict: str | None = None,
+        text: str | None = None,
+    ) -> dict[str, Any]:
+        """Render a candidate warning banner without saving it.
+
+        Runs the same validation the ``mailsec_policy`` hive applies on save
+        and the same renderer the collector uses, so the ``html`` returned is
+        what recipients get. An invalid banner is a successful response
+        carrying ``valid: false`` and the reason. Requires ``mailsec.get``.
+
+        Args:
+            banner: The fields of a ``banners`` policy record (``title``,
+                ``color``, ``text``, ``logo_url``, ``logo_alt``, ``variants``,
+                ``enabled``); omit ``policy_type``.
+            verdict: Preview the per-verdict variant for this verdict
+                (``malicious``, ``suspicious``, ``graymail``, ``benign``,
+                ``unknown``).
+            text: Preview a ``banner_message`` action's own wording.
+        """
+        body: dict[str, Any] = {"banner": banner}
+        if verdict is not None:
+            body["verdict"] = verdict
+        if text is not None:
+            body["text"] = text
+        return self._post("banner/preview", body)
 
     def backtest_rule(
         self,

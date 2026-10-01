@@ -220,25 +220,29 @@ class TestActions:
         assert url == f"mailsec/{OID}/messages/msg-1/actions"
         assert body == {"action": "quarantine_message", "reason": "phish"}
 
-    def test_a_caller_supplied_banner_is_deprecated_and_never_sent(self, ms, mock_org):
-        """The banner used to travel on the request and was spliced into the
-        recipient's mailbox verbatim, so a caller chose the HTML that ran in
-        somebody else's mail client. It is rendered by the server from the org's
-        `banners` policy record now. The argument is kept and IGNORED for one
-        release — an existing script keeps working — but it warns, because a
-        field that quietly stops meaning anything is worse than one that says
-        so."""
-        with pytest.deprecated_call():
+    def test_banner_text_is_sent_as_plain_text_and_nothing_banner_shaped_else(self, ms, mock_org):
+        """`text` is the one banner input a caller has: plain wording the server
+        validates and escapes into a fixed template. The caller's own HTML
+        (`banner`) no longer exists as an argument."""
+        ms.act_on_message("msg-1", "banner_message", text="Verify by phone first")
+        _, body = _post_call(mock_org)
+        assert body == {"action": "banner_message", "text": "Verify by phone first"}
+        with pytest.raises(TypeError):
             ms.act_on_message("msg-1", "banner_message", banner="<img src=x onerror=alert(1)>")
+
+    def test_an_action_without_text_sends_none(self, ms, mock_org):
+        ms.act_on_message("msg-1", "banner_message")
         _, body = _post_call(mock_org)
         assert body == {"action": "banner_message"}
 
-    def test_a_banner_free_action_does_not_warn(self, ms, mock_org):
-        """The control for the test above: the deprecation fires on the
-        argument, not on every action."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            ms.act_on_message("msg-1", "banner_message")
+    def test_preview_banner_body(self, ms, mock_org):
+        ms.preview_banner({"title": "Acme", "color": "red"}, verdict="malicious", text="Hi")
+        url, body = _post_call(mock_org)
+        assert url == f"mailsec/{OID}/banner/preview"
+        assert body == {"banner": {"title": "Acme", "color": "red"}, "verdict": "malicious", "text": "Hi"}
+        ms.preview_banner({})
+        _, body = _post_call(mock_org)
+        assert body == {"banner": {}}
 
     def test_campaign_action_previews_without_confirm(self, ms, mock_org):
         """confirm is what turns a preview into an execution. Its absence must
@@ -549,16 +553,15 @@ class TestBulkRemediation:
         _, execute_body = _post_call(mock_org)
         assert preview_body["msg_uuids"] == execute_body["msg_uuids"] == ["a", "b", "c"]
 
-    def test_a_caller_supplied_banner_is_deprecated_and_never_sent(self, ms, mock_org):
+    def test_bulk_execute_carries_text_and_no_banner_argument(self, ms, mock_org):
         """The bulk route mattered most: one request bannered up to 500
-        mailboxes with the caller's HTML. Nothing banner-shaped leaves the
-        client any more; the server renders each member's banner from the org's
-        `banners` policy record."""
-        with pytest.deprecated_call():
-            ms.bulk_action_execute("banner_message", ["a"], "tok", banner="<script>alert(1)</script>")
+        mailboxes with the caller's HTML. Only plain wording (`text`) can travel."""
+        ms.bulk_action_execute("banner_message", ["a"], "tok", text="Verify by phone first")
         _, body = _post_call(mock_org)
-        assert "banner" not in body
-        assert "banner_html" not in body
+        assert body["text"] == "Verify by phone first"
+        assert "banner" not in body and "banner_html" not in body
+        with pytest.raises(TypeError):
+            ms.bulk_action_execute("banner_message", ["a"], "tok", banner="<script>alert(1)</script>")
 
     def test_execute_omits_absent_optionals(self, ms, mock_org):
         ms.bulk_action_execute("trash_message", ["a"], "tok")
