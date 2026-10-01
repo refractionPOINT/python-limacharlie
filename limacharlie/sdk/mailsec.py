@@ -210,33 +210,6 @@ def _add_scalar(pairs: list[tuple[str, str]], key: str, value: Any) -> None:
 
 
 
-def _warn_banner_is_ignored(banner: str | None) -> None:
-    """Warn once per call that a caller-supplied banner goes nowhere.
-
-    The banner used to travel on the request and was spliced into the
-    recipient's mailbox verbatim, so any caller holding ``mailsec.act`` chose
-    HTML that ran in someone else's mail client. It is now rendered by the
-    server from the organization's ``mailsec_policy`` record of type
-    ``banners``, escaped into a fixed template.
-
-    The argument is kept and IGNORED rather than rejected, for one release: an
-    existing script keeps working and simply gets the organization's configured
-    banner, which is what it wanted. The warning is what stops that from being a
-    silent change — a field that quietly stops meaning anything is worse than
-    one that says so.
-    """
-    if banner is None:
-        return
-    warnings.warn(
-        "mailsec: the `banner` argument is deprecated and ignored. The warning banner is "
-        "rendered by the server from the organization's mailsec_policy record of type "
-        "'banners' (its `text`), so that no caller can inject markup into a user's mailbox. "
-        "Set the wording there instead; this argument will be removed.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
-
-
 def _group_identity(value: str) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
         raise ValueError("group_id must be a lowercase SHA-256 identity")

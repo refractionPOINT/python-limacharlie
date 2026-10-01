@@ -194,9 +194,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "mailsec": frozenset({
         "coverage", "analyze", "onboarding", "message", "campaign", "sender",
         "action", "report", "rule", "banner", "connection", "tenant", "provider-quarantine", "release-request",
-
-        "coverage", "analyze", "onboarding", "group", "message", "campaign", "sender",
-        "action", "report", "rule", "connection", "tenant",
+        "group",
     }),
     "lookup": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "note": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),

@@ -1188,11 +1188,8 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--cursor", default=None, help="Keyset token from a previous page.")
 @click.option("--limit", default=None, type=int, help="Page size.")
 @pass_context
-def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, state,
-                 direction, lane, disposition, user_reported, no_user_reported, min_score, link_domain,
-
 def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, group_id, severity, state,
-                 direction, lane, user_reported, no_user_reported, min_score, link_domain,
+                 direction, lane, disposition, user_reported, no_user_reported, min_score, link_domain,
                  attachment_sha256, q, since, until, cursor, limit) -> None:
     """The message index — the triage queue.
 
