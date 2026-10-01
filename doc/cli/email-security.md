@@ -346,3 +346,33 @@ seconds) to poll for a ready preview or a resolved report. Timeout exits with
 code 2, retaining the job; repeat with the same attempt and confirmation to
 resume. A failed or withheld job needs a new attempt and fresh confirmation.
 Only the reported original is classified; every selected copy is remediated.
+
+## Message groups
+
+A group is one hardened message delivered to many recipients. A campaign contains
+similar messages. Groups carry separate engine verdict/severity and analyst
+disposition summaries. The default group list is the flagged triage queue; use
+`--all` to include other groups. Aggregates expose an `as_of` timestamp.
+
+```bash
+limacharlie mailsec group list --severity high --severity critical --disposition none
+limacharlie mailsec group get <group_id>
+limacharlie mailsec message list --group-id <group_id> --severity high
+limacharlie mailsec group preview <group_id> --action quarantine_message --reason "Incident review"
+limacharlie mailsec group status <job_id>
+limacharlie mailsec group confirm <job_id> --confirmation <complete_preview_token>
+```
+
+Preview requires `mailsec.act` and prepares **every** recipient copy in a durable
+job. There is no 500-copy truncation. It never executes automatically and has no
+confirmation token until paging is complete. `--preview-id` is printed before
+the request; reuse it with identical parameters on retry. `--force`, `--reason`
+and optional banner `--text` are frozen in the preview. Confirmation must use
+the original authenticated actor and cannot change those parameters. Copies
+delivered after the snapshot need a new preview.
+
+Both preview and confirmation wait by default, with a bounded `--timeout` and
+`--poll-interval`; `--no-wait` returns the job immediately. A polling timeout or
+error leaves the job intact. Inspect it with `group status`; execution resumes
+across worker handover. Failed or withheld recipient outcomes return a nonzero
+CLI exit code. Repeated confirmation adopts the same execution.

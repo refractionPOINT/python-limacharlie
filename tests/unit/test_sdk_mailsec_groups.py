@@ -1,0 +1,104 @@
+import json
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from limacharlie.sdk.mailsec import Mailsec
+
+OID = "11111111-1111-4111-8111-111111111111"
+GID = "a" * 64
+JOB = "22222222-2222-4222-8222-222222222222"
+
+@pytest.fixture
+def client():
+    org = MagicMock()
+    org.oid = OID
+    return Mailsec(org), org.client
+
+
+def test_groups_preserve_repeated_filters_and_false_report_constraint(client):
+    ms, transport = client
+    ms.list_groups(severity=["medium", "critical"], disposition=["malicious", "none"], user_reported=False, all_groups=True, cursor="opaque", limit=25)
+    args, kwargs = transport.request.call_args
+    assert args == ("GET", f"mailsec/{OID}/groups")
+    pairs = kwargs["query_params"]
+    assert [(k, v) for k, v in pairs if k == "severity"] == [("severity", "medium"), ("severity", "critical")]
+    assert ("user_reported", "false") in pairs
+    assert ("all", "true") in pairs
+    assert ("cursor", "opaque") in pairs
+    assert ("disposition", "none") in pairs
+    assert ("limit", "25") in pairs
+
+
+def test_group_preview_freezes_force_reason_text_and_client_identity(client):
+    ms, transport = client
+    ms.prepare_group_action(GID, "banner_message", JOB, force=True, reason="Fixture review", text="Review this message")
+    args, kwargs = transport.request.call_args
+    assert args == ("POST", f"mailsec/{OID}/groups/{GID}/actions/preview")
+    body = json.loads(kwargs["raw_body"])
+    assert body == {"action": "banner_message", "preview_id": JOB, "force": True, "reason": "Fixture review", "text": "Review this message"}
+    ms.confirm_group_action(JOB, "b" * 64)
+    args, kwargs = transport.request.call_args
+    assert args == ("POST", f"mailsec/{OID}/group-actions/{JOB}/confirm")
+    assert json.loads(kwargs["raw_body"]) == {"confirmation": "b" * 64}
+
+
+@pytest.mark.parametrize("value", ["", "../other", "a" * 63, "A" * 64])
+def test_group_identity_refused_before_transport(client, value):
+    ms, transport = client
+    with pytest.raises(ValueError):
+        ms.get_group(value)
+    transport.request.assert_not_called()
+
+
+def test_preview_force_must_be_boolean(client):
+    ms, transport = client
+    with pytest.raises(TypeError):
+        ms.prepare_group_action(GID, "trash_message", JOB, force="true")
+    transport.request.assert_not_called()
+
+
+def test_polling_stops_at_ready_without_executing(client):
+    ms, transport = client
+    transport.request.side_effect = [{"job": {"phase": "preparing"}}, {"job": {"phase": "ready"}, "confirmation": "b" * 64}]
+    with patch("limacharlie.sdk.mailsec.time.sleep"):
+        status = ms.wait_for_group_action(JOB, preparing=True, timeout=5, poll_interval=1)
+    assert status["job"]["phase"] == "ready"
+    assert len(transport.request.call_args_list) == 2
+    assert all(call.args[0] == "GET" for call in transport.request.call_args_list)
+
+
+def test_polling_unknown_phase_is_an_error(client):
+    ms, transport = client
+    transport.request.return_value = {"job": {"phase": "unknown"}}
+    with pytest.raises(RuntimeError):
+        ms.wait_for_group_action(JOB)
+
+
+@pytest.mark.parametrize("timeout, interval", [(float("inf"), 3), (True, 3), (3601, 3), (5, 0), (5, 61)])
+def test_polling_bounds_refused_before_transport(client, timeout, interval):
+    ms, transport = client
+    with pytest.raises(ValueError):
+        ms.wait_for_group_action(JOB, timeout=timeout, poll_interval=interval)
+    transport.request.assert_not_called()
+
+
+def test_deadline_returns_last_running_job_and_never_reconfirms(client):
+    ms, transport = client
+    transport.request.return_value = {"job": {"phase": "running", "job_id": JOB}}
+    with patch("limacharlie.sdk.mailsec.time.monotonic", side_effect=[0, 10]):
+        result = ms.wait_for_group_action(JOB, timeout=1)
+    assert result["job"]["phase"] == "running"
+    assert transport.request.call_count == 1
+    assert transport.request.call_args.args[0] == "GET"
+
+
+def test_message_group_and_severity_filters_forward_and_narrow_search(client):
+    ms, transport = client
+    ms.list_messages(group_id=GID, severity=["high", "critical"], q="fixture")
+    pairs = transport.request.call_args.kwargs["query_params"]
+    assert ("group_id", GID) in pairs
+    assert [(key, value) for key, value in pairs if key == "severity"] == [("severity", "high"), ("severity", "critical")]
+    ms.list_messages(severity=["critical"], q="fixture")
+    with pytest.raises(ValueError):
+        ms.list_messages(severity=["high", "critical"], q="fixture")
