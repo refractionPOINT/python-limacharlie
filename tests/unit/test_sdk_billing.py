@@ -81,3 +81,54 @@ class TestBillingGetPlans:
             "GET", "plans",
         )
         assert result == {"plans": []}
+
+
+class TestSecurityBilling:
+    @pytest.mark.parametrize("product", ["mail_security", "code_security"])
+    def test_get_status_preserves_response(self, billing, mock_org, product):
+        reply = {"status": {"phase": "pending"}, "accrued_cents": 103}
+        mock_org.client.request.return_value = reply
+        assert billing.get_security(product) == reply
+        mock_org.client.request.assert_called_once_with(
+            "GET", f"orgs/test-oid/billing/security/{product}", query_params=None)
+
+    def test_dates(self, billing, mock_org):
+        billing.get_security("code_security", from_date="2026-10-01", until_date="2026-11-01")
+        assert mock_org.client.request.call_args.kwargs["query_params"] == {
+            "from": "2026-10-01", "until": "2026-11-01"}
+
+    @pytest.mark.parametrize("kwargs", [
+        {"from_date": "2026-10-01"}, {"until_date": "2026-10-01"},
+        {"from_date": "2026-10-01", "until_date": "2026-10-01"},
+        {"from_date": "2026-10-02", "until_date": "2026-10-01"},
+        {"from_date": "2026-10-01", "until_date": "2028-10-01"},
+        {"from_date": "20261001", "until_date": "2026-11-01"},
+    ])
+    def test_bad_dates_never_request(self, billing, mock_org, kwargs):
+        with pytest.raises(ValueError):
+            billing.get_security("mail_security", **kwargs)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("accept", [False, 1, "true", None])
+    def test_consent_required(self, billing, mock_org, accept):
+        with pytest.raises(ValueError):
+            billing.activate_security("mail_security", accept_pricing=accept)
+        mock_org.client.request.assert_not_called()
+
+    def test_json_consent(self, billing, mock_org):
+        import json
+        billing.activate_security("mail_security", accept_pricing=True)
+        args = mock_org.client.request.call_args
+        assert args.args == ("POST", "orgs/test-oid/billing/security/mail_security")
+        assert args.kwargs["content_type"] == "application/json"
+        assert json.loads(args.kwargs["raw_body"]) == {"accept_pricing": True}
+
+    def test_stop_no_trial_reset(self, billing, mock_org):
+        billing.stop_security("code_security")
+        mock_org.client.request.assert_called_once_with(
+            "DELETE", "orgs/test-oid/billing/security/code_security")
+
+    def test_invalid_product_never_request(self, billing, mock_org):
+        with pytest.raises(ValueError):
+            billing.stop_security("mail_security/../../quota")
+        mock_org.client.request.assert_not_called()
