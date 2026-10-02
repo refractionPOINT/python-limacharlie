@@ -66,6 +66,28 @@ limacharlie billing status                     # Billing overview
 limacharlie billing details                    # Detailed breakdown
 ```
 
+
+### Security product billing
+
+```bash
+limacharlie billing security get mail_security --oid <oid> --output yaml
+limacharlie billing security get code_security --from 2026-10-01 --until 2026-11-01 --oid <oid> --output yaml
+limacharlie billing security activate mail_security --accept-pricing --oid <oid> --output yaml
+limacharlie billing security stop code_security --confirm --oid <oid> --output yaml
+```
+
+Read requires `org.get` and `billing.ctrl`; activation and stop require `billing.ctrl`
+and `user.ctrl`. Review the price before passing `--accept-pricing`. Mail costs
+$1 per protected mailbox-month, Code $0.80 per protected repository-month plus the
+separate Cloud Security base fee. Rates are divided by 30 per UTC entity-day;
+31 days of constant paid coverage cost 31/30 of the monthly rate. Today's high-water
+mark is provisional; accrued usage is an estimate rather than a finalized invoice.
+
+Read `get` after mutation: a pending transition does not confirm protection.
+Stop preserves accrued charges and trial history. Code stop keeps the Cloud base
+fee; stopping that separate subscription is a separate operation.
+
+
 ## audit
 
 ```bash
