@@ -87,6 +87,8 @@ print(mail.analyze(eml_b64=encoded, org_domains=["corp.example"]))
 
 `mailsec.get` permits structured reads, `mailsec.set` changes triage and rules, and `mailsec.act` remediates provider mail, revises verdicts, and tests connections. Original-byte downloads require both `mailsec.get` and `mailsec.get.eml`. Provider records use `mailsec_provider.*` and credentials use `secret.*`; policy and `dr-mail` Hives reuse `mailsec.get/set`.
 
+An organization that has opted in (a `mailsec_policy` record of type `sample_sharing`) can copy one message at a time to LimaCharlie to improve detection. `submit_sample(msg_uuid, category, reason)` needs `mailsec.act`, sends the original message to LimaCharlie (deleted after 400 days, or on `withdraw_sample(msg_uuid)` / `withdraw_submission(submission_id)`), and raises `ValueError` for an unknown category (`missed_threat`, `false_positive`, `other`) or a reason that is blank or over 1024 characters. A refusal comes back as `result: "failed"` with `error`, not as an exception. `list_submissions()` (paginated, always returns `enabled` and `available`) and `get_submission()` (includes `reviews`, one timestamp per recorded access to the copy) need `mailsec.get`.
+
 Start with `alert_only`. Manual provider actions need an explicit `force=True` override in that mode; inspect the action and audit outcome. Bulk and campaign actions use preview and confirmation so the executed selection matches what was reviewed. See the [Email Security CLI reference](../cli/email-security.md) for these workflows, verdict revisions, campaigns, user reports, and offboarding.
 
 ## Pagination and filters

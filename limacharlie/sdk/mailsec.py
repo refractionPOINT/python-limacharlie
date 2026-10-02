@@ -4,7 +4,9 @@ Wraps the ``/mailsec/{oid}/...`` REST routes served by the API gateway: the
 coverage screen, the message index and its drawer, the justified raw-EML
 download, analyst verdict revision and its history, bulk remediation across a
 caller-supplied selection, campaigns, sender profiles, the action audit trail,
-the abuse-mailbox report queue and its reopen, standalone EML analysis,
+the abuse-mailbox report queue and its reopen, customer sample submission
+(copy one message to LimaCharlie, list and withdraw what was sent), standalone
+EML analysis,
 custom-rule validation and backtest, the provider connection
 preflight, the served onboarding guide, and the irreversible tenant purge.
 
@@ -76,6 +78,20 @@ _MAX_RATIONALE_LEN = 280
 # and lives five minutes, so learning about an over-long reason from the server
 # costs a re-mint. Checking here costs nothing.
 _MAX_PURGE_REASON_LEN = 1024
+
+
+# Customer sample submission. A person may copy ONE message at a time to
+# LimaCharlie so detection can improve, when the org has opted in.
+#
+# Unlike the remediation vocabulary above, the category set IS validated
+# client-side: it is closed, the server refuses anything else with a 400, and a
+# submission is a disclosure of somebody's mail, so the caller should learn
+# from a local error that a typo was not sent rather than after the round trip.
+# The reason is bounded the same way the server bounds it (1..1024 characters
+# after trimming; required for a submission, optional for a withdrawal).
+SAMPLE_CATEGORIES = ("missed_threat", "false_positive", "other")
+_MAX_SAMPLE_REASON_LEN = 1024
+_MAX_SUBMISSION_PAGE = 200
 
 
 # The bulk remediation vocabulary, for documentation and for building help text.
@@ -166,6 +182,36 @@ def normalize_bulk_selection(msg_uuids: Any) -> list[str]:
         raise ValueError("a bulk action needs at least one msg_uuid")
     out.sort()
     return out
+
+
+def _check_sample_reason(reason: Any, *, required: bool) -> str:
+    """Trim and bound the reason on a sample submission or withdrawal.
+
+    The server trims and then requires 1..1024 characters for a submission
+    (and at most 1024 for a withdrawal). Checking here, on the trimmed text,
+    means a caller learns the limit locally and sends exactly what the server
+    will record.
+    """
+    if reason is None:
+        if required:
+            raise ValueError(
+                "a sample submission needs a reason: it is kept with the submission "
+                "to record why you sent it"
+            )
+        return ""
+    if not isinstance(reason, str):
+        raise ValueError("reason must be text")
+    text = reason.strip()
+    if required and not text:
+        raise ValueError(
+            "a sample submission needs a reason: it is kept with the submission "
+            "to record why you sent it"
+        )
+    if len(text) > _MAX_SAMPLE_REASON_LEN:
+        raise ValueError(
+            f"reason is {len(text)} characters; at most {_MAX_SAMPLE_REASON_LEN} are allowed"
+        )
+    return text
 
 
 def _seg(value: str) -> str:
@@ -601,6 +647,8 @@ class Mailsec:
             msg_uuid: The message to act on.
             action: ``quarantine_message``, ``trash_message``,
                 ``restore_message``, ``banner_message``, ``unbanner_message``.
+                Sample submission has its own methods: see
+                :meth:`submit_sample` and :meth:`withdraw_sample`.
             reason: Free-text justification recorded on the audit row.
             attempt: Caller-supplied idempotency token.
             text: ``banner_message`` only: plain-text wording for this one
@@ -624,6 +672,14 @@ class Mailsec:
             ``force=True`` performs the action.
         """
         _check_force(force)
+        if action == "submit_sample":
+            # Sending it here would skip the category and reason the server
+            # requires (and the local checks on them), and it copies a message
+            # to LimaCharlie, so point at the method that asks for both.
+            raise ValueError(
+                "use submit_sample(msg_uuid, category, reason) for action "
+                "'submit_sample': it needs a category and a reason"
+            )
         body: dict[str, Any] = {"action": action}
         for key, val in (("reason", reason), ("attempt", attempt), ("text", text)):
             if val is not None:
@@ -1266,6 +1322,205 @@ class Mailsec:
         """One record from the action audit trail: what was decided, by whom,
         why, and what the provider actually did."""
         return self._get(f"actions/{_seg(action_id)}")
+
+    # ------------------------------------------------------------------
+    # Customer sample submission
+    # ------------------------------------------------------------------
+    #
+    # An organization can opt in (``mailsec_policy`` record of type
+    # ``sample_sharing``, ``{"enabled": true}``; off by default) to let its
+    # analysts copy ONE message at a time to LimaCharlie so detection quality
+    # can improve. Nothing is ever submitted automatically. The copy is the
+    # message's original bytes, compressed and encrypted, kept in a
+    # LimaCharlie-owned bucket in the same datacenter as the organization's
+    # Email Security data, plus a metadata row; both are deleted automatically
+    # 400 days after submission, or immediately on withdrawal.
+
+    def submit_sample(
+        self,
+        msg_uuid: str,
+        category: str,
+        reason: str,
+        *,
+        attempt: str | None = None,
+    ) -> dict[str, Any]:
+        """Copy ONE message to LimaCharlie to help improve detection.
+
+        Requires ``mailsec.act`` and an organization that has opted in
+        (``mailsec_policy`` record of type ``sample_sharing``). Enabling
+        sharing requires the organization Owner (``mailsec.set``,
+        ``billing.ctrl`` and ``user.ctrl``); anyone with ``mailsec.set`` can
+        turn it off with an active, nonexpiring ``enabled: false`` record. This sends
+        the message's original bytes (attachments included) and the metadata
+        listed below to a LimaCharlie-owned store in the organization's own
+        datacenter. It is explicit, one message per call, and never done
+        automatically. Only a person can do it: the backend refuses the same
+        action from a D&R rule, an automation or the AI agent.
+
+        What is kept: the original raw message (compressed and encrypted), and
+        a row with the message id, your category and reason, your identity,
+        the time, the verdict, score and matched rule ids at that time, the
+        sender, subject, mailbox address and size. Retention is 400 days, then
+        deleted automatically. Submitted messages are used by LimaCharlie to improve detection.
+        Access is restricted and every access is recorded; :meth:`get_submission` shows how many times and when. Withdraw
+        at any time with :meth:`withdraw_sample` or
+        :meth:`withdraw_submission`: the copy and its metadata are deleted.
+
+        Args:
+            msg_uuid: The message to submit.
+            category: ``missed_threat`` (we called it benign or unknown and
+                it is a threat), ``false_positive`` (we flagged it and it is
+                legitimate) or ``other``.
+            reason: Why you are submitting it, 1 to 1024 characters after
+                trimming. Required, and kept with the submission.
+            attempt: Caller-supplied idempotency token.
+
+        Returns:
+            The action record. ``result: ok`` and ``skipped`` carry
+            ``submission_id``; ``skipped`` means this message already has an
+            active submission. A refusal (not opted in, no submissions store
+            in this datacenter, or the message's raw copy is no longer
+            stored) is reported like any other failed action, with the reason
+            in ``error``; check ``result`` as well as catching exceptions.
+
+        Raises:
+            ValueError: If ``category`` is not one of the three, or ``reason``
+                is blank or longer than 1024 characters.
+        """
+        if category not in SAMPLE_CATEGORIES:
+            raise ValueError(
+                f"category must be one of {', '.join(SAMPLE_CATEGORIES)}; got {category!r}"
+            )
+        text = _check_sample_reason(reason, required=True)
+        body: dict[str, Any] = {"action": "submit_sample", "category": category, "reason": text}
+        if attempt is not None:
+            body["attempt"] = attempt
+        return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
+
+    def withdraw_sample(
+        self,
+        msg_uuid: str,
+        *,
+        reason: str | None = None,
+        attempt: str | None = None,
+    ) -> dict[str, Any]:
+        """Withdraw the submission made from one message. Requires ``mailsec.act``.
+
+        Deletes LimaCharlie's stored copy of the message and its metadata (a
+        hard delete), then records the withdrawal in the audit trail. Like
+        :meth:`submit_sample`, only a person can do this.
+
+        Args:
+            msg_uuid: The message whose submission to withdraw.
+            reason: Optional note recorded on the audit row, at most 1024
+                characters.
+            attempt: Caller-supplied idempotency token.
+
+        Returns:
+            The action record; read ``result`` and ``error`` as for
+            :meth:`submit_sample`.
+
+        Raises:
+            ValueError: If ``reason`` is longer than 1024 characters.
+        """
+        body: dict[str, Any] = {"action": "withdraw_sample"}
+        text = _check_sample_reason(reason, required=False)
+        if text:
+            body["reason"] = text
+        if attempt is not None:
+            body["attempt"] = attempt
+        return self._post(f"messages/{_seg(msg_uuid)}/actions", body)
+
+    def list_submissions(
+        self,
+        *,
+        category: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """The samples this organization has submitted to LimaCharlie.
+
+        Requires ``mailsec.get``. Newest first.
+
+        Args:
+            category: Only this category: ``missed_threat``,
+                ``false_positive`` or ``other``.
+            since: Lower time bound (RFC 3339).
+            until: Upper time bound (RFC 3339).
+            limit: Page size, 1 to 200 (the server default is 50).
+            cursor: ``next_cursor`` from the previous page, passed back
+                verbatim.
+
+        Returns:
+            ``{"enabled", "available", "submissions", "next_cursor"}``.
+            ``enabled`` is whether the organization has opted in;
+            ``available`` is whether this datacenter has a submissions store.
+            Both are always present, so an empty list can be told apart from a
+            feature that is off. A non-empty ``next_cursor`` means more pages.
+
+        Raises:
+            ValueError: If ``category`` or ``limit`` is out of range.
+        """
+        if category is not None and category not in SAMPLE_CATEGORIES:
+            raise ValueError(
+                f"category must be one of {', '.join(SAMPLE_CATEGORIES)}; got {category!r}"
+            )
+        if limit is not None and not (
+            isinstance(limit, int) and not isinstance(limit, bool)
+            and 1 <= limit <= _MAX_SUBMISSION_PAGE
+        ):
+            raise ValueError(f"limit must be between 1 and {_MAX_SUBMISSION_PAGE}; got {limit!r}")
+        pairs: list[tuple[str, str]] = []
+        for key, val in (
+            ("category", category),
+            ("since", since),
+            ("until", until),
+            ("limit", limit),
+            ("cursor", cursor),
+        ):
+            _add_scalar(pairs, key, val)
+        return self._get("submissions", pairs)
+
+    def get_submission(self, submission_id: str) -> dict[str, Any]:
+        """One submission and its recorded accesses.
+
+        Requires ``mailsec.get``.
+
+        Args:
+            submission_id: The submission id (from :meth:`list_submissions`).
+
+        Returns:
+            ``{"submission": {...}, "reviews": [{"ts": ...}]}``. ``reviews``
+            lists up to 200 access-attempt timestamps, oldest first, never who
+            accessed it. Access is recorded before decryption and can include failures.
+            ``reviews_truncated`` identifies a partial history; ``review_count`` and
+            ``last_reviewed_at`` in the submission include all accesses. An unknown id
+            is not an error: it returns ``{"submission": None, "reviews": []}``,
+            so branch on ``submission`` being ``None``.
+        """
+        return self._get(f"submissions/{_seg(submission_id)}")
+
+    def withdraw_submission(self, submission_id: str) -> dict[str, Any]:
+        """Withdraw a submission by id. Requires ``mailsec.act``.
+
+        Deletes LimaCharlie's stored copy and the metadata row (a hard
+        delete), then records the audit.
+
+        Args:
+            submission_id: The submission id (from :meth:`list_submissions`).
+
+        Returns:
+            ``{"withdrawn": true, "submission_id": ..., "action_id": ...}``
+            when a copy was deleted. Withdrawal remains available after opt-out or
+            provider disconnect, and expired copies are cleaned up if metadata remains.
+            An unknown or already-deleted id returns ``{"withdrawn": false,
+            "submission_id": ...}`` with no ``action_id``, so a second
+            withdrawal is harmless and never deletes anything twice. Check
+            ``withdrawn``.
+        """
+        return self._delete(f"submissions/{_seg(submission_id)}")
 
     # ------------------------------------------------------------------
     # Standalone analysis
