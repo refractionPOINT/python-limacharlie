@@ -2796,6 +2796,10 @@ class CloudSec:
     def push_code_provenance(self, document: bytes | str | dict[str, Any]) -> dict[str, Any]:
         """Push build provenance without changing signed document bytes.
 
+        A transient 503 is retried once after one second. The exact same
+        document is replayed: provenance upserts use a server-computed
+        attestation identity, including when the first response was lost.
+
         Args:
             document: LC provenance, SLSA v1 or an offline Sigstore bundle.
 
@@ -2819,6 +2823,7 @@ class CloudSec:
         return self._org.client.request(
             "POST", f"cloudsec/{self.oid}/code/provenance",
             raw_body=raw, content_type="application/json",
+            retry_service_unavailable=True,
         )
 
     def list_code_provenance(self, *, repo_urn: str | None = None,
