@@ -70,6 +70,7 @@ JWT_URL = _root_from_env("LC_JWT_URL", "https://jwt.limacharlie.io")
 HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
+HTTP_SERVICE_UNAVAILABLE = 503
 HTTP_GATEWAY_TIMEOUT = 504
 
 
@@ -769,7 +770,8 @@ class Client:
     def request(self, verb: str, url: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
                 max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None,
-                raw_response: bool = False, retry_quota_errors: bool | None = None) -> Any:
+                raw_response: bool = False, retry_quota_errors: bool | None = None,
+                retry_service_unavailable: bool = False) -> Any:
         """Make an API request with retry logic and JWT management.
 
         Args:
@@ -781,7 +783,7 @@ class Client:
             raw_body: Raw body bytes (overrides params).
             content_type: Content-Type header override.
             is_no_auth: Skip authorization header.
-            max_retries: Maximum number of retry attempts.
+            max_retries: Maximum total HTTP attempts, including the initial request.
             timeout: Request timeout in seconds.
             extra_headers: Additional HTTP headers to include.
             raw_response: Return the response body as decoded text instead
@@ -789,6 +791,9 @@ class Client:
             retry_quota_errors: Override the client's ``is_retry_quota_errors``
                 for this call. ``False`` raises :class:`RateLimitError` on the
                 first 429, for a caller that runs its own backoff.
+            retry_service_unavailable: Retry one 503 after one second, within
+                ``max_retries``. Only enable for replay-safe operations; the
+                server may have applied a request before returning 503.
 
         Returns:
             dict: Parsed JSON response (or str when raw_response is set).
@@ -801,6 +806,7 @@ class Client:
             ApiError: on other non-200 responses after retries.
         """
         has_auth_refreshed = False
+        has_unavailable_retried = False
 
         # Prime JWT if needed
         if not is_no_auth and self._jwt is None:
@@ -868,6 +874,14 @@ class Client:
                     retry_after=parse_retry_after(error_headers.get("retry-after")),
                     code=code,
                 )
+
+            if code == HTTP_SERVICE_UNAVAILABLE:
+                if retry_service_unavailable and not has_unavailable_retried and retries < max_retries:
+                    has_unavailable_retried = True
+                    self._debug("Service unavailable, retrying once in 1s...")
+                    time.sleep(1)
+                    continue
+                break
 
             if code == HTTP_GATEWAY_TIMEOUT:
                 if retries < max_retries:
