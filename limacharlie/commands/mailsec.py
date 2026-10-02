@@ -1094,19 +1094,44 @@ def message_groups() -> None:
 @click.option("--disposition", multiple=True, type=click.Choice(["malicious", "spam", "graymail", "benign", "simulation", "none"]))
 @click.option("--user-reported", default=None, type=click.Choice(["true", "false"]))
 @click.option("--all", "all_groups", is_flag=True, help="Include groups outside the flagged triage queue.")
-@click.option("--since", default=None, help="Earliest last-seen time (RFC3339 or unix seconds).")
-@click.option("--until", default=None, help="Exclusive latest last-seen time.")
+@click.option("--since", default=None, help="Earliest matching-copy time (RFC3339 or unix seconds).")
+@click.option("--until", default=None, help="Exclusive latest matching-copy time.")
 @click.option("--cursor", default=None, help="Opaque cursor; keep all filters unchanged.")
 @click.option("--limit", default=None, type=click.IntRange(1, 500), help="Page size.")
+@click.option("--mailbox", default=None, help="Exact protected mailbox address.")
+@click.option("--sender-email", default=None, help="Exact sender address.")
+@click.option("--sender-domain", "--sender-root-domain", "sender_domain", default=None, help="Sender registrable root domain.")
+@click.option("--campaign-id", default=None, help="Exact campaign identity.")
+@click.option("--group-id", default=None, help="Exact message group identity.")
+@click.option("--link-domain", default=None, help="Link registrable root domain.")
+@click.option("--attachment-sha256", default=None, help="Attachment digest.")
+@click.option("--state", multiple=True, help="Copy placement state (repeatable).")
+@click.option("--direction", multiple=True, type=click.Choice(["inbound", "outbound", "internal"]))
+@click.option("--min-score", default=None, type=click.IntRange(0,100), help="Minimum copy score.")
+@click.option("--lane", default=None, type=click.Choice(["live", "backfill"]))
+@click.option("--search", "--q", "q", default=None, help="Literal text search; requires --since or an indexed selector.")
 @pass_context
-def groups_list(ctx, verdict, severity, disposition, user_reported, all_groups, since, until, cursor, limit) -> None:
-    """List the flagged-group triage queue, newest last-seen first."""
-    _output(ctx, _get_mailsec(ctx).list_groups(
-        verdict=list(verdict) or None, severity=list(severity) or None,
-        disposition=list(disposition) or None,
-        user_reported=None if user_reported is None else user_reported == "true",
-        all_groups=all_groups, since=since, until=until, cursor=cursor, limit=limit,
-    ))
+def groups_list(ctx, verdict, severity, disposition, user_reported, all_groups, since, until, cursor, limit, mailbox, sender_email, sender_domain, campaign_id, group_id, link_domain, attachment_sha256, state, direction, min_score, lane, q) -> None:
+    """List groups whose one recipient copy matches every active filter.
+
+    Order uses the newest matching copy. Continue short or empty pages while a
+    next_cursor is present. Summaries and group actions cover ALL copies,
+    including copies outside the filters; exact matched-copy counts are omitted.
+    """
+    try:
+        result = _get_mailsec(ctx).list_groups(
+            verdict=list(verdict) or None, severity=list(severity) or None,
+            disposition=list(disposition) or None,
+            user_reported=None if user_reported is None else user_reported == "true",
+            all_groups=all_groups, since=since, until=until, cursor=cursor, limit=limit,
+            mailbox=mailbox, sender_email=sender_email, sender_domain=sender_domain,
+            campaign_id=campaign_id, group_id=group_id, link_domain=link_domain,
+            attachment_sha256=attachment_sha256, state=list(state) or None,
+            direction=list(direction) or None, min_score=min_score, lane=lane, q=q,
+        )
+    except (TypeError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
+    _output(ctx, result)
 
 
 @message_groups.command("get")

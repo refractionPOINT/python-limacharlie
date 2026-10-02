@@ -365,6 +365,69 @@ class Mailsec:
     # Messages
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _message_filter_pairs(
+        *,
+        verdict: list[str] | None = None,
+        severity: list[str] | None = None,
+        group_id: str | None = None,
+        mailbox: str | None = None,
+        sender_email: str | None = None,
+        sender_domain: str | None = None,
+        campaign_id: str | None = None,
+        state: list[str] | None = None,
+        direction: list[str] | None = None,
+        lane: str | None = None,
+        user_reported: bool | None = None,
+        min_score: int | None = None,
+        link_domain: str | None = None,
+        attachment_sha256: str | None = None,
+        q: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        disposition: list[str] | None = None,
+    ) -> list[tuple[str, str]]:
+        if q is not None:
+            q = q.strip() or None
+        if q:
+            if len(q) > 512:
+                raise ValueError("q must be at most 512 code points")
+            bounded = any((since, mailbox, sender_email, campaign_id, group_id, link_domain, attachment_sha256))
+            single_verdict = verdict is not None and len(verdict) == 1 and bool(verdict[0].strip())
+            single_severity = severity is not None and len(severity) == 1 and bool(severity[0].strip())
+            if not bounded and not single_verdict and not single_severity:
+                raise ValueError(
+                    "q requires since, mailbox, sender_email, campaign_id, "
+                    "group_id, link_domain, attachment_sha256, or exactly one verdict/severity"
+                )
+        pairs: list[tuple[str, str]] = []
+        _add_pairs(pairs, "disposition", disposition)
+        _add_pairs(pairs, "verdict", verdict)
+        _add_pairs(pairs, "severity", severity)
+        _add_pairs(pairs, "state", state)
+        _add_pairs(pairs, "direction", direction)
+        for key, val in (
+            ("mailbox", mailbox),
+            ("sender_email", sender_email),
+            ("sender_root_domain", sender_domain),
+            ("campaign_id", campaign_id),
+            ("group_id", group_id),
+            ("min_score", min_score),
+            ("link_domain", link_domain),
+            ("attachment_sha256", attachment_sha256),
+            ("q", q),
+            ("since", since),
+            ("until", until),
+            ("cursor", cursor),
+            ("limit", limit),
+            ("user_reported", user_reported),
+            ("lane", lane),
+        ):
+            _add_scalar(pairs, key, val)
+        return pairs
+
     def list_messages(
         self,
         *,
@@ -436,43 +499,28 @@ class Mailsec:
         """
         if disposition is not None and disposition not in (*DISPOSITIONS, "none"):
             raise ValueError("invalid disposition filter")
-        if q is not None:
-            q = q.strip() or None
-        if q:
-            if len(q) > 512:
-                raise ValueError("q must be at most 512 code points")
-            bounded = any((since, mailbox, sender_email, campaign_id, group_id, link_domain, attachment_sha256))
-            single_verdict = verdict is not None and len(verdict) == 1 and bool(verdict[0].strip())
-            single_severity = severity is not None and len(severity) == 1 and bool(severity[0].strip())
-            if not bounded and not single_verdict and not single_severity:
-                raise ValueError(
-                    "q requires since, mailbox, sender_email, campaign_id, "
-                    "group_id, link_domain, attachment_sha256, or exactly one verdict/severity"
-                )
-        pairs: list[tuple[str, str]] = []
-        _add_pairs(pairs, "verdict", verdict)
-        _add_pairs(pairs, "severity", severity)
-        _add_pairs(pairs, "state", state)
-        _add_pairs(pairs, "direction", direction)
-        for key, val in (
-            ("mailbox", mailbox),
-            ("sender_email", sender_email),
-            ("sender_root_domain", sender_domain),
-            ("campaign_id", campaign_id),
-            ("group_id", group_id),
-            ("min_score", min_score),
-            ("link_domain", link_domain),
-            ("attachment_sha256", attachment_sha256),
-            ("q", q),
-            ("since", since),
-            ("until", until),
-            ("cursor", cursor),
-            ("limit", limit),
-            ("user_reported", user_reported),
-            ("lane", lane),
-            ("disposition", disposition),
-        ):
-            _add_scalar(pairs, key, val)
+        pairs = self._message_filter_pairs(
+            disposition=[disposition] if disposition is not None else None,
+            verdict=verdict,
+            severity=severity,
+            group_id=group_id,
+            mailbox=mailbox,
+            sender_email=sender_email,
+            sender_domain=sender_domain,
+            campaign_id=campaign_id,
+            state=state,
+            direction=direction,
+            lane=lane,
+            user_reported=user_reported,
+            min_score=min_score,
+            link_domain=link_domain,
+            attachment_sha256=attachment_sha256,
+            q=q,
+            since=since,
+            until=until,
+            cursor=cursor,
+            limit=limit,
+        )
         return self._get("messages", pairs)
 
     def get_message(self, msg_uuid: str) -> dict[str, Any]:
@@ -1026,33 +1074,78 @@ class Mailsec:
         disposition: list[str] | None = None, user_reported: bool | None = None,
         all_groups: bool = False, since: str | None = None, until: str | None = None,
         cursor: str | None = None, limit: int | None = None,
+        mailbox: str | None = None, sender_email: str | None = None,
+        sender_domain: str | None = None, campaign_id: str | None = None,
+        group_id: str | None = None, link_domain: str | None = None,
+        attachment_sha256: str | None = None, state: list[str] | None = None,
+        direction: list[str] | None = None, min_score: int | None = None,
+        lane: str | None = None, q: str | None = None,
     ) -> dict[str, Any]:
-        """List the flagged message-group queue, ordered by last seen.
+        """List groups whose ONE recipient copy matches ALL active filters.
+
+        Filters use the same encoding and meanings as :meth:`list_messages`:
+        alternatives within a key, AND across keys on one copy. Filtered order
+        is the newest matching copy. Returned summaries and group actions always
+        cover the whole group; exact matched-copy counts are omitted to bound cost.
+        Continue through short/empty pages until next_cursor is empty. Cursors
+        pin a snapshot for 50 minutes; restart after expiry or changing filters.
 
         Args:
             verdict: Repeatable engine verdict filter.
-            severity: Repeatable severity filter.
-            disposition: Repeatable analyst disposition filter, including none.
+            severity: Repeatable rule-impact filter.
+            disposition: Repeatable analyst disposition, including none.
             user_reported: True or false to constrain reports; None is unconstrained.
             all_groups: Include groups outside the flagged queue.
-            since: Earliest last-seen time, RFC3339 or unix seconds.
-            until: Exclusive latest last-seen time.
-            cursor: Opaque cursor bound to the complete filter set.
-            limit: Page size.
+            since: Inclusive matching-copy time, RFC3339 or unix seconds.
+            until: Exclusive matching-copy time.
+            cursor: Opaque filter-bound snapshot cursor.
+            limit: Maximum returned groups per page.
+            mailbox: Exact protected mailbox address.
+            sender_email: Exact sender address.
+            sender_domain: Sender registrable domain (sender_root_domain on the wire).
+            campaign_id: Exact campaign identity.
+            group_id: Exact message-group identity.
+            link_domain: Link registrable domain.
+            attachment_sha256: Attachment digest.
+            state: Repeatable copy placement state.
+            direction: Repeatable inbound, outbound or internal direction.
+            min_score: Minimum copy score.
+            lane: Live or backfill, with the same supported combinations as messages.
+            q: Literal case-insensitive subject/sender substring; requires a bounded-walk companion.
 
         Returns:
-            dict: Groups, next_cursor and materialized as_of timestamps.
+            dict: Whole-group summaries, next_cursor and as_of timestamps.
+
+        Raises:
+            TypeError: If all_groups is not boolean.
+            ValueError: If non-empty q is too long or lacks a bounded-walk companion.
         """
-        pairs: list[tuple[str, str]] = []
-        for key, values in (("verdict", verdict), ("severity", severity), ("disposition", disposition)):
-            _add_pairs(pairs, key, values)
-        _add_scalar(pairs, "user_reported", user_reported)
         if not isinstance(all_groups, bool):
             raise TypeError("all_groups must be a boolean")
+        pairs = self._message_filter_pairs(
+            verdict=verdict,
+            severity=severity,
+            group_id=group_id,
+            mailbox=mailbox,
+            sender_email=sender_email,
+            sender_domain=sender_domain,
+            campaign_id=campaign_id,
+            state=state,
+            direction=direction,
+            lane=lane,
+            user_reported=user_reported,
+            min_score=min_score,
+            link_domain=link_domain,
+            attachment_sha256=attachment_sha256,
+            q=q,
+            since=since,
+            until=until,
+            cursor=cursor,
+            limit=limit,
+            disposition=disposition,
+        )
         if all_groups:
             _add_scalar(pairs, "all", True)
-        for key, value in (("since", since), ("until", until), ("cursor", cursor), ("limit", limit)):
-            _add_scalar(pairs, key, value)
         return self._get("groups", pairs)
 
     def get_group(self, group_id: str) -> dict[str, Any]:

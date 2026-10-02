@@ -128,3 +128,29 @@ def test_invalid_group_disposition_refused_before_transport(client, action, para
     with pytest.raises(ValueError):
         ms.prepare_group_action(GID, action, JOB, **params)
     transport.request.assert_not_called()
+
+
+def test_group_and_message_filter_wire_parity(client):
+    ms, transport = client
+    filters = dict(verdict=["malicious", "suspicious"], severity=["high", "critical"],
+                   group_id=GID, mailbox="copy@example.invalid", sender_email="sender@example.invalid",
+                   sender_domain="example.invalid", campaign_id=JOB, state=["delivered", "quarantined"],
+                   direction=["inbound", "internal"], lane="live", user_reported=False, min_score=70,
+                   link_domain="linked.invalid", attachment_sha256="b" * 64, q="  literal 50%  ",
+                   since="2026-10-01T00:00:00Z", until="2026-10-02T00:00:00Z", cursor="opaque", limit=5)
+    ms.list_messages(**filters)
+    message_pairs = transport.request.call_args.kwargs["query_params"]
+    ms.list_groups(**filters, disposition=["malicious", "none"], all_groups=True)
+    group_pairs = transport.request.call_args.kwargs["query_params"]
+    assert [(k, v) for k, v in group_pairs if k not in ("disposition", "all")] == message_pairs
+    assert ("disposition", "none") in group_pairs
+    assert ("q", "literal 50%") in group_pairs
+
+
+@pytest.mark.parametrize("q,kwargs", [("x" * 513, {"since": "2026-10-01"}), ("needle", {}),
+                                     ("needle", {"until": "2026-10-02"})])
+def test_group_search_refuses_unbounded_or_oversized_input(client, q, kwargs):
+    ms, transport = client
+    with pytest.raises(ValueError):
+        ms.list_groups(q=q, **kwargs)
+    transport.request.assert_not_called()
