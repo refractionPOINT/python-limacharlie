@@ -280,16 +280,7 @@ The purge is re-runnable. A partial one returns `complete: false` and counts wha
 
 You may not need it at all: the same data is deleted automatically 30 days after the org unsubscribes from Email Security — resubscribing inside that window cancels the deletion — and immediately if the org itself is deleted.
 
-## See Also
-
-- [CLI Overview](README.md)
-- [Platform Administration](platform-admin.md) — `org delete`, audit, users
-- [Hive & Data Stores](hive-data.md) — the `mailsec_provider`, `mailsec_policy` and `dr-mail` hives
-
-Historical email searches use platform LCQL over `EMAIL_MESSAGE` events. Pass selected message UUIDs to `mailsec message bulk-action` for a preview, then repeat it with the selection-bound `--confirm` token; there is no separate MailSec hunt job API.
-
-
-### Processing status and timing
+## Processing status and timing
 
 `limacharlie mailsec message get <msg_uuid> --output json` returns the processing
 status alongside the message. Inspect `message.analysis.state` (`pending` or
@@ -409,3 +400,11 @@ across worker handover. Failed or withheld recipient outcomes return a nonzero
 CLI exit code. Repeated confirmation adopts the same execution.
 
 Group classification uses the same complete preview and confirmation as remediation, with both `mailsec.act` and `mailsec.set`. Choose `malicious`, `spam`, `graymail`, `benign` or `simulation`, or use `--clear`. A disposition note is limited to 1024 characters. The decision applies to copies frozen in that preview; later recipient copies retain their independent disposition. It preserves engine verdicts and severity. Provider overrides (`--force`, `--reason`, `--text`) do not apply to `set_disposition`.
+
+## See Also
+
+- [CLI Overview](README.md)
+- [Platform Administration](platform-admin.md) — `org delete`, audit, users
+- [Hive & Data Stores](hive-data.md) — the `mailsec_provider`, `mailsec_policy` and `dr-mail` hives
+
+Historical email searches use platform LCQL over `EMAIL_MESSAGE` events. Pass selected message UUIDs to `mailsec message bulk-action` for a preview, then repeat it with the selection-bound `--confirm` token; there is no separate MailSec hunt job API.
