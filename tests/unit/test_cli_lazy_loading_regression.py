@@ -153,7 +153,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "overview", "changes", "risk-trend", "scan-status", "topology",
         "free-tier", "fleet", "finding", "remediation", "attack-path", "ciem", "inventory",
         "data-security", "resource", "graph", "query", "compliance",
-        "chokepoint", "resolve", "caasm", "code", "image", "azure",
+        "chokepoint", "resolve", "entity", "caasm", "code", "image", "azure",
         "provider", "policy", "simulate", "export",
     }),
     "detection": frozenset({"get", "list"}),
