@@ -767,6 +767,11 @@ with optional `--since`/`--until` Unix seconds and a page size up to 500. Pass
 `--cursor` with the returned `next_cursor` to continue either paginated read.
 Missing sightings do not prove inactivity.
 
+Sighting data needs `insight.evt.get`. Without it, `sightings` returns HTTP 403,
+while resolve/get return `sightings:"forbidden"` and omit recent activity and
+sighting-derived matches. User activity uses confirmed owned hosts; other
+recently observed hosts need event-read permission too.
+
 `activity` defaults to all four sources and the last 30 days; select sources by
 repeating `--source`. The maximum window is 30 days. Email needs `mailsec.get`
 and Email Security enabled, detections need `insight.det.get`, and sensor state
