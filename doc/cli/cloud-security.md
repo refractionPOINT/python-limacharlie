@@ -738,3 +738,62 @@ ending states are not a claim that the finding is fixed:
 `cancel` applies to `requested`, `planning`, `awaiting_approval` and `executing`
 runs; `approve` and `reject` only to `awaiting_approval`. A run created by the
 AutoFix button (`origin: autofix_button`) is requested and approved by the same person in one step.
+
+## Entity Pivot
+
+Resolve an identifier into a User or Host, inspect its card, and investigate its
+cross-product activity. All commands require `cloudsec.get` and Cloud Security
+enabled. Entity IDs returned by resolve/search are opaque.
+
+```bash
+limacharlie cloudsec entity resolve --identifier host.example --type hostname
+limacharlie cloudsec entity resolve --identifier 'CORP\fixture' --identifier fixture@example.com
+limacharlie cloudsec entity resolve --identifier 192.0.2.1 --type ip --at 1791000000
+limacharlie cloudsec entity search --q host --kind host --limit 50
+limacharlie cloudsec entity get --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --sightings-days 30
+limacharlie cloudsec entity sightings --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --kind user --limit 100
+limacharlie cloudsec entity activity --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --source sensor --source cloud
+```
+
+`resolve` accepts up to 100 repeated `--identifier` values; `--type` applies to
+all values, or omit it for shape detection. It preserves every ambiguous and
+possible candidate. Possible matches are unconfirmed; choosing one automatically
+would hide uncertainty. `--at` is Unix seconds and supports historical IP reads.
+
+`get` preserves merge redirects (`redirect_to`). An unknown entity returns
+`card:null`. `search` uses identifier prefixes of at least two characters and
+returns at most 100 results per page. `sightings` returns best-effort evidence,
+with optional `--since`/`--until` Unix seconds and a page size up to 500. Pass
+`--cursor` with the returned `next_cursor` to continue either paginated read.
+Missing sightings do not prove inactivity.
+
+Sighting data needs `insight.evt.get`. Without it, `sightings` returns HTTP 403,
+while resolve/get return `sightings:"forbidden"` and omit recent activity and
+sighting-derived matches. User activity uses confirmed owned hosts; other
+recently observed hosts need event-read permission too.
+
+`activity` defaults to all four sources and the last 30 days; select sources by
+repeating `--source`. The maximum window is 30 days. Email needs `mailsec.get`
+and Email Security enabled, detections need `insight.det.get`, and sensor state
+needs `sensor.get`. Each source reports `ok`, `forbidden`, `not_subscribed`,
+`unavailable`, or `timeout`, with bounded `items`, `truncated`, and a full-view
+`link`. An unavailable or truncated source is unknown, never evidence of no
+activity. The window filters email/detections and the host sightings used to
+select sensors; sensor state and open cloud findings are current.
+
+`index_ready:false` means the index has not completed its first pass, while
+`feature_disabled:true` means the reader is not enabled. Preserve these states
+when scripting with `--output json`; they are not empty successful searches.
+
+The same reads are available in the Python SDK:
+
+```python
+from limacharlie.sdk.cloudsec import CloudSec
+
+entities = CloudSec(org)
+resolution = entities.resolve_entities([{"value": "host.example", "type": "hostname"}])
+page = entities.search_entities("host", kind="host", limit=50)
+card = entities.get_entity("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", sightings_days=30)
+sightings = entities.list_entity_sightings("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", limit=100)
+activity = entities.get_entity_activity("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", sources=["sensor", "cloud"])
+```
