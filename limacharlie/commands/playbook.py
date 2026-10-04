@@ -19,7 +19,8 @@ extensions.
 register_explain("playbook.get", """\
 Get a specific playbook by key.  Returns the hive record containing
 the Python source code in the data.python field and, when set, the
-Python SDK version in data.sdk_version ("4" or "5"; absent means v4).
+Python SDK version in data.sdk_version ("4" or "5"; absent or empty
+means v4).
 """)
 
 register_explain("playbook.set", """\
