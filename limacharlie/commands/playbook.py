@@ -18,22 +18,45 @@ extensions.
 
 register_explain("playbook.get", """\
 Get a specific playbook by key.  Returns the hive record containing
-the Python source code in the data.python field.
+the Python source code in the data.python field and, when set, the
+Python SDK version in data.sdk_version ("4" or "5"; absent means v4).
 """)
 
 register_explain("playbook.set", """\
 Create or update a playbook.  Playbooks are Python scripts with a
 required entry point function.
 
-The data payload contains the Python source under a 'python' key:
+The data payload contains the Python source under a 'python' key, and
+an optional 'sdk_version' key selecting the LimaCharlie Python SDK the
+playbook runs on:
+
+  sdk_version  absent, "" or "4"  SDK v4: sdk is a limacharlie.Manager
+               "5"                SDK v5: sdk is a
+                                  limacharlie.sdk.organization.Organization
+
+sdk is None when the request carries no credentials.  Any other
+sdk_version value is rejected when the playbook is saved.
+
+SDK v4 example:
 
   data:
     python: |
       def playbook(sdk, data):
-          # sdk is a limacharlie.Manager instance (or None)
           # data is a dict passed by the caller
           sensors = list(sdk.sensors())
           return {"data": {"count": len(sensors)}}
+
+SDK v5 example:
+
+  data:
+    sdk_version: "5"
+    python: |
+      def playbook(sdk, data):
+          sensors = list(sdk.list_sensors())
+          return {"data": {"oid": sdk.oid, "count": len(sensors)}}
+
+With SDK v5, the returned value must be JSON-serializable and the
+is_interactive request parameter is not supported (it is v4-only).
 
 The playbook function must return a dict with one or more keys:
   data      - Arbitrary data returned to the caller
@@ -52,7 +75,8 @@ Example generating a detection:
           }
 
 Playbooks run with a 10-minute time limit and have access to:
-limacharlie SDK, scikit-learn, jinja2, markdown, pillow, flask.
+limacharlie SDK (v4 or v5, per sdk_version), scikit-learn, jinja2,
+markdown, pillow, weasyprint (flask only with SDK v4).
 
 Invoke from a D&R respond action:
 
