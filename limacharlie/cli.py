@@ -120,6 +120,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "ai-skill": ("ai_skill", "group"),
     "api": ("api_cmd", "cmd"),
     "api-key": ("api_key", "group"),
+    "app-control": ("app_control", "group"),
     "app": ("app", "group"),
     "arl": ("arl", "group"),
     "artifact": ("artifact", "group"),

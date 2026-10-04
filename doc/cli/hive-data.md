@@ -29,6 +29,8 @@ The flag is `--hive-name`; `--category` does not exist and never has.
 | `mailsec_provider` | Microsoft 365 and Google Workspace mail connections |
 | `mailsec_policy` | Email Security policies |
 | `dr-mail` | Email detection and verdict rules |
+| `app_control_policy` | Application Control policies |
+| `app_control_rule` | Application Control allow and deny rules |
 
 Store provider credentials in `secret` records and reference them with `hive://secret/<key>`. New records default to disabled; use `--enabled` when ready. See the [Cloud Security](cloud-security.md) and [Email Security](email-security.md) onboarding guides before creating connections.
 
@@ -124,6 +126,59 @@ limacharlie app get --key my-app
 limacharlie app set --key my-app --input-file app.yaml
 limacharlie app delete --key my-app --confirm
 ```
+
+### app-control
+
+Application Control policies and rules. Both hives are per-organization and use
+the `app_control.get` and `app_control.set` permissions. Each subcommand group
+supports `list`, `get`, `set`, `delete`, `enable`, `disable` and `tag`, like the
+other hive shortcuts.
+
+```bash
+limacharlie app-control policy list
+limacharlie app-control policy get --key workstations
+limacharlie app-control policy set --key workstations --input-file policy.yaml --enabled
+limacharlie app-control policy delete --key workstations --confirm
+
+limacharlie app-control rule list
+limacharlie app-control rule get --key block-tool-x
+limacharlie app-control rule set --key block-tool-x --input-file rule.yaml --enabled
+limacharlie app-control rule delete --key block-tool-x --confirm
+```
+
+A policy record (`app_control_policy`, one record per policy):
+
+```yaml
+data:
+  priority: 100              # integer
+  platforms: [windows]       # windows, macos
+  tags: [workstations]
+  mode: permissive           # off | permissive | permissive_sync | enforcing
+  stance: allowlist          # allowlist | blocklist
+  trust_os_vendor: true
+```
+
+A rule record (`app_control_rule`); the record key is the rule ID, at most 64 bytes:
+
+```yaml
+data:
+  action: deny               # allow | deny
+  kind: sha256               # path | signer | signing_id | signer_root | sha256
+  value: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  policies: [workstations]   # names of the policy records the rule applies to
+```
+
+The server validates every record; the CLI does not, so an invalid value is
+rejected with the reason. A sensor gets the first enabled policy (lowest `priority`, then
+record name) whose platforms and tags match it, together with every enabled
+rule that names that policy or names none. Deleting a policy does not disarm
+sensors that already have it; set `mode: off` instead.
+
+Unlike most hives, a new record on these two hives is enabled when it is sent
+with no metadata. Passing `--tag` or `--comment` without `--enabled` stores it
+disabled, so pass `--enabled` with them. The same hives are reachable with the generic
+`limacharlie hive` commands (`--hive-name app_control_policy`) and sync with
+`limacharlie sync` (`--hive-app-control-policy`, `--hive-app-control-rule`).
 
 ## extension
 

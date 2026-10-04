@@ -23,7 +23,7 @@ limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
 limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-run
 ```
 
-Available hive flags: `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
+Available hive flags: `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
 `--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
 `--hive-ai-agent`, `--hive-external-adapter`.
@@ -120,3 +120,15 @@ limacharlie sync push --config-file mailsec.yaml --hive-dr-mail --hive-mailsec-p
 ```
 
 Both hives are also included by `--all`. Rule keys have no reserved prefix; each `dr-mail` record contains one rule, with its on/off state in `usr_mtd.enabled`.
+
+### Application Control as code
+
+Application Control policies and rules are ordinary Hive records, each in its own hive (`app_control_policy` and `app_control_rule`):
+
+```bash
+limacharlie sync pull --config-file app-control.yaml --hive-app-control-policy --hive-app-control-rule
+limacharlie sync push --config-file app-control.yaml --hive-app-control-policy --hive-app-control-rule --dry-run
+limacharlie sync push --config-file app-control.yaml --hive-app-control-policy --hive-app-control-rule
+```
+
+Both hives are also included by `--all`. Records are stored under `hives.app_control_policy` and `hives.app_control_rule`; a rule's key is its rule ID and its `policies` field names the policy records it applies to. Push the policies together with the rules that reference them. The syncing identity needs `app_control.get` to pull and `app_control.set` to push.
