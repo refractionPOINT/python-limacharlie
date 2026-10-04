@@ -55,6 +55,8 @@ _SYNC_FLAGS = [
     # Hive flags
     click.option("--hive-dr-mail", is_flag=True, default=False, help="Sync Email Security rules."),
     click.option("--hive-mailsec-policy", is_flag=True, default=False, help="Sync Email Security policy."),
+    click.option("--hive-app-control-policy", is_flag=True, default=False, help="Sync Application Control policies."),
+    click.option("--hive-app-control-rule", is_flag=True, default=False, help="Sync Application Control rules."),
     click.option("--hive-acl", is_flag=True, default=False, help="Sync ACL scope membership (hive)."),
     click.option("--hive-dr-general", is_flag=True, default=False, help="Sync D&R rules (general hive)."),
     click.option("--hive-dr-managed", is_flag=True, default=False, help="Sync D&R rules (managed hive)."),
@@ -79,6 +81,8 @@ _HIVE_FLAG_MAP = {
     "hive_dr_general": "dr-general",
     "hive_dr_mail": "dr-mail",
     "hive_mailsec_policy": "mailsec_policy",
+    "hive_app_control_policy": "app_control_policy",
+    "hive_app_control_rule": "app_control_rule",
     "hive_dr_managed": "dr-managed",
     "hive_dr_service": "dr-service",
     "hive_fp": "fp",
@@ -200,6 +204,10 @@ Resource type flags:
 
 Hive flags (for syncing hive-based resources):
   --hive-acl             ACL scope membership
+  --hive-dr-mail         Email Security rules
+  --hive-mailsec-policy  Email Security policy
+  --hive-app-control-policy  Application Control policies
+  --hive-app-control-rule    Application Control rules
   --hive-dr-general      D&R rules (general namespace)
   --hive-dr-managed      D&R rules (managed namespace)
   --hive-dr-service      D&R rules (service namespace)
@@ -234,7 +242,8 @@ register_explain("sync.pull", _EXPLAIN_PULL)
 def pull(ctx, config_file, sync_all, outputs, integrity,
          exfil, artifact, resources, extensions, org_values,
          installation_keys, yara,
-         hive_dr_general, hive_dr_mail, hive_mailsec_policy, hive_dr_managed, hive_dr_service,
+         hive_dr_general, hive_dr_mail, hive_mailsec_policy,
+         hive_app_control_policy, hive_app_control_rule, hive_dr_managed, hive_dr_service,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
@@ -247,6 +256,8 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
         hive_dr_general=hive_dr_general,
         hive_dr_mail=hive_dr_mail,
         hive_mailsec_policy=hive_mailsec_policy,
+        hive_app_control_policy=hive_app_control_policy,
+        hive_app_control_rule=hive_app_control_rule,
         hive_dr_managed=hive_dr_managed,
         hive_dr_service=hive_dr_service,
         hive_fp=hive_fp,
@@ -334,7 +345,8 @@ register_explain("sync.push", _EXPLAIN_PUSH)
 def push(ctx, config_file, force, dry_run, sync_all, outputs,
          integrity, exfil, artifact, resources, extensions, org_values,
          installation_keys, yara,
-         hive_dr_general, hive_dr_mail, hive_mailsec_policy, hive_dr_managed, hive_dr_service,
+         hive_dr_general, hive_dr_mail, hive_mailsec_policy,
+         hive_app_control_policy, hive_app_control_rule, hive_dr_managed, hive_dr_service,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
@@ -347,6 +359,8 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
         hive_dr_general=hive_dr_general,
         hive_dr_mail=hive_dr_mail,
         hive_mailsec_policy=hive_mailsec_policy,
+        hive_app_control_policy=hive_app_control_policy,
+        hive_app_control_rule=hive_app_control_rule,
         hive_dr_managed=hive_dr_managed,
         hive_dr_service=hive_dr_service,
         hive_fp=hive_fp,

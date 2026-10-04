@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Application Control hives and CLI
+
+- New `limacharlie app-control policy` and `limacharlie app-control rule` command
+  groups (`list`, `get`, `set`, `delete`, `enable`, `disable`, `tag`) over the
+  `app_control_policy` and `app_control_rule` hives. The server validates
+  records; the CLI does not.
+- `app_control_policy` and `app_control_rule` are listed by `hive list-types`
+  and synced by `sync pull` / `sync push` with `--hive-app-control-policy` and
+  `--hive-app-control-rule` (and by `--all`; SDK `Configs.ALL_HIVES`).
+
 ### Email Security — branded warning banners
 
 - `mailsec message action` and `mailsec message bulk-action` take `--text`

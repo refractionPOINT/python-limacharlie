@@ -28,7 +28,7 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
-def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None, index_keys: tuple[str, ...] | None = None) -> click.Group:
+def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None, index_keys: tuple[str, ...] | None = None, explain_prefix: str | None = None) -> click.Group:
     """Create a Click group for a specific hive type.
 
     Args:
@@ -59,10 +59,18 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
             its own ``<group>.list`` explain text if it registers one:
             ``register_explain`` is last-write-wins, so a module-level
             override replaces whatever the factory registered.
+        explain_prefix: Dotted ``--ai-help`` path the group is mounted at, for
+            groups nested under another command (e.g. ``"app-control.policy"``
+            for a ``policy`` group inside ``app-control``). Explain texts are
+            looked up by the full command path, so a nested group registered
+            under its bare ``group_name`` would never be found. Defaults to
+            ``group_name`` for top-level groups.
 
     Returns:
         click.Group: The configured group with list, get, set, delete commands.
     """
+    if explain_prefix is None:
+        explain_prefix = group_name
     if noun_plural is None:
         noun_plural = noun_singular + "s"
 
@@ -297,14 +305,14 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         _output(ctx, result)
 
     # Register explain texts.
-    register_explain(f"{group_name}.list", explain_list)
-    register_explain(f"{group_name}.get", explain_get)
-    register_explain(f"{group_name}.set", explain_set)
-    register_explain(f"{group_name}.delete", explain_delete)
-    register_explain(f"{group_name}.enable", f"Enable {article} {noun_singular} by key (sets usr_mtd.enabled to true).")
-    register_explain(f"{group_name}.disable", f"Disable {article} {noun_singular} by key (sets usr_mtd.enabled to false).")
-    register_explain(f"{group_name}.tag.set", f"Replace all tags on {article} {noun_singular} (fetch metadata, set tags).")
-    register_explain(f"{group_name}.tag.add", f"Add tags to {article} {noun_singular}, merged additively with existing tags.")
-    register_explain(f"{group_name}.tag.rm", f"Remove tags from {article} {noun_singular}, keeping the rest.")
+    register_explain(f"{explain_prefix}.list", explain_list)
+    register_explain(f"{explain_prefix}.get", explain_get)
+    register_explain(f"{explain_prefix}.set", explain_set)
+    register_explain(f"{explain_prefix}.delete", explain_delete)
+    register_explain(f"{explain_prefix}.enable", f"Enable {article} {noun_singular} by key (sets usr_mtd.enabled to true).")
+    register_explain(f"{explain_prefix}.disable", f"Disable {article} {noun_singular} by key (sets usr_mtd.enabled to false).")
+    register_explain(f"{explain_prefix}.tag.set", f"Replace all tags on {article} {noun_singular} (fetch metadata, set tags).")
+    register_explain(f"{explain_prefix}.tag.add", f"Add tags to {article} {noun_singular}, merged additively with existing tags.")
+    register_explain(f"{explain_prefix}.tag.rm", f"Remove tags from {article} {noun_singular}, keeping the rest.")
 
     return grp

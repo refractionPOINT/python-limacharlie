@@ -45,7 +45,7 @@ del _ctx, _name
 
 # Every top-level command/group that must be registered on cli.
 EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
-    "ai", "ai-cost-model", "ai-memory", "ai-skill", "api", "api-key", "app", "arl", "artifact",
+    "ai", "ai-cost-model", "ai-memory", "ai-skill", "api", "api-key", "app", "app-control", "arl", "artifact",
     "audit", "auth", "billing", "case", "cloud-adapter", "cloudsec", "completion", "config",
     "detection", "download", "dr", "endpoint-policy", "event", "exfil",
     "extension", "external-adapter", "feedback", "fp", "group", "help", "hive",
@@ -66,6 +66,7 @@ EXPECTED_MODULE_MAP = {
     "api_cmd": ("cmd", "api"),
     "api_key": ("group", "api-key"),
     "app": ("group", "app"),
+    "app_control": ("group", "app-control"),
     "arl": ("group", "arl"),
     "artifact": ("group", "artifact"),
     "audit": ("group", "audit"),
@@ -133,6 +134,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "ai-skill": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
     "api-key": frozenset({"create", "delete", "list"}),
     "app": frozenset({"delete", "disable", "enable", "get", "list", "set", "tag"}),
+    "app-control": frozenset({"policy", "rule"}),
     "arl": frozenset({"get"}),
     "artifact": frozenset({"download", "list", "upload"}),
     "audit": frozenset({"list"}),

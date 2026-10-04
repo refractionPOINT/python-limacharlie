@@ -1249,6 +1249,8 @@ Features in the API gateway that are **NOT** in the current CLI and are **added 
 | `ai_skill` | Claude Code skill definitions | Reusable AI skill specs |
 | `ai_memory` | AI agent memories (partial-merge) | Per-agent memory store |
 | `external_adapter` | External adapter configs | Third-party integrations |
+| `app_control_policy` | Application Control policies | Endpoint application control |
+| `app_control_rule` | Application Control allow/deny rules | Endpoint application control |
 | `sop` | Standard Operating Procedures | Runbooks |
 | `note` | Organization notes | Documentation |
 

@@ -44,6 +44,8 @@ class Configs:
         "dr-general",
         "dr-mail",
         "mailsec_policy",
+        "app_control_policy",
+        "app_control_rule",
         "dr-managed",
         "dr-service",
         "fp",
