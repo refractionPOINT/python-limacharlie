@@ -443,7 +443,7 @@ _CONTROL_TRANSLATION = str.maketrans(_CONTROL_CHARS)
 
 
 def escape_control_chars(s: str) -> str:
-    """Render terminal control characters visibly instead of executing them.
+    r"""Render terminal control characters visibly instead of executing them.
 
     The CLI prints values it did not author.  ``limacharlie mailsec message list``
     renders email subjects, sender display names, attachment filenames and URLs --
