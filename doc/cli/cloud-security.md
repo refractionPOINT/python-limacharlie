@@ -762,7 +762,7 @@ would hide uncertainty. `--at` is Unix seconds and supports historical IP reads.
 
 `get` preserves merge redirects (`redirect_to`). An unknown entity returns
 `card:null`. `search` uses identifier prefixes of at least two characters and
-returns at most 100 results per page. `sightings` returns best-effort evidence,
+at most 512 UTF-8 bytes, and returns at most 100 results per page. `sightings` returns best-effort evidence,
 with optional `--since`/`--until` Unix seconds and a page size up to 500. Pass
 `--cursor` with the returned `next_cursor` to continue either paginated read.
 Missing sightings do not prove inactivity.

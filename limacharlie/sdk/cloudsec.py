@@ -3769,7 +3769,7 @@ class CloudSec:
         """Search entity identifiers by prefix using one bounded page
 
         Args:
-            q: Prefix with at least two characters and at most 1024 bytes.
+            q: Prefix with at least two characters and at most 512 UTF-8 bytes.
             kind: Optional user or host filter.
             limit: Page size, 1 to 100.
             cursor: Opaque next_cursor from the previous page; at most 8192 bytes.
@@ -3781,8 +3781,8 @@ class CloudSec:
         Raises:
             ValueError: If a selector is invalid.
         """
-        if not isinstance(q, str) or len(q.strip()) < 2 or len(q.encode()) > 1024:
-            raise ValueError("q must contain 2 characters and at most 1024 bytes")
+        if not isinstance(q, str) or len(q.strip()) < 2 or len(q.encode()) > 512:
+            raise ValueError("q must contain 2 characters and at most 512 UTF-8 bytes")
         if kind is not None and kind not in ("user", "host"):
             raise ValueError("kind must be user or host")
         _entity_int(limit, "limit", 1, 100)

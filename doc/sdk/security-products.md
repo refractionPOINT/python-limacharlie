@@ -42,6 +42,8 @@ print(cloud.get_code_coverage())
 
 See the [Cloud and Code Security CLI reference](../cli/cloud-security.md) for build provenance, sanitized IaC maps, runtime evidence, container lineage, and governed remediation.
 
+Entity Pivot `search_entities(q)` accepts prefixes of at least two characters and at most 512 UTF-8 bytes; it preserves `next_cursor` for additional pages.
+
 ## Email Security
 
 Connect a small pilot scope first. The connection test accepts the **saved provider record name**, rather than a credential or provider name.

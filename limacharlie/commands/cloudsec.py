@@ -5303,13 +5303,15 @@ def entity_get(ctx, entity_id, sightings_days) -> None:
 
 
 @entity_group.command("search")
-@click.option("--q", required=True, help="Identifier prefix with at least two characters.")
+@click.option("--q", required=True, help="Identifier prefix with at least two characters and at most 512 UTF-8 bytes.")
 @click.option("--kind", default=None, type=click.Choice(["user", "host"]))
 @click.option("--limit", default=None, type=click.IntRange(1, 100))
 @click.option("--cursor", default=None, help="Opaque next_cursor from the previous page.")
 @pass_context
 def entity_search(ctx, q, kind, limit, cursor) -> None:
     """Search one page; next_cursor means additional results remain."""
+    if len(q.strip()) < 2 or len(q.encode()) > 512:
+        raise click.BadParameter("must contain at least two characters and at most 512 UTF-8 bytes", param_hint="--q")
     _output(ctx, _get_cloudsec(ctx).search_entities(q, kind=kind, limit=limit, cursor=cursor))
 
 

@@ -136,3 +136,31 @@ def test_cli_entity_help_lists_all_contract_verbs():
     assert result.exit_code == 0
     for verb in ("resolve", "get", "search", "sightings", "activity"):
         assert verb in result.output
+
+
+@pytest.mark.parametrize("q", ["a" * 512, "a" * 513, "中" * 170 + "ab", "中" * 171])
+def test_search_utf8_byte_boundary(sdk, q):
+    cs, org = sdk
+    if len(q.encode()) > 512:
+        with pytest.raises(ValueError, match="512"):
+            cs.search_entities(q)
+        org.client.request.assert_not_called()
+    else:
+        cs.search_entities(q)
+        assert org.client.request.call_args.kwargs["query_params"] == [("q", q)]
+    with patch("limacharlie.commands.cloudsec._get_cloudsec") as get_cs:
+        get_cs.return_value.search_entities.return_value = {}
+        result = CliRunner().invoke(cli, ["cloudsec", "entity", "search", "--q", q])
+    if len(q.encode()) > 512:
+        assert result.exit_code != 0
+        assert "512" in result.output
+        get_cs.assert_not_called()
+    else:
+        assert result.exit_code == 0, result.output
+        get_cs.return_value.search_entities.assert_called_once_with(q, kind=None, limit=None, cursor=None)
+
+
+def test_search_help_documents_byte_limit():
+    result = CliRunner().invoke(cli, ["cloudsec", "entity", "search", "--help"])
+    assert result.exit_code == 0
+    assert "512 UTF-8 bytes" in result.output
