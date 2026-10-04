@@ -72,7 +72,7 @@ limacharlie billing details                    # Detailed breakdown
 ```bash
 limacharlie billing security get mail_security --oid <oid> --output yaml
 limacharlie billing security get code_security --from 2026-10-01 --until 2026-11-01 --oid <oid> --output yaml
-limacharlie billing security activate mail_security --accept-pricing --oid <oid> --output yaml
+limacharlie billing security activate mail_security --accepted-quote accepted-quote.json --accept-pricing --oid <oid> --output yaml
 limacharlie billing security stop code_security --confirm --oid <oid> --output yaml
 ```
 
@@ -99,3 +99,13 @@ limacharlie audit list --start 1704067200 --end 1704153600
 - [Organization SDK](../sdk/organization.md) — Organization Python class
 - [Other SDK Classes](../sdk/other-classes.md) — Users, Billing, and more
 - [Authentication](../authentication.md) — Credential setup
+
+Security activation requires `--accepted-quote FILE`, a JSON file containing the
+complete reviewed `status.pricing_quote` from `billing security get`. Verify
+`status.quote_guard_version` is 1, review the rates and independent Code Cloud fee,
+then pass that unchanged quote with `--accept-pricing`. All nine fields are required,
+including Email's zero/empty Cloud fields. HTTP 409 `security_quote_changed` requires
+GET and fresh consent; HTTP 503 is retryable after checking status. HTTP 200
+`acknowledged: false` is pending: poll GET until the control settles and protection
+matches the request. The SDK uses `Billing(org).activate_security(product,
+accept_pricing=True, accepted_quote=reviewed_quote)` with the same complete quote.

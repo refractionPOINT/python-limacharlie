@@ -83,16 +83,21 @@ class Billing:
         return self.client.request("GET", f"orgs/{self._org.oid}/billing/security/{product}",
                                    query_params=query)
 
-    def activate_security(self, product: SecurityProduct, *, accept_pricing: bool) -> dict[str, Any]:
+    def activate_security(self, product: SecurityProduct, *, accept_pricing: bool,
+                          accepted_quote: dict[str, Any]) -> dict[str, Any]:
         """Request paid coverage after explicit price acceptance.
 
         Args:
             product: ``mail_security`` or ``code_security``.
             accept_pricing: Must be True after reviewing the disclosed rates.
+            accepted_quote: Complete ``status.pricing_quote`` from get_security.
+                Review it before acceptance; never substitute a freshly fetched quote.
 
         Returns:
             dict: Activation response. Read get_security for acknowledged protection;
-                a pending transition is not paid coverage.
+                an HTTP 200 with acknowledged=False is pending, not paid coverage.
+                A 409 security_quote_changed requires refetch and fresh consent;
+                a 503 is retryable. Neither is automatically retried.
 
         Raises:
             ValueError: If the product is invalid or pricing was not accepted.
@@ -100,8 +105,10 @@ class Billing:
         self._check_security_product(product)
         if accept_pricing is not True:
             raise ValueError("explicit pricing acceptance is required")
+        self._check_security_quote(product, accepted_quote)
         return self.client.request("POST", f"orgs/{self._org.oid}/billing/security/{product}",
-                                   raw_body=json.dumps({"accept_pricing": True}).encode("utf-8"),
+                                   raw_body=json.dumps({"accept_pricing": True,
+                                                        "accepted_quote": accepted_quote}).encode("utf-8"),
                                    content_type="application/json")
 
     def stop_security(self, product: SecurityProduct) -> dict[str, Any]:
@@ -125,3 +132,22 @@ class Billing:
     def _check_security_product(product: str) -> None:
         if product not in ("mail_security", "code_security"):
             raise ValueError("product must be mail_security or code_security")
+
+    @staticmethod
+    def _check_security_quote(product: str, quote: dict[str, Any]) -> None:
+        fields = {"version", "quote_id", "product", "currency", "monthly_cents", "days_per_month",
+                  "cloud_base_monthly_cents", "meter_price_id", "cloud_price_id"}
+        if not isinstance(quote, dict) or set(quote) != fields:
+            raise ValueError("complete accepted_quote from status.pricing_quote is required")
+        if (type(quote["version"]) is not int or quote["version"] != 1 or
+                quote["product"] != product or quote["currency"] != "usd" or
+                type(quote["monthly_cents"]) is not int or quote["monthly_cents"] <= 0 or
+                type(quote["days_per_month"]) is not int or quote["days_per_month"] != 30 or
+                type(quote["cloud_base_monthly_cents"]) is not int or quote["cloud_base_monthly_cents"] < 0 or
+                not isinstance(quote["quote_id"], str) or len(quote["quote_id"]) != 64 or
+                any(c not in "0123456789abcdef" for c in quote["quote_id"]) or
+                not isinstance(quote["meter_price_id"], str) or not quote["meter_price_id"] or
+                not isinstance(quote["cloud_price_id"], str) or
+                (product == "mail_security" and (quote["cloud_price_id"] != "" or quote["cloud_base_monthly_cents"] != 0)) or
+                (product == "code_security" and not quote["cloud_price_id"])):
+            raise ValueError("invalid accepted_quote; review status.pricing_quote")

@@ -83,6 +83,14 @@ class TestBillingGetPlans:
         assert result == {"plans": []}
 
 
+def security_quote(product="mail_security"):
+    return {"version": 1, "quote_id": "a" * 64, "product": product, "currency": "usd",
+            "monthly_cents": 100 if product == "mail_security" else 80, "days_per_month": 30,
+            "cloud_base_monthly_cents": 0 if product == "mail_security" else 15000,
+            "meter_price_id": "price_fixture_meter",
+            "cloud_price_id": "" if product == "mail_security" else "price_fixture_cloud"}
+
+
 class TestSecurityBilling:
     @pytest.mark.parametrize("product", ["mail_security", "code_security"])
     def test_get_status_preserves_response(self, billing, mock_org, product):
@@ -112,16 +120,17 @@ class TestSecurityBilling:
     @pytest.mark.parametrize("accept", [False, 1, "true", None])
     def test_consent_required(self, billing, mock_org, accept):
         with pytest.raises(ValueError):
-            billing.activate_security("mail_security", accept_pricing=accept)
+            billing.activate_security("mail_security", accept_pricing=accept, accepted_quote=security_quote())
         mock_org.client.request.assert_not_called()
 
-    def test_json_consent(self, billing, mock_org):
+    @pytest.mark.parametrize("product", ["mail_security", "code_security"])
+    def test_json_consent(self, billing, mock_org, product):
         import json
-        billing.activate_security("mail_security", accept_pricing=True)
+        billing.activate_security(product, accept_pricing=True, accepted_quote=security_quote(product))
         args = mock_org.client.request.call_args
-        assert args.args == ("POST", "orgs/test-oid/billing/security/mail_security")
+        assert args.args == ("POST", f"orgs/test-oid/billing/security/{product}")
         assert args.kwargs["content_type"] == "application/json"
-        assert json.loads(args.kwargs["raw_body"]) == {"accept_pricing": True}
+        assert json.loads(args.kwargs["raw_body"]) == {"accept_pricing": True, "accepted_quote": security_quote(product)}
 
     def test_stop_no_trial_reset(self, billing, mock_org):
         billing.stop_security("code_security")
@@ -132,3 +141,23 @@ class TestSecurityBilling:
         with pytest.raises(ValueError):
             billing.stop_security("mail_security/../../quota")
         mock_org.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("field", list(security_quote()))
+def test_incomplete_quote_never_requests(billing, mock_org, field):
+    quote = security_quote()
+    del quote[field]
+    with pytest.raises(ValueError):
+        billing.activate_security("mail_security", accept_pricing=True, accepted_quote=quote)
+    mock_org.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("override", [
+    {"product": "code_security"}, {"version": 2}, {"monthly_cents": True},
+    {"quote_id": "invalid"}, {"cloud_base_monthly_cents": 1}, {"extra": "field"},
+])
+def test_invalid_quote_never_requests(billing, mock_org, override):
+    with pytest.raises(ValueError):
+        billing.activate_security("mail_security", accept_pricing=True,
+                                  accepted_quote={**security_quote(), **override})
+    mock_org.client.request.assert_not_called()

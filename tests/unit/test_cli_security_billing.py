@@ -39,10 +39,18 @@ def test_explicit_flags_required(action, flag):
     getattr(sdk, f"{action}_security").assert_not_called()
 
 
-def test_activate():
-    result, sdk = invoke(["activate", "mail_security", "--accept-pricing"])
+@pytest.mark.parametrize("product", ["mail_security", "code_security"])
+def test_activate(tmp_path, product):
+    quote = {"version": 1, "quote_id": "a" * 64, "product": product, "currency": "usd",
+             "monthly_cents": 100 if product == "mail_security" else 80, "days_per_month": 30,
+             "cloud_base_monthly_cents": 0 if product == "mail_security" else 15000,
+             "meter_price_id": "price_fixture_meter",
+             "cloud_price_id": "" if product == "mail_security" else "price_fixture_cloud"}
+    quote_file = tmp_path / "quote.json"
+    quote_file.write_text(json.dumps(quote))
+    result, sdk = invoke(["activate", product, "--accept-pricing", "--accepted-quote", str(quote_file)])
     assert result.exit_code == 0, result.output
-    sdk.activate_security.assert_called_once_with("mail_security", accept_pricing=True)
+    sdk.activate_security.assert_called_once_with(product, accept_pricing=True, accepted_quote=quote)
 
 
 def test_stop():
@@ -53,5 +61,21 @@ def test_stop():
 
 def test_product_choice_refused():
     result, sdk = invoke(["activate", "edr", "--accept-pricing"])
+    assert result.exit_code != 0
+    sdk.activate_security.assert_not_called()
+
+
+def test_accepted_quote_required():
+    result, sdk = invoke(["activate", "mail_security", "--accept-pricing"])
+    assert result.exit_code != 0
+    assert "--accepted-quote" in result.output
+    sdk.activate_security.assert_not_called()
+
+
+@pytest.mark.parametrize("contents", ["invalid-json", "x" * 16385])
+def test_invalid_quote_file_never_requests(tmp_path, contents):
+    quote_file = tmp_path / "quote.json"
+    quote_file.write_text(contents)
+    result, sdk = invoke(["activate", "mail_security", "--accept-pricing", "--accepted-quote", str(quote_file)])
     assert result.exit_code != 0
     sdk.activate_security.assert_not_called()
