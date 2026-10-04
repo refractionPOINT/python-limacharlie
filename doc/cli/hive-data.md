@@ -169,7 +169,14 @@ data:
 ```
 
 The server validates every record; the CLI does not, so an invalid value is
-rejected with the reason. The same hives are reachable with the generic
+rejected with the reason. A sensor gets the first enabled policy (lowest `priority`, then
+record name) whose platforms and tags match it, together with every enabled
+rule that names that policy or names none. Deleting a policy does not disarm
+sensors that already have it; set `mode: off` instead.
+
+Unlike most hives, a new record on these two hives is enabled when it is sent
+with no metadata. Passing `--tag` or `--comment` without `--enabled` stores it
+disabled, so pass `--enabled` with them. The same hives are reachable with the generic
 `limacharlie hive` commands (`--hive-name app_control_policy`) and sync with
 `limacharlie sync` (`--hive-app-control-policy`, `--hive-app-control-rule`).
 

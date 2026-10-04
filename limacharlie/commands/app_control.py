@@ -92,9 +92,29 @@ The data payload describes one policy:
     stance: allowlist        # allowlist | blocklist
     trust_os_vendor: true    # boolean
 
+Fields:
+  priority         Lower is evaluated first (default 0); ties go to the
+                   record name.  A sensor gets the FIRST enabled policy
+                   whose platforms and tags match it.
+  platforms        Any-of; empty means every supported platform.
+  tags             The sensor must carry ALL of them; empty means any sensor.
+  mode             off: nothing is evaluated.  permissive: evaluated after
+                   the process starts, would-be blocks are reported, nothing
+                   is blocked.  permissive_sync: the full blocking path runs
+                   but always allows (soak this before enforcing).
+                   enforcing: denied executions are blocked.
+  stance           allowlist denies anything no rule allows; blocklist
+                   allows anything no rule denies.  Required, no default.
+  trust_os_vendor  Allow OS-vendor-signed programs (default true).  An
+                   enforcing allowlist with this false is refused.
+
+Deleting a policy does not disarm sensors that already have it: set
+mode: off to stand enforcement down.
+
 The server validates the record and rejects invalid values with the
-reason.  Records are stored disabled unless --enabled is passed or the
-input file carries usr_mtd.enabled: true.
+reason.  A new record sent with no metadata is enabled.  Passing --tag
+or --comment without --enabled stores it DISABLED, so pass --enabled
+with them.
 
 Provide data via --input-file (YAML/JSON) or pipe through stdin.
 
@@ -130,15 +150,28 @@ The data payload describes one rule:
     value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     policies: [workstations]         # names of the policies the rule applies to
 
+Fields:
+  action    allow | deny.  Deny rules win over allow rules.
+  kind      path: exact path, or a directory prefix when the value ends
+            with a separator (no wildcards).  signer: Authenticode subject
+            (Windows) or Team ID (macOS).  signing_id: macOS signing
+            identifier.  signer_root / sha256: 64-hex SHA-256 values (a
+            signer_root is the certificate's SHA-256 thumbprint, not the
+            SHA-1 one Windows shows by default).
+  policies  Policy record names; empty means every policy.
+
+Use --comment for a note and the record expiry for a temporary exception.
+
 The server validates the record and rejects invalid values with the
-reason.  Records are stored disabled unless --enabled is passed or the
-input file carries usr_mtd.enabled: true.
+reason.  A new record sent with no metadata is enabled.  Passing --tag
+or --comment without --enabled stores it DISABLED, so pass --enabled
+with them.
 
 Provide data via --input-file (YAML/JSON) or pipe through stdin.
 
 Examples:
   limacharlie app-control rule set --key block-tool-x --input-file rule.yaml
-  limacharlie app-control rule set --key block-tool-x --input-file rule.yaml --enabled
+  limacharlie app-control rule set --key block-tool-x --input-file rule.yaml --comment 'ticket 123' --enabled
 """)
 
 register_explain("app-control.rule.delete", """\
