@@ -822,6 +822,30 @@ def coverage_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+_ENTITY_ID_PATTERN = re.compile(r"^e[uh]_[a-z2-7]{1,37}\Z")
+_ENTITY_ID_TYPES = frozenset("email entra_object_id okta_user_id gws_user_id aws_arn windows_sid ad_account ad_account_short username sensor_id device_id cloud_instance_id graph_urn serial mac hostname fqdn ip".split())
+_ENTITY_ACTIVITY_SOURCES = frozenset(("email", "detections", "sensor", "cloud"))
+
+
+def _entity_int(value, name, minimum, maximum):
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int)
+                              or not minimum <= value <= maximum):
+        raise ValueError(f"{name} must be an integer from {minimum} to {maximum}")
+
+
+def _entity_window(since, until, maximum=None):
+    _entity_int(since, "since", 0, 253402300799)
+    _entity_int(until, "until", 0, 253402300799)
+    if since is not None and until is not None:
+        if since > until or (maximum is not None and until - since > maximum):
+            raise ValueError("invalid entity time window")
+
+
+def _entity_cursor(cursor):
+    if cursor is not None and (not isinstance(cursor, str) or not cursor or len(cursor.encode()) > 8192):
+        raise ValueError("cursor must contain 1 to 8192 bytes")
+
+
 class CloudSec:
     """Cloud Security (CNAPP) client for LimaCharlie."""
 
@@ -3673,6 +3697,157 @@ class CloudSec:
             ``{"resolved": [...], "unresolved": [...]}``.
         """
         return self._resolve_chunked("resolve/assets", "urn", urns)
+
+    # ------------------------------------------------------------------
+    # Entity Pivot
+    # ------------------------------------------------------------------
+
+    def resolve_entities(
+        self, identifiers: list[dict[str, str]], *, at: int | None = None,
+    ) -> dict[str, Any]:
+        """Resolve identifiers without choosing ambiguous or possible matches
+
+        Args:
+            identifiers: One to 100 objects with a value and optional type.
+            at: Optional Unix-second timestamp for historical IP resolution.
+
+        Returns:
+            dict: Results with matches, possible candidates, ambiguity, index
+                readiness and source freshness. Possible matches are unconfirmed.
+
+        Raises:
+            ValueError: If identifiers or the timestamp are invalid.
+        """
+        if not isinstance(identifiers, (list, tuple)) or not 1 <= len(identifiers) <= 100:
+            raise ValueError("identifiers must contain 1 to 100 entries")
+        values = []
+        for identifier in identifiers:
+            if not isinstance(identifier, dict) or set(identifier) - {"type", "value"}:
+                raise ValueError("each identifier has only value and optional type")
+            value = identifier.get("value")
+            if not isinstance(value, str) or not value.strip() or len(value.encode()) > 1024:
+                raise ValueError("identifier value must contain 1 to 1024 bytes")
+            item = {"value": value}
+            if "type" in identifier:
+                if not isinstance(identifier["type"], str) or identifier["type"] not in _ENTITY_ID_TYPES:
+                    raise ValueError("invalid identifier type")
+                item["type"] = identifier["type"]
+            values.append(item)
+        _entity_int(at, "at", 0, 253402300799)
+        body: dict[str, Any] = {"identifiers": values}
+        if at is not None:
+            body["at"] = at
+        encoded = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > 128 * 1024:
+            raise ValueError("entity resolve body exceeds 128 KiB")
+        return self._post("entities/resolve", body, raw_body=encoded)
+
+    def get_entity(
+        self, entity_id: str, *, sightings_days: int | None = None,
+    ) -> dict[str, Any]:
+        """Read an entity card and preserve redirects and unknown IDs
+
+        Args:
+            entity_id: Opaque User or Host entity ID.
+            sightings_days: Recent activity days, 1 to 365; default 30.
+
+        Returns:
+            dict: Card, index_ready and optional redirect_to. Unknown IDs have
+                card:null. Disabled readers return feature_disabled.
+
+        Raises:
+            ValueError: If the entity ID or day count is invalid.
+        """
+        _require_id(entity_id, _ENTITY_ID_PATTERN, "entity_id")
+        _entity_int(sightings_days, "sightings_days", 1, 365)
+        return self._get(f"entities/{entity_id}", _query_pairs(sightings_days=sightings_days))
+
+    def search_entities(
+        self, q: str, *, kind: str | None = None, limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Search entity identifiers by prefix using one bounded page
+
+        Args:
+            q: Prefix with at least two characters and at most 512 UTF-8 bytes.
+            kind: Optional user or host filter.
+            limit: Page size, 1 to 100.
+            cursor: Opaque next_cursor from the previous page; at most 8192 bytes.
+
+        Returns:
+            dict: Entities, optional next_cursor and index_ready. A page is
+                complete only when next_cursor is absent or empty.
+
+        Raises:
+            ValueError: If a selector is invalid.
+        """
+        if not isinstance(q, str) or len(q.strip()) < 2 or len(q.encode()) > 512:
+            raise ValueError("q must contain 2 characters and at most 512 UTF-8 bytes")
+        if kind is not None and kind not in ("user", "host"):
+            raise ValueError("kind must be user or host")
+        _entity_int(limit, "limit", 1, 100)
+        _entity_cursor(cursor)
+        return self._get("entities/search", _query_pairs(q=q, kind=kind, limit=limit, cursor=cursor))
+
+    def list_entity_sightings(
+        self, entity_id: str, *, kind: str | None = None, since: int | None = None,
+        until: int | None = None, limit: int | None = None, cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Read a bounded page of best-effort entity sightings
+
+        Args:
+            entity_id: Opaque User or Host entity ID.
+            kind: Optional user, logon, int_ip, ext_ip or hostname filter.
+            since: Inclusive Unix-second timestamp.
+            until: Exclusive Unix-second timestamp.
+            limit: Page size, 1 to 500.
+            cursor: Opaque next_cursor from the previous page; at most 8192 bytes.
+
+        Returns:
+            dict: Sightings, optional next_cursor and best_effort:true.
+                Missing sightings do not prove an entity was inactive.
+
+        Raises:
+            ValueError: If an ID, selector or time window is invalid.
+        """
+        _require_id(entity_id, _ENTITY_ID_PATTERN, "entity_id")
+        if kind is not None and kind not in ("user", "logon", "int_ip", "ext_ip", "hostname"):
+            raise ValueError("invalid sighting kind")
+        _entity_window(since, until)
+        _entity_int(limit, "limit", 1, 500)
+        _entity_cursor(cursor)
+        return self._get(f"entities/{entity_id}/sightings", _query_pairs(
+            kind=kind, since=since, until=until, limit=limit, cursor=cursor))
+
+    def get_entity_activity(
+        self, entity_id: str, *, since: int | None = None, until: int | None = None,
+        sources: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Read activity with explicit per-product access and availability
+
+        Args:
+            entity_id: Opaque User or Host entity ID.
+            since: Unix-second timestamp; default 30 days before until.
+            until: Unix-second timestamp; default now; maximum window 30 days.
+            sources: Optional subset of email, detections, sensor and cloud.
+
+        Returns:
+            dict: Per-source status, bounded items, truncation and full-view
+                links. A forbidden, unavailable, timed-out or truncated source
+                is unknown. Sensor and cloud findings describe current state.
+
+        Raises:
+            ValueError: If the ID, time window or sources are invalid.
+        """
+        _require_id(entity_id, _ENTITY_ID_PATTERN, "entity_id")
+        _entity_window(since, until, maximum=30 * 86400)
+        if sources is not None:
+            if (not isinstance(sources, (list, tuple)) or not 1 <= len(sources) <= 4
+                    or any(not isinstance(s, str) or s not in _ENTITY_ACTIVITY_SOURCES for s in sources)
+                    or len(set(sources)) != len(sources)):
+                raise ValueError("sources must be a unique non-empty subset of email,detections,sensor,cloud")
+        return self._get(f"entities/{entity_id}/activity", _query_pairs(
+            since=since, until=until, sources=",".join(sources) if sources is not None else None))
 
     # ------------------------------------------------------------------
     # CAASM (third-party asset attack surface)

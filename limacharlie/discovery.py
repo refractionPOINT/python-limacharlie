@@ -244,6 +244,8 @@ PROFILES = {
             "cloudsec azure scope-hierarchy",
             "cloudsec chokepoint list", "cloudsec chokepoint dismiss", "cloudsec chokepoint restore",
             "cloudsec resolve sensors", "cloudsec resolve assets",
+            "cloudsec entity resolve", "cloudsec entity get", "cloudsec entity search",
+            "cloudsec entity sightings", "cloudsec entity activity",
             "cloudsec caasm assets", "cloudsec caasm coverage", "cloudsec caasm policy get",
             "cloudsec caasm policy set", "cloudsec caasm ingest",
             "cloudsec provider manifest", "cloudsec provider test", "cloudsec provider m365-certificate",

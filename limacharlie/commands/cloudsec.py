@@ -1649,6 +1649,7 @@ def group() -> None:
 
     \b
     Subgroups / commands:
+      entity              Resolve User/Host identifiers, cards and activity
       overview            Composed risk overview (score, top paths, trend)
       changes             Recent finding created/closed feed
       risk-trend          Risk-score history
@@ -5265,3 +5266,88 @@ def code_iac_map_status(ctx, repository, provider, workspace, source_kind,
             "processing", "published", "retryable", "superseded") or response.get("hash") != receipt_hash:
         raise click.ClickException("IaC map status response did not match the requested receipt")
     _output(ctx, response)
+
+
+@group.group("entity")
+def entity_group() -> None:
+    """Entity Pivot: resolve User/Host identifiers, cards and activity.
+
+    Possible matches are unconfirmed. Missing or truncated activity does not
+    establish absence. Reads need cloudsec.get and Cloud Security enabled.
+    """
+
+
+@entity_group.command("resolve")
+@click.option("--identifier", "identifiers", required=True, multiple=True,
+              help="Identifier to resolve; repeat up to 100 times.")
+@click.option("--type", "identifier_type", default=None,
+              help="Optional identifier type for all inputs; omit for shape detection.")
+@click.option("--at", default=None, type=click.IntRange(min=0),
+              help="Unix seconds for historical IP resolution.")
+@pass_context
+def entity_resolve(ctx, identifiers, identifier_type, at) -> None:
+    """Resolve identifiers and show all ambiguous and possible candidates."""
+    values = [{"value": value, **({"type": identifier_type} if identifier_type is not None else {})}
+              for value in identifiers]
+    _output(ctx, _get_cloudsec(ctx).resolve_entities(values, at=at))
+
+
+@entity_group.command("get")
+@click.option("--entity-id", required=True, help="Opaque entity ID from resolve or search.")
+@click.option("--sightings-days", default=None, type=click.IntRange(1, 365),
+              help="Recent activity days; default 30.")
+@pass_context
+def entity_get(ctx, entity_id, sightings_days) -> None:
+    """Get an entity card; preserve redirects, unknown IDs and index readiness."""
+    _output(ctx, _get_cloudsec(ctx).get_entity(entity_id, sightings_days=sightings_days))
+
+
+@entity_group.command("search")
+@click.option("--q", required=True, help="Identifier prefix with at least two characters and at most 512 UTF-8 bytes.")
+@click.option("--kind", default=None, type=click.Choice(["user", "host"]))
+@click.option("--limit", default=None, type=click.IntRange(1, 100))
+@click.option("--cursor", default=None, help="Opaque next_cursor from the previous page.")
+@pass_context
+def entity_search(ctx, q, kind, limit, cursor) -> None:
+    """Search one page; next_cursor means additional results remain."""
+    if len(q.strip()) < 2 or len(q.encode()) > 512:
+        raise click.BadParameter("must contain at least two characters and at most 512 UTF-8 bytes", param_hint="--q")
+    _output(ctx, _get_cloudsec(ctx).search_entities(q, kind=kind, limit=limit, cursor=cursor))
+
+
+@entity_group.command("sightings")
+@click.option("--entity-id", required=True)
+@click.option("--kind", default=None,
+              type=click.Choice(["user", "logon", "int_ip", "ext_ip", "hostname"]))
+@click.option("--since", default=None, type=click.IntRange(min=0), help="Inclusive Unix seconds.")
+@click.option("--until", default=None, type=click.IntRange(min=0), help="Exclusive Unix seconds.")
+@click.option("--limit", default=None, type=click.IntRange(1, 500))
+@click.option("--cursor", default=None, help="Opaque next_cursor from the previous page.")
+@pass_context
+def entity_sightings(ctx, entity_id, kind, since, until, limit, cursor) -> None:
+    """Read one page of best-effort user, logon, IP or hostname sightings."""
+    _output(ctx, _get_cloudsec(ctx).list_entity_sightings(
+        entity_id, kind=kind, since=since, until=until, limit=limit, cursor=cursor))
+
+
+@entity_group.command("activity")
+@click.option("--entity-id", required=True)
+@click.option("--since", default=None, type=click.IntRange(min=0), help="Unix seconds; default last 30 days.")
+@click.option("--until", default=None, type=click.IntRange(min=0), help="Unix seconds; default now.")
+@click.option("--source", "sources", multiple=True,
+              type=click.Choice(["email", "detections", "sensor", "cloud"]),
+              help="Select a source; repeat for several. Default all four.")
+@pass_context
+def entity_activity(ctx, entity_id, since, until, sources) -> None:
+    """Read bounded activity with per-source permissions and availability."""
+    _output(ctx, _get_cloudsec(ctx).get_entity_activity(
+        entity_id, since=since, until=until, sources=list(sources) if sources else None))
+
+
+for _verb in ("resolve", "get", "search", "sightings", "activity"):
+    register_explain(f"cloudsec.entity.{_verb}",
+                     "Entity Pivot reads require cloudsec.get and Cloud Security enabled. "
+                     "Possible matches are unconfirmed; never select an ambiguous candidate automatically. "
+                     "Activity additionally requires the caller's permission for each product and "
+                     "reports forbidden, not_subscribed, unavailable, timeout and truncation explicitly. "
+                     "Use --help for selectors and inspect next_cursor to continue paginated reads.")
