@@ -72,20 +72,24 @@ limacharlie billing details                    # Detailed breakdown
 ```bash
 limacharlie billing security get mail_security --oid <oid> --output yaml
 limacharlie billing security get code_security --from 2026-10-01 --until 2026-11-01 --oid <oid> --output yaml
-limacharlie billing security activate mail_security --accepted-quote accepted-quote.json --accept-pricing --oid <oid> --output yaml
-limacharlie billing security stop code_security --confirm --oid <oid> --output yaml
 ```
 
-Read requires `org.get` and `billing.ctrl`; activation and stop require `billing.ctrl`
-and `user.ctrl`. Review the price before passing `--accept-pricing`. Mail costs
-$1 per protected mailbox-month, Code $0.80 per protected repository-month plus the
-separate Cloud Security base fee. Rates are divided by 30 per UTC entity-day;
-31 days of constant paid coverage cost 31/30 of the monthly rate. Today's high-water
-mark is provisional; accrued usage is an estimate rather than a finalized invoice.
+Read requires `org.get` and `billing.ctrl`. Subscribing to Email Security or Cloud
+Security purchases its coverage on a paid organization with a payment method or
+authorized invoicing. Coverage starts automatically; unsubscribing or moving the
+organization to the free tier stops future paid coverage. Inspect `get` until the
+protection service acknowledges the transition.
 
-Read `get` after mutation: a pending transition does not confirm protection.
-Stop preserves accrued charges and trial history. Code stop keeps the Cloud base
-fee; stopping that separate subscription is a separate operation.
+Mail costs $1 per protected mailbox-month; Code costs $0.80 per protected
+repository-month plus the Cloud Security base fee. Rates are divided by 30 per
+UTC entity-day; 31 days of constant paid coverage cost 31/30 of the monthly rate.
+Today's high-water mark is provisional; accrued usage is an estimate rather than
+a finalized invoice.
+
+The 14-day trial covers up to 25 mailboxes or 10 repositories. Trial-period usage
+is free, including for paid organizations. On the free tier, coverage pauses when
+the trial expires. Unsubscribing preserves accrued charges and trial history.
+Unsubscribing from Cloud Security also stops Code coverage and its Cloud base fee.
 
 
 ## audit
@@ -99,13 +103,3 @@ limacharlie audit list --start 1704067200 --end 1704153600
 - [Organization SDK](../sdk/organization.md) — Organization Python class
 - [Other SDK Classes](../sdk/other-classes.md) — Users, Billing, and more
 - [Authentication](../authentication.md) — Credential setup
-
-Security activation requires `--accepted-quote FILE`, a JSON file containing the
-complete reviewed `status.pricing_quote` from `billing security get`. Verify
-`status.quote_guard_version` is 1, review the rates and independent Code Cloud fee,
-then pass that unchanged quote with `--accept-pricing`. All nine fields are required,
-including Email's zero/empty Cloud fields. HTTP 409 `security_quote_changed` requires
-GET and fresh consent; HTTP 503 is retryable after checking status. HTTP 200
-`acknowledged: false` is pending: poll GET until the control settles and protection
-matches the request. The SDK uses `Billing(org).activate_security(product,
-accept_pricing=True, accepted_quote=reviewed_quote)` with the same complete quote.
