@@ -125,7 +125,6 @@ PROFILES = {
             "group list", "group create", "group delete",
             "api-key list", "api-key create", "api-key delete",
             "billing status", "billing details", "billing plans",
-            "billing security get", "billing security activate", "billing security stop",
             "output list", "output create", "output delete",
             "audit list",
             "api",
