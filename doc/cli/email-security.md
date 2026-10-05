@@ -4,7 +4,7 @@
 
 Install or upgrade with `python -m pip install --upgrade limacharlie`. See [installation](../getting-started.md#installation) for setup.
 
-Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, customer sample submission, standalone EML analysis, custom-rule validation and backtest, the connection preflight, and the tenant purge.
+Commands for the LimaCharlie Email Security surface: mailbox coverage, the message triage queue and its drawer, the justified raw-EML download, analyst verdict revision, per-message and bulk remediation at the provider, campaigns, sender profiles, the action audit trail, the abuse-mailbox report queue, customer sample submission, standalone EML analysis, custom-rule validation and backtest, the connection preflight, Microsoft provider-quarantine and release-request observations, and the tenant purge.
 
 Four permissions rather than the usual get/set pair, because the product asks to be trusted with four different things:
 
@@ -90,10 +90,71 @@ protects one pilot mailbox; an empty include list covers all discovered mailboxe
 Workspace uses `provider: gworkspace`, a service-account credential with
 `admin_email`, explicit `ingest.mode: push`, and `features.pubsub_topic` and
 `features.pubsub_subscription` containing full resource names from its setup guide.
-The default backfill is 14 days; explicit `backfill_days: 0` disables it. Backfill
+The default backfill is 14 days; `ingest.backfill_days` accepts 0–90 days, and 0 disables it. Backfill
 judges historical mail without emitting live message events or performing automatic
 remediation. New organizations have no automatic remediation configured; add an
 automation policy deliberately after validating coverage and verdicts.
+
+Only one enabled `mailsec_provider` connection per provider is supported in an
+organization (one Microsoft 365 and one Workspace connection can coexist).
+Workspace `features.pubsub_topic` must be `projects/<p>/topics/<t>` and
+`features.pubsub_subscription` must be `projects/<p>/subscriptions/<s>`.
+
+| Connection field | Purpose |
+|---|---|
+| `scope.include_addresses` | Restrict coverage to listed mailboxes; empty means all discovered mailboxes. |
+| `scope.exclude_addresses` | Exclude mailboxes; exclusions override includes. |
+| `scope.include_groups` | Expand directory groups into the mailbox selection; failed expansion is a connection error. |
+| `scope.domains` | Restrict covered mailbox domains and contribute to direction classification. |
+| `scope.internal_domains` | Additional owned domains for direction only, including subdomains; does not change coverage. Authentication can refute a sender's internal claim. |
+| `features.reports_mailbox` | Abuse/report mailbox whose messages feed the report queue. |
+| `features.outbound_observation` | Observe Sent mail as outbound (default on); outbound mail is never remediated. |
+| `ingest.backfill_days` | Historical setup pass, 0–90 days (default 14). |
+
+Use `scope.internal_domains` for send-as domains that should count as internal
+without excluding mailboxes on the organization's other domains from coverage.
+
+## Policy records
+
+Each `mailsec_policy` body declares `policy_type`; fields sit beside it, rather
+than inside a nested configuration object.
+
+| Policy type | Purpose |
+|---|---|
+| `automations` | Match messages and request typed actions, defaulting to alert-only. |
+| `exclusions` | Suppress selected detection signals before scoring. |
+| `vips` | Identify VIPs for impersonation detection. |
+| `thresholds` | Set score thresholds for verdict classes. |
+| `banners` | Configure warning banner appearance and per-verdict wording. |
+| `retention` | Set message and flagged-evidence retention periods. |
+| `reporter_reply` | Configure acknowledgement and resolution replies to reporters. |
+| `hunt_defaults` | Store historical search defaults (window, result cap and dry-run choice). |
+| `clustering` | Tune campaign body-similarity grouping. |
+| `threat_feeds` | Reference IOC lookup records for malicious-URL enrichment. |
+| `quarantine` | Configure quarantine placement and folders. |
+| `sample_sharing` | Opt in or out of analyst sample submission to LimaCharlie. |
+
+A minimal `automation.yaml` uses the safe `alert_only` default:
+
+```yaml
+policy_type: automations
+automations:
+  - name: Review malicious inbound mail
+    match:
+      verdicts: [malicious]
+      directions: [inbound]
+    actions: [quarantine_message]
+```
+
+Omitting `mode` means `alert_only`: actions are decided and recorded, without
+moving mail. Enforcing requires `mode: enforce` and a non-empty `match`.
+Inspect the schema and validate before saving:
+
+```bash
+limacharlie hive schema --hive-name mailsec_policy
+limacharlie hive validate --hive-name mailsec_policy --key malicious-inbound --input-file automation.yaml
+limacharlie hive set --hive-name mailsec_policy --key malicious-inbound --input-file automation.yaml --enabled
+```
 
 An optional capability can be unavailable while the connection still works. Read
 each diagnostic check's `required`, `status` and `remediation` fields. `--include-watch`
@@ -101,12 +162,16 @@ establishes a real Workspace watch. Coverage confirms ongoing protection after t
 credential test; investigate any unprotected or error mailboxes it reports.
 
 Coverage defaults to a cached 24-hour volume window. Explicit windows are
-recomputed and rate-limited. Use `--window-days` or `--since`/`--until`, never both;
+recomputed and rate-limited. Use `--window-days` (1–35) or `--since`/`--until`, never both;
 `volume.truncated` means the requested period exceeds retained message history.
 
 ## The triage queue
 
-Repeatable filters are OR within a key and AND across keys. Cursors are opaque and passed back verbatim; changing a filter mid-walk is an error, not a differently-meaning page.
+Repeatable filters are OR within a key and AND across keys, including repeated
+`--disposition`. Message states are `delivered`, `quarantined`, `trashed`,
+`restored`, `bannered` and `spam`. Verdicts are `malicious`, `suspicious`,
+`graymail`, `benign`, `unknown` and `error`; `error` means judgement failed.
+`--limit` is 1–1000; out-of-range limits are refused, rather than clamped. Cursors are opaque and passed back verbatim; changing a filter mid-walk is an error, not a differently-meaning page.
 
 ```bash
 limacharlie mailsec message list --verdict suspicious --verdict malicious
@@ -173,7 +238,8 @@ it does not itself start an agent session. Link crawling requests analysis and
 can spend the organization's analysis budget. Inspect action results rather
 than assuming an accepted request changed message placement.
 
-Bulk remediation is two-step: without `--confirm` it previews, and the preview's `confirm` token is derived from the normalized selection, so it can only execute what you previewed. Up to 500 messages per call — a larger selection is refused, not truncated.
+Bulk remediation requires `mailsec.get` for preview and `mailsec.act` for execution.
+It is two-step: without `--confirm` it previews, and the preview's `confirm` token is derived from the normalized selection, so it can only execute what you previewed. Up to 500 messages per call — a larger selection is refused, not truncated.
 
 ```bash
 limacharlie mailsec message bulk-action --action quarantine_message --input-file ids.json
@@ -186,7 +252,7 @@ limacharlie mailsec message bulk-status <BULK_ID>
 ## Campaigns, senders & the audit trail
 
 ```bash
-limacharlie mailsec campaign list --state active --min-members 5
+limacharlie mailsec campaign list --state open --min-members 5
 limacharlie mailsec campaign get <CAMPAIGN_ID>
 limacharlie mailsec campaign action <CAMPAIGN_ID> --action quarantine_message              # preview
 limacharlie mailsec campaign action <CAMPAIGN_ID> --action quarantine_message --confirm <TOKEN> --reason "confirmed credential harvest"
@@ -194,6 +260,8 @@ limacharlie mailsec campaign action <CAMPAIGN_ID> --action quarantine_message --
 limacharlie mailsec sender get sender@corp.example
 limacharlie mailsec action get <ACTION_ID>
 ```
+
+Campaign `--state` accepts only `open` or `closed` (repeatable).
 
 A sweep's `--reason` lands on the sweep's own record and on every member's audit row. Repeating a sweep is idempotent per member, so a double run collapses onto the rows it already wrote; `--attempt` is how you ask for a deliberate second run — a retry after a provider outage recorded *beside* what failed rather than over it. It is an opaque handle, at most 128 characters, refused rather than truncated. Neither field is part of the confirmation token, so adding either one after previewing does not invalidate it.
 
@@ -214,6 +282,7 @@ echo '{"policy_type": "sample_sharing", "enabled": true}' > opt-in.json
 limacharlie hive set --hive-name mailsec_policy --key sample-sharing --input-file opt-in.json --enabled
 ```
 
+`submission withdraw --reason` is optional, at most 1024 characters after trimming.
 Submitting and withdrawing need `mailsec.act`; listing and reading need `mailsec.get`. `--category` and `--reason` are both required (reason: 1 to 1024 characters, kept with the submission). The categories are `missed_threat` (we called it benign or unknown and it is a threat), `false_positive` (we flagged it and it is legitimate) and `other`.
 
 ```bash
@@ -222,7 +291,7 @@ limacharlie mailsec message withdraw-sample <MSG_UUID>
 limacharlie mailsec submission list
 limacharlie mailsec submission list --category false_positive --since 2026-09-01T00:00:00Z --limit 100
 limacharlie mailsec submission get <SUBMISSION_ID>       # includes when LimaCharlie accessed it
-limacharlie mailsec submission withdraw <SUBMISSION_ID>
+limacharlie mailsec submission withdraw <SUBMISSION_ID> --reason "Submitted in error"
 ```
 
 A refused submission (the organization has not opted in, the datacenter has no submissions store, or the message's raw copy is no longer stored) is reported like any other failed action, with the reason in `error`; the command prints the reason and exits non-zero. Submitting a message that already has an active submission returns `result: skipped` with the existing `submission_id`. `submission list` always returns `enabled` (the organization opted in) and `available` (the datacenter has a store), so an empty list can be told apart from a feature that is off. It is paginated: pass `next_cursor` back as `--cursor`, verbatim, until it is empty; `--limit` is 1 to 200. `reviews` in `submission get` is one timestamp per recorded access, never the accessing identity. Access is recorded before decryption and can include failed attempts. At most 200 timestamps are returned, with `reviews_truncated` indicating a partial history; counts and latest time remain complete. An unknown id is not an error: `submission get` returns `submission: null` and `submission withdraw` (or withdrawing an already-deleted submission) returns `withdrawn: false`, and the command says so on stderr. Withdrawal remains available after opt-out, provider disconnect or message-index expiry. An expired submission is still cleaned up if metadata remains.
@@ -240,25 +309,80 @@ limacharlie mailsec rule backtest --file rule.json --since 2026-08-01
 
 `rule backtest` reports `precision: null` — not `0` — when nothing it matched has an analyst disposition yet, and counts what it could not examine, so a precision figure whose denominator silently shrank is visible as one.
 
-Validation and backtesting do not save a rule. Save an accepted rule with
+`analyze --direction` accepts `inbound`, `outbound` or `internal`.
+Rule validation, backtesting and banner preview accept JSON or YAML, including
+exported hive records with `{data, usr_mtd}`; only `data` is sent to the API.
+Rules require `phase` (`pre_verdict` or `post_verdict`), `detect`, `name` and
+`fp_notes`. Scoring classes `signal` (the default) and `detection` also require
+`weight` (1–100); `graymail` takes no nonzero weight. A `pre_verdict` rule cannot
+respond or read verdict fields. Validation and backtesting do not save a rule. Save an accepted rule with
 `hive set --hive-name dr-mail --key <RULE_ID> --input-file rule.json --enabled`.
 An invalid rule returns `valid: false` with its reason; check that field even
-when the request succeeds. To disable a vendor rule, set its metadata disabled
-instead of deleting it: vendor pack releases can recreate deleted vendor rules.
+when the request succeeds. Vendor-managed `dr-mail` rules carry the `limacharlie` metadata tag. Daily
+updates check the shipped pack version, reset outdated vendor rules to shipped
+content and remove retired vendor rules, preserving your enabled/disabled choice.
+A pack already at the current version is skipped; explicit `upgrade` also resets
+edits to current vendor rules immediately. Disable vendor rules instead of editing
+or deleting them. Author custom rules without the `limacharlie` tag. For `sync`
+users, keep this ownership distinction in exported configuration too: edits to
+vendor-owned content can be replaced by a pack update.
 
 Additional extension workflows use the generic CLI (requires `ext.request`):
 
 ```bash
 limacharlie extension request --name ext-email-security --action restore_default_rules
+limacharlie extension request --name ext-email-security --action restore_default_rules --data '{"upgrade": true}'
+limacharlie extension request --name ext-email-security --action restore_default_rules --data '{"overwrite": true}'
+limacharlie extension request --name ext-email-security --action get_cases_pack --output json
 limacharlie extension request --name ext-email-security --action get_dlp_pack
 ```
 
-`restore_default_rules` creates missing defaults without overwriting existing
-records. `get_dlp_pack` only returns the opt-in outbound DLP definitions; it does
+`restore_default_rules` with no parameters creates missing defaults without
+overwriting existing records. `upgrade: true` reconciles vendor-tagged rules with
+the shipped pack immediately, preserving enabled state and leaving customer-owned
+records alone; it also removes retired vendor rules. `overwrite: true` rewrites
+records at shipped default keys, including customer-owned records at those keys,
+and resets them to the pack's enabled setting. `upgrade` and `overwrite` are
+mutually exclusive. `get_dlp_pack` only returns the opt-in outbound DLP definitions; it does
 not install them. Install the returned lookup records before their `dr-general`
 rules and preserve each record's `usr_mtd.enabled` setting, or use the console's
 installation flow. Outbound mail is observation only; DLP detections do not stop
 delivery or remediate sent messages.
+
+`get_cases_pack` returns a response envelope whose `data` is
+`{name, version, records: [{hive, key, data, usr_mtd, summary, description}]}`.
+It takes no parameters and installs nothing. These platform detections feed
+Cases; subscribe to the Cases extension before installing them. Installation
+uses your own hive permissions and preserves each record's `usr_mtd`:
+
+```bash
+limacharlie extension subscribe --name ext-cases
+limacharlie extension request --name ext-email-security --action get_cases_pack --output json > cases-pack.json
+jq -c '.data.records[]' cases-pack.json | while IFS= read -r record; do
+  hive=$(printf '%s' "$record" | jq -r '.hive')
+  key=$(printf '%s' "$record" | jq -r '.key')
+  printf '%s' "$record" | jq '{data, usr_mtd}' | limacharlie hive set --hive-name "$hive" --key "$key"
+done
+```
+
+## Request bounds and rate limits
+
+EML downloads require an audited justification of 12–1024 UTF-8 bytes after
+stripping surrounding whitespace (12–1024 characters for ASCII text). They are
+limited to 120/hour per key, identity and organization, and 600/hour per
+organization; excess requests return HTTP 429.
+
+Unbounded `--search`/`--q` is refused. Searches bounded only by time also return
+429 when the organization's read budget is exhausted. Exact mailbox, sender,
+campaign and IOC pivots use indexed lookups. Rule validation and backtesting
+return 429 past their per-organization work budgets; retry after the budget
+recovers rather than repeatedly submitting the same expensive request.
+
+Revision `--score` is an integer; the API defines no range for revision scores.
+Omit it to preserve the existing score. Rationale needs at least one nonblank
+line. The server drops blank lines, clips to ten lines of 280 characters, and
+sets `rationale_truncated` in revision history when it loses content. Oversized
+rationale warns locally and is still accepted for submission.
 
 ## Tenant purge
 
@@ -278,7 +402,7 @@ limacharlie mailsec tenant purge --confirm <TOKEN> --reason "customer offboarded
 
 The purge is re-runnable. A partial one returns `complete: false` and counts what did not land (`objects_failed`, `subscriptions_failed`, `connections_unreachable`, `rows_remained`) beside what did; the command exits non-zero in that case so a script cannot mistake a half-purged tenant for a finished one. Re-run it with a fresh token and it picks up what remains.
 
-You may not need it at all: the same data is deleted automatically 30 days after the org unsubscribes from Email Security — resubscribing inside that window cancels the deletion — and immediately if the org itself is deleted.
+You may not need it at all: the same data is deleted automatically 30 days after the org unsubscribes from Email Security — resubscribing inside that window cancels the deletion — and 7 days after the org itself is deleted.
 
 ## Processing status and timing
 
@@ -335,7 +459,8 @@ limacharlie mailsec message bulk-disposition --input-file ids.json --disposition
 limacharlie mailsec message release <MSG_UUID> --reason "Confirmed safe" --mode analyst
 ```
 
-Bulk disposition accepts 1–500 unique message IDs and returns one ordered outcome per ID.
+Bulk disposition accepts `--input-file PATH` (`--input` remains an alias), or
+`--input-file -` for JSON/YAML or text IDs from stdin. It accepts 1–500 unique message IDs and returns one ordered outcome per ID.
 A missing message reports its own error without affecting the others. An error starting
 with `not confirmed, retry the same decision` means the outcome is unknown; repeating the
 same request is safe because identical decisions are no-ops.

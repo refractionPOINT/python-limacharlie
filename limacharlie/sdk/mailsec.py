@@ -59,14 +59,15 @@ import uuid
 from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as _quote
 
+from ..errors import ApiError
+
 if TYPE_CHECKING:
     from .organization import Organization
 
 
-# Verdict-revision rationale bounds, mirrored client-side so a caller learns
-# the limit from a clear local error rather than from a 400 after the round
-# trip. These match the gateway's own validation: at least one line, at most
-# ten, each no longer than 280 characters.
+# The server clips rationale to ten nonblank lines of 280 characters and
+# reports rationale_truncated. Warn before sending; an oversized explanation
+# must not prevent a verdict change the server would accept.
 DISPOSITIONS = ("malicious", "spam", "graymail", "benign", "simulation")
 
 _MAX_RATIONALE_LINES = 10
@@ -339,7 +340,7 @@ class Mailsec:
         what was analysed over the window.
 
         Args:
-            window_days: Days of volume to summarise (server default applies
+            window_days: Days of volume to summarise, 1 to 35 (server default applies
                 when omitted). Cannot be combined with since or until.
             since: Start of the volume window (RFC3339 or unix seconds).
             until: End of the volume window (RFC3339 or unix seconds).
@@ -351,8 +352,10 @@ class Mailsec:
             than a count of what happened to work.
 
         Raises:
-            ValueError: If window_days is combined with since or until.
+            ValueError: If window_days is outside 1 to 35 or combined with since or until.
         """
+        if window_days is not None and not 1 <= window_days <= 35:
+            raise ValueError("window_days must be 1 to 35")
         if window_days is not None and (since is not None or until is not None):
             raise ValueError("window_days cannot be combined with since or until")
         pairs: list[tuple[str, str]] = []
@@ -441,7 +444,7 @@ class Mailsec:
         state: list[str] | None = None,
         direction: list[str] | None = None,
         lane: str | None = None,
-        disposition: str | None = None,
+        disposition: list[str] | str | None = None,
         user_reported: bool | None = None,
         min_score: int | None = None,
         link_domain: str | None = None,
@@ -458,7 +461,7 @@ class Mailsec:
 
         Args:
             verdict: ``malicious``, ``suspicious``, ``graymail``, ``benign``,
-                ``unknown`` (repeatable).
+                ``unknown``, ``error`` (repeatable).
             mailbox: Protected mailbox address (exact).
             sender_email: Envelope/header sender address (exact).
             sender_domain: Sender registrable root domain. Sent to the API as
@@ -467,9 +470,11 @@ class Mailsec:
             campaign_id: Only members of one campaign.
             group_id: Only recipient copies in one message group.
             severity: Rule impact (informational, low, medium, high, critical), repeatable.
-            state: Message lifecycle state (repeatable).
+            state: Placement: delivered, quarantined, trashed, restored, bannered,
+                spam (repeatable).
             direction: ``inbound``, ``outbound``, ``internal`` (repeatable).
-            disposition: Analyst/SOAR label or ``none`` for untriaged.
+            disposition: Repeatable analyst/SOAR labels, OR within the filter;
+                ``none`` selects untriaged. A single string remains supported.
             lane: ``live`` or ``backfill``. Omit to include either processing
                 lane. Supported with time, verdict and IOC queries; combining
                 it with mailbox, sender_email or campaign_id is refused by
@@ -487,20 +492,22 @@ class Mailsec:
             since: Lower time bound (RFC3339 or unix seconds).
             until: Upper time bound (RFC3339 or unix seconds).
             cursor: Opaque keyset token from a previous page.
-            limit: Page size (server clamps).
+            limit: Page size, 1 to 1000; the server refuses values outside this range.
 
         Returns:
             ``{"messages": [...], "next_cursor": str}``. An empty
             ``next_cursor`` means the last page.
 
         Raises:
-            ValueError: If non-empty ``q`` is too long or lacks a bounded-walk
-                companion filter.
+            ValueError: If disposition is invalid or non-empty ``q`` is too long
+                or lacks a bounded-walk companion filter.
         """
-        if disposition is not None and disposition not in (*DISPOSITIONS, "none"):
+        if isinstance(disposition, str):
+            disposition = [disposition]
+        if disposition is not None and any(value not in (*DISPOSITIONS, "none") for value in disposition):
             raise ValueError("invalid disposition filter")
         pairs = self._message_filter_pairs(
-            disposition=[disposition] if disposition is not None else None,
+            disposition=disposition,
             verdict=verdict,
             severity=severity,
             group_id=group_id,
@@ -561,13 +568,19 @@ class Mailsec:
 
         Args:
             msg_uuid: The message.
-            justification: Why the download is happening. Stored verbatim.
+            justification: Why the download is happening, 12 to 1024 UTF-8 bytes
+                after stripping surrounding whitespace. Stored in the access audit.
+
+        Returns:
+            bytes: The original RFC822 message.
+
+        Raises:
+            ValueError: If justification is outside that range or the response is invalid.
+            ApiError: If the API refuses the download.
+            RateLimitError: If the download budget is exceeded (120/hour per
+                key, identity and org, and 600/hour per org).
         """
-        if not justification or not justification.strip():
-            raise ValueError(
-                "a justification is required to download raw mail: the access is audited, "
-                "and an unexplained one is not auditable"
-            )
+        justification = _check_eml_justification(justification)
         response = self._get(
             f"messages/{_seg(msg_uuid)}/eml",
             [("justification", justification)],
@@ -694,7 +707,9 @@ class Mailsec:
         Args:
             msg_uuid: The message to act on.
             action: ``quarantine_message``, ``trash_message``,
-                ``restore_message``, ``banner_message``, ``unbanner_message``.
+                ``move_to_spam``, ``restore_message``, ``release_message``,
+                ``banner_message``, ``unbanner_message``, ``submit_to_triage``,
+                ``crawl_link``.
                 Sample submission has its own methods: see
                 :meth:`submit_sample` and :meth:`withdraw_sample`.
             reason: Free-text justification recorded on the audit row.
@@ -743,7 +758,7 @@ class Mailsec:
         rationale: list[str],
         *,
         mode: str = "analyst",
-        score: float | None = None,
+        score: int | None = None,
     ) -> dict[str, Any]:
         """Revise the verdict on one message. Requires ``mailsec.act``.
 
@@ -756,9 +771,9 @@ class Mailsec:
         ``mode="ai"``; the two are kept distinct so the audit trail can always
         say whether a person or a model decided.
 
-        The rationale is REQUIRED and audited: at least one line, at most ten,
-        each no longer than 280 characters. The bounds are checked here so a
-        caller gets a clear local error instead of a 400 after the round trip.
+        The rationale is REQUIRED and audited. The server drops blank lines,
+        clips to ten lines of 280 characters and sets ``rationale_truncated``
+        if content was lost. Oversized input warns locally and is still sent.
 
         Args:
             msg_uuid: The message whose verdict is being revised.
@@ -768,7 +783,8 @@ class Mailsec:
             mode: The deciding actor's mode; ``analyst`` for a human,
                 ``ai`` for an agent. The gateway stamps the actor identity
                 itself — this only says which KIND of actor decided.
-            score: An optional numeric score to record alongside the verdict.
+            score: Optional integer score. The API defines no revision-score range;
+                omitting it preserves the existing score.
 
         Returns:
             The revision result. ``applied`` is the honest outcome to read:
@@ -776,25 +792,24 @@ class Mailsec:
             and nothing changed — a no-op reported truthfully, not an error.
             The response also carries ``revision_seq``, ``prior``, and
             ``newly_flagged``.
+
+        Raises:
+            ValueError: If rationale has no nonblank text, contains non-text
+                lines, or score is not an integer.
         """
-        if not rationale:
-            raise ValueError(
-                "a verdict revision needs at least one rationale line: the change is "
-                "audited, and an unexplained one is not auditable"
+        if not rationale or not any(isinstance(line, str) and line.strip() for line in rationale):
+            raise ValueError("a verdict revision needs at least one rationale line of non-empty text")
+        if any(not isinstance(line, str) for line in rationale):
+            raise ValueError("every rationale line must be text")
+        nonblank = [line.strip() for line in rationale if line.strip()]
+        if len(nonblank) > _MAX_RATIONALE_LINES or any(len(line) > _MAX_RATIONALE_LEN for line in nonblank):
+            warnings.warn(
+                "the server will truncate rationale to ten lines of 280 characters; "
+                "inspect rationale_truncated in the revision history",
+                UserWarning, stacklevel=2,
             )
-        if len(rationale) > _MAX_RATIONALE_LINES:
-            raise ValueError(
-                f"too many rationale lines: {len(rationale)} given, at most "
-                f"{_MAX_RATIONALE_LINES} allowed"
-            )
-        for line in rationale:
-            if not isinstance(line, str) or not line.strip():
-                raise ValueError("every rationale line must be non-empty text")
-            if len(line) > _MAX_RATIONALE_LEN:
-                raise ValueError(
-                    f"a rationale line is too long: {len(line)} characters, at most "
-                    f"{_MAX_RATIONALE_LEN} allowed"
-                )
+        if score is not None and (not isinstance(score, int) or isinstance(score, bool)):
+            raise ValueError("score must be an integer")
         body: dict[str, Any] = {
             "verdict": verdict,
             "mode": mode,
@@ -1091,7 +1106,8 @@ class Mailsec:
         pin a snapshot for 50 minutes; restart after expiry or changing filters.
 
         Args:
-            verdict: Repeatable engine verdict filter.
+            verdict: Repeatable malicious, suspicious, graymail, benign,
+                unknown or error (judgement failed) filter.
             severity: Repeatable rule-impact filter.
             disposition: Repeatable analyst disposition, including none.
             user_reported: True or false to constrain reports; None is unconstrained.
@@ -1099,7 +1115,7 @@ class Mailsec:
             since: Inclusive matching-copy time, RFC3339 or unix seconds.
             until: Exclusive matching-copy time.
             cursor: Opaque filter-bound snapshot cursor.
-            limit: Maximum returned groups per page.
+            limit: Maximum returned groups per page, 1 to 1000.
             mailbox: Exact protected mailbox address.
             sender_email: Exact sender address.
             sender_domain: Sender registrable domain (sender_root_domain on the wire).
@@ -1107,7 +1123,8 @@ class Mailsec:
             group_id: Exact message-group identity.
             link_domain: Link registrable domain.
             attachment_sha256: Attachment digest.
-            state: Repeatable copy placement state.
+            state: Repeatable delivered, quarantined, trashed, restored,
+                bannered or spam placement state.
             direction: Repeatable inbound, outbound or internal direction.
             min_score: Minimum copy score.
             lane: Live or backfill, with the same supported combinations as messages.
@@ -1300,7 +1317,17 @@ class Mailsec:
         cursor: str | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        """Campaigns: one attack, triaged once, rather than once per mailbox."""
+        """List campaigns: one attack triaged once rather than once per mailbox.
+
+        Args:
+            state: Open or closed (repeatable).
+            verdict: Malicious, suspicious, graymail, benign, unknown or error (repeatable).
+            min_members: Minimum number of campaign members.
+            since: Lower time bound (RFC3339 or unix seconds).
+            until: Upper time bound.
+            cursor: Opaque keyset token; keep filters unchanged between pages.
+            limit: Page size.
+        """
         pairs: list[tuple[str, str]] = []
         _add_pairs(pairs, "state", state)
         _add_pairs(pairs, "verdict", verdict)
@@ -1473,12 +1500,12 @@ class Mailsec:
             ``submission_id``; ``skipped`` means this message already has an
             active submission. A refusal (not opted in, no submissions store
             in this datacenter, or the message's raw copy is no longer
-            stored) is reported like any other failed action, with the reason
-            in ``error``; check ``result`` as well as catching exceptions.
+            stored) raises ``ApiError`` with the failed action in ``response_body``.
 
         Raises:
             ValueError: If ``category`` is not one of the three, or ``reason``
                 is blank or longer than 1024 characters.
+            ApiError: If submission fails; response_body retains the API's report.
         """
         if category not in SAMPLE_CATEGORIES:
             raise ValueError(
@@ -1510,11 +1537,12 @@ class Mailsec:
             attempt: Caller-supplied idempotency token.
 
         Returns:
-            The action record; read ``result`` and ``error`` as for
-            :meth:`submit_sample`.
+            The successful action record. A failed action raises ``ApiError``
+            with the structured report in ``response_body``.
 
         Raises:
             ValueError: If ``reason`` is longer than 1024 characters.
+            ApiError: If withdrawal fails; response_body retains the API's report.
         """
         body: dict[str, Any] = {"action": "withdraw_sample"}
         text = _check_sample_reason(reason, required=False)
@@ -1595,7 +1623,7 @@ class Mailsec:
         """
         return self._get(f"submissions/{_seg(submission_id)}")
 
-    def withdraw_submission(self, submission_id: str) -> dict[str, Any]:
+    def withdraw_submission(self, submission_id: str, *, reason: str | None = None) -> dict[str, Any]:
         """Withdraw a submission by id. Requires ``mailsec.act``.
 
         Deletes LimaCharlie's stored copy and the metadata row (a hard
@@ -1603,6 +1631,7 @@ class Mailsec:
 
         Args:
             submission_id: The submission id (from :meth:`list_submissions`).
+            reason: Optional audited reason, at most 1024 characters after trimming.
 
         Returns:
             ``{"withdrawn": true, "submission_id": ..., "action_id": ...}``
@@ -1612,8 +1641,16 @@ class Mailsec:
             "submission_id": ...}`` with no ``action_id``, so a second
             withdrawal is harmless and never deletes anything twice. Check
             ``withdrawn``.
+
+        Raises:
+            ValueError: If reason is not text or exceeds 1024 characters after trimming.
+            ApiError: If the API refuses withdrawal.
         """
-        return self._delete(f"submissions/{_seg(submission_id)}")
+        pairs: list[tuple[str, str]] = []
+        text = _check_sample_reason(reason, required=False)
+        if text:
+            pairs.append(("reason", text))
+        return self._delete(f"submissions/{_seg(submission_id)}", pairs)
 
     # ------------------------------------------------------------------
     # Standalone analysis
@@ -1639,7 +1676,7 @@ class Mailsec:
                 survive a text field.
             org_domains: The org's own domains, which is what makes direction
                 and impersonation computable.
-            direction: Override the computed direction.
+            direction: Override the computed direction: inbound, outbound or internal.
         """
         if not eml and not eml_b64:
             raise ValueError("analyze needs the message: pass eml or eml_b64")
@@ -1885,7 +1922,8 @@ class Mailsec:
         Args:
             banner: The fields of a ``banners`` policy record (``title``,
                 ``color``, ``text``, ``logo_url``, ``logo_alt``, ``variants``,
-                ``enabled``); omit ``policy_type``.
+                ``enabled``). ``policy_type`` is optional; the server sets it to
+                ``banners`` when validating the preview.
             verdict: Preview the per-verdict variant for this verdict
                 (``malicious``, ``suspicious``, ``graymail``, ``benign``,
                 ``unknown``).
@@ -2038,7 +2076,9 @@ class Mailsec:
             ``subscriptions_failed``, ``mailboxes_walked``,
             ``provider_records_deleted``, ``policy_records_deleted``,
             ``connections_unreachable``, ``rows_remained``. A caller that reads
-            only the successes will believe a partial purge finished.
+            only the successes will believe a partial purge finished. An HTTP 400
+            carrying ``complete: false`` is recovered as this report; other API
+            failures still raise ``ApiError``.
 
         Raises:
             ValueError: If ``confirmation`` is empty, or ``reason`` exceeds
@@ -2046,6 +2086,7 @@ class Mailsec:
                 server because a rejected request still costs the token, and
                 re-minting is a second round trip to learn something the client
                 already knew.
+            ApiError: If the API fails without an incomplete-purge report.
         """
         token = (confirmation or "").strip()
         if not token:
@@ -2061,7 +2102,13 @@ class Mailsec:
                     f"most {_MAX_PURGE_REASON_LEN}"
                 )
             pairs.append(("reason", reason))
-        return self._delete("tenant", pairs)
+        try:
+            return self._delete("tenant", pairs)
+        except ApiError as exc:
+            report = _api_error_data(exc)
+            if exc.status_code != 400 or not isinstance(report, dict) or report.get("complete") is not False:
+                raise
+            return report
 
 
 def _disposition_body(disposition: str | None, note: str, clear: bool) -> dict[str, Any]:
@@ -2074,4 +2121,19 @@ def _disposition_body(disposition: str | None, note: str, clear: bool) -> dict[s
         body["clear"] = True
     else:
         body["disposition"] = disposition
+    return body
+
+
+def _check_eml_justification(value: str) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    if not 12 <= len(text.encode("utf-8")) <= 1024:
+        raise ValueError("justification must be 12 to 1024 UTF-8 bytes after stripping whitespace")
+    return text
+
+
+def _api_error_data(error: ApiError) -> Any:
+    # Errors can carry the report directly or inside the API's error/data envelope.
+    body = error.response_body
+    if isinstance(body, dict) and isinstance(body.get("data"), dict):
+        return dict(body["data"], error=body.get("error") or body["data"].get("error"))
     return body
