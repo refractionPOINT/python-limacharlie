@@ -332,12 +332,11 @@ rule, the principal an attack path's grants land on) whose single
 edit resolves every finding under it. Lets a worklist be worked by
 fix instead of by row: "change this one thing, close N findings".
 
-Only CAUSE-BEARING findings are in scope, and that is a small slice of
-an estate: causes are stamped on the attack-path classes, while
-vulnerability findings (~90% of a typical estate) deliberately carry
-none. So these counts never sum to the worklist total, and
-'--class vulnerability' legitimately returns no causes at all — that
-means "no shared fix on this class", not "no findings".
+Only cause-bearing findings contribute. Attack-path causes include firewall
+rules and entitled identities. Repository SCA findings carry cause kind
+'vulnerable_package' for a shared package upgrade; other vulnerability
+findings may have no cause. Counts need not sum to the whole worklist.
+An empty rollup does not mean there are no findings.
 
 Takes the same filters as 'finding list', so a rollup can be scoped
 exactly like the list it summarizes. Pass --cause for the count of
@@ -450,7 +449,7 @@ Examples:
 """
 
 _EXPLAIN_FINDING_BULK_RESOLVE = """\
-Apply one resolution to many findings in a single call.
+Apply one resolution to at most 500 findings in a single call.
 
 --kind is mitigated, accepted, or false_positive. Reopening is a
 single-finding operation only (the bulk API does not accept 'open');
@@ -907,7 +906,17 @@ provider configs are managed via the hive:
   limacharlie hive set --hive-name cloudsec_provider --key my-gcp \\
       --input-file provider.json --enabled
 
-GitLab and Bitbucket Cloud are both supported provider_type values.
+GitHub, GitLab and Bitbucket Cloud are supported provider_type values.
+For GitHub, credentials is a JSON credential with a private_key field containing
+an App PEM private key, or a reference to a secret holding that JSON credential:
+
+  {"provider_type": "github", "github_org": "acme", "github_app_id": "123",
+   "github_installation_id": "456", "credentials": "hive://secret/github-key"}
+
+This tests collection credentials only. It does not probe actions_credentials,
+github_actions_app_id / github_actions_installation_id, gitlab_write_credentials
+or bitbucket_write_credentials. Use 'code capabilities' for workflow permissions.
+
 GitLab additionally requires the token's account to hold at least
 Reporter on the WHOLE group named by gitlab_namespace — a token
 scoped to a single project inside that group fails the
@@ -1419,7 +1428,11 @@ def _finding_filter_options(f):
     )(f)
     f = click.option(
         "--class", "finding_classes", multiple=True,
-        help="Filter by finding class (e.g. toxic_combination, misconfig); repeatable (OR).",
+        help="Filter by finding class; repeatable (OR). Values: toxic_combination, "
+             "public_exposure, ciem_risk, privilege_escalation, vulnerability, misconfig, "
+             "malware, secret, scan_finding, coverage_gap, workload_coverage_gap, "
+             "vuln_coverage_gap, authz_coverage_gap, device_posture, code_weakness, "
+             "license_risk, eol_runtime, iac_drift, operational. See 'finding classes'.",
     )(f)
     f = click.option(
         "--severity", "severities", multiple=True,
@@ -1657,6 +1670,7 @@ def group() -> None:
       topology            Pre-aggregated estate topology (exact at scale)
       free-tier           Free-tier standing and the limits that apply
       fleet overview      Multi-org fleet posture board (MSSP)
+      remediation ...     Governed remediation runs and approval decisions
       finding ...         Findings worklist + triage (resolve, owner, ticket, causes, classes)
       attack-path list    Headline toxic-combination attack paths
       ciem ...            Identity access (public-access, facets, identities, identity)
@@ -1786,7 +1800,7 @@ def code_group() -> None:
     --repo <owner>/<name>'. The commands here are the repository-shaped
     views and triggers that worklist cannot give you: repos, status,
     capabilities, fixes, sbom, scan, rescan, autofix, ingest, pr-check
-    and webhook.
+    and webhook, plus iac-map, provenance, impact and coverage.
 
     Container images are their own inventory — see 'cloudsec image'.
     """
@@ -1805,7 +1819,8 @@ def code_group() -> None:
               help="Follow the cursor and return EVERY matching repository "
                    "instead of one page. Filtered pages can be short without "
                    "being last, so this is the safe way to get a full list.")
-@_paging_options
+@click.option("--cursor", default=None, help="next_cursor from the previous page.")
+@click.option("--limit", default=None, type=int, help="Page size (default 100, server cap 500).")
 @pass_context
 def code_repos(ctx, q, has_findings, provider, walk_all, cursor, limit) -> None:
     """List the org's repositories with their scan state and finding counts.
@@ -1857,9 +1872,9 @@ def code_status(ctx) -> None:
 
 @code_group.command("capabilities")
 @click.option("--repo", default=None,
-              help="Narrow to the connection covering one repository "
-                   "('<owner>/<name>' as 'code repos' returns it). Omit "
-                   "to list enabled workflow connections.")
+              help="Narrow each owning connection's answer to this repository "
+                   "('<owner>/<name>' as 'code repos' returns it). Other "
+                   "connections remain listed unchanged.")
 @pass_context
 def code_capabilities(ctx, repo) -> None:
     """What each source-control connection may actually DO: scanning, PR
@@ -1886,10 +1901,10 @@ def code_capabilities(ctx, repo) -> None:
 
 @code_group.command("fixes")
 @click.option("--all", "walk_all", is_flag=True, default=False,
-              help="Follow the cursor and return EVERY matching fix instead "
-                   "of one page.")
+              help="Follow all available pages; preserves the server total and "
+                   "reports truncation if paging stops before that total.")
 @click.option("--cursor", default=None,
-              help="Keyset-pagination token (next_cursor from the previous page).")
+              help="Opaque pagination token (next_cursor from the previous page).")
 @click.option("--limit", default=None, type=int,
               help="Page size (backend default 5, max 20 — a larger ask is "
                    "reduced to that; NOT the 1000-row cap other paged "
@@ -1902,6 +1917,8 @@ def code_fixes(ctx, walk_all, cursor, limit) -> None:
     Each entry names the package, the version that fixes it, how many
     findings and repositories it closes, and a
     'representative_finding_id' usable with 'cloudsec code autofix'.
+    Use 'cause_key' with 'cloudsec finding list --cause <cause_key>' to
+    drill down to the findings for one upgrade.
 
     \b
     Examples:
@@ -1911,8 +1928,24 @@ def code_fixes(ctx, walk_all, cursor, limit) -> None:
     """
     cs = _get_cloudsec(ctx)
     if walk_all:
-        fixes = list(cs.iter_code_fixes(limit=limit))
-        _output(ctx, {"fixes": fixes, "distinct": len(fixes), "next_cursor": ""})
+        fixes = []
+        page_cursor = cursor
+        seen = set()
+        while True:
+            page = cs.get_code_fixes(cursor=page_cursor, limit=limit)
+            fixes.extend(page.get("fixes", []))
+            page_cursor = page.get("next_cursor") or ""
+            if not page_cursor:
+                break
+            if page_cursor in seen:
+                raise click.ClickException("the API repeated a fix cursor; the walk is incomplete")
+            seen.add(page_cursor)
+        result = dict(page, fixes=fixes, next_cursor="")
+        # A cursor walk is not a snapshot: missing totals or a resumed walk
+        # cannot establish that the entire queue was read.
+        total = page.get("distinct")
+        result["truncated"] = bool(cursor) or not isinstance(total, int) or total > len(fixes)
+        _output(ctx, result)
         return
     _output(ctx, cs.get_code_fixes(cursor=cursor, limit=limit))
 
@@ -2110,7 +2143,7 @@ def code_pr_check(ctx, repo, pr, base_sha, head_sha, action, prev_base_sha,
                    "credentials, port, query or fragment.")
 @click.option("--secret", required=True,
               help="The webhook signing secret the adapter verifies "
-                   "(X-Hub-Signature-256): 20 to 256 bytes, no whitespace "
+                   "(X-Hub-Signature-256): 20 to 256 characters, no whitespace "
                    "and no control characters. Never logged or echoed back.")
 @pass_context
 def code_webhook(ctx, connection, url, secret) -> None:
@@ -2163,7 +2196,7 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
     """Open a pull request fixing a dependency finding.
 
     FINDING_ID is the id of an open dependency (SCA) finding, as 'cloudsec
-    findings' returns it.
+    finding list' returns it. Supported ecosystems: npm, pip, go and maven.
 
     The finding id is the only input that decides anything: the backend
     resolves it against the dependency rows ITS OWN scan produced and raises
@@ -2213,9 +2246,9 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
               type=click.Choice(["sarif", "cyclonedx", "report"]),
               help="Format of the document: a SARIF results file, a CycloneDX "
                    "bill of materials, or the LimaCharlie scanner's own "
-                   "report/v1 document.")
+                   "lc-code-report/v1 document.")
 @click.option("-f", "--file", "file_path", required=True,
-              help="Path to the document. A '.gz' file is sent compressed.")
+              help="Path to the document: at most 20 MiB on the wire and 64 MiB decompressed. A '.gz' file is sent compressed.")
 @click.option("--commit", default=None,
               help="The revision the document describes. Recorded, not verified.")
 @click.option("--ref", default=None,
@@ -2333,7 +2366,7 @@ def code_provenance_group():
 
 
 @code_provenance_group.command("push")
-@click.option("--file", "-f", "file_path", required=True, type=click.Path(exists=True, dir_okay=False), help="LC/SLSA/Sigstore JSON document, at most 1 MiB.")
+@click.option("--file", "-f", "file_path", required=True, type=click.Path(exists=True, dir_okay=False), help="LC/SLSA/Sigstore JSON document, at most 1 MiB; 60 uploads/minute per identity, with bounded 429 backoff.")
 @click.pass_context
 def code_provenance_push(ctx, file_path):
     """Push a CI-produced document; the server assigns trust and tenant identity."""
@@ -2433,8 +2466,14 @@ def code_coverage(ctx, summary) -> None:
               help="Infrastructure-checks bundle. Omit to use the checks compiled into "
                    "the scanner, which is what a local scan normally wants.")
 @click.option("--ref", default=None, help="The branch or tag scanned, for context.")
+@click.option("--default-branch", default=None,
+              help="Shipping branch for ingest-created repositories. Inferred from local "
+                   "origin HEAD when available; otherwise supply it with an explicit "
+                   "branch --ref for a new repository. No branch name is guessed.")
 @click.option("--provider", default=None,
-              help="Source-control provider the repository key belongs to (default github).")
+              help="Source-control provider. Inferred from origin host (github.com, "
+                   "gitlab.com or bitbucket.org); ingestion requires an explicit "
+                   "provider for other hosts or no origin.")
 @click.option("--rules-file", "rules_file", default=None,
               type=click.Path(exists=True, dir_okay=False),
               help="Run the sast scanner with this rule set document "
@@ -2447,11 +2486,11 @@ def code_coverage(ctx, summary) -> None:
 @pass_context
 def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
               output_path, scanners, timeout_s, db_repo, java_db_repo,
-              checks_repo, ref, provider, rules_file, org_rules) -> None:
+              checks_repo, ref, default_branch, provider, rules_file, org_rules) -> None:
     """Scan a local checkout with the LimaCharlie code scanner.
 
     Runs the scanner over PATH (default: the current directory) and writes a
-    report/v1 document. With --ingest the report is pushed to this org, where
+    lc-code-report/v1 document. With --ingest the report is pushed to this org, where
     it lands on exactly the rows a hosted scan of the same repository would
     write — the report format is loss-free, so the identities match and
     nothing is duplicated.
@@ -2495,6 +2534,18 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
             "--ingest needs --repo '<owner>/<name>': this checkout's git origin "
             "did not name one, and the repository a finding belongs to is not "
             "something to guess")
+    if provider is None:
+        host, _ = _git_remote(root)
+        provider = {"github.com": "github", "gitlab.com": "gitlab",
+                    "bitbucket.org": "bitbucket"}.get(host)
+        if do_ingest and provider is None:
+            raise click.UsageError(
+                "cannot infer the source-control provider from origin; pass --provider "
+                "for an unknown/self-managed host or a checkout without origin")
+    if default_branch is None and do_ingest:
+        origin_head = _git(root, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+        if origin_head and origin_head.startswith("refs/remotes/origin/"):
+            default_branch = origin_head[len("refs/remotes/origin/"):]
     if not do_ingest and not output_path:
         # Checked BEFORE the scan, not after: the report would be written into a
         # temporary directory and deleted with it, so the command would spend
@@ -2563,7 +2614,8 @@ def code_scan(ctx, path, repo, commit, do_ingest, image, binary,
         if do_ingest:
             cs = _get_cloudsec(ctx)
             result["ingest"] = cs.ingest_code_results(
-                repo, "report", document, commit=commit, ref=ref, provider=provider)
+                repo, "report", document, commit=commit, ref=ref,
+                default_branch=default_branch, provider=provider)
         _output(ctx, result)
 
 
@@ -2748,36 +2800,35 @@ def _git_repo_key(root: str) -> str | None:
     (``acme/platform/backend``, not ``platform/backend``). The provider key
     is read by cutting on the LAST '/', so dropping any leading segment here would report a
     DIFFERENT repository under a key that happens to still look valid."""
+    return _git_remote(root)[1]
+
+
+def _git_remote(root: str) -> tuple[str | None, str | None]:
+    from urllib.parse import urlsplit
+
     url = _git(root, "config", "--get", "remote.origin.url")
     if not url:
-        return None
-    url = url.rstrip("/")
-    if url.endswith(".git"):
-        url = url[:-4]
-    # Both spellings of a HOSTED remote: https://host/owner/name and git@host:owner/name.
-    # A remote with neither — a local path, a `file://` clone — is refused rather than
-    # parsed: `/home/me/src/api` would yield the plausible and wrong key "src/api", which
-    # is exactly the guess the --ingest guard says must not happen. The guard catches an
-    # ABSENT remote; this catches an unparseable one.
+        return None, None
     if "://" in url:
-        scheme, rest = url.split("://", 1)
-        if scheme.lower() in ("file",) or "/" not in rest:
-            return None
-        host, _, tail = rest.partition("/")
-        if "." not in host and host.lower() != "localhost":
-            return None
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme.lower() not in ("https", "http", "ssh", "git"):
+                return None, None
+            host, tail = parsed.hostname, parsed.path.lstrip("/")
+        except ValueError:
+            return None, None
     elif ":" in url:
         host, _, tail = url.partition(":")
-        # scp-style: [user@]host:owner/name
-        host = host.rpartition("@")[2]
-        if "." not in host:
-            return None
+        host = host.rpartition("@")[2].lower()
     else:
-        return None
+        return None, None
+    if not host or ("." not in host and host != "localhost"):
+        return None, None
+    tail = tail.rstrip("/").removesuffix(".git")
     parts = [p for p in tail.split("/") if p]
     if len(parts) < 2:
-        return None
-    return "/".join(parts)
+        return host, None
+    return host, "/".join(parts)
 
 
 def _git(root: str, *args: str) -> str | None:
@@ -3533,7 +3584,7 @@ def finding_resolve(ctx, finding_id, kind, reason, expires_at) -> None:
 
 @finding_group.command("bulk-resolve")
 @click.option("--finding-id", "finding_ids", multiple=True, required=True,
-              help="Finding id; repeat for each finding.")
+              help="Finding id; repeat for each finding (at most 500 per call).")
 @click.option("--kind", required=True, type=_BULK_KIND_CHOICES,
               help="Resolution kind (reopen is single-finding only: use 'finding resolve --kind open').")
 @click.option("--reason", default=None, help="Optional operator note.")
@@ -3548,6 +3599,8 @@ def finding_bulk_resolve(ctx, finding_ids, kind, reason, expires_at) -> None:
     Example:
       limacharlie cloudsec finding bulk-resolve --finding-id fnd_a --finding-id fnd_b --kind mitigated
     """
+    if len(finding_ids) > 500:
+        raise click.UsageError("bulk resolution accepts at most 500 finding IDs per call")
     cs = _get_cloudsec(ctx)
     _output(ctx, cs.bulk_set_finding_status(
         list(finding_ids), kind, reason=reason, expires_at=expires_at,
@@ -3626,8 +3679,13 @@ def remediation_get(ctx, run_id) -> None:
 @remediation_group.command("create")
 @click.argument("finding_id")
 @click.option("--action", "action", required=True,
-              help="Remediation action, e.g. open_fix_pr. The server resolves every target "
-                   "from the finding.")
+              help="Action: open_fix_pr (image package vulnerabilities; repository "
+                   "dependencies use 'code autofix'), ai_fix_pr (SAST/IaC), "
+                   "temporary_detection, notify_ticket, isolate_endpoint, "
+                   "validate_detection or validate_runtime. These require deployment "
+                   "support and eligible targets. disable_credential is reserved and "
+                   "unavailable; simulated is deployment-gated test support. "
+                   "The server resolves targets from the finding.")
 @click.option("--idempotency-key", default=None,
               help="Replay-safe key; a repeat returns the same run. Generated when omitted.")
 @pass_context
@@ -5172,7 +5230,7 @@ def code_iac_map_extract(input_path, source_kind, repository, commit, workspace,
 
 
 @code_iac_map.command("push")
-@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 20 MiB. Raw state/plans are refused.")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 20 MiB; 30 uploads/minute per identity, with bounded 429 backoff. Raw state/plans are refused.")
 @pass_context
 def code_iac_map_push(ctx, input_path) -> None:
     """Push only locally sanitized IaC JSON; requires cloudsec.set.

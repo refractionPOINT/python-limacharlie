@@ -48,11 +48,20 @@ limacharlie cloudsec fleet overview --oid <OID1> --oid <OID2>
 
 ## Findings
 
-Repeatable filters are OR within a key and AND across keys, and every one of them is truncated at 100 values by the API with no error and no signal in the response — a script fanning out over more than 100 repositories, owners or image urns has to batch them. Finding classes: `toxic_combination`, `public_exposure`, `ciem_risk`, `privilege_escalation`, `vulnerability`, `misconfig`, `coverage_gap`. Sort keys: `lc_risk` (default), `severity`, `first_seen`.
+Repeatable filters are OR within a key and AND across keys, and every one of them is truncated at 100 values by the API with no error and no signal in the response — a script fanning out over more than 100 repositories, owners or image urns has to batch them. Use `cloudsec finding classes` to read the API's current finding-class vocabulary:
+`toxic_combination`, `public_exposure`, `ciem_risk`, `privilege_escalation`,
+`vulnerability`, `misconfig`, `malware`, `secret`, `scan_finding`, `coverage_gap`,
+`workload_coverage_gap`, `vuln_coverage_gap`, `authz_coverage_gap`, `device_posture`,
+`code_weakness`, `license_risk`, `eol_runtime`, `iac_drift`, `operational`.
+Sort keys: `lc_risk` (default), `severity`, `first_seen`, `due_at`.
+`--sla` accepts `on_track`, `due_soon`, `breached`, `exempt`, `none` and is repeatable (OR).
+For example: `limacharlie cloudsec finding list --sla breached --sort due_at`.
+Bulk resolution accepts at most 500 `--finding-id` values per call; the CLI and
+SDK reject larger requests before sending them.
 
 `--owner` filters by assigned owner and `--unassigned` selects the untriaged bucket; they combine, so "mine or nobody's" is one filter with both. On `finding facets` the `owner` facet is capped at the top 50 owners by count (`owner_truncated` reports whether any were dropped) — `--owner-pin` keeps named owners in it even when they would not rank in, and filters nothing. That is bounded by the same cap: pins share the 50 slots with any `--owner` values, so past ~50 combined a pin can still be dropped and `owner_truncated` will not say so.
 
-`finding causes` groups findings by the mutable object whose single edit resolves all of them, so a worklist can be worked by fix instead of by row. It takes the same filters as `finding list`; `distinct` is the total number of matching causes, so you can see how much tail the ranked head hides. `--cause` narrows any of `finding list`, `finding facets` and `export findings` to one cause's findings.
+`finding causes` groups findings by the mutable object whose single edit resolves all of them, so a worklist can be worked by fix instead of by row. It takes the same filters as `finding list`; `distinct` is the total number of matching causes, so you can see how much tail the ranked head hides. `--cause` narrows any of `finding list`, `finding facets` and `export findings` to one cause's findings. Repository SCA findings carry `vulnerable_package` causes for shared package upgrades; other vulnerability findings may carry no cause.
 
 ### Vulnerability selectors
 
@@ -346,6 +355,128 @@ collector model types such as `DataStore`; it differs from the
 `resource_type` matcher. A collection exclusion removes matching inventory
 on the next sweep, so review its scope before saving it.
 
+## Configuring Code Security
+
+Subscribe to the Cloud Security extension (`ext-cloud-security`), then create
+`cloudsec_provider` and `cloudsec_policy` hive records. Provider records use
+`cloudsec_provider.get` / `cloudsec_provider.set` (and corresponding `.get.mtd`,
+`.set.mtd`, `.del` permissions for metadata and deletion). `cloudsec_policy`,
+`cloudsec_query` and `cloudsec_code_rule` use `cloudsec.get` / `cloudsec.set`.
+Credential values stay in the `secret` hive: provider records
+store `hive://secret/<name>` references.
+
+A GitHub connection's record data is:
+
+```json
+{"provider_type": "github", "github_org": "acme", "github_app_id": "123",
+ "github_installation_id": "456", "credentials": "hive://secret/github-key"}
+```
+
+The IDs are numeric strings. The credentials secret holds a JSON credential with a `private_key` field
+containing the GitHub App's PEM private key. Test the collection connection before saving it:
+
+```bash
+limacharlie cloudsec provider test --input-file github-provider.json
+limacharlie hive set --hive-name cloudsec_provider --key github \
+  --input-file github-provider.json --enabled
+```
+
+PR checks and fix PRs need write permissions. GitHub can use the connection App's
+granted permissions, or a separate App configured with the complete triple
+`github_actions_app_id`, `github_actions_installation_id`, `actions_credentials`.
+A separate App must have a different App ID and a different secret reference.
+GitLab.com uses `gitlab_write_credentials`; Bitbucket Cloud uses
+`bitbucket_write_credentials`. These write-token references must differ from
+`credentials`, so scan jobs cannot receive the workflow credential.
+`provider test` probes collection credentials only; it does **not** test those
+write credentials. Inspect `code capabilities` and webhook readiness separately.
+
+A minimal `cloudsec_policy` record data enabling dependency scans is:
+
+```json
+{"policy_type": "code_scanning", "code_scanning": {
+  "enabled": true, "repos": {"include": ["acme/api"]},
+  "scanners": {"sca": true, "sast": false}}}
+```
+
+```bash
+limacharlie hive set --hive-name cloudsec_policy --key code-scan \
+  --input-file code-policy.json --enabled
+```
+
+The record's `usr_mtd.enabled` and the required `code_scanning.enabled` must both
+be true to activate it. At least one scanner must resolve on. Fields in the
+`code_scanning` body are:
+
+| Field | Meaning |
+|---|---|
+| `repos.include`, `repos.exclude` | Repository globs; empty include selects all visible repositories; exclusions win within a record. |
+| `scanners` | Independent `sca`, `sast`, `iac`, `licenses`, `images`, `secrets`, `secrets_history` switches. `sast` defaults on when omitted; the others default off. |
+| `severity_floor` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`; default `LOW`. |
+| `schedule` | `daily` (default), `weekly`, `manual`. |
+| `pr_checks`, `pr_comments` | Opt in to PR checks and a consolidated PR comment; both default off. |
+| `gating.fail_on` | Lowest introduced severity that fails a check: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `NONE`; default `NONE`. |
+| `pr_live_context` | `off` (default), `risk_summary`, `resource_details`; controls the live context shown on PRs. |
+| `image_sources` | `dockerfile` (default), `workloads`, `registries`; used with `scanners.images`. |
+| `autofix_registry_access` | Allow package-registry reads for lockfile regeneration; defaults true, explicit false wins across matching policies. |
+| `ai_fix` | Optional AI-fix consent and model/check configuration; requires deployment support and approval for each run. |
+| `sast_ruleset` | Deprecated and ignored; hosted SAST uses enabled `cloudsec_code_rule` records. Omit it in new records. |
+
+Each other policy type uses `policy_type` plus the same-named body:
+
+| Type | Purpose and permissions |
+|---|---|
+| `sla` | Ordered remediation deadlines (`rules`, with `match` and `due_days`); read `cloudsec.get`, write `cloudsec.set`. |
+| `suppression` | Auditable automatic acceptance or false-positive dispositions; read `cloudsec.get`, write `cloudsec.set`. |
+| `vex` | Vulnerability exploitability assertions with attributable product/CVE scope; read `cloudsec.get`, write `cloudsec.set`. |
+| `provenance_trust` | Exact repository/builder trust entries and key/root references; read `cloudsec.get`, write `cloudsec.set`. |
+| `response` | Versioned response-playbook installations and consent; read `cloudsec.get`, write `cloudsec.set` **and** `cloudsec.respond`. |
+
+A `cloudsec_code_rule` record is an Opengrep/Semgrep rule file in JSON form:
+
+```json
+{"rules": [{"id": "no-eval", "languages": ["python"], "severity": "ERROR",
+            "message": "Avoid eval on dynamic input", "pattern": "eval(...)"}]}
+```
+
+Limits are 256 KiB per record, 1–100 rules per record, and 256 characters per rule
+ID (letters, digits, `.`, `_`, `-`). Each rule requires a non-empty message,
+languages, severity and exactly one matcher. Search rules choose `pattern`,
+`patterns`, `pattern-either`, `pattern-regex` or `match`; taint rules use
+`mode: "taint"` with `pattern-sources`/`pattern-sinks`, or a `taint` object with
+`sources`/`sinks`. Severities are `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `ERROR`,
+`WARNING`, `INFO`. The hosted enabled set is bounded to 5,000 rules and 20 MiB.
+Disable a record with `usr_mtd.enabled: false` to stop running it.
+
+The extension exposes two setup request actions:
+
+```bash
+limacharlie extension request --name ext-cloud-security --action restore_default_code_rules
+limacharlie extension request --name ext-cloud-security --action reset_code_webhook_rules
+```
+
+`restore_default_code_rules` installs missing default SAST records; existing
+records are kept unless request data sets `overwrite: true`.
+`reset_code_webhook_rules` installs missing webhook recipe rules and restores the
+extension's own recipe records to the shipped version. The recipe contains seven
+`dr-general` rules: GitHub push rescan, PR check and PR retarget; GitLab push rescan
+and merge-request check; Bitbucket push rescan and PR check.
+
+### Previewing policy scope
+
+```bash
+limacharlie cloudsec policy vocabulary
+limacharlie cloudsec policy suggest --dimension name -q prod
+limacharlie cloudsec simulate resources --rules-json '[{"name_glob":["prod-*"]}]'
+limacharlie cloudsec simulate findings --match-json '{"finding_class":["code_weakness"]}'
+limacharlie cloudsec topology
+```
+
+`policy suggest` completes resource names or accounts from current inventory.
+`simulate resources` previews resource matcher rules (use `--surface` for the
+policy surface); `simulate findings` previews a suppression matcher. Neither
+stores a policy. `topology` reads pre-aggregated estate counts and relationships.
+
 ## Code Security: the hosted code lane
 
 The lane scans a connected source-control organization's repositories and emits findings into the SAME worklist the cloud collectors feed, so the findings themselves are read with `cloudsec finding list --repo <owner>/<name>`. The commands here are the repository-shaped views and triggers that worklist cannot give you.
@@ -353,7 +484,7 @@ The lane scans a connected source-control organization's repositories and emits 
 ```bash
 limacharlie cloudsec code repos --with-findings --all
 limacharlie cloudsec code status                       # run status per connection
-limacharlie cloudsec code capabilities --repo acme/api # what the connection may DO
+limacharlie cloudsec code capabilities --repo acme/api # repo-specific answers; all connections remain listed
 limacharlie cloudsec code fixes --all                  # the dependency-upgrade queue
 limacharlie cloudsec code sbom --repo acme/api -o sbom.json.gz
 limacharlie cloudsec code rescan acme/api --ref refs/heads/main
@@ -419,9 +550,19 @@ limacharlie hive set --hive-name cloudsec_policy --key hub-private-image \
 connections also appear when their workflow support is enabled in your deployment;
 an absent connection does not mean repository scanning is off. Use
 `provider manifest` for collection coverage. A capability of `available` means the
-control can be offered, not that anything fires on its own.
+control can be offered, not that anything fires on its own. `--repo` narrows
+an owning connection's answer to that repository; connections whose organizations
+do not own it still appear unchanged. GitHub entries also carry a `webhook` object
+with `state`, `reason`, `missing_events` and `detail`. Check webhook readiness
+separately from workflow permissions.
 
-`code fixes` pages differently from the rest of cloudsec: backend default 5, max 20, not the shared 1000-row cap.
+`code repos --limit` has a server cap of 500 (default 100).
+`code fixes` has a default page size of 5 and a maximum of 20. Its `cause_key`
+drills down with `cloudsec finding list --cause <cause_key>`. `--all` follows
+available cursors, keeps the API's `distinct` total, and sets `truncated: true`
+when the result does not cover that total. The API stops issuing cursors once
+the next offset exceeds 10,000, so a walk can finish without covering the queue.
+AutoFix supports npm, pip, go and maven dependency findings.
 
 `code rescan` accepts a debounced request; `accepted` does not prove a scan ran. Follow its outcome with `code repos`. `code autofix` requires `cloudsec.respond` and creates a governed `open_fix_pr` remediation run with the caller as requester and approver. Its response has `run_id`, `state`, `replayed`, and `run`, with no `debounce_seconds`. Use `cloudsec remediation get <run_id>` to follow the callback and PR. A second click before the PR opens returns the same run with `replayed: true`. A created run does not prove a PR exists or a fix is verified.
 
@@ -534,6 +675,19 @@ limacharlie cloudsec code scan --scanners sca,sast -o report.json.gz         # s
 limacharlie cloudsec code scan --scanners sast --org-rules -o report.json.gz # sast: this org's rules
 limacharlie cloudsec code scan --scanners sast --rules-file rules.json -o report.json.gz
 ```
+
+The output schema is `lc-code-report/v1`. Ingestion accepts at most 20 MiB
+on the wire and 64 MiB after decompression. `--repo` and `--commit` are inferred
+from the checkout when possible. When `--provider` is omitted, origin hosts
+`github.com`, `gitlab.com` and `bitbucket.org` select their respective providers.
+For an unknown/self-managed host or a checkout without origin, ingestion requires
+an explicit `--provider`; it never silently labels that repository GitHub.
+`--default-branch` is inferred from the local `refs/remotes/origin/HEAD` symbolic
+ref when available, never from the currently checked-out branch. Supply it when
+pushing an explicit branch `--ref` for a new ingest-created repository if origin
+HEAD is unavailable. The API trusts an existing stored default branch ahead of
+this claim; a connected repository with no stored default branch needs a ref-less
+push until collection learns its branch.
 
 The scanner runs only the static-analysis rules it is given. When `sast` is in `--scanners`, the CLI picks the rule set:
 
@@ -660,6 +814,12 @@ Writes require `cloudsec.set`, reads `cloudsec.get`. The server feature must be
 enabled after schema installation; command availability grants no deployment or
 response authorization.
 
+IaC-map pushes allow 30 requests/minute per identity; provenance pushes allow
+60. Both SDK uploads retry 429 responses with the same bounded, jittered,
+Retry-After-aware backoff as code ingestion (at most five retries, 600 seconds
+of total waiting; Retry-After is capped at 120 seconds). Upload retries preserve
+the exact document bytes. Exhaustion is an error, never a success receipt.
+
 ## Evidence chain
 
 `limacharlie cloudsec finding chain <finding_id>` shows the evidence chain for one
@@ -717,6 +877,25 @@ remediation runs.
   the run or its targets change. The token is a review step, not a secret. The
   server is the gate: it requires `cloudsec.respond` and refuses a decision whose
   generation or target digest no longer matches the run.
+
+Choose `remediation create --action` for the finding and evidence it carries:
+
+| Action | Eligible finding/target |
+|---|---|
+| `open_fix_pr` | Image package-vulnerability findings only. Repository dependency findings use `cloudsec code autofix` instead (npm, pip, go, maven). |
+| `ai_fix_pr` | Scanner-produced SAST (`code_weakness`) or IaC (`misconfig`) repository findings with a usable source location; needs policy consent and human approval. |
+| `temporary_detection` | Findings with server-resolvable scope and an installed temporary-detection response playbook. |
+| `notify_ticket` | Findings with server-resolvable scope and an installed notification/ticket response playbook. |
+| `isolate_endpoint` | A finding resolving to an eligible endpoint under the installed isolation policy; always needs fresh human approval. |
+| `validate_detection` | A finding with an active temporary detection to read back; read-only validation. |
+| `validate_runtime` | An open finding with a resource in this organization; reads runtime evidence and reports unknown when unavailable. |
+| `disable_credential` | Reserved vocabulary; no service executor, so creation is refused. |
+| `simulated` | Test executor with no external effect, only where explicitly enabled. |
+
+Actions are deployment-gated: the relevant executor must be enabled and the
+finding must carry the required evidence. A recognized name alone does not make
+an action available. The CLI leaves `--action` as text to remain compatible with
+future API additions; the API validates the closed set.
 
 Run `state` is one of `requested`, `planning`, `awaiting_approval`, `executing`,
 `monitoring`, `rejected`, `cancelled`, `expired`, `failed`, `verified`,

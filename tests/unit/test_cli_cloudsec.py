@@ -2326,19 +2326,21 @@ class TestCloudSecCode:
             inst.get_code_fixes.assert_called_once_with(cursor="abc", limit=20)
 
     def test_code_fixes_all_walks_the_cursor(self):
-        """--all must use the iterator, not a single page — same rule as
-        'code repos --all', for the same reason: a page can be short
-        without being last."""
+        """A short page with a cursor must not stop the walk or lose its total."""
         with _patches()[0], _patches()[1], _patches()[2] as cs_cls:
             inst = MagicMock()
-            inst.iter_code_fixes.return_value = iter([])
+            inst.get_code_fixes.side_effect = [
+                {"fixes": [{"cause_key": "one"}], "distinct": 2, "next_cursor": "next"},
+                {"fixes": [{"cause_key": "two"}], "distinct": 2, "next_cursor": ""},
+            ]
             cs_cls.return_value = inst
-            runner = CliRunner()
-            result = runner.invoke(
+            result = CliRunner().invoke(
                 cli, ["--output", "json", "cloudsec", "code", "fixes", "--all"])
             assert result.exit_code == 0, result.output
-            inst.iter_code_fixes.assert_called_once()
-            inst.get_code_fixes.assert_not_called()
+            assert json.loads(result.output) == {
+                "fixes": [{"cause_key": "one"}, {"cause_key": "two"}],
+                "distinct": 2, "next_cursor": "", "truncated": False}
+            assert [call.kwargs["cursor"] for call in inst.get_code_fixes.call_args_list] == [None, "next"]
 
     def test_code_sbom_prints_the_link(self):
         with _patches()[0], _patches()[1], _patches()[2] as cs_cls:

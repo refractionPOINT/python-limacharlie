@@ -19,7 +19,7 @@ def test_shared_extractor_golden_and_server_tenant_route():
     assert validate_iac_map(raw) == raw
     org = MagicMock(oid="tenant-a")
     CloudSec(org).push_iac_map(raw)
-    org.client.request.assert_called_once_with("POST", "cloudsec/tenant-a/code/iac-map", raw_body=raw, content_type="application/json")
+    org.client.request.assert_called_once_with("POST", "cloudsec/tenant-a/code/iac-map", raw_body=raw, content_type="application/json", retry_quota_errors=False)
 
 
 def test_status_receipt_uses_only_scoped_selectors():

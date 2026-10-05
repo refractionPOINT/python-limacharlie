@@ -53,6 +53,11 @@ _SYNC_FLAGS = [
     click.option("--installation-keys", is_flag=True, default=False, help="Sync installation keys."),
     click.option("--yara", is_flag=True, default=False, help="Sync YARA rules and sources."),
     # Hive flags
+    click.option("--hive-cloudsec-policy", is_flag=True, default=False, help="Sync cloudsec_policy records."),
+    click.option("--hive-cloudsec-provider", is_flag=True, default=False, help="Sync cloudsec_provider records."),
+    click.option("--hive-cloudsec-query", is_flag=True, default=False, help="Sync cloudsec_query records."),
+    click.option("--hive-cloudsec-code-rule", is_flag=True, default=False, help="Sync cloudsec_code_rule records."),
+    click.option("--hive-mailsec-provider", is_flag=True, default=False, help="Sync mailsec_provider records."),
     click.option("--hive-dr-mail", is_flag=True, default=False, help="Sync Email Security rules."),
     click.option("--hive-mailsec-policy", is_flag=True, default=False, help="Sync Email Security policy."),
     click.option("--hive-app-control-policy", is_flag=True, default=False, help="Sync Application Control policies."),
@@ -77,6 +82,11 @@ _SYNC_FLAGS = [
 
 # Maps CLI flag name -> hive name sent to the backend
 _HIVE_FLAG_MAP = {
+    "hive_cloudsec_policy": "cloudsec_policy",
+    "hive_cloudsec_provider": "cloudsec_provider",
+    "hive_cloudsec_query": "cloudsec_query",
+    "hive_cloudsec_code_rule": "cloudsec_code_rule",
+    "hive_mailsec_provider": "mailsec_provider",
     "hive_acl": "acl",
     "hive_dr_general": "dr-general",
     "hive_dr_mail": "dr-mail",
@@ -216,6 +226,11 @@ Hive flags (for syncing hive-based resources):
   --hive-extension-config  Extension configs
   --hive-yara            YARA rules (hive)
   --hive-lookup          Lookups
+  --hive-cloudsec-policy  cloudsec_policy records
+  --hive-cloudsec-provider  cloudsec_provider records
+  --hive-cloudsec-query  cloudsec_query records
+  --hive-cloudsec-code-rule  cloudsec_code_rule records
+  --hive-mailsec-provider  mailsec_provider records
   --hive-secret          Secrets
   --hive-query           Saved queries
   --hive-playbook        Playbooks
@@ -247,12 +262,18 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
+         hive_cloudsec_policy, hive_cloudsec_provider, hive_cloudsec_query, hive_cloudsec_code_rule, hive_mailsec_provider,
          hive_external_adapter, hive_acl) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
         hive_acl=hive_acl,
+        hive_cloudsec_policy=hive_cloudsec_policy,
+        hive_cloudsec_provider=hive_cloudsec_provider,
+        hive_cloudsec_query=hive_cloudsec_query,
+        hive_cloudsec_code_rule=hive_cloudsec_code_rule,
+        hive_mailsec_provider=hive_mailsec_provider,
         hive_dr_general=hive_dr_general,
         hive_dr_mail=hive_dr_mail,
         hive_mailsec_policy=hive_mailsec_policy,
@@ -350,12 +371,18 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
          hive_fp, hive_cloud_sensor, hive_extension_config,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
+         hive_cloudsec_policy, hive_cloudsec_provider, hive_cloudsec_query, hive_cloudsec_code_rule, hive_mailsec_provider,
          hive_external_adapter, hive_acl) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
         hive_acl=hive_acl,
+        hive_cloudsec_policy=hive_cloudsec_policy,
+        hive_cloudsec_provider=hive_cloudsec_provider,
+        hive_cloudsec_query=hive_cloudsec_query,
+        hive_cloudsec_code_rule=hive_cloudsec_code_rule,
+        hive_mailsec_provider=hive_mailsec_provider,
         hive_dr_general=hive_dr_general,
         hive_dr_mail=hive_dr_mail,
         hive_mailsec_policy=hive_mailsec_policy,

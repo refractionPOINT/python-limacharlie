@@ -104,13 +104,21 @@ def test_shared_client_does_not_retry_503_without_opt_in(endpoint, path):
 
 
 @pytest.mark.parametrize("status", [400, 403, 429, 502])
-def test_provenance_other_errors_are_not_retried(endpoint, status):
+def test_provenance_errors_retry_only_rate_limits(endpoint, status, monkeypatch):
     client, statuses, seen, _ = endpoint
     statuses.extend([status, 200])
-    with pytest.raises(LimaCharlieError) as exc:
-        CloudSec(Organization(client)).push_code_provenance(RAW)
-    assert exc.value.status_code == status
-    assert len(seen) == 1
+    if status == 429:
+        waits = []
+        monkeypatch.setattr("limacharlie.sdk.cloudsec.time.sleep", waits.append)
+        result = CloudSec(Organization(client)).push_code_provenance(RAW)
+        assert result["attestation_id"] == hashlib.sha256(RAW).hexdigest()
+        assert len(seen) == 2 and seen[0][1] == seen[1][1] == RAW
+        assert len(waits) == 1 and 5 <= waits[0] <= 7.5
+    else:
+        with pytest.raises(LimaCharlieError) as exc:
+            CloudSec(Organization(client)).push_code_provenance(RAW)
+        assert exc.value.status_code == status
+        assert len(seen) == 1
 
 
 def test_unavailable_retry_respects_total_attempt_budget(endpoint):
