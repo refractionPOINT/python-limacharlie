@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### IOC batch search compatibility
+
+- Document the upcoming batch IOC search response change.
+  Batch location searches can return healthy types plus an `errors` map;
+  failed types are omitted and must not be treated as zero sightings. If all
+  types fail, the API reports a request error. The SDK continues passing the
+  API response through unchanged.
+- Indexed batch summaries reject oversized names before starting work.
+  Query values exceeding 3,968 normalized UTF-8 bytes individually instead.
+
+
 ### Application Control hives and CLI
 
 - New `limacharlie app-control policy` and `limacharlie app-control rule` command

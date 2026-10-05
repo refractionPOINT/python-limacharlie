@@ -69,6 +69,37 @@ batch = insight.batch_search({"domain": ["evil.com"], "ip": ["1.2.3.4"]})
 enrichment = insight.get_object_information("domain", "evil.com")
 ```
 
+### Batch location failures
+
+For `batch_search(..., info="locations")`, a successful HTTP response can contain
+partial results. Check the top-level `errors` map before using each requested
+type. A failed type is omitted from the result map; its indicators are
+**unavailable**, not indicators with zero sightings. Successfully queried types
+still include zero counts and empty locations for genuine zero-hit indicators.
+If every requested type fails, the API reports a request error.
+
+```python
+objects = {"domain": ["evil.com"], "ip": ["1.2.3.4"]}
+result = insight.batch_search(objects, info="locations")
+errors = result.get("errors", {})
+
+for obj_type, names in objects.items():
+    if obj_type in errors:
+        print(f"{obj_type} search unavailable: {errors[obj_type]}")
+        continue
+    for name in names:
+        print(obj_type, name, result[obj_type][name])
+```
+
+Do not replace absent results with zero counts or an empty list. Existing code
+that assumes every requested type is present must handle partial failures before
+the upcoming response change rolls out.
+The SDK passes these response fields through unchanged.
+
+Indexed batch summaries also reject the entire request before starting queries
+when a name exceeds 3,968 normalized UTF-8 bytes. Query oversized values
+individually with `search_ioc` instead of including them in a batch summary.
+
 ## See Also
 
 - [CLI: search, ioc](../cli/data-query.md) — CLI equivalents

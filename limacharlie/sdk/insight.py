@@ -78,7 +78,10 @@ class Insight:
                 Ignored when info='summary'.
 
         Returns:
-            dict: Batch results.
+            dict: Batch results. For info='locations', check the top-level
+                'errors' map before accessing a requested type. Failed types
+                may be omitted; their results are unavailable, not zero hits.
+                If all types fail, the API reports a request error.
         """
         params = {
             "objects": json.dumps({k: list(v) for k, v in objects.items()}),
