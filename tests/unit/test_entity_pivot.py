@@ -164,3 +164,53 @@ def test_search_help_documents_byte_limit():
     result = CliRunner().invoke(cli, ["cloudsec", "entity", "search", "--help"])
     assert result.exit_code == 0
     assert "512 UTF-8 bytes" in result.output
+
+
+def test_github_login_lookup_and_external_adapter_card(sdk):
+    cs, org = sdk
+    identifiers = [{"type": "github_login", "value": "octo-fixture"}]
+    org.client.request.return_value = {"index_ready": True, "results": []}
+    assert cs.resolve_entities(identifiers)["index_ready"] is True
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"]) == {"identifiers": identifiers}
+    card = {"entity": {"id": "eu_aaaa", "kind": "user", "attrs": {"external": True}},
+            "telemetry_sources": [{"sid": OID, "platform": "github", "identity_type": "github_login",
+                                   "hostname": "octo-fixture"}],
+            "pivots": [{"route": "/sensors/{oid}/{sid}", "permission": "sensor.get",
+                        "params": {"oid": OID, "sid": OID}}]}
+    org.client.request.return_value = {"index_ready": True, "card": card}
+    assert cs.get_entity("eu_aaaa")["card"] == card
+
+
+def test_cli_resolves_github_login():
+    with patch("limacharlie.commands.cloudsec._get_cloudsec") as get_cs:
+        get_cs.return_value.resolve_entities.return_value = {"index_ready": True, "results": []}
+        result = CliRunner().invoke(cli, ["--output", "json", "cloudsec", "entity", "resolve",
+                                         "--identifier", "octo-fixture", "--type", "github_login"])
+    assert result.exit_code == 0, result.output
+    get_cs.return_value.resolve_entities.assert_called_once_with(
+        [{"value": "octo-fixture", "type": "github_login"}], at=None)
+
+
+def test_github_user_id_lookup_and_external_adapter_card(sdk):
+    cs, org = sdk
+    identifiers = [{"type": "github_user_id", "value": "12345678901234567890"}]
+    org.client.request.return_value = {"index_ready": True, "results": []}
+    assert cs.resolve_entities(identifiers)["index_ready"] is True
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"]) == {"identifiers": identifiers}
+    card = {"entity": {"id": "eu_aaaa", "kind": "user", "attrs": {"external": True}},
+            "telemetry_sources": [{"sid": OID, "platform": "github", "identity_type": "github_login",
+                                   "hostname": "12345678901234567890"}],
+            "pivots": [{"route": "/sensors/{oid}/{sid}", "permission": "sensor.get",
+                        "params": {"oid": OID, "sid": OID}}]}
+    org.client.request.return_value = {"index_ready": True, "card": card}
+    assert cs.get_entity("eu_aaaa")["card"] == card
+
+
+def test_cli_resolves_github_user_id():
+    with patch("limacharlie.commands.cloudsec._get_cloudsec") as get_cs:
+        get_cs.return_value.resolve_entities.return_value = {"index_ready": True, "results": []}
+        result = CliRunner().invoke(cli, ["--output", "json", "cloudsec", "entity", "resolve",
+                                         "--identifier", "12345678901234567890", "--type", "github_user_id"])
+    assert result.exit_code == 0, result.output
+    get_cs.return_value.resolve_entities.assert_called_once_with(
+        [{"value": "12345678901234567890", "type": "github_user_id"}], at=None)
