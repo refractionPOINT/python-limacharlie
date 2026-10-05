@@ -1922,7 +1922,8 @@ class Mailsec:
         Args:
             banner: The fields of a ``banners`` policy record (``title``,
                 ``color``, ``text``, ``logo_url``, ``logo_alt``, ``variants``,
-                ``enabled``); omit ``policy_type``.
+                ``enabled``). ``policy_type`` is optional; the server sets it to
+                ``banners`` when validating the preview.
             verdict: Preview the per-verdict variant for this verdict
                 (``malicious``, ``suspicious``, ``graymail``, ``benign``,
                 ``unknown``).
