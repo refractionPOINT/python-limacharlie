@@ -44,8 +44,9 @@ import click
 
 from ..cli import pass_context
 from ..client import Client
+from ..errors import ApiError
 from ..sdk.organization import Organization
-from ..sdk.mailsec import BULK_ACTIONS, DISPOSITIONS, SAMPLE_CATEGORIES, Mailsec, normalize_bulk_selection
+from ..sdk.mailsec import BULK_ACTIONS, DISPOSITIONS, SAMPLE_CATEGORIES, Mailsec, normalize_bulk_selection, _check_eml_justification, _api_error_data
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 from ._input_helpers import load_file, load_stdin
@@ -66,7 +67,7 @@ so the number is a coverage statement an admin can act on instead of
 a count of whatever happened to work.
 
 Use --since/--until for a specific range, or --window-days for days
-back from now. These forms cannot be combined. Explicit windows are
+back from now (1 to 35). These forms cannot be combined. Explicit windows are
 recomputed and rate-limited; the default 24-hour window is cached.
 volume.truncated means the requested period exceeds retained messages.
 
@@ -77,7 +78,11 @@ Examples:
 
 _EXPLAIN_MESSAGE_LIST = """\
 The message index — the triage queue. Repeatable filters OR within a
-key and AND across keys.
+key and AND across keys. Verdicts: malicious, suspicious, graymail, benign,
+unknown, error (judgement failed). States: delivered, quarantined, trashed,
+restored, bannered, spam. --limit is 1 to 1000; out-of-range values are refused.
+Unbounded --search/--q is refused. Time-only bounded searches return 429 when
+the per-org read budget is exhausted; use exact mailbox, sender, campaign or IOC pivots.
 
 --lane live selects newly arriving mail; --lane backfill selects history
 judged during onboarding. Omit it for either. The lane filter works with
@@ -117,7 +122,9 @@ This is a different privilege from opening the drawer (mailsec.get.eml,
 not mailsec.get) because it takes a person's actual mail out of the
 building. --justification is REQUIRED and is written to the access
 audit with your identity: there is no way to fetch these bytes without
-leaving a record of why.
+leaving a record of why. After stripping whitespace, the reason must be
+12 to 1024 UTF-8 bytes (ASCII characters). Downloads are limited to 120/hour
+per key, identity and org, and 600/hour per org; excess requests return 429.
 
 Examples:
   limacharlie mailsec message eml 0057db2b-... --justification "INC-4471 credential harvest"
@@ -161,7 +168,10 @@ Revise a message's verdict as an analyst. Requires mailsec.act.
 This records a human triage decision over the scorer's — it is a
 verdict revision — and appends to the message's verdict
 history rather than overwriting it. --rationale is required and audited:
-at least one, at most ten, each <= 280 characters.
+at least one nonblank line. The server clips to ten lines of 280 characters,
+sets rationale_truncated in the revision history, and accepts the change.
+Oversized explanations warn locally. --score takes an integer; the API
+has no revision-score range.
 
 mode is fixed to 'analyst' here because the operator of this CLI is a
 person. An autonomous agent revises with its OWN key and mode 'ai'
@@ -297,6 +307,7 @@ Examples:
 
 _EXPLAIN_SUBMISSION_WITHDRAW = """\
 Withdraw a submission by id. Requires mailsec.act.
+--reason optionally records why, at most 1024 characters after trimming.
 
 Deletes LimaCharlie's stored copy and its metadata (a hard delete), then
 records the withdrawal in the audit trail. It cannot be undone: to share
@@ -312,7 +323,8 @@ Examples:
 """
 
 _EXPLAIN_MESSAGE_BULK_ACTION = """\
-Remediate a set of messages you name, in bulk. Requires mailsec.act.
+Remediate a set of messages you name, in bulk. Preview requires mailsec.get;
+execute with --confirm requires mailsec.act.
 
 This is what turns a search result into provider-side action: pipe ids
 out of `mailsec message list`, or paste a selection into a file, and act
@@ -542,6 +554,7 @@ Examples:
 
 _EXPLAIN_REPORT_RESOLVE = """\
 Close a report with a disposition. Requires mailsec.set.
+Remediation with --scope and --action additionally requires mailsec.act.
 
 'unknown' is deliberately not resolvable by a human: as the outcome of
 someone closing a report it means "I looked and decided nothing", which
@@ -578,6 +591,10 @@ successful response with valid=false and the reason — that is the
 answer to the question, not a failure to answer it.
 
 Rule IDs are ordinary dr-mail record keys; no prefix is reserved.
+Validation returns HTTP 429 past the per-org validation budget.
+Required fields: phase (pre_verdict or post_verdict), detect, name, fp_notes.
+Signal/detection classes require weight (1-100); graymail takes no nonzero weight.
+JSON and YAML bodies or exported hive records (data, usr_mtd) are accepted.
 
 Examples:
   limacharlie mailsec rule validate --file rule.json
@@ -593,6 +610,10 @@ retro-hunt; every response says so in coverage_note and counts what it
 could NOT examine (skipped_no_raw, skipped_unparse, truncated). A
 precision figure whose denominator silently shrank is a number that
 looks like a measurement and is not one.
+
+JSON/YAML bodies and exported hive records (data, usr_mtd) are accepted.
+Requests return 429 past the organization's backtest budget.
+Required fields: phase, detect, name, fp_notes; signal/detection need weight (1-100).
 
 precision is null - not 0 - when nothing it matched has an analyst
 disposition yet. Zero would read as "everything it matched was wrong"
@@ -623,6 +644,28 @@ in your own Google Cloud project. Supply --project-id and --sa-email to
 fill those values into its setup commands; --topic and --subscription
 override the suggested names. Without substitutions the guide contains
 placeholders. Fetching it creates no resources.
+
+Saved mailsec_provider records use full projects/<p>/topics/<t> and
+projects/<p>/subscriptions/<s> resource names in features.pubsub_topic and
+features.pubsub_subscription. Only one enabled connection per provider is allowed.
+scope.exclude_addresses overrides includes; scope.include_groups expands directory
+groups; scope.domains restricts coverage and contributes to direction;
+scope.internal_domains affects direction only. features.reports_mailbox feeds the
+report queue; features.outbound_observation observes Sent mail (default on).
+ingest.backfill_days is 0-90 (default 14; 0 disables backfill).
+
+For policy pre-save checks, use hive schema --hive-name mailsec_policy and
+hive validate --hive-name mailsec_policy --key <name> --input-file policy.yaml.
+Automations default to alert_only; mode enforce requires a nonempty match.
+
+Extension request actions include get_cases_pack (requires Cases installed to
+consume its detections; returns data with name, version, records with hive, key,
+data and usr_mtd; install each record with hive set), and restore_default_rules.
+restore_default_rules creates missing defaults; upgrade=true reconciles vendor
+rules and preserves enabled state; overwrite=true resets default-keyed records
+and their enabled state. These parameters are mutually exclusive. Daily updates
+check pack versions and reconcile outdated vendor rules, removing retired ones.
+Disable vendor rules tagged limacharlie; author custom rules without that tag.
 
 Examples:
   limacharlie mailsec onboarding --provider gworkspace
@@ -663,7 +706,7 @@ a script cannot mistake a half-purged tenant for a finished one.
 
 You may not need this at all. The same data is deleted automatically 30
 days after the org unsubscribes from Email Security -- resubscribing
-inside that window cancels it -- and immediately if the org itself is
+inside that window cancels it -- and 7 days after the org itself is
 deleted.
 
 Examples:
@@ -729,11 +772,8 @@ _BULK_FORCE_RERUN = (
 def _note_sample_result(ctx: click.Context, result: Any, *, submitting: bool) -> None:
     """Say what a sample action did, on stderr, and fail loudly when it did not.
 
-    A refused submission (not opted in, no store in this datacenter, raw copy
-    aged out) can come back as a response carrying ``result: failed`` rather
-    than as an API error, which would otherwise exit 0 and read like a success.
-    It exits 1 here so a script cannot mistake it for one. The response itself
-    is printed untouched.
+    A failed action is recovered from the HTTP 400 report by the command.
+    Report its reason and exit 1, so scripts cannot mistake it for a success.
     """
     if not isinstance(result, dict):
         return
@@ -779,16 +819,13 @@ def _get_mailsec(ctx: click.Context) -> Mailsec:
     return Mailsec(org)
 
 
-def _load_json_file(path: str, param_hint: str) -> Any:
-    """Read a JSON document from a file, with a usage error rather than a
-    traceback when it is not JSON."""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except OSError as e:
-        raise click.BadParameter(f"cannot read {path}: {e}", param_hint=param_hint)
-    except json.JSONDecodeError as e:
-        raise click.BadParameter(f"{path} is not valid JSON: {e}", param_hint=param_hint)
+def _load_candidate_file(path: str, param_hint: str) -> dict[str, Any]:
+    value = load_file(path, param_hint)
+    if isinstance(value, dict):
+        value = value.get("data", value)
+    if not isinstance(value, dict):
+        raise click.BadParameter("candidate must be a JSON or YAML object", param_hint=param_hint)
+    return value
 
 
 def _split_ids(text: str) -> list[str]:
@@ -1074,6 +1111,8 @@ def group() -> None:
                           withdraw); send one with `message submit-sample`
       analyze             Parse and score an EML without ingesting it
       report ...          Abuse-mailbox report queue (list, get, resolve, reopen)
+      provider-quarantine ...  Microsoft delivery observations and coverage
+      release-request ...     Microsoft release activity and coverage
       rule ...            Custom rule validation and backtest
       banner preview      Render a candidate warning banner without saving it
       connection test     Provider connection preflight
@@ -1097,7 +1136,7 @@ def message_groups() -> None:
 @click.option("--since", default=None, help="Earliest matching-copy time (RFC3339 or unix seconds).")
 @click.option("--until", default=None, help="Exclusive latest matching-copy time.")
 @click.option("--cursor", default=None, help="Opaque cursor; keep all filters unchanged.")
-@click.option("--limit", default=None, type=click.IntRange(1, 500), help="Page size.")
+@click.option("--limit", default=None, type=click.IntRange(1, 1000), help="Page size (1-1000).")
 @click.option("--mailbox", default=None, help="Exact protected mailbox address.")
 @click.option("--sender-email", default=None, help="Exact sender address.")
 @click.option("--sender-domain", "--sender-root-domain", "sender_domain", default=None, help="Sender registrable root domain.")
@@ -1105,7 +1144,7 @@ def message_groups() -> None:
 @click.option("--group-id", default=None, help="Exact message group identity.")
 @click.option("--link-domain", default=None, help="Link registrable root domain.")
 @click.option("--attachment-sha256", default=None, help="Attachment digest.")
-@click.option("--state", multiple=True, help="Copy placement state (repeatable).")
+@click.option("--state", multiple=True, help="delivered|quarantined|trashed|restored|bannered|spam (repeatable).")
 @click.option("--direction", multiple=True, type=click.Choice(["inbound", "outbound", "internal"]))
 @click.option("--min-score", default=None, type=click.IntRange(0,100), help="Minimum copy score.")
 @click.option("--lane", default=None, type=click.Choice(["live", "backfill"]))
@@ -1280,7 +1319,7 @@ def tenant_group() -> None:
 # ---------------------------------------------------------------------------
 
 @group.command("coverage")
-@click.option("--window-days", default=None, type=int, help="Days of volume to summarise.")
+@click.option("--window-days", default=None, type=click.IntRange(1, 35), help="Days of volume to summarise (1-35).")
 @click.option("--since", default=None, help="Start of the volume window (RFC3339 or unix seconds).")
 @click.option("--until", default=None, help="End of the volume window (RFC3339 or unix seconds).")
 @pass_context
@@ -1306,7 +1345,7 @@ def coverage(ctx, window_days, since, until) -> None:
               help="Path to the .eml to analyse.")
 @click.option("--org-domain", "org_domains", multiple=True,
               help="One of your org's domains (repeatable); makes direction and impersonation computable.")
-@click.option("--direction", default=None, help="Override the computed direction.")
+@click.option("--direction", default=None, type=click.Choice(["inbound", "outbound", "internal"]), help="Override the computed direction.")
 @pass_context
 def analyze(ctx, eml_file, org_domains, direction) -> None:
     """Parse and score an EML without ingesting it.
@@ -1357,16 +1396,16 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 # ---------------------------------------------------------------------------
 
 @message_group.command("list")
-@click.option("--verdict", multiple=True, help="malicious|suspicious|graymail|benign|unknown (repeatable).")
+@click.option("--verdict", multiple=True, help="malicious|suspicious|graymail|benign|unknown|error (repeatable).")
 @click.option("--mailbox", default=None, help="Protected mailbox address (exact).")
 @click.option("--sender-email", default=None, help="Sender address (exact).")
 @click.option("--sender-domain", default=None, help="Sender registrable root domain.")
 @click.option("--campaign-id", default=None, help="Only members of this campaign.")
 @click.option("--group-id", default=None, help="Restrict to recipient copies of one message group.")
 @click.option("--severity", multiple=True, type=click.Choice(["informational","low","medium","high","critical"]), help="Rule impact (repeatable).")
-@click.option("--state", multiple=True, help="Message state (repeatable).")
+@click.option("--state", multiple=True, help="delivered|quarantined|trashed|restored|bannered|spam (repeatable).")
 @click.option("--direction", multiple=True, help="inbound|outbound|internal (repeatable).")
-@click.option("--disposition", default=None, type=click.Choice([*DISPOSITIONS, "none"]), help="Independent analyst/SOAR disposition; none selects untriaged.")
+@click.option("--disposition", multiple=True, type=click.Choice([*DISPOSITIONS, "none"]), help="Analyst/SOAR disposition (repeatable, OR); none selects untriaged.")
 @click.option("--lane", default=None, type=click.Choice(["live", "backfill"]),
               help="Processing lane. Cannot be combined with --mailbox, --sender-email or --campaign-id.")
 @click.option("--user-reported", is_flag=True, default=False, help="Only mail a person reported.")
@@ -1396,8 +1435,8 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
     ms = _get_mailsec(ctx)
     try:
         lane_params = {"lane": lane} if lane is not None else {}
-        if disposition is not None:
-            lane_params["disposition"] = disposition
+        if disposition:
+            lane_params["disposition"] = list(disposition)
         result = ms.list_messages(
             verdict=list(verdict) or None,
             mailbox=mailbox,
@@ -1440,7 +1479,7 @@ def message_get(ctx, msg_uuid) -> None:
 @message_group.command("eml")
 @click.argument("msg_uuid")
 @click.option("--justification", required=True,
-              help="Why you are downloading this person's mail. Written to the access audit.")
+              help="Audited reason, 12-1024 UTF-8 bytes after stripping whitespace.")
 @click.option("--out-file", "out_path", default=None, type=click.Path(dir_okay=False),
               help="Write the raw bytes to this path instead of to stdout. Deliberately NOT "
                    "--output: that is the global format option, and a command-level --output "
@@ -1455,9 +1494,13 @@ def message_eml(ctx, msg_uuid, justification, out_path, to_terminal) -> None:
 
     \b
     Example:
-      limacharlie mailsec message eml 0057db2b-... --justification "INC-4471"
-      limacharlie mailsec message eml 0057db2b-... --justification "INC-4471" --out-file m.eml
+      limacharlie mailsec message eml 0057db2b-... --justification "INC-4471 credential harvest"
+      limacharlie mailsec message eml 0057db2b-... --justification "INC-4471 credential harvest" --out-file m.eml
     """
+    try:
+        justification = _check_eml_justification(justification)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--justification") from exc
     stdout = click.get_binary_stream("stdout")
     # Checked BEFORE the download, not after.  These bytes are the SENDER'S, verbatim: this is
     # the one command in the group that emits the attacker's own message rather than the
@@ -1562,6 +1605,10 @@ def message_submit_sample(ctx, msg_uuid, category, reason, attempt) -> None:
     ms = _get_mailsec(ctx)
     try:
         result = ms.submit_sample(msg_uuid, category, reason, attempt=attempt)
+    except ApiError as exc:
+        result = _api_error_data(exc)
+        if exc.status_code != 400 or not isinstance(result, dict) or result.get("result") != "failed":
+            raise
     except ValueError as e:
         raise click.BadParameter(str(e), param_hint="--reason")
     _output(ctx, result)
@@ -1587,6 +1634,10 @@ def message_withdraw_sample(ctx, msg_uuid, reason, attempt) -> None:
     ms = _get_mailsec(ctx)
     try:
         result = ms.withdraw_sample(msg_uuid, reason=reason, attempt=attempt)
+    except ApiError as exc:
+        result = _api_error_data(exc)
+        if exc.status_code != 400 or not isinstance(result, dict) or result.get("result") != "failed":
+            raise
     except ValueError as e:
         raise click.BadParameter(str(e), param_hint="--reason")
     _output(ctx, result)
@@ -1599,9 +1650,9 @@ def message_withdraw_sample(ctx, msg_uuid, reason, attempt) -> None:
               type=click.Choice(["malicious", "suspicious", "graymail", "benign", "unknown"]),
               help="The verdict to set.")
 @click.option("--rationale", "rationale", multiple=True, required=True,
-              help="Why the verdict is changing (repeatable, at least one, each <= 280 chars). "
+              help="Why the verdict is changing (repeatable). Server clips to ten nonblank lines of 280 chars; "
                    "Written to the revision audit.")
-@click.option("--score", default=None, type=float, help="Optional score to record with the revision.")
+@click.option("--score", default=None, type=int, help="Optional integer score; the API defines no revision-score range.")
 @pass_context
 def message_revise(ctx, msg_uuid, verdict, rationale, score) -> None:
     """Revise a message's verdict as an analyst (mailsec.act).
@@ -1668,7 +1719,7 @@ def message_revisions(ctx, msg_uuid, limit) -> None:
 @pass_context
 def message_bulk_action(ctx, action_name, msg_uuids, input_file, attempt, text, reason, confirm,
                         force, wait, timeout, poll_interval) -> None:
-    """Remediate a set of messages you name, in bulk (mailsec.act).
+    """Remediate selected messages (preview: mailsec.get; execute: mailsec.act).
 
     \b
     Previews unless --confirm is given, like `campaign action`. The preview prints its confirm token, which is
@@ -1780,8 +1831,8 @@ def message_bulk_status(ctx, bulk_id) -> None:
 # ---------------------------------------------------------------------------
 
 @campaign_group.command("list")
-@click.option("--state", multiple=True, help="Campaign state (repeatable).")
-@click.option("--verdict", multiple=True, help="Campaign verdict (repeatable).")
+@click.option("--state", multiple=True, type=click.Choice(["open", "closed"]), help="Campaign state (repeatable).")
+@click.option("--verdict", multiple=True, help="malicious|suspicious|graymail|benign|unknown|error (repeatable).")
 @click.option("--min-members", default=None, type=int, help="Only campaigns with at least this many members.")
 @click.option("--since", default=None, help="Lower time bound.")
 @click.option("--until", default=None, help="Upper time bound.")
@@ -1946,8 +1997,9 @@ def submission_get(ctx, submission_id) -> None:
 
 @submission_group.command("withdraw")
 @click.argument("submission_id")
+@click.option("--reason", default=None, help="Optional audited reason, at most 1024 characters.")
 @pass_context
-def submission_withdraw(ctx, submission_id) -> None:
+def submission_withdraw(ctx, submission_id, reason) -> None:
     """Withdraw a submission: delete LimaCharlie's copy (mailsec.act).
 
     \b
@@ -1959,7 +2011,11 @@ def submission_withdraw(ctx, submission_id) -> None:
     Example:
       limacharlie mailsec submission withdraw 3f1c9b7e5a2d4c8e9a0b1c2d3e4f5a6b
     """
-    result = _get_mailsec(ctx).withdraw_submission(submission_id)
+    try:
+        kwargs = {"reason": reason} if reason is not None else {}
+        result = _get_mailsec(ctx).withdraw_submission(submission_id, **kwargs)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--reason") from exc
     _output(ctx, result)
     if isinstance(result, dict) and result.get("withdrawn") is False:
         note(ctx, f"Nothing was deleted: submission {submission_id} was not found or was "
@@ -2022,7 +2078,7 @@ def report_get(ctx, report_id) -> None:
 @click.option("--force", is_flag=True, help=_FORCE_HELP)
 @pass_context
 def report_resolve(ctx, report_id, disposition, scope, action, confirm, attempt, wait, timeout, reason, force) -> None:
-    """Close a report with a disposition (mailsec.set).
+    """Close a report (mailsec.set; remediation also needs mailsec.act).
 
     \b
     Example:
@@ -2071,7 +2127,7 @@ def report_reopen(ctx, report_id) -> None:
 
 @rule_group.command("validate")
 @click.option("--file", "rule_file", required=True, type=click.Path(exists=True, dir_okay=False),
-              help="JSON file holding the candidate rule body.")
+              help="JSON or YAML rule body, or a hive record with data and usr_mtd.")
 @click.option("--rule-id", default=None, help="Rule ID: an ordinary dr-mail record key.")
 @pass_context
 def rule_validate(ctx, rule_file, rule_id) -> None:
@@ -2079,19 +2135,22 @@ def rule_validate(ctx, rule_file, rule_id) -> None:
 
     \b
     Runs the same validation the dr-mail hive applies on save.
+    Required: phase (pre_verdict or post_verdict), detect, name, fp_notes;
+    scoring classes signal/detection also need weight (1-100).
+    Accepts JSON/YAML bodies or exported hive records (data, usr_mtd).
 
     \b
     Example:
       limacharlie mailsec rule validate --file rule.json --rule-id custom-lookalike
     """
-    rule = _load_json_file(rule_file, "--file")
+    rule = _load_candidate_file(rule_file, "--file")
     _output(ctx, _get_mailsec(ctx).validate_rule(rule, rule_id=rule_id))
 
 
 @banner_group.command("preview")
 @click.option("--file", "banner_file", required=True, type=click.Path(exists=True, dir_okay=False),
-              help="JSON file holding the candidate banners policy fields (title, color, text, "
-                   "logo_url, logo_alt, variants); omit policy_type.")
+              help="JSON or YAML banners policy or hive record (title, color, text, "
+                   "logo_url, logo_alt, variants).")
 @click.option("--verdict", default=None,
               type=click.Choice(["malicious", "suspicious", "graymail", "benign", "unknown"]),
               help="Preview the per-verdict variant for this verdict.")
@@ -2109,25 +2168,28 @@ def banner_preview(ctx, banner_file, verdict, text) -> None:
     Example:
       limacharlie mailsec banner preview --file banner.json --verdict malicious
     """
-    banner = _load_json_file(banner_file, "--file")
+    banner = _load_candidate_file(banner_file, "--file")
     _output(ctx, _get_mailsec(ctx).preview_banner(banner, verdict=verdict, text=text))
 
 
 @rule_group.command("backtest")
 @click.option("--file", "rule_file", required=True, type=click.Path(exists=True, dir_okay=False),
-              help="JSON file holding the candidate rule body.")
+              help="JSON or YAML rule body, or a hive record with data and usr_mtd.")
 @click.option("--rule-id", default=None, help="Rule ID: an ordinary dr-mail record key.")
 @click.option("--since", default=None, help="Lower time bound.")
 @click.option("--until", default=None, help="Upper time bound.")
 @pass_context
 def rule_backtest(ctx, rule_file, rule_id, since, until) -> None:
-    """Replay a candidate rule over recent mail and report its precision.
+    """Replay a JSON/YAML candidate rule or exported hive record over recent mail.
+
+    Requires phase, detect, name, fp_notes; scoring classes also need weight (1-100).
+    Returns HTTP 429 past the per-org backtest budget.
 
     \b
     Example:
       limacharlie mailsec rule backtest --file rule.json --since 2026-08-01
     """
-    rule = _load_json_file(rule_file, "--file")
+    rule = _load_candidate_file(rule_file, "--file")
     ms = _get_mailsec(ctx)
     _output(ctx, ms.backtest_rule(rule, rule_id=rule_id, since=since, until=until))
 
@@ -2323,7 +2385,8 @@ def message_disposition(ctx, msg_uuid, disposition, clear, note) -> None:
 
 @message_group.command("bulk-disposition")
 @click.option("--msg-uuids", multiple=True, help="Stable message ids (repeatable or comma-separated).")
-@click.option("--input", "input_file", default=None, type=click.Path(exists=True, dir_okay=False))
+@click.option("--input-file", "--input", "input_file", default=None,
+              help="JSON/YAML IDs or text file; use - for stdin. --input is an alias.")
 @click.option("--disposition", type=click.Choice(DISPOSITIONS), default=None)
 @click.option("--clear", is_flag=True)
 @click.option("--note", default="")

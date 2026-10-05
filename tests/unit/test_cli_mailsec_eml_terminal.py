@@ -28,7 +28,7 @@ def _invoke(extra_args, isatty):
             result = CliRunner().invoke(
                 cli,
                 ["--oid", OID, "mailsec", "message", "eml", "msg-1",
-                 "--justification", "INC-4471"] + extra_args,
+                 "--justification", "INC-4471 credential harvest"] + extra_args,
             )
             return result, stream
 

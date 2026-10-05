@@ -52,12 +52,12 @@ class TestMessageRevise:
             "--verdict", "benign",
             "--rationale", "internal send",
             "--rationale", "sender verified",
-            "--score", "12.5",
+            "--score", "12",
             sdk_returns={"revise_verdict": {"applied": True}},
         )
         assert result.exit_code == 0, result.output
         mailsec.revise_verdict.assert_called_once_with(
-            "msg-1", "benign", ["internal send", "sender verified"], score=12.5
+            "msg-1", "benign", ["internal send", "sender verified"], score=12
         )
 
     def test_applied_false_is_a_non_error(self):
@@ -89,18 +89,14 @@ class TestMessageRevise:
         )
         assert result.exit_code != 0
 
-    def test_overlong_rationale_is_a_clean_client_side_error(self):
-        """Run the real SDK over a mocked transport: the 280-char bound is
-        enforced locally and surfaces as a clean non-zero exit, never a live
-        call."""
-        result, _ = _invoke(
-            "mailsec", "message", "revise", "msg-1",
-            "--verdict", "malicious",
-            "--rationale", "x" * 281,
-            mock_sdk=False,
+    def test_fractional_score_is_refused_before_the_sdk(self):
+        result, mailsec = _invoke(
+            "mailsec", "message", "revise", "msg-1", "--verdict", "malicious",
+            "--rationale", "confirmed phish", "--score", "12.5",
         )
-        assert result.exit_code != 0
-        assert "too long" in str(result.exception) or "too long" in result.output
+        assert result.exit_code == 2, result.output
+        assert "integer" in result.output
+        mailsec.revise_verdict.assert_not_called()
 
 
 class TestMessageRevisions:

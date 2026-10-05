@@ -192,10 +192,10 @@ class TestEMLRequiresJustification:
             "eml_b64": "RnJvbTogc2VuZGVyQGV4YW1wbGUuY29tDQoNCmhlbGxvDQo=",
             "size": 35,
         }
-        raw = ms.get_message_eml("msg-1", "INC-4471")
+        raw = ms.get_message_eml("msg-1", "INC-4471 credential harvest")
         url, qp = _get_call(mock_org)
         assert url == f"mailsec/{OID}/messages/msg-1/eml"
-        assert ("justification", "INC-4471") in qp
+        assert ("justification", "INC-4471 credential harvest") in qp
         assert raw == b"From: sender@example.com\r\n\r\nhello\r\n"
 
     @pytest.mark.parametrize(
@@ -210,7 +210,7 @@ class TestEMLRequiresJustification:
     def test_malformed_download_response_is_refused(self, ms, mock_org, response, match):
         mock_org.client.request.return_value = response
         with pytest.raises(ValueError, match=match):
-            ms.get_message_eml("msg-1", "INC-4471")
+            ms.get_message_eml("msg-1", "INC-4471 credential harvest")
 
 
 class TestActions:
@@ -402,8 +402,8 @@ class TestReports:
 class TestVerdictRevision:
     """A verdict revision is a human triage decision appended to the message's
     verdict history. mode defaults to analyst because the caller is a person;
-    the rationale is required and audited, so its bounds are enforced locally
-    to fail with a clear message rather than a 400 after the round trip."""
+    the rationale is required and audited. Oversized rationale warns but is
+    sent so the server can accept the verdict and report truncation."""
 
     def test_revise_body_defaults_to_analyst_mode(self, ms, mock_org):
         ms.revise_verdict("msg-1", "malicious", ["confirmed phish"])
@@ -416,10 +416,10 @@ class TestVerdictRevision:
         }
 
     def test_revise_forwards_score_and_multiple_rationale(self, ms, mock_org):
-        ms.revise_verdict("msg-1", "benign", ["a", "b"], score=12.5)
+        ms.revise_verdict("msg-1", "benign", ["a", "b"], score=12)
         _, body = _post_call(mock_org)
         assert body["rationale"] == ["a", "b"]
-        assert body["score"] == 12.5
+        assert body["score"] == 12
 
     def test_score_is_omitted_when_absent(self, ms, mock_org):
         ms.revise_verdict("msg-1", "benign", ["a"])
@@ -434,18 +434,24 @@ class TestVerdictRevision:
         with pytest.raises(ValueError, match="non-empty"):
             ms.revise_verdict("msg-1", "malicious", ["   "])
 
-    def test_too_many_rationale_lines_is_refused(self, ms):
-        with pytest.raises(ValueError, match="too many rationale"):
-            ms.revise_verdict("msg-1", "malicious", [f"line {i}" for i in range(11)])
+    def test_too_many_rationale_lines_warns_and_sends_the_change(self, ms, mock_org):
+        lines = [f"line {i}" for i in range(11)]
+        with pytest.warns(UserWarning, match="truncate rationale"):
+            ms.revise_verdict("msg-1", "malicious", lines)
+        _, body = _post_call(mock_org)
+        assert body["rationale"] == lines
+        assert body["verdict"] == "malicious"
 
     def test_ten_rationale_lines_is_allowed(self, ms, mock_org):
         ms.revise_verdict("msg-1", "malicious", [f"line {i}" for i in range(10)])
         _, body = _post_call(mock_org)
         assert len(body["rationale"]) == 10
 
-    def test_overlong_rationale_line_is_refused(self, ms):
-        with pytest.raises(ValueError, match="too long"):
+    def test_overlong_rationale_warns_without_dropping_content(self, ms, mock_org):
+        with pytest.warns(UserWarning, match="truncate rationale"):
             ms.revise_verdict("msg-1", "malicious", ["x" * 281])
+        _, body = _post_call(mock_org)
+        assert body["rationale"] == ["x" * 281]
 
     def test_rationale_line_at_the_limit_is_allowed(self, ms, mock_org):
         ms.revise_verdict("msg-1", "malicious", ["x" * 280])
@@ -745,7 +751,7 @@ class TestRouteCoverage:
             (lambda: ms.get_coverage(), "GET", f"mailsec/{OID}/coverage"),
             (lambda: ms.list_messages(), "GET", f"mailsec/{OID}/messages"),
             (lambda: ms.get_message("m"), "GET", f"mailsec/{OID}/messages/m"),
-            (lambda: ms.get_message_eml("m", "why"), "GET", f"mailsec/{OID}/messages/m/eml"),
+            (lambda: ms.get_message_eml("m", "Review incident evidence"), "GET", f"mailsec/{OID}/messages/m/eml"),
             (lambda: ms.list_similar_messages("m"), "GET", f"mailsec/{OID}/messages/m/similar"),
             (lambda: ms.list_revisions("m"), "GET", f"mailsec/{OID}/messages/m/revisions"),
             (lambda: ms.list_campaigns(), "GET", f"mailsec/{OID}/campaigns"),
