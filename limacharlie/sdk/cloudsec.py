@@ -684,7 +684,7 @@ CHAIN_STAGES = (
 #: Outcomes that state a fact about the finding. The server only sends them on a
 #: ``proven`` stage; a client must never display one on any other stage.
 ASSERTIVE_OUTCOMES = {
-    "running": ("rolling",),
+    "running": ("rolling", "not_running"),
     "exposed": ("exposed",),
     "observed": ("executing", "loaded", "not_observed"),
     "responded": ("monitoring", "verified", "persists", "regressed"),
@@ -940,7 +940,10 @@ class CloudSec:
             severity: Filter values (CRITICAL/HIGH/MEDIUM/LOW/INFO), OR'd.
             finding_class: Filter values (toxic_combination, public_exposure,
                 ciem_risk, privilege_escalation, vulnerability, misconfig,
-                coverage_gap), OR'd.
+                malware, secret, scan_finding, coverage_gap, workload_coverage_gap,
+                vuln_coverage_gap, authz_coverage_gap, device_posture, code_weakness,
+                license_risk, eol_runtime, iac_drift, operational), OR'd.
+                Use get_finding_classes() for the current API vocabulary.
             status: Filter values (open/resolved/accepted), OR'd.
                 ``resolved`` means the risk is gone (mitigated or a false
                 positive); ``accepted`` is a LIVE risk acceptance — the risk
@@ -1192,16 +1195,11 @@ class CloudSec:
         :meth:`list_findings`, so a rollup can be scoped exactly like the
         list it summarizes.
 
-        **Only CAUSE-BEARING findings are in scope, which is a small slice
-        of an estate.** Causes are stamped on the attack-path classes;
-        vulnerability findings — roughly 90% of a typical estate —
-        deliberately carry none, because a per-package cause would evict
-        every attack-path fix from the ranking and would cost the sparse
-        index this rollup is fast because of. So the counts here never sum
-        to the worklist total, and a rollup scoped to a class that carries
-        no cause (``finding_class=["vulnerability"]``) legitimately returns
-        ``{"causes": [], "distinct": 0}`` — that is "no shared fix on this
-        class", not "no findings".
+        Only cause-bearing findings contribute; counts need not sum to the
+        worklist total. Attack-path findings carry causes such as firewall_rule
+        or entitled_identity. Repository SCA findings carry vulnerable_package
+        causes grouping a shared package upgrade. Other vulnerability findings
+        may have no cause, so an empty rollup is not proof of no findings.
 
         Args:
             iac_attribution: One to four attributed, ambiguous, none or unknown verdicts.
@@ -1389,9 +1387,20 @@ class CloudSec:
         endpoint does NOT accept ``open`` (reopen findings one at a
         time).
 
+        Args:
+            finding_ids: At most 500 IDs per call.
+            kind: Resolution kind.
+            reason: Optional operator note.
+            expires_at: Optional acceptance expiry, in Unix seconds.
+
+        Raises:
+            ValueError: If more than 500 IDs are supplied.
+
         Returns:
             ``{"updated": int}``.
         """
+        if len(finding_ids) > 500:
+            raise ValueError("bulk resolution accepts at most 500 finding IDs per call")
         resolution: dict[str, Any] = {"kind": kind}
         if reason is not None:
             resolution["reason"] = reason
@@ -2784,6 +2793,8 @@ class CloudSec:
 
         Args:
             document: Locally extracted lc-iac-map/v1 JSON, at most 20 MiB.
+                The API allows 30 uploads per minute per identity; 429s use
+                bounded jittered backoff honoring Retry-After.
 
         Returns:
             dict: A receipt whose result.status is processing or published.
@@ -2795,9 +2806,9 @@ class CloudSec:
         """
         from .iac_map import validate_iac_map
         raw = validate_iac_map(document)
-        return self._org.client.request(
+        return self._retry_code_push("code/iac-map", lambda: self._org.client.request(
             "POST", f"cloudsec/{self.oid}/code/iac-map",
-            raw_body=raw, content_type="application/json")
+            raw_body=raw, content_type="application/json", retry_quota_errors=False))
 
     def get_iac_map_status(
         self, *, repository: str, provider: str, workspace: str,
@@ -2820,6 +2831,8 @@ class CloudSec:
     def push_code_provenance(self, document: bytes | str | dict[str, Any]) -> dict[str, Any]:
         """Push build provenance without changing signed document bytes.
 
+        A 429 is retried with bounded jittered backoff honoring Retry-After.
+        The API allows 60 requests per minute per identity.
         A transient 503 is retried once after one second. The exact same
         document is replayed: provenance upserts use a server-computed
         attestation identity, including when the first response was lost.
@@ -2844,11 +2857,11 @@ class CloudSec:
             raise TypeError("provenance document must be bytes, str or dict")
         if not raw or len(raw) > 1 << 20:
             raise ValueError("provenance document must be between 1 byte and 1 MiB")
-        return self._org.client.request(
+        return self._retry_code_push("code/provenance", lambda: self._org.client.request(
             "POST", f"cloudsec/{self.oid}/code/provenance",
             raw_body=raw, content_type="application/json",
-            retry_service_unavailable=True,
-        )
+            retry_service_unavailable=True, retry_quota_errors=False,
+        ))
 
     def list_code_provenance(self, *, repo_urn: str | None = None,
                              commit: str | None = None, digest: str | None = None,
@@ -3144,6 +3157,11 @@ class CloudSec:
         # Serialized once: the document can be tens of megabytes, and a retry re-sends
         # the same bytes.
         raw = json.dumps(body).encode()
+        return self._retry_code_push("code ingest", lambda: self._post(
+            "code/ingest", body, raw_body=raw, retry_quota_errors=False), busy_retries)
+
+    def _retry_code_push(self, path: str, send: Any,
+                         busy_retries: int = INGEST_BUSY_RETRIES) -> dict[str, Any]:
         waited = 0.0
         attempt = 0
         while True:
@@ -3151,7 +3169,7 @@ class CloudSec:
                 # The client's own 429 retry is off here: it would neither honour the
                 # Retry-After nor jitter, and stacked under this loop it would multiply
                 # the attempts.
-                return self._post("code/ingest", body, raw_body=raw, retry_quota_errors=False)
+                return send()
             except RateLimitError as e:
                 delay = _ingest_busy_delay(attempt, e.retry_after)
                 if attempt >= busy_retries or waited + delay > _INGEST_BUSY_BUDGET_S:
@@ -3164,12 +3182,12 @@ class CloudSec:
                         retry_after=e.retry_after,
                         suggestion=(
                             f"The push was refused {attempt + 1} times over {waited:.0f}s. "
-                            "The organization has too many pushes in progress; push fewer "
+                            "The API is busy or the request quota is exhausted; push fewer "
                             "at once, or retry this one later."),
                         code=e.status_code,
                     ) from e
                 self._org.client._debug(
-                    f"code ingest refused (429), retrying in {delay:.1f}s "
+                    f"{path} refused (429), retrying in {delay:.1f}s "
                     f"({attempt + 1}/{busy_retries})")
                 time.sleep(delay)
                 waited += delay
@@ -3191,14 +3209,15 @@ class CloudSec:
         check run, not that a webhook is wired to trigger one.
 
         Args:
-            repo: Narrow to the one connection covering a single repository
-                (``"<owner>/<name>"`` as :meth:`list_code_repos` returns
-                it). Omit to list enabled workflow connections.
+            repo: Narrow each owning connection's answer to this repository
+                (``"<owner>/<name>"`` as :meth:`list_code_repos` returns it).
+                Connections under other organizations remain listed unchanged.
 
         Returns:
             ``{"connections": [{"connection", "org", "provider", "mode",
             "scan_app_id", "actions_app_id", "repository_selection",
-            "repository", "suspended", "verified_at", "capabilities":
+            "repository", "suspended", "verified_at", "webhook":
+            {"state", "reason", "missing_events", "detail"}, "capabilities":
             [{"id", "state", "needs", "missing", "reason", "detail"}, ...]},
             ...]}``. ``capabilities[].id`` is one of ``repo_scanning``,
             ``pr_checks``, ``pr_comments``, ``fix_pull_requests``;
@@ -4061,7 +4080,13 @@ class CloudSec:
         ``hive://secret/<name>`` reference to an already-saved secret.
 
         Args:
-            provider: A ``cloudsec_provider`` hive record shape.
+            provider: A ``cloudsec_provider`` hive record shape. For GitHub,
+                supply provider_type="github", github_org, github_app_id,
+                github_installation_id and credentials (the App private key).
+                GitLab uses gitlab_namespace; Bitbucket uses bitbucket_workspace.
+                This probes collection credentials only, never actions_credentials,
+                gitlab_write_credentials or bitbucket_write_credentials. Use
+                get_code_capabilities() to inspect workflow permissions.
 
         Returns:
             ``{"supported": bool, "report": {"provider", "ok",

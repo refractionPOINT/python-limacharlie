@@ -222,3 +222,46 @@ class TestBackoffShape:
         draws = {_ingest_busy_delay(0, 30) for _ in range(50)}
         assert len(draws) > 1
         assert all(30.0 <= d <= 45.0 for d in draws)
+
+
+@pytest.mark.parametrize("method,path", [("push_iac_map", "code/iac-map"),
+                                         ("push_code_provenance", "code/provenance")])
+class TestDocumentPushRetries:
+    @staticmethod
+    def document(method):
+        if method == "push_iac_map":
+            from pathlib import Path
+            return (Path(__file__).parent / "fixtures" / "iac-map-v1.json").read_bytes()
+        return b'{ "schema" : "lc-build-provenance/v1" }\n'
+
+    def test_rate_limit_replays_exact_bytes_and_honors_header(self, method, path):
+        document = self.document(method)
+        with patch("limacharlie.client.urlopen") as transport, \
+                patch.object(cloudsec_mod.time, "sleep") as sleep, \
+                patch("limacharlie.client.time") as client_time:
+            transport.side_effect = [_http_429("30"), _http_429("30"), _ok({"result": {"accepted": True}})]
+            result = getattr(_cloudsec(is_retry_quota_errors=True), method)(document)
+        assert result == {"result": {"accepted": True}}
+        assert _bodies(transport) == [document] * 3
+        assert all(call.args[0].full_url.endswith("/" + path) for call in transport.call_args_list)
+        assert len(sleep.call_args_list) == 2
+        assert all(30 <= call.args[0] <= 45 for call in sleep.call_args_list)
+        client_time.sleep.assert_not_called()
+
+    def test_retry_attempts_are_bounded(self, method, path):
+        with patch("limacharlie.client.urlopen") as transport, \
+                patch.object(cloudsec_mod.time, "sleep") as sleep:
+            transport.side_effect = [_http_429("1") for _ in range(10)]
+            with pytest.raises(RateLimitError, match="refused 6 times"):
+                getattr(_cloudsec(), method)(self.document(method))
+        assert transport.call_count == 6 and sleep.call_count == 5
+        assert len(set(_bodies(transport))) == 1
+
+    def test_invalid_documents_are_not_retried(self, method, path):
+        with patch("limacharlie.client.urlopen") as transport, \
+                patch.object(cloudsec_mod.time, "sleep") as sleep:
+            transport.side_effect = [_http_400(), _ok({"result": {}})]
+            with pytest.raises(ApiError):
+                getattr(_cloudsec(), method)(self.document(method))
+        assert transport.call_count == 1
+        sleep.assert_not_called()

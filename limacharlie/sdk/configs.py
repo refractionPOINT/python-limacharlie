@@ -40,6 +40,11 @@ class Configs:
 
     # All known hive names that can be synced.
     ALL_HIVES = {
+        "cloudsec_policy",
+        "cloudsec_provider",
+        "cloudsec_query",
+        "cloudsec_code_rule",
+        "mailsec_provider",
         "acl",
         "dr-general",
         "dr-mail",
