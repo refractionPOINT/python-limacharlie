@@ -46,7 +46,10 @@ from ..cli import pass_context
 from ..client import Client
 from ..errors import ApiError
 from ..sdk.organization import Organization
-from ..sdk.mailsec import BULK_ACTIONS, DISPOSITIONS, SAMPLE_CATEGORIES, Mailsec, normalize_bulk_selection, _check_eml_justification, _api_error_data
+from ..sdk.mailsec import (
+    BULK_ACTIONS, DISPOSITIONS, SAMPLE_CATEGORIES, Mailsec,
+    normalize_bulk_selection, _check_eml_justification, _api_error_data,
+)
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 from ._input_helpers import load_file, load_stdin
@@ -118,9 +121,8 @@ Examples:
 _EXPLAIN_MESSAGE_EML = """\
 Download the original RFC822 bytes of a message.
 
-This is a different privilege from opening the drawer (mailsec.get.eml,
-not mailsec.get) because it takes a person's actual mail out of the
-building. --justification is REQUIRED and is written to the access
+Requires mailsec.get and the additional mailsec.get.eml privilege because
+it takes a person's actual mail out of the building. --justification is REQUIRED and is written to the access
 audit with your identity: there is no way to fetch these bytes without
 leaving a record of why. After stripping whitespace, the reason must be
 12 to 1024 UTF-8 bytes (ASCII characters). Downloads are limited to 120/hour
@@ -1418,7 +1420,7 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--since", default=None, help="Lower time bound (RFC3339 or unix seconds).")
 @click.option("--until", default=None, help="Upper time bound.")
 @click.option("--cursor", default=None, help="Keyset token from a previous page.")
-@click.option("--limit", default=None, type=int, help="Page size.")
+@click.option("--limit", default=None, type=int, help="Page size (1-1000); other values are refused by the API.")
 @pass_context
 def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, group_id, severity, state,
                  direction, lane, disposition, user_reported, no_user_reported, min_score, link_domain,
@@ -2386,6 +2388,7 @@ def message_disposition(ctx, msg_uuid, disposition, clear, note) -> None:
 @message_group.command("bulk-disposition")
 @click.option("--msg-uuids", multiple=True, help="Stable message ids (repeatable or comma-separated).")
 @click.option("--input-file", "--input", "input_file", default=None,
+              type=click.Path(exists=True, dir_okay=False, allow_dash=True),
               help="JSON/YAML IDs or text file; use - for stdin. --input is an alias.")
 @click.option("--disposition", type=click.Choice(DISPOSITIONS), default=None)
 @click.option("--clear", is_flag=True)

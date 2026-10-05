@@ -122,9 +122,9 @@ than inside a nested configuration object.
 | Policy type | Purpose |
 |---|---|
 | `automations` | Match messages and request typed actions, defaulting to alert-only. |
-| `exclusions` | Exempt selected mail from policy actions. |
-| `vips` | Identify VIPs for impersonation detection and action safeguards. |
-| `thresholds` | Configure score thresholds and scoring behavior. |
+| `exclusions` | Suppress selected detection signals before scoring. |
+| `vips` | Identify VIPs for impersonation detection. |
+| `thresholds` | Set score thresholds for verdict classes. |
 | `banners` | Configure warning banner appearance and per-verdict wording. |
 | `retention` | Set message and flagged-evidence retention periods. |
 | `reporter_reply` | Configure acknowledgement and resolution replies to reporters. |

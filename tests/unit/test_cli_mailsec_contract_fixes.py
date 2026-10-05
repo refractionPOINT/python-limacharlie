@@ -100,7 +100,8 @@ def test_submission_reason_and_repeated_disposition_reach_api():
 
 
 def test_revision_oversized_rationale_and_integer_score_are_sent():
-    result, transport = invoke("message", "revise", MSG, "--verdict", "malicious", "--rationale", "x" * 281, "--score", "101", body={"applied": True})
+    with pytest.warns(UserWarning, match="truncate rationale"):
+        result, transport = invoke("message", "revise", MSG, "--verdict", "malicious", "--rationale", "x" * 281, "--score", "101", body={"applied": True})
     assert result.exit_code == 0, result.stderr
     body = json.loads(transport.call_args.args[0].data)
     assert body["rationale"] == ["x" * 281]
@@ -115,7 +116,7 @@ def test_group_limit_above_500_reaches_server(limit):
     assert ("limit", str(limit)) in parse_qsl(urlsplit(transport.call_args.args[0].full_url).query)
 
 
-@pytest.mark.parametrize("args", [["coverage", "--window-days", "0"], ["coverage", "--window-days", "36"], ["analyze", "--file", "-", "--direction", "inbnd"]])
+@pytest.mark.parametrize("args", [["coverage", "--window-days", "0"], ["coverage", "--window-days", "36"]])
 def test_bounded_options_refuse_invalid_values_before_http(args):
     result, transport = invoke(*args)
     assert result.exit_code == 2
@@ -144,3 +145,32 @@ def test_invalid_candidate_file_is_usage_error_and_not_sent(tmp_path, document):
     result, transport = invoke("rule", "validate", "--file", str(path))
     assert result.exit_code == 2
     transport.assert_not_called()
+
+
+@pytest.mark.parametrize("direction", ["inbound", "outbound", "internal", "inbnd"])
+def test_analyze_direction_choice_uses_a_real_eml_file(tmp_path, direction):
+    path = tmp_path / "message.eml"
+    path.write_bytes(b"From: sender@example.test\r\n\r\nhello")
+    result, transport = invoke("analyze", "--file", str(path), "--direction", direction, body={"verdict": "unknown"})
+    if direction == "inbnd":
+        assert result.exit_code == 2
+        assert "--direction" in result.stderr
+        transport.assert_not_called()
+    else:
+        assert result.exit_code == 0, result.stderr
+        assert json.loads(transport.call_args.args[0].data)["direction"] == direction
+
+
+@pytest.mark.parametrize("option", ["--input-file", "--input"])
+def test_bulk_disposition_aliases_accept_a_named_file(tmp_path, option):
+    path = tmp_path / "ids.json"
+    path.write_text(json.dumps([MSG]))
+    result, transport = invoke("message", "bulk-disposition", option, str(path), "--clear", body={"results": [{"msg_uuid": MSG, "applied": True}]})
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(transport.call_args.args[0].data) == {"msg_uuids": [MSG], "clear": True, "note": ""}
+
+
+def test_repeated_dispositions_reach_cli_query_independently():
+    result, transport = invoke("message", "list", "--disposition", "malicious", "--disposition", "none", body={"messages": []})
+    assert result.exit_code == 0, result.stderr
+    assert parse_qsl(urlsplit(transport.call_args.args[0].full_url).query) == [("disposition", "malicious"), ("disposition", "none")]

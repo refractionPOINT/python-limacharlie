@@ -57,9 +57,9 @@ import time
 import warnings
 import uuid
 from typing import Any, Callable, TYPE_CHECKING
+from urllib.parse import quote as _quote
 
 from ..errors import ApiError
-from urllib.parse import quote as _quote
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -352,7 +352,7 @@ class Mailsec:
             than a count of what happened to work.
 
         Raises:
-            ValueError: If window_days is combined with since or until.
+            ValueError: If window_days is outside 1 to 35 or combined with since or until.
         """
         if window_days is not None and not 1 <= window_days <= 35:
             raise ValueError("window_days must be 1 to 35")
@@ -499,8 +499,8 @@ class Mailsec:
             ``next_cursor`` means the last page.
 
         Raises:
-            ValueError: If non-empty ``q`` is too long or lacks a bounded-walk
-                companion filter.
+            ValueError: If disposition is invalid or non-empty ``q`` is too long
+                or lacks a bounded-walk companion filter.
         """
         if isinstance(disposition, str):
             disposition = [disposition]
@@ -571,10 +571,14 @@ class Mailsec:
             justification: Why the download is happening, 12 to 1024 UTF-8 bytes
                 after stripping surrounding whitespace. Stored in the access audit.
 
+        Returns:
+            bytes: The original RFC822 message.
+
         Raises:
             ValueError: If justification is outside that range or the response is invalid.
-            ApiError: If the API refuses the download. Downloads are limited to
-                120/hour per key, identity and org, and 600/hour per org.
+            ApiError: If the API refuses the download.
+            RateLimitError: If the download budget is exceeded (120/hour per
+                key, identity and org, and 600/hour per org).
         """
         justification = _check_eml_justification(justification)
         response = self._get(
@@ -788,6 +792,10 @@ class Mailsec:
             and nothing changed — a no-op reported truthfully, not an error.
             The response also carries ``revision_seq``, ``prior``, and
             ``newly_flagged``.
+
+        Raises:
+            ValueError: If rationale has no nonblank text, contains non-text
+                lines, or score is not an integer.
         """
         if not rationale or not any(isinstance(line, str) and line.strip() for line in rationale):
             raise ValueError("a verdict revision needs at least one rationale line of non-empty text")
@@ -1098,7 +1106,8 @@ class Mailsec:
         pin a snapshot for 50 minutes; restart after expiry or changing filters.
 
         Args:
-            verdict: Repeatable engine verdict filter.
+            verdict: Repeatable malicious, suspicious, graymail, benign,
+                unknown or error (judgement failed) filter.
             severity: Repeatable rule-impact filter.
             disposition: Repeatable analyst disposition, including none.
             user_reported: True or false to constrain reports; None is unconstrained.
@@ -1106,7 +1115,7 @@ class Mailsec:
             since: Inclusive matching-copy time, RFC3339 or unix seconds.
             until: Exclusive matching-copy time.
             cursor: Opaque filter-bound snapshot cursor.
-            limit: Maximum returned groups per page.
+            limit: Maximum returned groups per page, 1 to 1000.
             mailbox: Exact protected mailbox address.
             sender_email: Exact sender address.
             sender_domain: Sender registrable domain (sender_root_domain on the wire).
@@ -1114,7 +1123,8 @@ class Mailsec:
             group_id: Exact message-group identity.
             link_domain: Link registrable domain.
             attachment_sha256: Attachment digest.
-            state: Repeatable copy placement state.
+            state: Repeatable delivered, quarantined, trashed, restored,
+                bannered or spam placement state.
             direction: Repeatable inbound, outbound or internal direction.
             min_score: Minimum copy score.
             lane: Live or backfill, with the same supported combinations as messages.
@@ -1307,7 +1317,17 @@ class Mailsec:
         cursor: str | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        """Campaigns: one attack, triaged once, rather than once per mailbox."""
+        """List campaigns: one attack triaged once rather than once per mailbox.
+
+        Args:
+            state: Open or closed (repeatable).
+            verdict: Malicious, suspicious, graymail, benign, unknown or error (repeatable).
+            min_members: Minimum number of campaign members.
+            since: Lower time bound (RFC3339 or unix seconds).
+            until: Upper time bound.
+            cursor: Opaque keyset token; keep filters unchanged between pages.
+            limit: Page size.
+        """
         pairs: list[tuple[str, str]] = []
         _add_pairs(pairs, "state", state)
         _add_pairs(pairs, "verdict", verdict)
@@ -1621,6 +1641,10 @@ class Mailsec:
             "submission_id": ...}`` with no ``action_id``, so a second
             withdrawal is harmless and never deletes anything twice. Check
             ``withdrawn``.
+
+        Raises:
+            ValueError: If reason is not text or exceeds 1024 characters after trimming.
+            ApiError: If the API refuses withdrawal.
         """
         pairs: list[tuple[str, str]] = []
         text = _check_sample_reason(reason, required=False)
@@ -1652,7 +1676,7 @@ class Mailsec:
                 survive a text field.
             org_domains: The org's own domains, which is what makes direction
                 and impersonation computable.
-            direction: Override the computed direction.
+            direction: Override the computed direction: inbound, outbound or internal.
         """
         if not eml and not eml_b64:
             raise ValueError("analyze needs the message: pass eml or eml_b64")
@@ -2061,6 +2085,7 @@ class Mailsec:
                 server because a rejected request still costs the token, and
                 re-minting is a second round trip to learn something the client
                 already knew.
+            ApiError: If the API fails without an incomplete-purge report.
         """
         token = (confirmation or "").strip()
         if not token:
