@@ -2472,7 +2472,8 @@ def code_coverage(ctx, summary) -> None:
                    "branch --ref for a new repository. No branch name is guessed.")
 @click.option("--provider", default=None,
               help="Source-control provider. Inferred from origin host (github.com, "
-                   "gitlab.com or bitbucket.org); required for other hosts or no origin.")
+                   "gitlab.com or bitbucket.org); ingestion requires an explicit "
+                   "provider for other hosts or no origin.")
 @click.option("--rules-file", "rules_file", default=None,
               type=click.Path(exists=True, dir_okay=False),
               help="Run the sast scanner with this rule set document "
