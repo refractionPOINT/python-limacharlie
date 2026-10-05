@@ -6,7 +6,6 @@ available plans for the organization.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import click
@@ -133,73 +132,4 @@ def plans(ctx) -> None:
     org = _get_org(ctx)
     billing = BillingSDK(org)
     data = billing.get_plans()
-    _output(ctx, data)
-
-
-@group.group("security")
-def security() -> None:
-    """Manage independent Email Security and Code Security billing.
-
-    Rates use UTC daily high-water marks and a fixed 30-day month.
-    Code also requires the separate Cloud Security base fee.
-    """
-
-
-_PRODUCT = click.Choice(["mail_security", "code_security"])
-
-register_explain("billing.security.get", "Read authoritative security trial, protection, rates and costs. "
-                 "Pending is not acknowledged paid coverage. Optional --from/--until are UTC dates.")
-register_explain("billing.security.activate", "Explicitly accept the complete reviewed JSON quote with --accepted-quote FILE and --accept-pricing: "
-                 "Mail $1/mailbox-month; Code $0.80/repository-month plus Cloud base fee, divided by 30. "
-                 "Requires billing.ctrl and user.ctrl. Read status until protection is acknowledged.")
-register_explain("billing.security.stop", "Stop future paid eligibility with --confirm. "
-                 "Accrued costs remain payable; trial does not reset; Code retains the Cloud base fee. "
-                 "Configuration and data follow product retention policies.")
-
-
-@security.command("get")
-@click.argument("product", type=_PRODUCT)
-@click.option("--from", "from_date", help="Inclusive UTC date YYYY-MM-DD (with --until).")
-@click.option("--until", "until_date", help="Exclusive UTC date YYYY-MM-DD; at most 366 days.")
-@pass_context
-def security_get(ctx, product, from_date, until_date) -> None:
-    """Read acknowledged status, trial limits and accrued costs."""
-    try:
-        data = BillingSDK(_get_org(ctx)).get_security(product, from_date=from_date, until_date=until_date)
-    except ValueError as exc:
-        raise click.UsageError(str(exc)) from exc
-    _output(ctx, data)
-
-
-@security.command("activate")
-@click.argument("product", type=_PRODUCT)
-@click.option("--accept-pricing", is_flag=True, required=True,
-              help="Accept disclosed monthly rates divided by 30 per UTC entity-day, plus Code's Cloud fee.")
-@click.option("--accepted-quote", type=click.File("r", encoding="utf-8"), required=True,
-              help="JSON file containing the complete reviewed GET status.pricing_quote; changed quotes require fresh consent.")
-@pass_context
-def security_activate(ctx, product, accept_pricing, accepted_quote) -> None:
-    """Request paid coverage after explicit pricing acceptance."""
-    try:
-        raw_quote = accepted_quote.read(16385)
-        if len(raw_quote) > 16384:
-            raise ValueError("accepted quote exceeds 16 KiB")
-        quote = json.loads(raw_quote)
-    except (ValueError, UnicodeError) as exc:
-        raise click.UsageError(str(exc)) from exc
-    data = BillingSDK(_get_org(ctx)).activate_security(
-        product, accept_pricing=accept_pricing, accepted_quote=quote)
-    _output(ctx, data)
-
-
-@security.command("stop")
-@click.argument("product", type=_PRODUCT)
-@click.option("--confirm", is_flag=True, required=True,
-              help="Confirm paid coverage stop; accrued usage and Code's Cloud fee remain payable.")
-@pass_context
-def security_stop(ctx, product, confirm) -> None:
-    """Request paid coverage stop without resetting the trial."""
-    if not confirm:
-        raise click.UsageError("--confirm is required")
-    data = BillingSDK(_get_org(ctx)).stop_security(product)
     _output(ctx, data)
