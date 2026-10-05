@@ -70,7 +70,7 @@ import json
 import random
 import re
 import time
-from typing import Any, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as _quote
 from urllib.request import urlopen as _urlopen
 
@@ -2683,7 +2683,7 @@ class CloudSec:
                 source-control event stream, and the secret needed to
                 accept it, to a server they control.
             secret: The webhook signing secret the adapter verifies
-                (``X-Hub-Signature-256``); 20 to 256 bytes, with no
+                (``X-Hub-Signature-256``); 20 to 256 characters, with no
                 whitespace and no control characters.
 
         Returns:
@@ -3068,10 +3068,11 @@ class CloudSec:
                 findings if it goes a month with no push that moves its
                 commit.
             source: ``"sarif"``, ``"cyclonedx"`` or ``"report"`` (the
-                LimaCharlie scanner's own ``report/v1`` document, which is
+                LimaCharlie scanner's own ``lc-code-report/v1`` document, which is
                 loss-free and therefore dedupes exactly).
             document: the document, as raw bytes (gzipped or not), a string,
-                or an already-parsed object.
+                or an already-parsed object. At most 20 MiB on the wire and
+                64 MiB after decompression.
             commit: the revision the document describes. Recorded, not
                 verified, and worth sending: it is what tells somebody
                 reading a finding which checkout produced it.
@@ -3125,7 +3126,7 @@ class CloudSec:
         Trivy does not write ``invocations``, so a document straight from it
         never closes anything. Add the field yourself when your scan step
         exited 0 — the CLI's ``code ingest --scanner-succeeded`` does it for
-        you — or push the scanner's own ``report/v1``, which states its
+        you — or push the scanner's own ``lc-code-report/v1``, which states its
         coverage directly. A document that says its run FAILED is also
         additive, and says so with ``sarif_execution_unsuccessful``.
 
@@ -3160,7 +3161,7 @@ class CloudSec:
         return self._retry_code_push("code ingest", lambda: self._post(
             "code/ingest", body, raw_body=raw, retry_quota_errors=False), busy_retries)
 
-    def _retry_code_push(self, path: str, send: Any,
+    def _retry_code_push(self, path: str, send: Callable[[], dict[str, Any]],
                          busy_retries: int = INGEST_BUSY_RETRIES) -> dict[str, Any]:
         waited = 0.0
         attempt = 0
@@ -3225,7 +3226,9 @@ class CloudSec:
             (``unknown`` means the installation could not be read, not that
             it was denied). A connection whose read failed still appears,
             every capability ``unknown`` and ``verified_at`` empty, rather
-            than being dropped from the list.
+            than being dropped from the list. The webhook object is present on
+            GitHub connections; inspect its state separately from capability
+            permissions.
         """
         return self._get("code/capabilities", _query_pairs(repo=repo))
 
@@ -3237,7 +3240,7 @@ class CloudSec:
         highest-leverage fix leads.
 
         Args:
-            cursor: Keyset-pagination token from a previous page.
+            cursor: Opaque pagination token from a previous page.
             limit: Page size (backend default 5, max 20).
 
         Returns:
@@ -3255,11 +3258,12 @@ class CloudSec:
         return self._get("code/fixes", _query_pairs(cursor=cursor, limit=limit))
 
     def iter_code_fixes(self, **selectors: Any):
-        """Yield every fix in the dependency-upgrade queue, page by page.
+        """Yield available fix pages in the dependency-upgrade queue.
 
         Wraps :meth:`get_code_fixes` and follows ``next_cursor`` to the
-        end, which is the correct way to walk this endpoint: a page may be
-        short without being the last one.
+        end: a page may be short without being the last one. The API stops
+        issuing cursors once the next offset exceeds 10,000; compare the
+        number read with get_code_fixes()['distinct'] to detect truncation.
 
         Yields:
             dict: One ``fixes`` entry per iteration, in the same shape
@@ -4082,7 +4086,8 @@ class CloudSec:
         Args:
             provider: A ``cloudsec_provider`` hive record shape. For GitHub,
                 supply provider_type="github", github_org, github_app_id,
-                github_installation_id and credentials (the App private key).
+                github_installation_id and credentials (a JSON credential with a
+                private_key field holding the App PEM key, or its secret reference).
                 GitLab uses gitlab_namespace; Bitbucket uses bitbucket_workspace.
                 This probes collection credentials only, never actions_credentials,
                 gitlab_write_credentials or bitbucket_write_credentials. Use

@@ -23,7 +23,8 @@ limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
 limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-run
 ```
 
-Available hive flags: `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
+Available hive flags: `--hive-cloudsec-policy`, `--hive-cloudsec-provider`,
+`--hive-cloudsec-query`, `--hive-cloudsec-code-rule`, `--hive-mailsec-provider`, `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
 `--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
 `--hive-ai-agent`, `--hive-external-adapter`.
@@ -119,7 +120,12 @@ limacharlie sync push --config-file mailsec.yaml --hive-dr-mail --hive-mailsec-p
 limacharlie sync push --config-file mailsec.yaml --hive-dr-mail --hive-mailsec-policy
 ```
 
-Both hives are also included by `--all`. Rule keys have no reserved prefix; each `dr-mail` record contains one rule, with its on/off state in `usr_mtd.enabled`.
+These hives and `mailsec_provider` (`--hive-mailsec-provider`) are included by `--all`.
+Vendor-managed `dr-mail` rules tagged `limacharlie` are reconciled daily by the
+Email Security extension: edits pushed by sync revert to shipped content.
+Disable unwanted rules with `usr_mtd.enabled: false` instead of editing them;
+the extension preserves that choice. Customer-authored rules remain editable.
+Rule keys have no reserved prefix; each `dr-mail` record contains one rule, with its on/off state in `usr_mtd.enabled`.
 
 ### Application Control as code
 
@@ -132,3 +138,22 @@ limacharlie sync push --config-file app-control.yaml --hive-app-control-policy -
 ```
 
 Both hives are also included by `--all`. Records are stored under `hives.app_control_policy` and `hives.app_control_rule`; a rule's key is its rule ID and its `policies` field names the policy records it applies to. Push the policies together with the rules that reference them. The syncing identity needs `app_control.get` to pull and `app_control.set` to push.
+
+### Cloud Security and Code Security configuration
+
+```bash
+limacharlie sync pull --config-file cloud-security.yaml --hive-cloudsec-provider \
+  --hive-cloudsec-policy --hive-cloudsec-query --hive-cloudsec-code-rule
+limacharlie sync push --config-file cloud-security.yaml --hive-cloudsec-provider \
+  --hive-cloudsec-policy --hive-cloudsec-query --hive-cloudsec-code-rule --dry-run
+```
+
+All four hives are included by `--all`. Records retain their `data` and
+`usr_mtd` metadata. Credentials such as `hive://secret/github-key` remain
+references through pull and push; including the provider hive does not export
+secret values. Sync the `secret` hive separately only when you intend to manage
+its contents. Policy, query and code-rule reads need `cloudsec.get`, writes
+`cloudsec.set`; response policy writes additionally need `cloudsec.respond`.
+Provider records require `cloudsec_provider.get` / `cloudsec_provider.set` and
+corresponding metadata permissions (plus `.del` for deletions).
+See [Configuring Code Security](cloud-security.md#configuring-code-security).

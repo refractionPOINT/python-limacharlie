@@ -332,12 +332,11 @@ rule, the principal an attack path's grants land on) whose single
 edit resolves every finding under it. Lets a worklist be worked by
 fix instead of by row: "change this one thing, close N findings".
 
-Only CAUSE-BEARING findings are in scope, and that is a small slice of
-an estate: causes are stamped on the attack-path classes, while
-vulnerability findings (~90% of a typical estate) deliberately carry
-none. So these counts never sum to the worklist total, and
-'--class vulnerability' legitimately returns no causes at all — that
-means "no shared fix on this class", not "no findings".
+Only cause-bearing findings contribute. Attack-path causes include firewall
+rules and entitled identities. Repository SCA findings carry cause kind
+'vulnerable_package' for a shared package upgrade; other vulnerability
+findings may have no cause. Counts need not sum to the whole worklist.
+An empty rollup does not mean there are no findings.
 
 Takes the same filters as 'finding list', so a rollup can be scoped
 exactly like the list it summarizes. Pass --cause for the count of
@@ -450,7 +449,7 @@ Examples:
 """
 
 _EXPLAIN_FINDING_BULK_RESOLVE = """\
-Apply one resolution to many findings in a single call.
+Apply one resolution to at most 500 findings in a single call.
 
 --kind is mitigated, accepted, or false_positive. Reopening is a
 single-finding operation only (the bulk API does not accept 'open');
@@ -907,7 +906,17 @@ provider configs are managed via the hive:
   limacharlie hive set --hive-name cloudsec_provider --key my-gcp \\
       --input-file provider.json --enabled
 
-GitLab and Bitbucket Cloud are both supported provider_type values.
+GitHub, GitLab and Bitbucket Cloud are supported provider_type values.
+For GitHub, credentials is a JSON credential with a private_key field containing
+an App PEM private key, or a reference to a secret holding that JSON credential:
+
+  {"provider_type": "github", "github_org": "acme", "github_app_id": "123",
+   "github_installation_id": "456", "credentials": "hive://secret/github-key"}
+
+This tests collection credentials only. It does not probe actions_credentials,
+github_actions_app_id / github_actions_installation_id, gitlab_write_credentials
+or bitbucket_write_credentials. Use 'code capabilities' for workflow permissions.
+
 GitLab additionally requires the token's account to hold at least
 Reporter on the WHOLE group named by gitlab_namespace — a token
 scoped to a single project inside that group fails the
@@ -1895,7 +1904,7 @@ def code_capabilities(ctx, repo) -> None:
               help="Follow all available pages; preserves the server total and "
                    "reports truncation if paging stops before that total.")
 @click.option("--cursor", default=None,
-              help="Keyset-pagination token (next_cursor from the previous page).")
+              help="Opaque pagination token (next_cursor from the previous page).")
 @click.option("--limit", default=None, type=int,
               help="Page size (backend default 5, max 20 — a larger ask is "
                    "reduced to that; NOT the 1000-row cap other paged "
@@ -2239,7 +2248,7 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
                    "bill of materials, or the LimaCharlie scanner's own "
                    "lc-code-report/v1 document.")
 @click.option("-f", "--file", "file_path", required=True,
-              help="Path to the document. A '.gz' file is sent compressed.")
+              help="Path to the document: at most 20 MiB on the wire and 64 MiB decompressed. A '.gz' file is sent compressed.")
 @click.option("--commit", default=None,
               help="The revision the document describes. Recorded, not verified.")
 @click.option("--ref", default=None,
@@ -2357,7 +2366,7 @@ def code_provenance_group():
 
 
 @code_provenance_group.command("push")
-@click.option("--file", "-f", "file_path", required=True, type=click.Path(exists=True, dir_okay=False), help="LC/SLSA/Sigstore JSON document, at most 1 MiB.")
+@click.option("--file", "-f", "file_path", required=True, type=click.Path(exists=True, dir_okay=False), help="LC/SLSA/Sigstore JSON document, at most 1 MiB; 60 uploads/minute per identity, with bounded 429 backoff.")
 @click.pass_context
 def code_provenance_push(ctx, file_path):
     """Push a CI-produced document; the server assigns trust and tenant identity."""
@@ -5220,7 +5229,7 @@ def code_iac_map_extract(input_path, source_kind, repository, commit, workspace,
 
 
 @code_iac_map.command("push")
-@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 20 MiB. Raw state/plans are refused.")
+@click.option("--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False), help="Local sanitized lc-iac-map/v1 JSON, at most 20 MiB; 30 uploads/minute per identity, with bounded 429 backoff. Raw state/plans are refused.")
 @pass_context
 def code_iac_map_push(ctx, input_path) -> None:
     """Push only locally sanitized IaC JSON; requires cloudsec.set.

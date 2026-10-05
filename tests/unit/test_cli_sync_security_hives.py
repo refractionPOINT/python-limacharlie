@@ -19,11 +19,11 @@ HIVES = {
     "cloudsec_policy": {"scan": {"data": {"policy_type": "code_scanning",
         "code_scanning": {"enabled": True, "scanners": {"sca": True, "sast": False}}},
         "usr_mtd": {"enabled": False}}},
-    "cloudsec_query": {"saved": {"data": {"query": {}}, "usr_mtd": {"enabled": True}}},
+    "cloudsec_query": {"saved": {"data": {"query": {"named": "public-buckets"}}, "usr_mtd": {"enabled": True}}},
     "cloudsec_code_rule": {"no-eval": {"data": {"rules": [{"id": "no-eval",
         "languages": ["python"], "severity": "ERROR", "message": "Avoid eval", "pattern": "eval(...)"}]},
         "usr_mtd": {"enabled": True}}},
-    "mailsec_provider": {"mail": {"data": {"provider_type": "microsoft365",
+    "mailsec_provider": {"mail": {"data": {"provider": "m365",
         "credentials": "hive://secret/mail-key"}, "usr_mtd": {"enabled": True}}},
 }
 
