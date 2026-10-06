@@ -46,10 +46,17 @@ Entity Pivot `search_entities(q)` accepts prefixes of at least two characters an
 
 `pivot_entity(identifier, type=None, at=None)` resolves one identifier and reads the cards of its non-ambiguous `authoritative` or `corroborated` matches (at most 10, de-duplicated). It returns `cards`, `candidates` (the raw resolve results, where ambiguous and `possible` matches stay), every other top-level resolve key, and `truncated` / `card_errors` when more than 10 qualified or a card read failed. No cards are read when `index_ready` is not true or `feature_disabled` is true. `resolve_entities` and `pivot_entity` accept any identifier `type` of at most 64 bytes; the API rejects types it does not know.
 
+Both also take `observation_selectors`, at most 4 read selectors answered from adapter events and needing `insight.evt.get`: `{"type": "vendor_device_id", "platform": "sophos|crowdstrike|office365|entraid|okta|duo", "value": <at most 128 bytes>, "origin_sid": <optional lowercase UUID>}` or `{"type": "foreign_hostname", "value": <at most 512 bytes>}`. The SDK rejects what the API would reject (count, type, platform, sizes, `origin_sid` format, blank or non-UTF-8 values) with `ValueError` before any request. `at` also pins the UTC day the selectors are evaluated on, and an identifier explicitly typed `hostname` that the inventory does not know triggers an implicit `foreign_hostname` lookup while fewer than 4 selectors are used. The response gains `observed_matches[]` and `observations` (`status` of `ok`, `incomplete`, `unavailable` or `forbidden`, optional `reason` of `schema_missing`, `deadline`, `query_budget`, `error` or `bounds`, plus `queries`, `rows` and `truncated`). Candidate Host ids in `observed_matches[].devices[].candidates[].entity` are evidence only, never merged, and `pivot_entity` does not read their cards (call `get_entity`). Cards read with `insight.evt.get` carry `also_seen_as[]` and `cloud_sign_ins[]`, with `observations` on the `get_entity` response; each such card read runs a bounded enrichment (at most 16 queries, 2,000 facts / 4 MiB and 5 seconds), so `pivot_entity` costs one resolve plus, per card, one read and one enrichment. `incomplete`, `unavailable` and `forbidden` mean UNKNOWN, never "none". A signed-in Chrome sensor is a User (`eu_`) entity, an old `eh_` id may `redirect_to` it, and `telemetry_sources[]` entries carry `identity_source` (`parser` or `mapping`).
+
 ```python
 pivot = cloud.pivot_entity("fixture@example.com", type="email")
 for card in pivot["cards"]:
     print(card["card"]["entity"]["id"], card.get("redirect_to"))
+
+observed = cloud.resolve_entities(
+    [{"value": "web-01", "type": "hostname"}], at=1791000000,
+    observation_selectors=[{"type": "vendor_device_id", "platform": "sophos", "value": "fixture-device-id"}])
+print(observed["observations"]["status"])
 ```
 
 ## Email Security

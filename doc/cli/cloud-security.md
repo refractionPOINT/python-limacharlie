@@ -930,6 +930,9 @@ limacharlie cloudsec entity pivot --identifier 192.0.2.1 --type ip --at 17910000
 limacharlie cloudsec entity resolve --identifier host.example --type hostname
 limacharlie cloudsec entity resolve --identifier 'CORP\fixture' --identifier fixture@example.com
 limacharlie cloudsec entity resolve --identifier 192.0.2.1 --type ip --at 1791000000
+limacharlie cloudsec entity resolve --identifier host.example --device sophos:fixture-device-id
+limacharlie cloudsec entity resolve --identifier host.example --foreign-hostname HOST.EXAMPLE --at 1791000000
+limacharlie cloudsec entity pivot --identifier host.example --type hostname --device crowdstrike:fixture-aid
 limacharlie cloudsec entity search --q host --kind host --limit 50
 limacharlie cloudsec entity get --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --sightings-days 30
 limacharlie cloudsec entity sightings --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --kind user --limit 100
@@ -945,7 +948,16 @@ never followed. The output has `cards` (as `get` returns them), `candidates`
 (`index_ready`, `sources`, `sightings`, `feature_disabled`, ...), and, when
 needed, `truncated: true` (more than 10 qualified, or a card read failed) with
 `card_errors` listing `{entity_id, status: "unavailable"}`. No cards are read
-when `index_ready` is not true or `feature_disabled` is true.
+when `index_ready` is not true or `feature_disabled` is true. Observed
+candidates (see "Observed devices" below) are evidence, not matches: `pivot`
+does not read their cards, so follow with `entity get --entity-id <id>`.
+
+With `insight.evt.get`, every card read in a pivot also runs a bounded
+observation enrichment (at most 16 queries, 2,000 facts / 4 MiB and 5 seconds
+per card), so a pivot that reads `n` cards can run up to `16n` enrichment
+queries on top of the resolve. Without that permission no observation query
+runs. `resolve` and `get` accept the same kind of enrichment on their own, once
+per call.
 
 `resolve` accepts up to 100 repeated `--identifier` values and returns
 candidates only; `--type` applies to all values, or omit it for shape detection.
@@ -956,7 +968,70 @@ types (currently including `email`, `hostname`, `fqdn`, `ip`, `mac`,
 `entra_object_id`, `okta_user_id`, `gws_user_id`, `github_login`,
 `github_user_id`) and an unknown type returns its HTTP 400. It preserves every ambiguous and
 possible candidate. Possible matches are unconfirmed; choosing one automatically
-would hide uncertainty. `--at` is Unix seconds and supports historical IP reads.
+would hide uncertainty. `--at` is Unix seconds, supports historical IP reads
+and also pins the UTC day that observed devices are read on (without it the
+most recent days are returned, newest first). An explicit `--type hostname`
+for a name the inventory does not know also triggers an observed lookup
+(see below); an untyped plain word never does.
+
+### Observed devices (adapter events)
+
+Needs `insight.evt.get`. Devices reported by Sophos, CrowdStrike, Office 365,
+Entra ID, Okta and Duo adapters are not inventory identifiers, but `resolve` and
+`pivot` can ask which existing Hosts such a device may be. At most 4 selectors
+are accepted per call, in total:
+
+- `--device PLATFORM:VENDOR_ID[@ORIGIN_SID]`, repeatable. `PLATFORM` is one of
+  `sophos`, `crowdstrike`, `office365`, `entraid`, `okta`, `duo`; `VENDOR_ID`
+  is at most 128 bytes. `ORIGIN_SID` is a lowercase UUID naming one collector;
+  omit it to read every collector. Only the first `:` splits the platform and
+  the last `@` starts the `ORIGIN_SID`.
+- `--foreign-hostname NAME`, repeatable: a device name as the vendor spelled it
+  (at most 512 bytes).
+
+Values must be non-blank UTF-8; the CLI and SDK check the API's selector rules
+before sending a request. The API still needs at least one
+`--identifier`, so selectors accompany one. A `--type hostname` identifier that
+the inventory does not know adds an implicit `foreign_hostname` lookup while
+fewer than 4 selectors are in use.
+
+```bash
+limacharlie cloudsec entity resolve --identifier web-01 --type hostname \
+  --device sophos:fixture-device-id@0a1b2c3d-0000-4000-8000-000000000001 \
+  --foreign-hostname WEB-01 --at 1791000000 --output json
+```
+
+The response gains `observed_matches[]` (one `{selector, devices[], truncated}`
+per selector) and `observations`:
+
+```json
+{
+  "observed_matches": [{
+    "selector": {"type": "vendor_device_id", "value": "fixture-device-id", "platform": "sophos"},
+    "devices": [{
+      "origin_sid": "0a1b2c3d-0000-4000-8000-000000000001", "platform": "sophos",
+      "vendor_device_id": "fixture-device-id", "day": "2026-10-05",
+      "names": ["WEB-01"], "local_ips": ["10.0.0.7"],
+      "confidence": "corroborated", "approximate": true,
+      "reason": "hostname_internal_ip_same_day",
+      "candidates": [{"entity": {"id": "eh_bbbbbbbbbbbbbbbbbbbbbbbbbb", "kind": "host"},
+                      "confidence": "corroborated", "reason": "hostname_internal_ip_same_day"}]
+    }]
+  }],
+  "observations": {"status": "ok", "queries": 4, "rows": 12}
+}
+```
+
+Each device has `confidence` (`corroborated` or `possible`), `approximate`,
+`reason`, `conflicting_names`, `incomplete` and `candidates[]`. A candidate's
+`entity` is an existing Host id offered as evidence only ("same hostname and
+internal IP observed that day"): nothing is merged and it is not an inventory
+identifier. `observations.status` is `ok`, `incomplete`, `unavailable` or
+`forbidden`, and `reason` is one of `schema_missing`, `deadline`,
+`query_budget`, `error` or `bounds`. `incomplete`, `unavailable` and
+`forbidden` (you lack `insight.evt.get`, so no query ran) mean UNKNOWN, never
+"no other device"; a `truncated` match or an `incomplete` device is unknown in
+the same way.
 
 `get` preserves merge redirects: when the id was merged into another entity,
 `redirect_to` names the survivor and the card returned is the survivor's (if the
@@ -967,6 +1042,23 @@ at most 512 UTF-8 bytes, and returns at most 100 results per page. `sightings` r
 with optional `--since`/`--until` Unix seconds and a page size up to 500. Pass
 `--cursor` with the returned `next_cursor` to continue either paginated read.
 Missing sightings do not prove inactivity.
+
+Chrome profiles are Users: a signed-in Chrome sensor is a User (`eu_...`) entity
+with `telemetry_sources[]` platform `chrome`, not a Host, and an old `eh_...` id
+may `redirect_to` the `eu_...` id. Chrome Users may carry `attrs.external: true`
+(known only through the browser, no directory record), which is not a verdict
+on the actor. Every `telemetry_sources[]` entry has `identity_source`:
+`parser` (identity parsed from the sensor's own data) or `mapping` (declared by
+a customer mapping, so possible rather than confirmed).
+
+For a caller with `insight.evt.get`, a card (`get`, and the cards inside
+`pivot`) also carries `also_seen_as[]` (foreign devices that may be this Host,
+same shape as the observed devices above) and `cloud_sign_ins[]` (sampled
+sign-ins with the hosts that shared the source address then; always `possible`,
+since a shared address can identify an office rather than the endpoint), and
+the response has `observations` with the same status and reason vocabulary.
+Without the permission none of them appear and `observations.status` is
+`forbidden`. As above, anything but `ok` is unknown, never "no sign-ins".
 
 Sighting data needs `insight.evt.get`. Without it, `sightings` returns HTTP 403,
 while resolve/get return `sightings:"forbidden"` and omit recent activity and
@@ -1004,6 +1096,14 @@ from limacharlie.sdk.cloudsec import CloudSec
 entities = CloudSec(org)
 pivot = entities.pivot_entity("fixture@example.com", type="email")
 resolution = entities.resolve_entities([{"value": "host.example", "type": "hostname"}])
+observed = entities.resolve_entities(
+    [{"value": "host.example", "type": "hostname"}], at=1791000000,
+    observation_selectors=[
+        {"type": "vendor_device_id", "platform": "sophos", "value": "fixture-device-id"},
+        {"type": "foreign_hostname", "value": "HOST.EXAMPLE"},
+    ])
+if observed["observations"]["status"] != "ok":
+    ...  # unknown, not "no other device"
 page = entities.search_entities("host", kind="host", limit=50)
 card = entities.get_entity("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", sightings_days=30)
 sightings = entities.list_entity_sightings("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", limit=100)

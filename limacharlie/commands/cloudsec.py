@@ -46,7 +46,8 @@ from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
 from ..sdk.cloudsec import (
-    CloudSec, chain_stage_summary, coverage_summary, runtime_packages, runtime_verdict,
+    ENTITY_MAX_OBSERVATION_SELECTORS, CloudSec, chain_stage_summary, coverage_summary,
+    runtime_packages, runtime_verdict, validate_observation_selectors,
 )
 from ..sdk.hive import Hive
 from ..output import format_output, detect_output_format
@@ -5344,7 +5345,23 @@ aws_arn, graph_urn, entra_object_id, okta_user_id, gws_user_id,
 github_login, github_user_id. The list is owned by the API and grows;
 an unknown type is rejected by the API with a 400, not by this CLI.
 --type applies to every --identifier in the call. --at (Unix seconds)
-resolves an IP as of that time.
+resolves an IP as of that time and ALSO pins the UTC day that observed
+devices (below) are read on; without it the most recent days are
+returned, newest first.
+
+Observed devices (adapter events, needs insight.evt.get): ask which
+existing Hosts a device from Sophos, CrowdStrike, Office 365, Entra ID,
+Okta or Duo may be, with at most 4 selectors in total:
+  --device PLATFORM:VENDOR_ID[@ORIGIN_SID]
+        PLATFORM is sophos|crowdstrike|office365|entraid|okta|duo,
+        VENDOR_ID at most 128 bytes. ORIGIN_SID (a lowercase UUID)
+        names one collector; omitted, every collector is returned.
+  --foreign-hostname NAME
+        A device name as the vendor spelled it (at most 512 bytes).
+The API still needs at least one --identifier; selectors ride along.
+An identifier explicitly typed --type hostname that the inventory
+does not know also triggers a foreign_hostname lookup (while fewer than
+4 selectors are used). An untyped plain word never does.
 
 Reading the response:
   results[]          One per input: input, detected_types, matches,
@@ -5365,11 +5382,32 @@ Reading the response:
                      results mean "not indexed yet", not "unknown".
   feature_disabled   The reader is not enabled for this org.
   sources[]          Per-source freshness (last_success, stale).
+  observed_matches[] One per selector: selector, devices[], truncated.
+                     A device has origin_sid, platform,
+                     vendor_device_id, day, names, local_ips,
+                     confidence (corroborated|possible), approximate,
+                     reason, conflicting_names, incomplete and
+                     candidates[].entity: existing Host ids offered as
+                     EVIDENCE ONLY ("same hostname and internal IP
+                     observed that day"). Nothing is merged and these
+                     are not inventory identifiers.
+  observations       {status, reason, queries, rows, truncated}.
+                     status: ok | incomplete | unavailable | forbidden.
+                     reason: schema_missing | deadline | query_budget |
+                     error | bounds. forbidden = you lack
+                     insight.evt.get and no query ran. incomplete,
+                     unavailable and forbidden mean UNKNOWN, never
+                     "no other device"; so does a truncated match or
+                     an incomplete device.
+  Only callers with insight.evt.get get observed_matches/observations
+  populated; without it selectors answer observations.status forbidden.
 
 Examples:
   limacharlie cloudsec entity resolve --identifier alice@example.com
   limacharlie cloudsec entity resolve --identifier alice@example.com --identifier web-01 --identifier 'CORP\\alice'
   limacharlie cloudsec entity resolve --identifier 203.0.113.7 --type ip --at 1791000000
+  limacharlie cloudsec entity resolve --identifier web-01 --type hostname --device sophos:0a1b2c3d-0000-4000-8000-000000000001
+  limacharlie cloudsec entity resolve --identifier web-01 --foreign-hostname WEB-01 --at 1791000000
 
 Workflow: resolve (or pivot) -> get the card -> activity.
 """
@@ -5379,16 +5417,24 @@ Resolve ONE identifier and fetch the entity cards it unambiguously
 names, in one step: 'what is this identifier?'.
 
 Requires cloudsec.get and an enabled Cloud Security subscription.
-Costs one resolve plus one card read per qualifying match.
+Costs one resolve plus one card read per qualifying match. With
+insight.evt.get each card read also runs a bounded observation
+enrichment (at most 16 queries, 2,000 facts / 4 MiB and 5 seconds per
+card), so n cards can run up to 16n enrichment queries; without it no
+observation query runs.
 
 Which cards are read: only for results that are NOT ambiguous, and only
 for matches whose confidence is 'authoritative' or 'corroborated',
 de-duplicated, at most 10. Ambiguous results and 'possible' matches
 are never followed; they stay in 'candidates' for you to judge.
+Observed candidates (observed_matches[].devices[].candidates[]) are
+evidence, not matches: pivot does NOT read their cards. Follow with
+'entity get --entity-id <candidate entity id>'.
 
 Reading the response:
   cards              Card responses exactly as 'entity get' returns
-                     them (card, index_ready, redirect_to, ...).
+                     them (card, index_ready, redirect_to,
+                     observations, ...).
   candidates         The raw resolve results (matches, possible,
                      ambiguous), always present. A non-empty
                      'possible' or ambiguous: true is unresolved.
@@ -5396,6 +5442,15 @@ Reading the response:
                      failed. The list is incomplete.
   card_errors[]      {entity_id, status: "unavailable"} for each card
                      that could not be read; retry with 'entity get'.
+  observed_matches[] / observations
+                     Passed through from resolve when you used
+                     --device / --foreign-hostname or typed a hostname
+                     the inventory does not know (see 'entity resolve
+                     --ai-help' for the device fields). observations is
+                     {status: ok|incomplete|unavailable|forbidden,
+                     reason: schema_missing|deadline|query_budget|
+                     error|bounds, queries, rows, truncated}. Anything
+                     but ok means UNKNOWN, never "no other device".
   index_ready        Every other top-level key of the resolve
                      response (index_ready, sources, sightings,
                      feature_disabled, ...) is passed through. No
@@ -5403,16 +5458,25 @@ Reading the response:
                      feature_disabled is true; "no cards" then means
                      "not indexed yet / not enabled", not "unknown".
 
+A signed-in Chrome sensor is a User (eu_...), not a Host: an identifier
+of one may return an eu_ card, and an old eh_ id may redirect_to it.
+
 Pass --type to skip shape detection (free text; the API validates it,
 e.g. email, hostname, ip, ad_account, windows_sid, sensor_id,
-github_login). --at (Unix seconds) resolves an IP as of that time.
+github_login). An explicit --type hostname that the inventory does not
+know triggers an observed lookup. --at (Unix seconds) resolves an IP as
+of that time and pins the UTC day of observed devices. Selectors:
+--device PLATFORM:VENDOR_ID[@ORIGIN_SID] and --foreign-hostname NAME,
+at most 4 in total (see 'entity resolve --ai-help').
 
 Examples:
   limacharlie cloudsec entity pivot --identifier alice@example.com
   limacharlie cloudsec entity pivot --identifier web-01 --type hostname
   limacharlie cloudsec entity pivot --identifier 203.0.113.7 --type ip --at 1791000000
+  limacharlie cloudsec entity pivot --identifier web-01 --device sophos:0a1b2c3d-0000-4000-8000-000000000001
 
-Workflow: pivot -> read cards -> 'entity activity --entity-id ...'.
+Workflow: pivot -> read cards -> 'entity get' on observed candidates
+-> 'entity activity --entity-id ...'.
 """
 
 _EXPLAIN_ENTITY_GET = """\
@@ -5423,6 +5487,9 @@ Requires cloudsec.get and an enabled Cloud Security subscription.
 Recent sightings in the card need insight.evt.get; without it the
 response has sightings: "forbidden" and recent_activity is omitted.
 --sightings-days (1..365, default 30) sets the recent-activity window.
+With insight.evt.get each read also runs a bounded observation
+enrichment (at most 16 queries, 2,000 facts / 4 MiB and 5 seconds);
+without it no observation query runs.
 
 Reading the response:
   card               entity (id, kind, display_name, attrs),
@@ -5432,11 +5499,36 @@ Reading the response:
                      cloud context, pivots (where to look next and
                      the permission it needs), sources freshness.
   telemetry_sources  Sensors/adapters that report this entity (sid,
-                     platform, identity_type, hostname).
+                     platform, identity_type, identity_source,
+                     hostname). identity_source is 'parser' (the
+                     identity was parsed from the sensor's own data)
+                     or 'mapping' (declared by a customer mapping, so
+                     treat it as possible, not confirmed).
   attrs.external     true when no directory-backed record has joined
                      this User (known only through an adapter, or
-                     flagged external by its provider). It is not a
-                     verdict that the actor is malicious.
+                     flagged external by its provider), including
+                     Chrome Users. It is not a verdict that the actor
+                     is malicious.
+  Chrome             A signed-in Chrome sensor (telemetry_sources
+                     platform 'chrome') is a User (eu_...) entity, not
+                     a Host; an old eh_ id may redirect_to the eu_ id.
+  card.also_seen_as[] Foreign devices (Sophos, CrowdStrike, ...) that
+                     may be this Host: names, local_ips, day,
+                     confidence (corroborated|possible), approximate,
+                     reason, conflicting_names, incomplete. Evidence
+                     only; never a merge. Needs insight.evt.get.
+  card.cloud_sign_ins[] Sampled cloud sign-ins (principal, outcome,
+                     successful, day, samples[] with the hosts that
+                     shared the source address then, user). Always
+                     possible: a shared address can identify an
+                     office, not the endpoint. Needs insight.evt.get.
+  observations       {status, reason, queries, rows, truncated} for
+                     also_seen_as/cloud_sign_ins. status: ok |
+                     incomplete | unavailable | forbidden; reason:
+                     schema_missing | deadline | query_budget | error
+                     | bounds. incomplete, unavailable and forbidden
+                     mean UNKNOWN, never "no other device" or "no
+                     sign-ins".
   redirect_to        The id was MERGED into another entity. The card
                      returned is the SURVIVOR's card, not the id you
                      asked for; use redirect_to from now on. If the
@@ -5562,36 +5654,107 @@ def entity_group() -> None:
     """
 
 
+_ENTITY_DEVICE_HELP = (
+    "Observed device to look up (needs insight.evt.get), as "
+    "PLATFORM:VENDOR_ID[@ORIGIN_SID]; PLATFORM is sophos, crowdstrike, "
+    "office365, entraid, okta or duo, VENDOR_ID at most 128 bytes, "
+    "ORIGIN_SID a lowercase UUID naming one collector (omit for all). The "
+    "last '@' always starts the ORIGIN_SID. Repeatable; at most 4 with "
+    "--foreign-hostname.")
+_ENTITY_FOREIGN_HOSTNAME_HELP = (
+    "Device name as a vendor spelled it, to look up observed devices "
+    "(needs insight.evt.get; at most 512 bytes). Repeatable; at most 4 "
+    "with --device.")
+_ENTITY_AT_HELP = (
+    "Unix seconds for historical IP resolution; also pins the UTC day "
+    "observed devices are read on.")
+_ENTITY_TYPE_HELP = (
+    "Optional identifier type{}; omit for shape detection. The API validates "
+    "it. An explicit 'hostname' that the inventory does not know also "
+    "triggers an observed lookup.")
+
+
+def _entity_observation_selectors_from_options(devices, foreign_hostnames):
+    """Build the observation selectors of --device / --foreign-hostname."""
+    selectors: list[dict[str, str]] = []
+    for raw in devices:
+        platform, sep, rest = raw.partition(":")
+        if not sep or not platform or not rest:
+            raise click.BadParameter(
+                f"{raw!r} must look like PLATFORM:VENDOR_ID[@ORIGIN_SID]", param_hint="--device")
+        vendor_id, at_sign, origin_sid = rest.rpartition("@")
+        if not at_sign:
+            vendor_id, origin_sid = rest, ""
+        elif not vendor_id or not origin_sid:
+            raise click.BadParameter(
+                f"{raw!r}: expected VENDOR_ID@ORIGIN_SID with both parts non-empty",
+                param_hint="--device")
+        selector = {"type": "vendor_device_id", "value": vendor_id, "platform": platform}
+        if origin_sid:
+            selector["origin_sid"] = origin_sid
+        selectors.append(selector)
+    selectors.extend({"type": "foreign_hostname", "value": name} for name in foreign_hostnames)
+    if len(selectors) > ENTITY_MAX_OBSERVATION_SELECTORS:
+        raise click.UsageError(
+            f"at most {ENTITY_MAX_OBSERVATION_SELECTORS} observation selectors in total "
+            f"(--device plus --foreign-hostname), got {len(selectors)}")
+    for index, selector in enumerate(selectors):
+        try:
+            validate_observation_selectors([selector])
+        except ValueError as exc:
+            hint = "--device" if index < len(devices) else "--foreign-hostname"
+            raise click.BadParameter(str(exc), param_hint=hint) from None
+    return selectors or None
+
+
+def _entity_observation_options(f):
+    f = click.option("--foreign-hostname", "foreign_hostnames", multiple=True,
+                     help=_ENTITY_FOREIGN_HOSTNAME_HELP)(f)
+    return click.option("--device", "devices", multiple=True, help=_ENTITY_DEVICE_HELP)(f)
+
+
 @entity_group.command("resolve")
 @click.option("--identifier", "identifiers", required=True, multiple=True,
               help="Identifier to resolve; repeat up to 100 times.")
 @click.option("--type", "identifier_type", default=None,
-              help="Optional identifier type for all inputs; omit for shape detection.")
-@click.option("--at", default=None, type=click.IntRange(min=0),
-              help="Unix seconds for historical IP resolution.")
+              help=_ENTITY_TYPE_HELP.format(" for all inputs"))
+@click.option("--at", default=None, type=click.IntRange(min=0), help=_ENTITY_AT_HELP)
+@_entity_observation_options
 @pass_context
-def entity_resolve(ctx, identifiers, identifier_type, at) -> None:
-    """Resolve identifiers and show all ambiguous and possible candidates."""
+def entity_resolve(ctx, identifiers, identifier_type, at, devices, foreign_hostnames) -> None:
+    """Resolve identifiers and show all ambiguous and possible candidates.
+
+    --device and --foreign-hostname add observed-device lookups (existing
+    Hosts a Sophos, CrowdStrike, Office 365, Entra ID, Okta or Duo device
+    may be). They are evidence only; observations.status other than ok
+    means unknown, never none.
+    """
+    selectors = _entity_observation_selectors_from_options(devices, foreign_hostnames)
     values = [{"value": value, **({"type": identifier_type} if identifier_type is not None else {})}
               for value in identifiers]
-    _output(ctx, _get_cloudsec(ctx).resolve_entities(values, at=at))
+    _output(ctx, _get_cloudsec(ctx).resolve_entities(
+        values, at=at, observation_selectors=selectors))
 
 
 @entity_group.command("pivot")
 @click.option("--identifier", required=True,
               help="One identifier to resolve (at most 1024 bytes).")
-@click.option("--type", "identifier_type", default=None,
-              help="Optional identifier type; omit for shape detection. The API validates it.")
-@click.option("--at", default=None, type=click.IntRange(min=0),
-              help="Unix seconds for historical IP resolution.")
+@click.option("--type", "identifier_type", default=None, help=_ENTITY_TYPE_HELP.format(""))
+@click.option("--at", default=None, type=click.IntRange(min=0), help=_ENTITY_AT_HELP)
+@_entity_observation_options
 @pass_context
-def entity_pivot(ctx, identifier, identifier_type, at) -> None:
+def entity_pivot(ctx, identifier, identifier_type, at, devices, foreign_hostnames) -> None:
     """Resolve one identifier and fetch the cards of its unambiguous matches.
 
     Ambiguous results and possible matches are never followed; they stay
-    in 'candidates'. At most 10 cards are read.
+    in 'candidates'. At most 10 cards are read. Observed device
+    candidates are evidence and their cards are not read: follow with
+    'entity get'. With insight.evt.get each card read also runs a bounded
+    observation enrichment.
     """
-    _output(ctx, _get_cloudsec(ctx).pivot_entity(identifier, type=identifier_type, at=at))
+    selectors = _entity_observation_selectors_from_options(devices, foreign_hostnames)
+    _output(ctx, _get_cloudsec(ctx).pivot_entity(
+        identifier, type=identifier_type, at=at, observation_selectors=selectors))
 
 
 @entity_group.command("get")
