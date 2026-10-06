@@ -925,6 +925,8 @@ cross-product activity. All commands require `cloudsec.get` and Cloud Security
 enabled. Entity IDs returned by resolve/search are opaque.
 
 ```bash
+limacharlie cloudsec entity pivot --identifier fixture@example.com
+limacharlie cloudsec entity pivot --identifier 192.0.2.1 --type ip --at 1791000000
 limacharlie cloudsec entity resolve --identifier host.example --type hostname
 limacharlie cloudsec entity resolve --identifier 'CORP\fixture' --identifier fixture@example.com
 limacharlie cloudsec entity resolve --identifier 192.0.2.1 --type ip --at 1791000000
@@ -934,13 +936,33 @@ limacharlie cloudsec entity sightings --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa 
 limacharlie cloudsec entity activity --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --source sensor --source cloud
 ```
 
-`resolve` accepts up to 100 repeated `--identifier` values; `--type` applies to
-all values, or omit it for shape detection. It preserves every ambiguous and
+`pivot` is the default way to ask "what is this identifier?". It resolves ONE
+identifier, then reads the card of each match whose confidence is
+`authoritative` or `corroborated`, only for results that are not ambiguous
+(de-duplicated, at most 10 cards). Ambiguous results and `possible` matches are
+never followed. The output has `cards` (as `get` returns them), `candidates`
+(the raw resolve results), every other top-level key of the resolve response
+(`index_ready`, `sources`, `sightings`, `feature_disabled`, ...), and, when
+needed, `truncated: true` (more than 10 qualified, or a card read failed) with
+`card_errors` listing `{entity_id, status: "unavailable"}`. No cards are read
+when `index_ready` is not true or `feature_disabled` is true.
+
+`resolve` accepts up to 100 repeated `--identifier` values and returns
+candidates only; `--type` applies to all values, or omit it for shape detection.
+`--type` is free text of at most 64 bytes: the API owns the list of identifier
+types (currently including `email`, `hostname`, `fqdn`, `ip`, `mac`,
+`ad_account`, `ad_account_short`, `username`, `windows_sid`, `sensor_id`,
+`device_id`, `serial`, `cloud_instance_id`, `aws_arn`, `graph_urn`,
+`entra_object_id`, `okta_user_id`, `gws_user_id`, `github_login`,
+`github_user_id`) and an unknown type returns its HTTP 400. It preserves every ambiguous and
 possible candidate. Possible matches are unconfirmed; choosing one automatically
 would hide uncertainty. `--at` is Unix seconds and supports historical IP reads.
 
-`get` preserves merge redirects (`redirect_to`). An unknown entity returns
-`card:null`. `search` uses identifier prefixes of at least two characters and
+`get` preserves merge redirects: when the id was merged into another entity,
+`redirect_to` names the survivor and the card returned is the survivor's (if the
+survivor is retired, `card` is `null` and `redirect_to` is still set). A `null`
+card with `index_ready:true` is an unknown id; with `index_ready:false` the id
+may simply not be indexed yet. `search` uses identifier prefixes of at least two characters and
 at most 512 UTF-8 bytes, and returns at most 100 results per page. `sightings` returns best-effort evidence,
 with optional `--since`/`--until` Unix seconds and a page size up to 500. Pass
 `--cursor` with the returned `next_cursor` to continue either paginated read.
@@ -964,12 +986,23 @@ select sensors; sensor state and open cloud findings are current.
 `feature_disabled:true` means the reader is not enabled. Preserve these states
 when scripting with `--output json`; they are not empty successful searches.
 
+Every command has `--ai-help` with its response fields, how to read them and
+examples. A typical investigation:
+
+```bash
+limacharlie cloudsec entity pivot --identifier fixture@example.com --output json
+# cards[0].card.entity.id is e.g. eu_aaaaaaaaaaaaaaaaaaaaaaaaaa
+limacharlie cloudsec entity activity --entity-id eu_aaaaaaaaaaaaaaaaaaaaaaaaaa
+limacharlie cloudsec entity sightings --entity-id eu_aaaaaaaaaaaaaaaaaaaaaaaaaa --kind logon
+```
+
 The same reads are available in the Python SDK:
 
 ```python
 from limacharlie.sdk.cloudsec import CloudSec
 
 entities = CloudSec(org)
+pivot = entities.pivot_entity("fixture@example.com", type="email")
 resolution = entities.resolve_entities([{"value": "host.example", "type": "hostname"}])
 page = entities.search_entities("host", kind="host", limit=50)
 card = entities.get_entity("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", sightings_days=30)

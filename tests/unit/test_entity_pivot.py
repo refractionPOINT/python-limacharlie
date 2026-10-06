@@ -62,8 +62,12 @@ def test_get_paths_and_typed_selectors(sdk, call, path, query):
     lambda cs: cs.resolve_entities([{"value": ""}]),
     lambda cs: cs.resolve_entities([{"value": "x" * 1025}]),
     lambda cs: cs.resolve_entities([{"value": "中" * 400}]),
-    lambda cs: cs.resolve_entities([{"value": "host", "type": "unknown"}]),
     lambda cs: cs.resolve_entities([{"value": "host", "type": []}]),
+    lambda cs: cs.resolve_entities([{"value": "host", "type": ""}]),
+    lambda cs: cs.resolve_entities([{"value": "host", "type": "t" * 65}]),
+    lambda cs: cs.resolve_entities([{"value": "host", "type": "中" * 22}]),
+    lambda cs: cs.pivot_entity("host", type=""),
+    lambda cs: cs.pivot_entity(""),
     lambda cs: cs.resolve_entities([{"value": "host"}], at=1.1),
     lambda cs: cs.resolve_entities([{"value": "host"}], at=True),
     lambda cs: cs.resolve_entities([{"value": "\x00" * 1024}] * 100),
@@ -103,6 +107,9 @@ def test_unicode_batch_and_disabled_index_preserved(sdk):
 @pytest.mark.parametrize("args,method,positional,kwargs", [
     (["resolve", "--identifier", "host", "--identifier", "other", "--type", "hostname", "--at", "123"],
      "resolve_entities", ([{"value": "host", "type": "hostname"}, {"value": "other", "type": "hostname"}],), {"at": 123}),
+    (["pivot", "--identifier", "host", "--type", "hostname", "--at", "123"],
+     "pivot_entity", ("host",), {"type": "hostname", "at": 123}),
+    (["pivot", "--identifier", "host"], "pivot_entity", ("host",), {"type": None, "at": None}),
     (["get", "--entity-id", ENTITY, "--sightings-days", "365"], "get_entity", (ENTITY,), {"sightings_days": 365}),
     (["search", "--q", "host", "--kind", "host", "--limit", "100", "--cursor", "page"],
      "search_entities", ("host",), {"kind": "host", "limit": 100, "cursor": "page"}),
@@ -134,7 +141,7 @@ def test_cli_rejects_invalid_option_bounds(args):
 def test_cli_entity_help_lists_all_contract_verbs():
     result = CliRunner().invoke(cli, ["cloudsec", "entity", "--help"])
     assert result.exit_code == 0
-    for verb in ("resolve", "get", "search", "sightings", "activity"):
+    for verb in ("pivot", "resolve", "get", "search", "sightings", "activity"):
         assert verb in result.output
 
 
@@ -214,3 +221,163 @@ def test_cli_resolves_github_user_id():
     assert result.exit_code == 0, result.output
     get_cs.return_value.resolve_entities.assert_called_once_with(
         [{"value": "12345678901234567890", "type": "github_user_id"}], at=None)
+
+
+def test_unknown_identifier_type_is_forwarded_to_the_api(sdk):
+    cs, org = sdk
+    org.client.request.return_value = {"index_ready": True, "results": []}
+    cs.resolve_entities([{"value": "host", "type": "future_type"}])
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"]) == {
+        "identifiers": [{"value": "host", "type": "future_type"}]}
+    pivoted = cs.pivot_entity("host", type="t" * 64)
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"])["identifiers"][0]["type"] == "t" * 64
+    assert pivoted["cards"] == []
+
+
+def test_cli_forwards_unknown_type_without_client_rejection():
+    with patch("limacharlie.commands.cloudsec._get_cloudsec") as get_cs:
+        get_cs.return_value.resolve_entities.return_value = {}
+        result = CliRunner().invoke(cli, ["cloudsec", "entity", "resolve",
+                                         "--identifier", "x", "--type", "future_type"])
+    assert result.exit_code == 0, result.output
+    get_cs.return_value.resolve_entities.assert_called_once_with(
+        [{"value": "x", "type": "future_type"}], at=None)
+
+
+# ---------------------------------------------------------------------------
+# pivot_entity
+# ---------------------------------------------------------------------------
+
+def _id(n):
+    return "eu_" + "a" * 20 + "abcdefghij"[n // 10] + "abcdefghij"[n % 10]
+
+
+def _match(entity_id, confidence="authoritative"):
+    return {"entity_id": entity_id, "confidence": confidence}
+
+
+def _pivot_org(resolve_response, cards=None, failing=()):
+    """Org whose client answers the resolve POST and per-entity card GETs."""
+    org = MagicMock()
+    org.oid = OID
+    calls = []
+
+    def request(method, path, **kwargs):
+        calls.append((method, path))
+        if method == "POST":
+            return resolve_response
+        entity_id = path.rsplit("/", 1)[1]
+        if entity_id in failing:
+            raise RuntimeError("boom")
+        return {"index_ready": True, "card": {"entity": {"id": entity_id}}}
+
+    org.client.request.side_effect = request
+    return CloudSec(org), calls
+
+
+def _card_ids(calls):
+    return [path.rsplit("/", 1)[1] for method, path in calls if method == "GET"]
+
+
+def test_pivot_follows_only_confident_matches_of_unambiguous_results():
+    results = [
+        {"ambiguous": False, "matches": [_match(_id(1)), _match(_id(2), "corroborated"),
+                                          _match(_id(3), "possible")],
+         "possible": [_match(_id(4), "possible")]},
+        {"ambiguous": True, "matches": [_match(_id(5))], "possible": []},
+        {"matches": [_match(_id(6))]},  # ambiguity unknown: never followed
+    ]
+    cs, calls = _pivot_org({"index_ready": True, "results": results})
+    out = cs.pivot_entity("alice@example.com", type="email", at=5)
+    assert _card_ids(calls) == [_id(1), _id(2)]
+    assert [c["card"]["entity"]["id"] for c in out["cards"]] == [_id(1), _id(2)]
+    assert out["candidates"] == results
+    assert "truncated" not in out and "card_errors" not in out
+    assert calls[0] == ("POST", f"cloudsec/{OID}/entities/resolve")
+
+
+def test_pivot_dedupes_entities_across_results():
+    results = [{"ambiguous": False, "matches": [_match(_id(1))]},
+               {"ambiguous": False, "matches": [_match(_id(1)), _match(_id(1), "corroborated")]}]
+    cs, calls = _pivot_org({"index_ready": True, "results": results})
+    out = cs.pivot_entity("host")
+    assert _card_ids(calls) == [_id(1)]
+    assert len(out["cards"]) == 1
+
+
+def test_pivot_caps_cards_at_ten_and_marks_truncated():
+    matches = [_match(_id(n)) for n in range(11)]
+    cs, calls = _pivot_org({"index_ready": True, "results": [{"ambiguous": False, "matches": matches}]})
+    out = cs.pivot_entity("host")
+    assert _card_ids(calls) == [_id(n) for n in range(10)]
+    assert len(out["cards"]) == 10
+    assert out["truncated"] is True
+
+
+def test_pivot_exactly_ten_cards_is_not_truncated():
+    matches = [_match(_id(n)) for n in range(10)]
+    cs, calls = _pivot_org({"index_ready": True, "results": [{"ambiguous": False, "matches": matches}]})
+    out = cs.pivot_entity("host")
+    assert len(out["cards"]) == 10
+    assert "truncated" not in out
+
+
+def test_pivot_records_card_failure_and_keeps_other_cards():
+    matches = [_match(_id(1)), _match(_id(2)), _match(_id(3))]
+    cs, calls = _pivot_org({"index_ready": True, "results": [{"ambiguous": False, "matches": matches}]},
+                           failing={_id(2)})
+    out = cs.pivot_entity("host")
+    assert [c["card"]["entity"]["id"] for c in out["cards"]] == [_id(1), _id(3)]
+    assert out["card_errors"] == [{"entity_id": _id(2), "status": "unavailable"}]
+    assert out["truncated"] is True
+
+
+@pytest.mark.parametrize("flags", [{"index_ready": False}, {},
+                                   {"index_ready": True, "feature_disabled": True}])
+def test_pivot_reads_no_cards_unless_index_is_ready_and_enabled(flags):
+    results = [{"ambiguous": False, "matches": [_match(_id(1))]}]
+    cs, calls = _pivot_org({"results": results, **flags})
+    out = cs.pivot_entity("host")
+    assert _card_ids(calls) == []
+    assert out["cards"] == []
+    assert out["candidates"] == results
+    for key, value in flags.items():
+        assert out[key] == value
+
+
+def test_pivot_passes_through_every_other_resolve_key():
+    response = {"index_ready": True, "results": [], "sources": [{"source": "edr", "stale": False}],
+                "sightings": "forbidden", "future_field": {"a": 1}}
+    cs, calls = _pivot_org(response)
+    out = cs.pivot_entity("host")
+    assert out == {"cards": [], "candidates": [], "index_ready": True,
+                   "sources": response["sources"], "sightings": "forbidden",
+                   "future_field": {"a": 1}}
+    assert "results" not in out
+
+
+def test_pivot_sends_single_identifier_with_type_and_at():
+    cs, calls = _pivot_org({"index_ready": True, "results": []})
+    org = cs._org
+    cs.pivot_entity("203.0.113.7", type="ip", at=1791000000)
+    body = json.loads(org.client.request.call_args.kwargs["raw_body"])
+    assert body == {"identifiers": [{"value": "203.0.113.7", "type": "ip"}], "at": 1791000000}
+
+
+_ENTITY_COMMANDS = ("pivot", "resolve", "get", "search", "sightings", "activity")
+
+
+def test_each_entity_command_has_its_own_explain_text():
+    from limacharlie.discovery import get_explain
+    texts = {verb: get_explain(f"cloudsec.entity.{verb}") for verb in _ENTITY_COMMANDS}
+    assert all(texts.values())
+    assert len(set(texts.values())) == len(_ENTITY_COMMANDS)
+    assert "redirect_to" in texts["get"] and "next_cursor" in texts["search"]
+    assert "best_effort" in texts["sightings"] and "not_subscribed" in texts["activity"]
+    assert "ambiguous" in texts["pivot"] and "truncated" in texts["pivot"]
+
+
+def test_entity_ai_help_renders_per_command_text():
+    result = CliRunner().invoke(cli, ["cloudsec", "entity", "pivot", "--ai-help"])
+    assert result.exit_code == 0, result.output
+    assert "card_errors" in result.output

@@ -44,6 +44,14 @@ See the [Cloud and Code Security CLI reference](../cli/cloud-security.md) for bu
 
 Entity Pivot `search_entities(q)` accepts prefixes of at least two characters and at most 512 UTF-8 bytes; it preserves `next_cursor` for additional pages.
 
+`pivot_entity(identifier, type=None, at=None)` resolves one identifier and reads the cards of its non-ambiguous `authoritative` or `corroborated` matches (at most 10, de-duplicated). It returns `cards`, `candidates` (the raw resolve results, where ambiguous and `possible` matches stay), every other top-level resolve key, and `truncated` / `card_errors` when more than 10 qualified or a card read failed. No cards are read when `index_ready` is not true or `feature_disabled` is true. `resolve_entities` and `pivot_entity` accept any identifier `type` of at most 64 bytes; the API rejects types it does not know.
+
+```python
+pivot = cloud.pivot_entity("fixture@example.com", type="email")
+for card in pivot["cards"]:
+    print(card["card"]["entity"]["id"], card.get("redirect_to"))
+```
+
 ## Email Security
 
 Connect a small pilot scope first. The connection test accepts the **saved provider record name**, rather than a credential or provider name.
