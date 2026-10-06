@@ -21,6 +21,7 @@ def test_data_only_leaves_metadata_to_the_hive(payload):
 
 @pytest.mark.parametrize("metadata,flags,want", [
     ({}, [], {"enabled": False}),
+    ({"enabled": None}, [], {"enabled": False}),
     ({"enabled": False}, [], {"enabled": False}),
     ({"enabled": True}, [], {"enabled": True}),
     ({"comment": "staged"}, [], {"enabled": False, "comment": "staged"}),

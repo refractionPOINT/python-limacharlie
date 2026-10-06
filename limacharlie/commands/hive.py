@@ -95,7 +95,9 @@ def _record_from_input(key: str, data: Any) -> HiveRecord:
         record.expiry = usr.get("expiry")
         # A present metadata block replaces metadata wholesale. Even an empty
         # block is explicit: the API's omitted enabled key means false.
-        record.enabled = usr.get("enabled", False)
+        record.enabled = usr.get("enabled")
+        if record.enabled is None:
+            record.enabled = False
         record.tags = usr.get("tags")
         record.comment = usr.get("comment")
     record.etag = data.get("etag") or data.get("sys_mtd", {}).get("etag")
