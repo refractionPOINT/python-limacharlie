@@ -5353,11 +5353,14 @@ Reading the response:
                      'authoritative' (a unique, verified identifier)
                      or 'corroborated' (several independent sources
                      agree).
-  possible           Unconfirmed guesses (confidence 'possible', e.g.
-                     a short name or an IP). Never treat as the same
+  possible           Unconfirmed candidates (confidence 'possible',
+                     e.g. a bare username). Never treat as the same
                      entity without more evidence.
-  ambiguous: true    The input maps to several entities. Do NOT pick
-                     one; narrow with a more specific identifier.
+  ambiguous: true    The input maps to several CONFIRMED entities
+                     (e.g. a shared hostname). Do NOT pick one;
+                     inspect each or use a more specific identifier.
+  approximate: true  A time-based IP match from sightings; the
+                     holder interval is approximate.
   index_ready: false The index has not finished its first pass; empty
                      results mean "not indexed yet", not "unknown".
   feature_disabled   The reader is not enabled for this org.
@@ -5365,7 +5368,7 @@ Reading the response:
 
 Examples:
   limacharlie cloudsec entity resolve --identifier alice@example.com
-  limacharlie cloudsec entity resolve --identifier 'CORP\\alice' --identifier web-01 --type ad_account
+  limacharlie cloudsec entity resolve --identifier alice@example.com --identifier web-01 --identifier 'CORP\\alice'
   limacharlie cloudsec entity resolve --identifier 203.0.113.7 --type ip --at 1791000000
 
 Workflow: resolve (or pivot) -> get the card -> activity.
@@ -5430,9 +5433,10 @@ Reading the response:
                      the permission it needs), sources freshness.
   telemetry_sources  Sensors/adapters that report this entity (sid,
                      platform, identity_type, hostname).
-  attrs.external     true for identities seen only through an
-                     external adapter (e.g. a SaaS user), not an
-                     enrolled sensor.
+  attrs.external     true when no directory-backed record has joined
+                     this User (known only through an adapter, or
+                     flagged external by its provider). It is not a
+                     verdict that the actor is malicious.
   redirect_to        The id was MERGED into another entity. The card
                      returned is the SURVIVOR's card, not the id you
                      asked for; use redirect_to from now on. If the
@@ -5493,9 +5497,10 @@ Reading the response:
   sightings[]        sid, kind, value, day, first_ts/last_ts and,
                      where known, user_entity_id / host_entity_id to
                      pivot into the related entity.
-  best_effort: true  Always set: sightings are sampled evidence. A
-                     missing sighting does NOT prove the entity was
-                     inactive.
+  best_effort: true  Always set: sightings are best-effort, deduped
+                     intervals from collected events, not a complete
+                     login audit. A missing sighting does NOT prove
+                     the entity was inactive.
   next_cursor        Present and non-empty means more rows: pass it
                      back with --cursor. Page until it is absent.
 
