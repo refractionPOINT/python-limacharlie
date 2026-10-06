@@ -5385,7 +5385,9 @@ observed that day"), not proof of the same machine, and never merge
 entities. Each device carries a confidence (corroborated at most) and a
 reason; describe it by that reason.
 An input with --type hostname that the inventory does not know is also
-looked up as a foreign hostname automatically (untyped inputs are not).
+looked up as a foreign hostname automatically, only when it has no
+inventory or possible match and only in the room explicit selectors
+leave under the 4-selector bound (untyped inputs never are).
 observations.status: ok; incomplete (a bound cut the evidence);
 unavailable (could not be read); forbidden (no insight.evt.get). Only
 ok with nothing found means none; the others never do.
@@ -5450,7 +5452,8 @@ NAME, and --observation-selector JSON such as
 (optional "origin_sid"). Platforms are currently sophos, crowdstrike,
 office365, entraid, okta, duo; the API validates them. An input typed
 --type hostname that the inventory does not know is also looked up as a
-foreign hostname automatically. Observed lookups need insight.evt.get;
+foreign hostname automatically, in the room explicit selectors leave
+under the 4-selector bound. Observed lookups need insight.evt.get;
 read them as leads described by their reason (for example "same hostname
 and internal IP observed that day"), never as the same machine. Bounds: 30 days, 20 rows per panel.
 
@@ -5481,8 +5484,11 @@ Reading the response:
                      recent_activity, possible_matches (unconfirmed),
                      cloud context, pivots (where to look next and
                      the permission it needs), sources freshness.
-  telemetry_sources  Sensors/adapters that report this entity (sid,
-                     platform, identity_type, hostname).
+  telemetry_sources  Attached adapter, Chrome profile and mailbox
+                     sensors (sid, platform, identity_type, hostname,
+                     identity_source). identity_source 'mapping' is a
+                     customer-declared, unconfirmed identity; 'parser'
+                     comes from a built-in parser.
   attrs.external     true when no directory-backed record has joined
                      this User (known only through an adapter, or
                      flagged external by its provider). It is not a
