@@ -5382,7 +5382,8 @@ Add selectors to look one up (up to 4 in total, needs insight.evt.get):
 observed_matches[{selector, devices[], truncated?}], never in matches:
 they are approximate LEADS (for example "same hostname and internal IP
 observed that day"), not proof of the same machine, and never merge
-entities. A candidate Host of a device is a possible match at best.
+entities. Each device carries a confidence (corroborated at most) and a
+reason; describe it by that reason.
 An input with --type hostname that the inventory does not know is also
 looked up as a foreign hostname automatically (untyped inputs are not).
 observations.status: ok; incomplete (a bound cut the evidence);
@@ -5450,8 +5451,8 @@ NAME, and --observation-selector JSON such as
 office365, entraid, okta, duo; the API validates them. An input typed
 --type hostname that the inventory does not know is also looked up as a
 foreign hostname automatically. Observed lookups need insight.evt.get;
-read them as "same hostname and internal IP observed that day" leads,
-never as the same machine. Bounds: 30 days, 20 rows per panel.
+read them as leads described by their reason (for example "same hostname
+and internal IP observed that day"), never as the same machine. Bounds: 30 days, 20 rows per panel.
 
 Examples:
   limacharlie cloudsec entity pivot --identifier alice@example.com
