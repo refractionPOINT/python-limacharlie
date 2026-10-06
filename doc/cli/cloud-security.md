@@ -21,6 +21,29 @@ For `code pr-check`, GitHub requires `--base-sha`; GitLab.com and Bitbucket
 Cloud may omit it because the provider resolves the base. Supply `--head-sha`
 and `--action` for every provider. `--action edited` is GitHub-only.
 
+## Policy record enablement
+
+Every `cloudsec_policy` type honours the Hive record's `usr_mtd.enabled` flag.
+A disabled record does not apply, regardless of its policy type or body. For
+`code_scanning`, the nested `code_scanning.enabled` must also be `true` to scan.
+
+Once the updated Hive default is live, new `cloudsec_policy` records created
+without `usr_mtd` default to enabled. Other hives have their own defaults.
+Data-only updates preserve an existing record's metadata. Explicit metadata
+remains authoritative: `usr_mtd.enabled: false`, or a metadata block without
+an `enabled` key, creates a disabled record.
+
+Use `--disabled` to stage a new policy, or disable an existing record:
+
+```bash
+limacharlie hive set --hive-name cloudsec_policy --key my-policy --input-file policy.yaml --disabled
+limacharlie hive disable --hive-name cloudsec_policy --key my-policy
+limacharlie hive enable --hive-name cloudsec_policy --key my-policy
+```
+
+Pass `--enabled` when creating a policy to request enablement explicitly,
+including while the new default is being rolled out.
+
 ## Overview & posture
 
 ```bash

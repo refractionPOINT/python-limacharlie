@@ -90,10 +90,12 @@ def _record_from_input(key: str, data: Any) -> HiveRecord:
 
     record = HiveRecord(key)
     record.data = data.get("data", data)
-    usr = data.get("usr_mtd", {})
-    if usr:
+    usr = data.get("usr_mtd")
+    if usr is not None:
         record.expiry = usr.get("expiry")
-        record.enabled = usr.get("enabled")
+        # A present metadata block replaces metadata wholesale. Even an empty
+        # block is explicit: the API's omitted enabled key means false.
+        record.enabled = usr.get("enabled", False)
         record.tags = usr.get("tags")
         record.comment = usr.get("comment")
     record.etag = data.get("etag") or data.get("sys_mtd", {}).get("etag")
@@ -246,15 +248,17 @@ Create or update a record in a hive.  The record data is read from
 --input-file or from stdin if no file is specified.  The input should
 be a JSON or YAML document.
 
-New hive records are created DISABLED by default.  Pass --enabled to
-create-and-enable in one shot, or set usr_mtd.enabled in the input.
+When neither usr_mtd nor metadata flags are supplied, new records use the
+hive's own enabled default; data-only updates preserve existing metadata.
+Pass --enabled/--disabled or set usr_mtd.enabled to choose explicitly.
+A supplied usr_mtd block with no enabled key means disabled, even if empty.
 
 Full record format (YAML):
 
     data:
       key: value          # payload varies by hive type
     usr_mtd:
-      enabled: true       # optional, default false on new records
+      enabled: true       # explicit choice; false stages a disabled record
       expiry: 0           # optional, unix epoch MILLISECONDS (0 = never).
                           # NOT seconds — unlike the --expiry flag, a value written
                           # here is sent exactly as given.
@@ -324,7 +328,7 @@ def _merge_tags(existing: list[str] | None, add: tuple[str, ...], rm: tuple[str,
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
 @click.option(
     "--enabled/--disabled", "enabled", default=None,
-    help="Set usr_mtd.enabled on the record. Overrides any value in the input file. New records default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+    help="Set usr_mtd.enabled on the record. Overrides any value in the input file. Without metadata, new records use the hive's own default and updates preserve metadata.",
 )
 @click.option("--tag-add", "tag_add", multiple=True, help="Tag to add (repeatable, additive; keeps existing tags).")
 @click.option("--tag-rm", "tag_rm", multiple=True, help="Tag to remove (repeatable, additive; keeps other existing tags).")
