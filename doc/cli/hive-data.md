@@ -32,7 +32,23 @@ The flag is `--hive-name`; `--category` does not exist and never has.
 | `app_control_policy` | Application Control policies |
 | `app_control_rule` | Application Control allow and deny rules |
 
-Store provider credentials in `secret` records and reference them with `hive://secret/<key>`. New records default to disabled; use `--enabled` when ready. See the [Cloud Security](cloud-security.md) and [Email Security](email-security.md) onboarding guides before creating connections.
+Store provider credentials in `secret` records and reference them with `hive://secret/<key>`. Most hives default new records to disabled; `cloudsec_policy` (once the updated hive is live in your environment), `acl` and the app-control hives default them to enabled. Pass `--enabled` or `--disabled` to be explicit. See the [Cloud Security](cloud-security.md) and [Email Security](email-security.md) onboarding guides before creating connections.
+
+### Metadata on `hive set`
+
+A record's metadata (`usr_mtd`: `enabled`, `tags`, `comment`, `expiry`) is replaced as a
+whole whenever any is sent, and a metadata block without `enabled` is stored as disabled.
+`hive set` therefore treats `--tag-add`, `--tag-rm`, `--comment` and `--expiry` as metadata:
+
+| You pass | What is sent |
+|----------|--------------|
+| data only | No metadata. An existing record keeps its metadata; a new one gets the hive's default. |
+| data with a `usr_mtd` block in the input | The block, with any flags applied on top. It is authoritative: a block without `enabled` (even `{}`) means disabled. A null `usr_mtd:` counts as absent. |
+| data with `--enabled` or `--disabled` | The input plus the flags. Existing tags, comment and expiry are not carried over. |
+| data with only `--tag-add`, `--tag-rm`, `--comment` or `--expiry` | The record's current metadata is read and merged: the enabled state and every field you did not set are kept. If the record does not exist, it is created disabled and a warning on stderr says to pass `--enabled`. Any other error reading the record aborts the command. |
+| no data, metadata flags | A metadata-only update, merged the same way. |
+
+The shortcut commands below behave the same for `--tag` and `--comment`.
 
 ### Expiry
 
@@ -175,8 +191,9 @@ rule that names that policy or names none. Deleting a policy does not disarm
 sensors that already have it; set `mode: off` instead.
 
 Unlike most hives, a new record on these two hives is enabled when it is sent
-with no metadata. Passing `--tag` or `--comment` without `--enabled` stores it
-disabled, so pass `--enabled` with them. The same hives are reachable with the generic
+with no metadata. Passing `--tag` or `--comment` without `--enabled` keeps an
+existing record's enabled state, but creates a record that does not exist yet
+disabled (a warning says so), so pass `--enabled` with them when creating. The same hives are reachable with the generic
 `limacharlie hive` commands (`--hive-name app_control_policy`) and sync with
 `limacharlie sync` (`--hive-app-control-policy`, `--hive-app-control-rule`).
 

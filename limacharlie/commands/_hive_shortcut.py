@@ -28,6 +28,34 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
+def merge_current_metadata_or_warn(hive: Hive, hive_name: str, record: HiveRecord) -> None:
+    """Start ``record``'s metadata from the stored record, for edits that carry no ``enabled``.
+
+    A metadata block sent without ``enabled`` replaces the stored metadata and
+    stores the record disabled, so changing only tags/comment/expiry would
+    silently disable a live record. This keeps the stored enabled state and the
+    fields the caller is not changing. A record that does not exist yet is
+    created disabled, which is said on stderr so nobody finds out from a rule
+    that never fires. Errors other than a missing record propagate.
+
+    Args:
+        hive: Hive the record is written to.
+        hive_name: Its name, for the warning.
+        record: Record about to be written, with the caller's edits not yet applied.
+    """
+    if hive.merge_current_metadata(record):
+        return
+    click.echo(
+        f"Warning: record '{record.name}' does not exist in hive '{hive_name}', so the new "
+        "record is created DISABLED because metadata was supplied without "
+        "--enabled. Pass --enabled to activate it.",
+        err=True,
+    )
+    # What the API stores for a metadata block without "enabled" anyway; sent
+    # explicitly so the warning above stays true by construction.
+    record.enabled = False
+
+
 def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_plural: str | None = None, value_key: str | None = None, index_keys: tuple[str, ...] | None = None, explain_prefix: str | None = None) -> click.Group:
     """Create a Click group for a specific hive type.
 
@@ -90,8 +118,12 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         f"Provide data via --input-file (JSON/YAML) or stdin. "
         f"{value_hint}"
         f"--tag (repeatable) and --comment populate usr_mtd. "
-        f"New hive records default to disabled — pass --enabled to create-and-enable in one shot, "
-        f"or include usr_mtd.enabled: true in the input file."
+        f"With --tag/--comment and no --enabled/--disabled (and no usr_mtd in the input), an existing "
+        f"record keeps its enabled state and the metadata you did not set; a record that does not exist "
+        f"yet is created disabled, with a warning. "
+        f"With no metadata at all, a new record gets the hive's own default (most hives: disabled; "
+        f"cloudsec_policy, acl and the app-control hives: enabled). "
+        f"Pass --enabled/--disabled, or set usr_mtd.enabled in the input file, to be explicit."
     )
     explain_delete = f"Delete {article} {noun_singular} from the '{hive_name}' hive. Requires --confirm for safety."
 
@@ -166,10 +198,11 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     @click.option("--comment", default=None, help="Set usr_mtd.comment on the record.")
     @click.option(
         "--enabled/--disabled", "enabled", default=None,
-        help=f"Set usr_mtd.enabled on the {noun_singular}. Overrides any value in the input file. Records default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+        help=f"Set usr_mtd.enabled on the {noun_singular}. Overrides any value in the input file. Without metadata, a new record gets the hive's own default (most hives: disabled). With --tag/--comment alone, an existing record keeps its enabled state and a new one is created disabled (with a warning).",
     )
     @pass_context
     def set_cmd(ctx, key, input_file, tags, comment, enabled, value=None) -> None:
+        input_has_mtd = False
         if value is not None:
             if input_file:
                 raise click.UsageError("--value is mutually exclusive with --input-file/stdin.")
@@ -198,9 +231,11 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
             if isinstance(data, dict) and "data" in data:
                 # Build a raw dict matching the API format so HiveRecord
                 # picks up usr_mtd and etag correctly.
+                # A null usr_mtd (a bare "usr_mtd:" in YAML) counts as absent.
+                input_has_mtd = data.get("usr_mtd") is not None
                 raw = {
                     "data": data["data"],
-                    "usr_mtd": data.get("usr_mtd", {}),
+                    "usr_mtd": data.get("usr_mtd") or {},
                     "sys_mtd": {},
                 }
                 if data.get("etag"):
@@ -208,14 +243,18 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
                 record = HiveRecord.from_raw(key, raw)
             else:
                 record = HiveRecord(key, data=data)
+        org = _get_org(ctx)
+        hive = Hive(org, hive_name)
+        if (tags or comment is not None) and enabled is None and not input_has_mtd:
+            # Without this the metadata block would carry no "enabled" and the
+            # server would store an existing record disabled.
+            merge_current_metadata_or_warn(hive, hive_name, record)
         if tags:
             record.tags = list(tags)
         if comment is not None:
             record.comment = comment
         if enabled is not None:
             record.enabled = enabled
-        org = _get_org(ctx)
-        hive = Hive(org, hive_name)
         result = hive.set(record)
         _output(ctx, result)
 

@@ -20,6 +20,7 @@ from ..sdk.organization import Organization
 from ..sdk.hive import Hive, HiveRecord
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._hive_shortcut import merge_current_metadata_or_warn
 from ._time_validation import validate_epoch_seconds
 
 
@@ -102,6 +103,11 @@ def _record_from_input(key: str, data: Any) -> HiveRecord:
         record.comment = usr.get("comment")
     record.etag = data.get("etag") or data.get("sys_mtd", {}).get("etag")
     return record
+
+
+def _input_has_metadata_block(data: Any) -> bool:
+    """True when the input carries a usr_mtd block (a null block counts as absent)."""
+    return isinstance(data, dict) and data.get("usr_mtd") is not None
 
 
 # Known hive types supported by LimaCharlie.
@@ -251,9 +257,13 @@ Create or update a record in a hive.  The record data is read from
 be a JSON or YAML document.
 
 When neither usr_mtd nor metadata flags are supplied, new records use the
-hive's own enabled default; data-only updates preserve existing metadata.
-Pass --enabled/--disabled or set usr_mtd.enabled to choose explicitly.
-A supplied usr_mtd block with no enabled key means disabled, even if empty.
+hive's own enabled default (most hives default to disabled; cloudsec_policy,
+acl and the app-control hives default to enabled) and data-only updates
+preserve the existing metadata.  Pass --enabled/--disabled or set
+usr_mtd.enabled to choose explicitly.
+A supplied usr_mtd block replaces the record's metadata wholesale: with no
+enabled key it means disabled, even if the block is empty ({}).  A null
+usr_mtd (a bare "usr_mtd:" in YAML) is treated as if it were absent.
 
 Full record format (YAML):
 
@@ -282,8 +292,21 @@ to manage usr_mtd without re-supplying the record data:
     metadata-only update is performed: the current metadata is fetched,
     --tag-add/--tag-rm are applied additively (existing tags are kept),
     and --comment/--expiry/--enabled overwrite their fields.
-  * When data IS supplied, the same flags are applied as overrides on
-    top of the input's usr_mtd.
+  * When data IS supplied, the metadata flags count as metadata.  What
+    they are applied to depends on what else you gave:
+      - input has a usr_mtd block: the flags override fields of that
+        block, which is sent as the record's metadata (authoritative,
+        nothing is fetched).
+      - --enabled/--disabled given: the flags are applied on top of the
+        input and sent as the record's metadata (the record's existing
+        tags/comment/expiry are not carried over).
+      - neither (just --tag-add/--tag-rm/--comment/--expiry): the
+        record's current metadata is fetched and merged, exactly like a
+        metadata-only update, so the enabled state and every field you
+        did not set are preserved.  If the record does not exist yet it
+        is created DISABLED and a warning on stderr tells you to pass
+        --enabled to activate it.  Any other error reading the current
+        metadata aborts the command.
 
 --tag-add and --tag-rm are repeatable and additive (they never clobber
 the existing tag set); applying both, a removal of an added tag wins.
@@ -330,7 +353,7 @@ def _merge_tags(existing: list[str] | None, add: tuple[str, ...], rm: tuple[str,
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
 @click.option(
     "--enabled/--disabled", "enabled", default=None,
-    help="Set usr_mtd.enabled on the record. Overrides any value in the input file. Without metadata, new records use the hive's own default and updates preserve metadata.",
+    help="Set usr_mtd.enabled on the record. Overrides any value in the input file. Without usr_mtd or metadata flags, new records use the hive's own default and updates preserve metadata. With metadata flags only, an existing record keeps its enabled state; a new record is created disabled (with a warning).",
 )
 @click.option("--tag-add", "tag_add", multiple=True, help="Tag to add (repeatable, additive; keeps existing tags).")
 @click.option("--tag-rm", "tag_rm", multiple=True, help="Tag to remove (repeatable, additive; keeps other existing tags).")
@@ -381,6 +404,14 @@ def set_record(ctx, hive_name, key, input_file, enabled, tag_add, tag_rm, commen
             record.enabled = enabled
     else:
         record = _record_from_input(key, data)
+        has_edit_flags = bool(tag_add or tag_rm or comment is not None or expiry is not None)
+        if has_edit_flags and enabled is None and not _input_has_metadata_block(data):
+            # usr_mtd replaces metadata wholesale and an omitted "enabled" is stored
+            # as false, so sending only the flags would silently disable an existing
+            # record. Start from the record's current metadata instead, like the
+            # metadata-only path. (An explicit --enabled/--disabled or a usr_mtd block
+            # in the input is authoritative and is sent as given.)
+            merge_current_metadata_or_warn(hive, hive_name, record)
         if tag_add or tag_rm:
             record.tags = _merge_tags(record.tags, tag_add, tag_rm)
         if comment is not None:
