@@ -1662,7 +1662,7 @@ def group() -> None:
 
     \b
     Subgroups / commands:
-      entity              Resolve User/Host identifiers, cards and activity
+      entity              Pivot/resolve User/Host identifiers, cards and activity
       overview            Composed risk overview (score, top paths, trend)
       changes             Recent finding created/closed feed
       risk-trend          Risk-score history
@@ -5326,12 +5326,239 @@ def code_iac_map_status(ctx, repository, provider, workspace, source_kind,
     _output(ctx, response)
 
 
+_EXPLAIN_ENTITY_RESOLVE = """\
+Resolve one or more identifiers (up to 100) into User (eu_...) and
+Host (eh_...) entities across EDR, Email Security and Cloud Security.
+Returns candidates only; it never fetches cards. To resolve one
+identifier and read its cards in one step use 'entity pivot'.
+
+Requires cloudsec.get and an enabled Cloud Security subscription.
+Identifiers the sightings index could use also need insight.evt.get;
+without it the response carries sightings: "forbidden" and the
+sighting-derived matches are omitted.
+
+Common --type values (omit it and the shape is detected): email,
+hostname, fqdn, ip, mac, ad_account (DOMAIN\\user), ad_account_short,
+username, windows_sid, sensor_id, device_id, serial, cloud_instance_id,
+aws_arn, graph_urn, entra_object_id, okta_user_id, gws_user_id,
+github_login, github_user_id. The list is owned by the API and grows;
+an unknown type is rejected by the API with a 400, not by this CLI.
+--type applies to every --identifier in the call. --at (Unix seconds)
+resolves an IP as of that time.
+
+Reading the response:
+  results[]          One per input: input, detected_types, matches,
+                     possible, ambiguous.
+  matches            Entities the identifier maps to. confidence is
+                     'authoritative' (a unique, verified identifier)
+                     or 'corroborated' (several independent sources
+                     agree).
+  possible           Unconfirmed candidates (confidence 'possible',
+                     e.g. a bare username). Never treat as the same
+                     entity without more evidence.
+  ambiguous: true    The input maps to several CONFIRMED entities
+                     (e.g. a shared hostname). Do NOT pick one;
+                     inspect each or use a more specific identifier.
+  approximate: true  A time-based IP match from sightings; the
+                     holder interval is approximate.
+  index_ready: false The index has not finished its first pass; empty
+                     results mean "not indexed yet", not "unknown".
+  feature_disabled   The reader is not enabled for this org.
+  sources[]          Per-source freshness (last_success, stale).
+
+Examples:
+  limacharlie cloudsec entity resolve --identifier alice@example.com
+  limacharlie cloudsec entity resolve --identifier alice@example.com --identifier web-01 --identifier 'CORP\\alice'
+  limacharlie cloudsec entity resolve --identifier 203.0.113.7 --type ip --at 1791000000
+
+Workflow: resolve (or pivot) -> get the card -> activity.
+"""
+
+_EXPLAIN_ENTITY_PIVOT = """\
+Resolve ONE identifier and fetch the entity cards it unambiguously
+names, in one step: 'what is this identifier?'.
+
+Requires cloudsec.get and an enabled Cloud Security subscription.
+Costs one resolve plus one card read per qualifying match.
+
+Which cards are read: only for results that are NOT ambiguous, and only
+for matches whose confidence is 'authoritative' or 'corroborated',
+de-duplicated, at most 10. Ambiguous results and 'possible' matches
+are never followed; they stay in 'candidates' for you to judge.
+
+Reading the response:
+  cards              Card responses exactly as 'entity get' returns
+                     them (card, index_ready, redirect_to, ...).
+  candidates         The raw resolve results (matches, possible,
+                     ambiguous), always present. A non-empty
+                     'possible' or ambiguous: true is unresolved.
+  truncated: true    More than 10 cards qualified, or a card read
+                     failed. The list is incomplete.
+  card_errors[]      {entity_id, status: "unavailable"} for each card
+                     that could not be read; retry with 'entity get'.
+  index_ready        Every other top-level key of the resolve
+                     response (index_ready, sources, sightings,
+                     feature_disabled, ...) is passed through. No
+                     cards are read when index_ready is not true or
+                     feature_disabled is true; "no cards" then means
+                     "not indexed yet / not enabled", not "unknown".
+
+Pass --type to skip shape detection (free text; the API validates it,
+e.g. email, hostname, ip, ad_account, windows_sid, sensor_id,
+github_login). --at (Unix seconds) resolves an IP as of that time.
+
+Examples:
+  limacharlie cloudsec entity pivot --identifier alice@example.com
+  limacharlie cloudsec entity pivot --identifier web-01 --type hostname
+  limacharlie cloudsec entity pivot --identifier 203.0.113.7 --type ip --at 1791000000
+
+Workflow: pivot -> read cards -> 'entity activity --entity-id ...'.
+"""
+
+_EXPLAIN_ENTITY_GET = """\
+Read the card of one entity by its opaque id (eu_... User, eh_... Host)
+from resolve, pivot or search.
+
+Requires cloudsec.get and an enabled Cloud Security subscription.
+Recent sightings in the card need insight.evt.get; without it the
+response has sightings: "forbidden" and recent_activity is omitted.
+--sightings-days (1..365, default 30) sets the recent-activity window.
+
+Reading the response:
+  card               entity (id, kind, display_name, attrs),
+                     identifiers (type, value, confidence, sources,
+                     first_seen/last_seen), relationships,
+                     recent_activity, possible_matches (unconfirmed),
+                     cloud context, pivots (where to look next and
+                     the permission it needs), sources freshness.
+  telemetry_sources  Sensors/adapters that report this entity (sid,
+                     platform, identity_type, hostname).
+  attrs.external     true when no directory-backed record has joined
+                     this User (known only through an adapter, or
+                     flagged external by its provider). It is not a
+                     verdict that the actor is malicious.
+  redirect_to        The id was MERGED into another entity. The card
+                     returned is the SURVIVOR's card, not the id you
+                     asked for; use redirect_to from now on. If the
+                     survivor is retired, card is null and
+                     redirect_to is still set.
+  card: null         with index_ready: true  -> unknown id.
+                     with index_ready: false -> not indexed yet; try
+                     again later. Neither proves the entity does not
+                     exist.
+  feature_disabled   The reader is not enabled for this org.
+
+Examples:
+  limacharlie cloudsec entity get --entity-id eu_aaaaaaaaaaaaaaaaaaaaaaaaaa
+  limacharlie cloudsec entity get --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --sightings-days 90
+
+Workflow: resolve/pivot -> get -> activity (or sightings).
+"""
+
+_EXPLAIN_ENTITY_SEARCH = """\
+Find entities by identifier PREFIX (at least two characters, at most
+512 UTF-8 bytes): a display name, email, hostname, etc. Use it to
+discover ids when you only know part of a name; use 'entity resolve'
+or 'pivot' when you have the full identifier.
+
+Requires cloudsec.get and an enabled Cloud Security subscription.
+--kind user|host narrows the result. --limit is 1..100 per page.
+
+Reading the response:
+  entities[]         id, kind, display_name and 'matched' (the
+                     identifier type/value that matched the prefix).
+  next_cursor        Present and non-empty means MORE results exist:
+                     pass it back with --cursor to continue. A page
+                     is complete only when next_cursor is absent or
+                     empty.
+  index_ready: false The index has not finished its first pass; an
+                     empty list is not "no such entity".
+
+Examples:
+  limacharlie cloudsec entity search --q alice
+  limacharlie cloudsec entity search --q web- --kind host --limit 50
+  limacharlie cloudsec entity search --q web- --kind host --cursor <next_cursor>
+
+Workflow: search -> get --entity-id <id> -> activity.
+"""
+
+_EXPLAIN_ENTITY_SIGHTINGS = """\
+Read one page of the raw sightings behind an entity: which sensor saw
+which user, logon, internal/external IP or hostname, per day.
+
+Requires cloudsec.get, an enabled Cloud Security subscription AND
+insight.evt.get; without the latter the API answers HTTP 403
+(resolve/get instead return sightings: "forbidden").
+
+--kind user|logon|int_ip|ext_ip|hostname filters. --since is inclusive
+and --until exclusive (Unix seconds). --limit is 1..500.
+
+Reading the response:
+  sightings[]        sid, kind, value, day, first_ts/last_ts and,
+                     where known, user_entity_id / host_entity_id to
+                     pivot into the related entity.
+  best_effort: true  Always set: sightings are best-effort, deduped
+                     intervals from collected events, not a complete
+                     login audit. A missing sighting does NOT prove
+                     the entity was inactive.
+  next_cursor        Present and non-empty means more rows: pass it
+                     back with --cursor. Page until it is absent.
+
+Examples:
+  limacharlie cloudsec entity sightings --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa
+  limacharlie cloudsec entity sightings --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --kind logon --since 1790000000 --limit 200
+  limacharlie cloudsec entity sightings --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --cursor <next_cursor>
+
+Workflow: resolve/pivot -> get -> sightings for the raw evidence.
+"""
+
+_EXPLAIN_ENTITY_ACTIVITY = """\
+Cross-product activity for one entity: email, detections, sensor state
+and cloud findings, each read with the CALLER's own permission for that
+product. Defaults to all four sources and the last 30 days; the maximum
+window is 30 days (--since/--until in Unix seconds). Select sources by
+repeating --source email|detections|sensor|cloud.
+
+Requires cloudsec.get and an enabled Cloud Security subscription, plus
+per product: email needs mailsec.get (Email Security enabled),
+detections need insight.det.get, sensor needs sensor.get.
+
+Reading the response: one entry per requested source with
+  status            ok | forbidden (you lack the permission) |
+                    not_subscribed (product not enabled) |
+                    unavailable | timeout.
+  items             Bounded list of activity items.
+  truncated         true means items were cut off.
+  link              A full-view link into the product.
+Anything other than status ok, and any truncated source, is UNKNOWN
+and never evidence of no activity. The window filters email and
+detections (and the host sightings used to select sensors); sensor
+state and open cloud findings are current, not windowed.
+
+Examples:
+  limacharlie cloudsec entity activity --entity-id eu_aaaaaaaaaaaaaaaaaaaaaaaaaa
+  limacharlie cloudsec entity activity --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --source sensor --source cloud
+  limacharlie cloudsec entity activity --entity-id eu_aaaaaaaaaaaaaaaaaaaaaaaaaa --since 1790000000 --until 1791000000
+
+Workflow: resolve/pivot -> get -> activity for what the entity did.
+"""
+
+
 @group.group("entity")
 def entity_group() -> None:
     """Entity Pivot: resolve User/Host identifiers, cards and activity.
 
     Possible matches are unconfirmed. Missing or truncated activity does not
     establish absence. Reads need cloudsec.get and Cloud Security enabled.
+
+    \b
+    Typical flow:
+      pivot       One identifier -> candidates plus the cards it names
+      resolve     Up to 100 identifiers -> candidates only
+      search      Find ids by identifier prefix
+      get         Read one entity card
+      activity    Email, detections, sensor and cloud activity
+      sightings   Raw best-effort sightings (needs insight.evt.get)
     """
 
 
@@ -5348,6 +5575,23 @@ def entity_resolve(ctx, identifiers, identifier_type, at) -> None:
     values = [{"value": value, **({"type": identifier_type} if identifier_type is not None else {})}
               for value in identifiers]
     _output(ctx, _get_cloudsec(ctx).resolve_entities(values, at=at))
+
+
+@entity_group.command("pivot")
+@click.option("--identifier", required=True,
+              help="One identifier to resolve (at most 1024 bytes).")
+@click.option("--type", "identifier_type", default=None,
+              help="Optional identifier type; omit for shape detection. The API validates it.")
+@click.option("--at", default=None, type=click.IntRange(min=0),
+              help="Unix seconds for historical IP resolution.")
+@pass_context
+def entity_pivot(ctx, identifier, identifier_type, at) -> None:
+    """Resolve one identifier and fetch the cards of its unambiguous matches.
+
+    Ambiguous results and possible matches are never followed; they stay
+    in 'candidates'. At most 10 cards are read.
+    """
+    _output(ctx, _get_cloudsec(ctx).pivot_entity(identifier, type=identifier_type, at=at))
 
 
 @entity_group.command("get")
@@ -5402,10 +5646,9 @@ def entity_activity(ctx, entity_id, since, until, sources) -> None:
         entity_id, since=since, until=until, sources=list(sources) if sources else None))
 
 
-for _verb in ("resolve", "get", "search", "sightings", "activity"):
-    register_explain(f"cloudsec.entity.{_verb}",
-                     "Entity Pivot reads require cloudsec.get and Cloud Security enabled. "
-                     "Possible matches are unconfirmed; never select an ambiguous candidate automatically. "
-                     "Activity additionally requires the caller's permission for each product and "
-                     "reports forbidden, not_subscribed, unavailable, timeout and truncation explicitly. "
-                     "Use --help for selectors and inspect next_cursor to continue paginated reads.")
+register_explain("cloudsec.entity.resolve", _EXPLAIN_ENTITY_RESOLVE)
+register_explain("cloudsec.entity.pivot", _EXPLAIN_ENTITY_PIVOT)
+register_explain("cloudsec.entity.get", _EXPLAIN_ENTITY_GET)
+register_explain("cloudsec.entity.search", _EXPLAIN_ENTITY_SEARCH)
+register_explain("cloudsec.entity.sightings", _EXPLAIN_ENTITY_SIGHTINGS)
+register_explain("cloudsec.entity.activity", _EXPLAIN_ENTITY_ACTIVITY)

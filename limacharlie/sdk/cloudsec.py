@@ -823,7 +823,11 @@ def coverage_summary(response: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 _ENTITY_ID_PATTERN = re.compile(r"^e[uh]_[a-z2-7]{1,37}\Z")
-_ENTITY_ID_TYPES = frozenset("email github_user_id github_login entra_object_id okta_user_id gws_user_id aws_arn windows_sid ad_account ad_account_short username sensor_id device_id cloud_instance_id graph_urn serial mac hostname fqdn ip".split())
+# The set of identifier types is owned by the API and grows server-side, so the
+# client only bounds the shape of the string and lets the API reject unknown types.
+_ENTITY_ID_TYPE_MAX_BYTES = 64
+_ENTITY_PIVOT_MAX_CARDS = 10
+_ENTITY_PIVOT_CARD_CONFIDENCE = frozenset(("authoritative", "corroborated"))
 _ENTITY_ACTIVITY_SOURCES = frozenset(("email", "detections", "sensor", "cloud"))
 
 
@@ -839,6 +843,12 @@ def _entity_window(since, until, maximum=None):
     if since is not None and until is not None:
         if since > until or (maximum is not None and until - since > maximum):
             raise ValueError("invalid entity time window")
+
+
+def _entity_identifier_type(value):
+    if not isinstance(value, str) or not value or len(value.encode()) > _ENTITY_ID_TYPE_MAX_BYTES:
+        raise ValueError(f"identifier type must contain 1 to {_ENTITY_ID_TYPE_MAX_BYTES} bytes")
+    return value
 
 
 def _entity_cursor(cursor):
@@ -3739,7 +3749,9 @@ class CloudSec:
                 readiness and source freshness. Possible matches are unconfirmed.
 
         Raises:
-            ValueError: If identifiers or the timestamp are invalid.
+            ValueError: If identifiers or the timestamp are invalid. The type
+                is a free string of at most 64 bytes; the API rejects types it
+                does not know, so new types need no client change.
         """
         if not isinstance(identifiers, (list, tuple)) or not 1 <= len(identifiers) <= 100:
             raise ValueError("identifiers must contain 1 to 100 entries")
@@ -3752,9 +3764,7 @@ class CloudSec:
                 raise ValueError("identifier value must contain 1 to 1024 bytes")
             item = {"value": value}
             if "type" in identifier:
-                if not isinstance(identifier["type"], str) or identifier["type"] not in _ENTITY_ID_TYPES:
-                    raise ValueError("invalid identifier type")
-                item["type"] = identifier["type"]
+                item["type"] = _entity_identifier_type(identifier["type"])
             values.append(item)
         _entity_int(at, "at", 0, 253402300799)
         body: dict[str, Any] = {"identifiers": values}
@@ -3764,6 +3774,74 @@ class CloudSec:
         if len(encoded) > 128 * 1024:
             raise ValueError("entity resolve body exceeds 128 KiB")
         return self._post("entities/resolve", body, raw_body=encoded)
+
+    def pivot_entity(
+        self, identifier: str, *, type: str | None = None, at: int | None = None,
+    ) -> dict[str, Any]:
+        """Resolve one identifier and fetch the cards it unambiguously names
+
+        Makes one resolve call, then reads the card of each match whose
+        confidence is ``authoritative`` or ``corroborated``, but only for
+        results that are not ambiguous. Ambiguous results and ``possible``
+        matches are never followed; they stay visible in ``candidates`` for the
+        caller to judge. At most 10 distinct cards are read.
+
+        Args:
+            identifier: The value to resolve, at most 1024 bytes.
+            type: Optional identifier type (at most 64 bytes); omit for shape
+                detection. The API validates it.
+            at: Optional Unix-second timestamp for historical IP resolution.
+
+        Returns:
+            dict: ``cards`` (card responses as returned by :meth:`get_entity`),
+                ``candidates`` (the raw resolve ``results``) and every other
+                top-level key of the resolve response (``index_ready``,
+                ``sources``, ``feature_disabled``, ``sightings``, ...).
+                ``truncated`` is true when more than 10 cards qualified or a
+                card read failed; failures are listed in ``card_errors`` as
+                ``{"entity_id": ..., "status": "unavailable"}``. No cards are
+                read when ``index_ready`` is not true or ``feature_disabled``
+                is true.
+
+        Raises:
+            ValueError: If the identifier, type or timestamp are invalid.
+        """
+        item: dict[str, str] = {"value": identifier}
+        if type is not None:
+            item["type"] = type
+        resolution = self.resolve_entities([item], at=at)
+        out: dict[str, Any] = {k: v for k, v in resolution.items() if k != "results"}
+        out["cards"] = []
+        out["candidates"] = resolution.get("results")
+        if resolution.get("index_ready") is not True or resolution.get("feature_disabled") is True:
+            return out
+        seen: set[str] = set()
+        failures: list[dict[str, str]] = []
+        results = resolution.get("results")
+        for result in results if isinstance(results, list) else []:
+            if not isinstance(result, dict) or result.get("ambiguous") is not False:
+                continue
+            matches = result.get("matches")
+            for match in matches if isinstance(matches, list) else []:
+                if not isinstance(match, dict):
+                    continue
+                entity_id = match.get("entity_id")
+                if (not isinstance(entity_id, str) or not _ENTITY_ID_PATTERN.match(entity_id)
+                        or match.get("confidence") not in _ENTITY_PIVOT_CARD_CONFIDENCE
+                        or entity_id in seen):
+                    continue
+                if len(seen) >= _ENTITY_PIVOT_MAX_CARDS:
+                    out["truncated"] = True
+                    break
+                seen.add(entity_id)
+                try:
+                    out["cards"].append(self.get_entity(entity_id))
+                except Exception:
+                    failures.append({"entity_id": entity_id, "status": "unavailable"})
+                    out["truncated"] = True
+        if failures:
+            out["card_errors"] = failures
+        return out
 
     def get_entity(
         self, entity_id: str, *, sightings_days: int | None = None,
