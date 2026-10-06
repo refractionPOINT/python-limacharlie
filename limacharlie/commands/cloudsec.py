@@ -5409,7 +5409,9 @@ Resolve ONE identifier and fetch the entity cards it unambiguously
 names, in one step: 'what is this identifier?'.
 
 Requires cloudsec.get and an enabled Cloud Security subscription.
-Costs one resolve plus one card read per qualifying match.
+Costs one resolve plus one card read per qualifying match; with
+insight.evt.get each card read also runs a bounded observed-lead lookup
+(30 days, capped queries and rows, short deadline).
 
 Which cards are read: only for results that are NOT ambiguous, and only
 for matches whose confidence is 'authoritative' or 'corroborated',
@@ -5513,8 +5515,10 @@ Reading the response:
   observations       status ok | incomplete (a bound cut the
                      evidence) | unavailable (not readable now) |
                      forbidden (no insight.evt.get), with queries and
-                     rows. Only ok with empty panels means none;
-                     incomplete, unavailable and forbidden never do.
+                     rows, and an optional reason: schema_missing,
+                     deadline, query_budget, bounds or error. Only ok
+                     with empty panels means none; incomplete,
+                     unavailable and forbidden never do.
                      Bounds: 30 days, 20 rows per panel.
   redirect_to        The id was MERGED into another entity. The card
                      returned is the SURVIVOR's card, not the id you
