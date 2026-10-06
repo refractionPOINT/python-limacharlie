@@ -829,6 +829,12 @@ _ENTITY_ID_TYPE_MAX_BYTES = 64
 _ENTITY_PIVOT_MAX_CARDS = 10
 _ENTITY_PIVOT_CARD_CONFIDENCE = frozenset(("authoritative", "corroborated"))
 _ENTITY_ACTIVITY_SOURCES = frozenset(("email", "detections", "sensor", "cloud"))
+# Observation selectors ask the API to look a vendor device or a foreign
+# hostname up in security-product events. Like identifier types, their type and
+# platform vocabularies belong to the API: the client bounds the shape only.
+_ENTITY_MAX_OBSERVATION_SELECTORS = 4
+_ENTITY_OBSERVATION_SELECTOR_KEYS = ("type", "value", "platform", "origin_sid")
+_ENTITY_OBSERVATION_SELECTOR_MAX_BYTES = 512
 
 
 def _entity_int(value, name, minimum, maximum):
@@ -849,6 +855,38 @@ def _entity_identifier_type(value):
     if not isinstance(value, str) or not value or len(value.encode()) > _ENTITY_ID_TYPE_MAX_BYTES:
         raise ValueError(f"identifier type must contain 1 to {_ENTITY_ID_TYPE_MAX_BYTES} bytes")
     return value
+
+
+def _entity_observation_selectors(selectors):
+    """Validate the shape of observation selectors and return a copy to send.
+
+    Only the shape is checked; the API owns the selector types and platforms.
+    """
+    if selectors is None:
+        return []
+    if not isinstance(selectors, (list, tuple)) or len(selectors) > _ENTITY_MAX_OBSERVATION_SELECTORS:
+        raise ValueError(
+            f"observation_selectors must be a list of at most {_ENTITY_MAX_OBSERVATION_SELECTORS} objects")
+    out = []
+    for selector in selectors:
+        if not isinstance(selector, dict) or set(selector) - set(_ENTITY_OBSERVATION_SELECTOR_KEYS):
+            raise ValueError(
+                "each observation selector has only type, value and optional platform and origin_sid")
+        if "type" not in selector or "value" not in selector:
+            raise ValueError("each observation selector needs a type and a value")
+        item = {}
+        for key in _ENTITY_OBSERVATION_SELECTOR_KEYS:
+            if key not in selector:
+                continue
+            field = selector[key]
+            if (not isinstance(field, str) or not field.strip()
+                    or len(field.encode()) > _ENTITY_OBSERVATION_SELECTOR_MAX_BYTES):
+                raise ValueError(
+                    f"observation selector {key} must be a non-empty string of at most "
+                    f"{_ENTITY_OBSERVATION_SELECTOR_MAX_BYTES} bytes")
+            item[key] = field
+        out.append(item)
+    return out
 
 
 def _entity_cursor(cursor):
@@ -3737,21 +3775,35 @@ class CloudSec:
 
     def resolve_entities(
         self, identifiers: list[dict[str, str]], *, at: int | None = None,
+        observation_selectors: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Resolve identifiers without choosing ambiguous or possible matches
 
         Args:
             identifiers: One to 100 objects with a value and optional type.
-            at: Optional Unix-second timestamp for historical IP resolution.
+            at: Optional Unix-second timestamp for historical IP resolution;
+                with observation selectors it pins the UTC day searched.
+            observation_selectors: Optional list of at most 4 selectors that
+                look up devices other security products report, for example
+                ``{"type": "vendor_device_id", "platform": "sophos",
+                "value": "<id>"}`` (optional ``origin_sid``) or
+                ``{"type": "foreign_hostname", "value": "<name>"}``. Needs
+                ``insight.evt.get``; without it the API answers
+                ``observations.status`` ``forbidden``.
 
         Returns:
             dict: Results with matches, possible candidates, ambiguity, index
                 readiness and source freshness. Possible matches are unconfirmed.
+                Selector answers are only in ``observed_matches`` (never in
+                ``matches``) with ``observations``; they are approximate leads
+                and never merge entities.
 
         Raises:
-            ValueError: If identifiers or the timestamp are invalid. The type
-                is a free string of at most 64 bytes; the API rejects types it
-                does not know, so new types need no client change.
+            ValueError: If identifiers, selectors or the timestamp are invalid.
+                The type is a free string of at most 64 bytes; the API rejects
+                types it does not know, so new types need no client change.
+                Selector types and platforms are likewise validated by the API,
+                not here; only their shape and size are checked.
         """
         if not isinstance(identifiers, (list, tuple)) or not 1 <= len(identifiers) <= 100:
             raise ValueError("identifiers must contain 1 to 100 entries")
@@ -3767,9 +3819,12 @@ class CloudSec:
                 item["type"] = _entity_identifier_type(identifier["type"])
             values.append(item)
         _entity_int(at, "at", 0, 253402300799)
+        selectors = _entity_observation_selectors(observation_selectors)
         body: dict[str, Any] = {"identifiers": values}
         if at is not None:
             body["at"] = at
+        if selectors:
+            body["observation_selectors"] = selectors
         encoded = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
         if len(encoded) > 128 * 1024:
             raise ValueError("entity resolve body exceeds 128 KiB")
@@ -3777,6 +3832,7 @@ class CloudSec:
 
     def pivot_entity(
         self, identifier: str, *, type: str | None = None, at: int | None = None,
+        observation_selectors: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Resolve one identifier and fetch the cards it unambiguously names
 
@@ -3791,12 +3847,16 @@ class CloudSec:
             type: Optional identifier type (at most 64 bytes); omit for shape
                 detection. The API validates it.
             at: Optional Unix-second timestamp for historical IP resolution.
+            observation_selectors: Optional selectors, as for
+                :meth:`resolve_entities`. Their answers pass through as
+                ``observed_matches`` and are never followed into cards.
 
         Returns:
             dict: ``cards`` (card responses as returned by :meth:`get_entity`),
                 ``candidates`` (the raw resolve ``results``) and every other
                 top-level key of the resolve response (``index_ready``,
-                ``sources``, ``feature_disabled``, ``sightings``, ...).
+                ``sources``, ``feature_disabled``, ``sightings``,
+                ``observed_matches``, ``observations``, ...).
                 ``truncated`` is true when more than 10 cards qualified or a
                 card read failed; failures are listed in ``card_errors`` as
                 ``{"entity_id": ..., "status": "unavailable"}``. No cards are
@@ -3804,12 +3864,14 @@ class CloudSec:
                 is true.
 
         Raises:
-            ValueError: If the identifier, type or timestamp are invalid.
+            ValueError: If the identifier, type, selectors or timestamp are
+                invalid.
         """
         item: dict[str, str] = {"value": identifier}
         if type is not None:
             item["type"] = type
-        resolution = self.resolve_entities([item], at=at)
+        resolution = self.resolve_entities(
+            [item], at=at, observation_selectors=observation_selectors)
         out: dict[str, Any] = {k: v for k, v in resolution.items() if k != "results"}
         out["cards"] = []
         out["candidates"] = resolution.get("results")
@@ -3853,8 +3915,12 @@ class CloudSec:
             sightings_days: Recent activity days, 1 to 365; default 30.
 
         Returns:
-            dict: Card, index_ready and optional redirect_to. Unknown IDs have
-                card:null. Disabled readers return feature_disabled.
+            dict: Card, index_ready and optional redirect_to (the target can be
+                of another kind than the id asked for). Unknown IDs have
+                card:null. Disabled readers return feature_disabled. Host cards
+                may carry ``also_seen_as`` and Host and User cards
+                ``cloud_sign_ins``, with ``observations`` giving the status
+                (``insight.evt.get`` is needed to read them).
 
         Raises:
             ValueError: If the entity ID or day count is invalid.
