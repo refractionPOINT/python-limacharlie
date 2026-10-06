@@ -930,6 +930,8 @@ limacharlie cloudsec entity pivot --identifier 192.0.2.1 --type ip --at 17910000
 limacharlie cloudsec entity resolve --identifier host.example --type hostname
 limacharlie cloudsec entity resolve --identifier 'CORP\fixture' --identifier fixture@example.com
 limacharlie cloudsec entity resolve --identifier 192.0.2.1 --type ip --at 1791000000
+limacharlie cloudsec entity resolve --identifier web-01 --foreign-hostname WEB-01
+limacharlie cloudsec entity pivot --identifier web-01 --observation-selector '{"type":"vendor_device_id","platform":"sophos","value":"<device id>"}'
 limacharlie cloudsec entity search --q host --kind host --limit 50
 limacharlie cloudsec entity get --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --sightings-days 30
 limacharlie cloudsec entity sightings --entity-id eh_aaaaaaaaaaaaaaaaaaaaaaaaaa --kind user --limit 100
@@ -958,9 +960,54 @@ types (currently including `email`, `hostname`, `fqdn`, `ip`, `mac`,
 possible candidate. Possible matches are unconfirmed; choosing one automatically
 would hide uncertainty. `--at` is Unix seconds and supports historical IP reads.
 
+Any organization with the Cloud Security subscription gets Entities built from
+its LimaCharlie sensors alone; connecting a cloud or identity provider adds
+directory identities, devices and cloud context but is not required. A Chrome
+extension sensor (hostname `<email>@<32 hex>`) attaches to the signed-in
+person's User as a telemetry source (`identity_type` `email`), not to a Host,
+and Email Security mailbox sensors likewise show on the User of their mailbox
+address. A User no directory record matched (for example a browser profile) has
+`attrs.external: true`; that only says no directory record matched, not that
+the person is malicious.
+
+### Observed leads from other security products
+
+Events delivered by adapters from Sophos, CrowdStrike, Office 365, Entra ID,
+Okta and Duo are read for devices and sign-ins and joined to existing Hosts and
+Users when you ask. These are explained, approximate **leads**, such as "same
+hostname and internal IP observed that day"; they are never proof of the same
+machine and never merge entities. They need `insight.evt.get` on top of
+`cloudsec.get`, and cover at most the last 30 days with 20 rows per panel.
+
+- `get` adds `card.also_seen_as[]` to Host cards (devices other products report
+  that may be this Host, each `corroborated` or `possible` with a reason) and
+  `card.cloud_sign_ins[]` to Host and User cards (the candidate Hosts of a
+  sign-in are always `possible`, because of shared NAT/VPN egress).
+- `resolve` and `pivot` look a device up by selector. `--foreign-hostname NAME`
+  is a hostname another product reports. `--observation-selector JSON` takes a
+  JSON object, for example
+  `'{"type":"vendor_device_id","platform":"sophos","value":"<device id>"}'`
+  (optional `origin_sid`); new selector types need no CLI change. Both flags
+  repeat, with at most 4 selectors in total. Platforms are currently `sophos`,
+  `crowdstrike`, `office365`, `entraid`, `okta` and `duo`; the API validates
+  selector types and platforms and returns HTTP 400 for unknown ones. `--at`
+  pins the UTC day; without it the newest days are returned. `--identifier`
+  stays required, as the API needs 1 to 100 identifiers.
+- Answers come back only in the top-level `observed_matches[]`
+  (`{selector, devices[], truncated?}`), never in `matches`, and `pivot` never
+  follows them into cards. An input typed `--type hostname` that the
+  inventory does not know is also looked up as a foreign hostname
+  automatically; untyped inputs are not.
+- The response carries `observations: {status, reason?, queries, rows,
+  truncated?}`. `status` is `ok`, `incomplete` (a bound cut the evidence),
+  `unavailable` (could not be read now) or `forbidden` (no `insight.evt.get`).
+  Only `ok` with nothing found means none; the other three never do.
+
 `get` preserves merge redirects: when the id was merged into another entity,
 `redirect_to` names the survivor and the card returned is the survivor's (if the
-survivor is retired, `card` is `null` and `redirect_to` is still set). A `null`
+survivor is retired, `card` is `null` and `redirect_to` is still set). The kind
+can change across a redirect: an old `eh_` Host id of a Chrome browser profile
+now redirects to an `eu_` User. A `null`
 card with `index_ready:true` is an unknown id; with `index_ready:false` the id
 may simply not be indexed yet. `search` uses identifier prefixes of at least two characters and
 at most 512 UTF-8 bytes, and returns at most 100 results per page. `sightings` returns best-effort evidence,
@@ -970,7 +1017,7 @@ Missing sightings do not prove inactivity.
 
 Sighting data needs `insight.evt.get`. Without it, `sightings` returns HTTP 403,
 while resolve/get return `sightings:"forbidden"` and omit recent activity and
-sighting-derived matches. User activity uses confirmed owned hosts; other
+sighting-derived matches, and the observed lookups answer `forbidden`. User activity uses confirmed owned hosts; other
 recently observed hosts need event-read permission too.
 
 `activity` defaults to all four sources and the last 30 days; select sources by
@@ -1004,6 +1051,10 @@ from limacharlie.sdk.cloudsec import CloudSec
 entities = CloudSec(org)
 pivot = entities.pivot_entity("fixture@example.com", type="email")
 resolution = entities.resolve_entities([{"value": "host.example", "type": "hostname"}])
+observed = entities.resolve_entities(
+    [{"value": "host.example"}],
+    observation_selectors=[{"type": "foreign_hostname", "value": "HOST.EXAMPLE"}])
+# observed["observed_matches"] and observed["observations"]['status'] hold the leads
 page = entities.search_entities("host", kind="host", limit=50)
 card = entities.get_entity("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", sightings_days=30)
 sightings = entities.list_entity_sightings("eh_aaaaaaaaaaaaaaaaaaaaaaaaaa", limit=100)

@@ -5365,11 +5365,38 @@ Reading the response:
                      results mean "not indexed yet", not "unknown".
   feature_disabled   The reader is not enabled for this org.
   sources[]          Per-source freshness (last_success, stale).
+  observed_matches[] Leads from other security products, see below.
+  observations       Status of the observed lookups, see below.
+
+Observed leads (other products' events). Adapter events from Sophos,
+CrowdStrike, Office 365, Entra ID, Okta and Duo are read for devices.
+Add selectors to look one up (up to 4 in total, needs insight.evt.get):
+  --foreign-hostname NAME     a hostname another product reports.
+  --observation-selector JSON a JSON object: {"type":"vendor_device_id",
+      "platform":"sophos","value":"<device id>"} (optional "origin_sid";
+      forward-compatible with new selector types). Platforms are
+      currently sophos, crowdstrike, office365, entraid, okta, duo; the
+      API validates them and rejects unknown ones with a 400.
+--at pins the UTC day searched; without it the newest days are read
+(30 days at most, 20 rows per panel). Answers are ONLY in
+observed_matches[{selector, devices[], truncated?}], never in matches:
+they are approximate LEADS (for example "same hostname and internal IP
+observed that day"), not proof of the same machine, and never merge
+entities. A candidate Host of a device is a possible match at best.
+An input with --type hostname that the inventory does not know is also
+looked up as a foreign hostname automatically (untyped inputs are not).
+observations.status: ok; incomplete (a bound cut the evidence);
+unavailable (could not be read); forbidden (no insight.evt.get). Only
+ok with nothing found means none; the others never do.
+--identifier stays required: the API needs 1 to 100 identifiers even
+when you pass selectors.
 
 Examples:
   limacharlie cloudsec entity resolve --identifier alice@example.com
   limacharlie cloudsec entity resolve --identifier alice@example.com --identifier web-01 --identifier 'CORP\\alice'
   limacharlie cloudsec entity resolve --identifier 203.0.113.7 --type ip --at 1791000000
+  limacharlie cloudsec entity resolve --identifier web-01 --foreign-hostname WEB-01
+  limacharlie cloudsec entity resolve --identifier web-01 --observation-selector '{"type":"vendor_device_id","platform":"sophos","value":"<device id>"}'
 
 Workflow: resolve (or pivot) -> get the card -> activity.
 """
@@ -5402,15 +5429,35 @@ Reading the response:
                      cards are read when index_ready is not true or
                      feature_disabled is true; "no cards" then means
                      "not indexed yet / not enabled", not "unknown".
+  observed_matches   Leads from other security products' events for
+                     --foreign-hostname / --observation-selector (and
+                     an unknown --type hostname input). LEADS, never
+                     matches: they are NOT followed into cards and
+                     never merge entities; weigh them yourself.
+  observations       status ok | incomplete | unavailable | forbidden
+                     (forbidden = no insight.evt.get). Only ok with
+                     nothing found means none; the others never do.
 
 Pass --type to skip shape detection (free text; the API validates it,
 e.g. email, hostname, ip, ad_account, windows_sid, sensor_id,
-github_login). --at (Unix seconds) resolves an IP as of that time.
+github_login). --at (Unix seconds) resolves an IP as of that time and
+pins the UTC day of selector lookups.
+
+Selectors (up to 4 in total, same as 'entity resolve'): --foreign-hostname
+NAME, and --observation-selector JSON such as
+{"type":"vendor_device_id","platform":"sophos","value":"<device id>"}
+(optional "origin_sid"). Platforms are currently sophos, crowdstrike,
+office365, entraid, okta, duo; the API validates them. An input typed
+--type hostname that the inventory does not know is also looked up as a
+foreign hostname automatically. Observed lookups need insight.evt.get;
+read them as "same hostname and internal IP observed that day" leads,
+never as the same machine. Bounds: 30 days, 20 rows per panel.
 
 Examples:
   limacharlie cloudsec entity pivot --identifier alice@example.com
   limacharlie cloudsec entity pivot --identifier web-01 --type hostname
   limacharlie cloudsec entity pivot --identifier 203.0.113.7 --type ip --at 1791000000
+  limacharlie cloudsec entity pivot --identifier web-01 --observation-selector '{"type":"vendor_device_id","platform":"crowdstrike","value":"<device id>"}'
 
 Workflow: pivot -> read cards -> 'entity activity --entity-id ...'.
 """
@@ -5420,8 +5467,10 @@ Read the card of one entity by its opaque id (eu_... User, eh_... Host)
 from resolve, pivot or search.
 
 Requires cloudsec.get and an enabled Cloud Security subscription.
-Recent sightings in the card need insight.evt.get; without it the
-response has sightings: "forbidden" and recent_activity is omitted.
+Recent sightings in the card and the observed panels (also_seen_as,
+cloud_sign_ins) need insight.evt.get; without it the response has
+sightings: "forbidden", recent_activity is omitted and observations
+is forbidden.
 --sightings-days (1..365, default 30) sets the recent-activity window.
 
 Reading the response:
@@ -5436,12 +5485,38 @@ Reading the response:
   attrs.external     true when no directory-backed record has joined
                      this User (known only through an adapter, or
                      flagged external by its provider). It is not a
-                     verdict that the actor is malicious.
+                     verdict that the actor is malicious. A Chrome
+                     extension sensor (hostname <email>@<32 hex>)
+                     attaches to the signed-in person's User, as a
+                     telemetry source (identity_type email), not to a
+                     Host; with no directory record matched that User
+                     is attrs.external.
+  card.also_seen_as  Host cards only: devices that OTHER security
+                     products (Sophos, CrowdStrike, Office 365, Entra
+                     ID, Okta, Duo) report and that may be this Host.
+                     Each has confidence corroborated or possible, a
+                     reason and approximate: true. LEADS ("same
+                     hostname and internal IP observed that day"),
+                     never proof of the same machine; entities are
+                     never merged.
+  card.cloud_sign_ins  Host and User cards: sampled sign-ins linked by
+                     source address (Host) or principal (User). The
+                     candidate Hosts of a sign-in are always possible
+                     (shared NAT/VPN egress).
+  observations       status ok | incomplete (a bound cut the
+                     evidence) | unavailable (not readable now) |
+                     forbidden (no insight.evt.get), with queries and
+                     rows. Only ok with empty panels means none;
+                     incomplete, unavailable and forbidden never do.
+                     Bounds: 30 days, 20 rows per panel.
   redirect_to        The id was MERGED into another entity. The card
                      returned is the SURVIVOR's card, not the id you
                      asked for; use redirect_to from now on. If the
                      survivor is retired, card is null and
-                     redirect_to is still set.
+                     redirect_to is still set. The kind can change
+                     across a redirect: an old eh_ Host id of a
+                     Chrome browser profile now redirects to an eu_
+                     User, so do not assume the kind you asked for.
   card: null         with index_ready: true  -> unknown id.
                      with index_ready: false -> not indexed yet; try
                      again later. Neither proves the entity does not
@@ -5550,6 +5625,9 @@ def entity_group() -> None:
 
     Possible matches are unconfirmed. Missing or truncated activity does not
     establish absence. Reads need cloudsec.get and Cloud Security enabled.
+    Observed leads from other security products (resolve/pivot selectors,
+    card also_seen_as and cloud_sign_ins) also need insight.evt.get and are
+    approximate, never a merge.
 
     \b
     Typical flow:
@@ -5562,19 +5640,61 @@ def entity_group() -> None:
     """
 
 
+def _observation_selector_options(f):
+    """The observed-pivot selector flags shared by resolve and pivot."""
+    f = click.option(
+        "--observation-selector", "observation_selector_json", multiple=True,
+        help="Selector as a JSON object, e.g. "
+             "'{\"type\":\"vendor_device_id\",\"platform\":\"sophos\",\"value\":\"ID\"}'. "
+             "Optional origin_sid. Repeatable; at most 4 selectors in total "
+             "with --foreign-hostname. The API validates types and platforms. "
+             "Needs insight.evt.get.")(f)
+    return click.option(
+        "--foreign-hostname", "foreign_hostnames", multiple=True,
+        help="Look the hostname up in other security products' events "
+             "(selector type foreign_hostname). Repeatable; at most 4 "
+             "selectors in total. Needs insight.evt.get.")(f)
+
+
+def _observation_selectors(foreign_hostnames, observation_selector_json):
+    """Build the selector list from the CLI flags, or None when none were given."""
+    selectors = [{"type": "foreign_hostname", "value": name} for name in foreign_hostnames]
+    for raw in observation_selector_json:
+        try:
+            selector = json.loads(raw)
+        except ValueError as exc:
+            raise click.BadParameter(f"not valid JSON: {exc}", param_hint="--observation-selector")
+        if not isinstance(selector, dict):
+            raise click.BadParameter("must be a JSON object", param_hint="--observation-selector")
+        selectors.append(selector)
+    if len(selectors) > 4:
+        raise click.UsageError(
+            "at most 4 observation selectors in total across --foreign-hostname and --observation-selector")
+    return selectors or None
+
+
 @entity_group.command("resolve")
 @click.option("--identifier", "identifiers", required=True, multiple=True,
-              help="Identifier to resolve; repeat up to 100 times.")
+              help="Identifier to resolve; repeat up to 100 times. Required (the API "
+                   "needs at least one identifier, even with observation selectors).")
 @click.option("--type", "identifier_type", default=None,
               help="Optional identifier type for all inputs; omit for shape detection.")
 @click.option("--at", default=None, type=click.IntRange(min=0),
-              help="Unix seconds for historical IP resolution.")
+              help="Unix seconds for historical IP resolution; pins the UTC day of observation selectors.")
+@_observation_selector_options
 @pass_context
-def entity_resolve(ctx, identifiers, identifier_type, at) -> None:
-    """Resolve identifiers and show all ambiguous and possible candidates."""
+def entity_resolve(ctx, identifiers, identifier_type, at, foreign_hostnames,
+                   observation_selector_json) -> None:
+    """Resolve identifiers and show all ambiguous and possible candidates.
+
+    Selectors (--foreign-hostname, --observation-selector) add observed
+    leads from other security products, answered only in observed_matches.
+    """
     values = [{"value": value, **({"type": identifier_type} if identifier_type is not None else {})}
               for value in identifiers]
-    _output(ctx, _get_cloudsec(ctx).resolve_entities(values, at=at))
+    selectors = _observation_selectors(foreign_hostnames, observation_selector_json)
+    _output(ctx, _get_cloudsec(ctx).resolve_entities(
+        values, at=at, observation_selectors=selectors))
 
 
 @entity_group.command("pivot")
@@ -5583,15 +5703,20 @@ def entity_resolve(ctx, identifiers, identifier_type, at) -> None:
 @click.option("--type", "identifier_type", default=None,
               help="Optional identifier type; omit for shape detection. The API validates it.")
 @click.option("--at", default=None, type=click.IntRange(min=0),
-              help="Unix seconds for historical IP resolution.")
+              help="Unix seconds for historical IP resolution; pins the UTC day of observation selectors.")
+@_observation_selector_options
 @pass_context
-def entity_pivot(ctx, identifier, identifier_type, at) -> None:
+def entity_pivot(ctx, identifier, identifier_type, at, foreign_hostnames,
+                 observation_selector_json) -> None:
     """Resolve one identifier and fetch the cards of its unambiguous matches.
 
     Ambiguous results and possible matches are never followed; they stay
-    in 'candidates'. At most 10 cards are read.
+    in 'candidates'. At most 10 cards are read. Selectors add observed
+    leads (observed_matches), which are never followed into cards.
     """
-    _output(ctx, _get_cloudsec(ctx).pivot_entity(identifier, type=identifier_type, at=at))
+    selectors = _observation_selectors(foreign_hostnames, observation_selector_json)
+    _output(ctx, _get_cloudsec(ctx).pivot_entity(
+        identifier, type=identifier_type, at=at, observation_selectors=selectors))
 
 
 @entity_group.command("get")

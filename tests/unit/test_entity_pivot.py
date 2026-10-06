@@ -106,10 +106,12 @@ def test_unicode_batch_and_disabled_index_preserved(sdk):
 
 @pytest.mark.parametrize("args,method,positional,kwargs", [
     (["resolve", "--identifier", "host", "--identifier", "other", "--type", "hostname", "--at", "123"],
-     "resolve_entities", ([{"value": "host", "type": "hostname"}, {"value": "other", "type": "hostname"}],), {"at": 123}),
+     "resolve_entities", ([{"value": "host", "type": "hostname"}, {"value": "other", "type": "hostname"}],),
+     {"at": 123, "observation_selectors": None}),
     (["pivot", "--identifier", "host", "--type", "hostname", "--at", "123"],
-     "pivot_entity", ("host",), {"type": "hostname", "at": 123}),
-    (["pivot", "--identifier", "host"], "pivot_entity", ("host",), {"type": None, "at": None}),
+     "pivot_entity", ("host",), {"type": "hostname", "at": 123, "observation_selectors": None}),
+    (["pivot", "--identifier", "host"], "pivot_entity", ("host",),
+     {"type": None, "at": None, "observation_selectors": None}),
     (["get", "--entity-id", ENTITY, "--sightings-days", "365"], "get_entity", (ENTITY,), {"sightings_days": 365}),
     (["search", "--q", "host", "--kind", "host", "--limit", "100", "--cursor", "page"],
      "search_entities", ("host",), {"kind": "host", "limit": 100, "cursor": "page"}),
@@ -195,7 +197,7 @@ def test_cli_resolves_github_login():
                                          "--identifier", "octo-fixture", "--type", "github_login"])
     assert result.exit_code == 0, result.output
     get_cs.return_value.resolve_entities.assert_called_once_with(
-        [{"value": "octo-fixture", "type": "github_login"}], at=None)
+        [{"value": "octo-fixture", "type": "github_login"}], at=None, observation_selectors=None)
 
 
 def test_github_user_id_lookup_and_external_adapter_card(sdk):
@@ -220,7 +222,7 @@ def test_cli_resolves_github_user_id():
                                          "--identifier", "12345678901234567890", "--type", "github_user_id"])
     assert result.exit_code == 0, result.output
     get_cs.return_value.resolve_entities.assert_called_once_with(
-        [{"value": "12345678901234567890", "type": "github_user_id"}], at=None)
+        [{"value": "12345678901234567890", "type": "github_user_id"}], at=None, observation_selectors=None)
 
 
 def test_unknown_identifier_type_is_forwarded_to_the_api(sdk):
@@ -241,7 +243,7 @@ def test_cli_forwards_unknown_type_without_client_rejection():
                                          "--identifier", "x", "--type", "future_type"])
     assert result.exit_code == 0, result.output
     get_cs.return_value.resolve_entities.assert_called_once_with(
-        [{"value": "x", "type": "future_type"}], at=None)
+        [{"value": "x", "type": "future_type"}], at=None, observation_selectors=None)
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +366,183 @@ def test_pivot_sends_single_identifier_with_type_and_at():
     assert body == {"identifiers": [{"value": "203.0.113.7", "type": "ip"}], "at": 1791000000}
 
 
+# ---------------------------------------------------------------------------
+# Observation selectors
+# ---------------------------------------------------------------------------
+
+DEVICE = {"type": "vendor_device_id", "platform": "sophos", "value": "device-1",
+          "origin_sid": "00000000-0000-4000-8000-000000000000"}
+HOSTNAME = {"type": "foreign_hostname", "value": "WEB-01"}
+
+
+def test_resolve_forwards_selectors_and_returns_observed_matches(sdk):
+    cs, org = sdk
+    response = {"index_ready": True, "results": [{"matches": [], "possible": []}],
+                "observed_matches": [{"selector": DEVICE, "devices": [{"vendor_device_id": "device-1"}]}],
+                "observations": {"status": "ok", "queries": 1, "rows": 1}}
+    org.client.request.return_value = response
+    assert cs.resolve_entities([{"value": "web-01"}], at=7, observation_selectors=[DEVICE, HOSTNAME]) == response
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"]) == {
+        "identifiers": [{"value": "web-01"}], "at": 7, "observation_selectors": [DEVICE, HOSTNAME]}
+
+
+def test_resolve_omits_selectors_when_none_or_empty(sdk):
+    cs, org = sdk
+    org.client.request.return_value = {}
+    for selectors in (None, [], ()):
+        cs.resolve_entities([{"value": "web-01"}], observation_selectors=selectors)
+        assert json.loads(org.client.request.call_args.kwargs["raw_body"]) == {
+            "identifiers": [{"value": "web-01"}]}
+
+
+def test_selector_types_and_platforms_are_not_allowlisted_by_the_client(sdk):
+    cs, org = sdk
+    org.client.request.return_value = {}
+    future = [{"type": "future_selector", "platform": "future_platform", "value": "x"}]
+    cs.resolve_entities([{"value": "web-01"}], observation_selectors=future)
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"])["observation_selectors"] == future
+
+
+def test_selector_input_is_copied_not_aliased(sdk):
+    cs, org = sdk
+    org.client.request.return_value = {}
+    selector = dict(HOSTNAME)
+    cs.resolve_entities([{"value": "web-01"}], observation_selectors=(selector,))
+    selector["value"] = "mutated"
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"])["observation_selectors"] == [HOSTNAME]
+
+
+@pytest.mark.parametrize("selectors", [
+    [HOSTNAME] * 5,
+    "foreign_hostname",
+    {"type": "foreign_hostname", "value": "x"},
+    ["foreign_hostname"],
+    [{"type": "foreign_hostname", "value": "x", "oid": "other"}],
+    [{"type": "foreign_hostname"}],
+    [{"value": "x"}],
+    [{"type": "foreign_hostname", "value": 5}],
+    [{"type": "foreign_hostname", "value": ""}],
+    [{"type": "foreign_hostname", "value": "   "}],
+    [{"type": "foreign_hostname", "value": "x" * 513}],
+    [{"type": "foreign_hostname", "value": "中" * 171}],
+    [{"type": 1, "value": "x"}],
+    [{"type": "", "value": "x"}],
+    [{"type": "vendor_device_id", "platform": ["sophos"], "value": "x"}],
+    [{"type": "vendor_device_id", "platform": "", "value": "x"}],
+    [{"type": "vendor_device_id", "platform": "sophos", "origin_sid": 3, "value": "x"}],
+])
+def test_invalid_selector_shapes_never_send_http(sdk, selectors):
+    cs, org = sdk
+    with pytest.raises(ValueError):
+        cs.resolve_entities([{"value": "web-01"}], observation_selectors=selectors)
+    with pytest.raises(ValueError):
+        cs.pivot_entity("web-01", observation_selectors=selectors)
+    org.client.request.assert_not_called()
+
+
+def test_selector_value_at_the_byte_bound_is_accepted(sdk):
+    cs, org = sdk
+    org.client.request.return_value = {}
+    cs.resolve_entities([{"value": "web-01"}],
+                        observation_selectors=[{"type": "foreign_hostname", "value": "x" * 512}])
+    cs.resolve_entities([{"value": "web-01"}],
+                        observation_selectors=[{"type": "foreign_hostname", "value": "中" * 170}])
+    assert org.client.request.call_count == 2
+
+
+def test_selectors_still_obey_the_body_size_limit(sdk):
+    cs, org = sdk
+    org.client.request.return_value = {}
+    identifiers = [{"value": "\x00" * 200}] * 100  # escapes to 6 bytes each in JSON
+    cs.resolve_entities(identifiers)  # fits on its own
+    org.client.request.reset_mock()
+    selectors = [{"type": "foreign_hostname", "value": "\x00" * 512}] * 4
+    with pytest.raises(ValueError, match="128 KiB"):
+        cs.resolve_entities(identifiers, observation_selectors=selectors)
+    org.client.request.assert_not_called()
+
+
+def test_pivot_forwards_selectors_and_passes_observed_fields_through():
+    observed = [{"selector": HOSTNAME, "devices": [{"platform": "crowdstrike"}], "truncated": True}]
+    observations = {"status": "incomplete", "reason": "row_bound", "queries": 2, "rows": 20, "truncated": True}
+    results = [{"ambiguous": False, "matches": [_match(_id(1))]}]
+    cs, calls = _pivot_org({"index_ready": True, "results": results,
+                            "observed_matches": observed, "observations": observations})
+    out = cs.pivot_entity("web-01", type="hostname", at=9, observation_selectors=[HOSTNAME])
+    assert json.loads(cs._org.client.request.call_args_list[0].kwargs["raw_body"]) == {
+        "identifiers": [{"value": "web-01", "type": "hostname"}], "at": 9,
+        "observation_selectors": [HOSTNAME]}
+    assert out["observed_matches"] == observed
+    assert out["observations"] == observations
+    # Observed leads are never followed: only the confident match is read.
+    assert _card_ids(calls) == [_id(1)]
+    assert [c["card"]["entity"]["id"] for c in out["cards"]] == [_id(1)]
+
+
+def test_pivot_without_selectors_sends_no_selector_field():
+    cs, calls = _pivot_org({"index_ready": True, "results": []})
+    cs.pivot_entity("web-01")
+    assert "observation_selectors" not in json.loads(cs._org.client.request.call_args.kwargs["raw_body"])
+
+
+@pytest.mark.parametrize("verb,method,positional", [
+    ("resolve", "resolve_entities", ([{"value": "web-01"}],)),
+    ("pivot", "pivot_entity", ("web-01",)),
+])
+def test_cli_builds_selectors_from_both_flags(verb, method, positional):
+    with patch("limacharlie.commands.cloudsec._get_cloudsec") as get_cs:
+        getattr(get_cs.return_value, method).return_value = {"observed_matches": []}
+        result = CliRunner().invoke(cli, [
+            "--output", "json", "cloudsec", "entity", verb, "--identifier", "web-01",
+            "--foreign-hostname", "WEB-01", "--foreign-hostname", "web-01.corp",
+            "--observation-selector", json.dumps(DEVICE),
+            "--observation-selector", '{"type":"future_selector","value":"x"}'])
+    assert result.exit_code == 0, result.output
+    kwargs = getattr(get_cs.return_value, method).call_args.kwargs
+    assert kwargs["observation_selectors"] == [
+        {"type": "foreign_hostname", "value": "WEB-01"},
+        {"type": "foreign_hostname", "value": "web-01.corp"},
+        DEVICE,
+        {"type": "future_selector", "value": "x"}]
+    assert json.loads(result.output) == {"observed_matches": []}
+
+
+@pytest.mark.parametrize("verb", ["resolve", "pivot"])
+@pytest.mark.parametrize("flags", [
+    ["--foreign-hostname", "a", "--foreign-hostname", "b", "--foreign-hostname", "c",
+     "--foreign-hostname", "d", "--foreign-hostname", "e"],
+    ["--foreign-hostname", "a", "--foreign-hostname", "b", "--foreign-hostname", "c",
+     "--observation-selector", json.dumps(DEVICE), "--observation-selector", json.dumps(DEVICE)],
+    ["--observation-selector", "not json"],
+    ["--observation-selector", '["foreign_hostname"]'],
+    ["--observation-selector", '"foreign_hostname"'],
+])
+def test_cli_rejects_bad_selector_flags_before_any_call(verb, flags):
+    with patch("limacharlie.commands.cloudsec._get_cloudsec") as get_cs:
+        result = CliRunner().invoke(cli, ["cloudsec", "entity", verb, "--identifier", "web-01"] + flags)
+    assert result.exit_code != 0
+    get_cs.return_value.resolve_entities.assert_not_called()
+    get_cs.return_value.pivot_entity.assert_not_called()
+
+
+def test_cli_resolve_keeps_identifier_required():
+    with patch("limacharlie.commands.cloudsec._get_cloudsec") as get_cs:
+        result = CliRunner().invoke(cli, ["cloudsec", "entity", "resolve", "--foreign-hostname", "WEB-01"])
+    assert result.exit_code != 0
+    get_cs.assert_not_called()
+
+
+def test_cli_sdk_shape_error_never_sends_http(sdk):
+    # The API owns selector types, but a shape error the SDK catches (a
+    # non-string value) must fail before any HTTP call.
+    cs, org = sdk
+    with patch("limacharlie.commands.cloudsec._get_cloudsec", return_value=cs):
+        result = CliRunner().invoke(cli, ["cloudsec", "entity", "resolve", "--identifier", "web-01",
+                                          "--observation-selector", '{"type":"foreign_hostname","value":3}'])
+    assert result.exit_code != 0
+    org.client.request.assert_not_called()
+
+
 _ENTITY_COMMANDS = ("pivot", "resolve", "get", "search", "sightings", "activity")
 
 
@@ -381,3 +560,29 @@ def test_entity_ai_help_renders_per_command_text():
     result = CliRunner().invoke(cli, ["cloudsec", "entity", "pivot", "--ai-help"])
     assert result.exit_code == 0, result.output
     assert "card_errors" in result.output
+
+
+def test_explain_texts_cover_observed_pivots():
+    from limacharlie.discovery import get_explain
+    for verb in ("resolve", "pivot"):
+        text = get_explain(f"cloudsec.entity.{verb}")
+        for needle in ("observed_matches", "insight.evt.get", "--foreign-hostname",
+                       "--observation-selector", "sophos", "forbidden", "unavailable", "incomplete"):
+            assert needle in text, (verb, needle)
+    resolve = get_explain("cloudsec.entity.resolve")
+    assert "--type hostname" in resolve and "--identifier stays required" in resolve
+    get = get_explain("cloudsec.entity.get")
+    for needle in ("also_seen_as", "cloud_sign_ins", "observations", "insight.evt.get",
+                   "eh_ Host id", "eu_", "attrs.external", "Chrome"):
+        assert needle in get, needle
+    for verb in ("resolve", "pivot", "get"):
+        text = get_explain(f"cloudsec.entity.{verb}")
+        assert "lead" in text.lower(), verb
+        assert "verified same" not in text
+
+
+def test_resolve_and_pivot_help_list_selector_flags():
+    for verb in ("resolve", "pivot"):
+        result = CliRunner().invoke(cli, ["cloudsec", "entity", verb, "--help"])
+        assert result.exit_code == 0
+        assert "--foreign-hostname" in result.output and "--observation-selector" in result.output

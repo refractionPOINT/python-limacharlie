@@ -44,12 +44,20 @@ See the [Cloud and Code Security CLI reference](../cli/cloud-security.md) for bu
 
 Entity Pivot `search_entities(q)` accepts prefixes of at least two characters and at most 512 UTF-8 bytes; it preserves `next_cursor` for additional pages.
 
-`pivot_entity(identifier, type=None, at=None)` resolves one identifier and reads the cards of its non-ambiguous `authoritative` or `corroborated` matches (at most 10, de-duplicated). It returns `cards`, `candidates` (the raw resolve results, where ambiguous and `possible` matches stay), every other top-level resolve key, and `truncated` / `card_errors` when more than 10 qualified or a card read failed. No cards are read when `index_ready` is not true or `feature_disabled` is true. `resolve_entities` and `pivot_entity` accept any identifier `type` of at most 64 bytes; the API rejects types it does not know.
+`pivot_entity(identifier, type=None, at=None, observation_selectors=None)` resolves one identifier and reads the cards of its non-ambiguous `authoritative` or `corroborated` matches (at most 10, de-duplicated). It returns `cards`, `candidates` (the raw resolve results, where ambiguous and `possible` matches stay), every other top-level resolve key, and `truncated` / `card_errors` when more than 10 qualified or a card read failed. No cards are read when `index_ready` is not true or `feature_disabled` is true. `resolve_entities` and `pivot_entity` accept any identifier `type` of at most 64 bytes; the API rejects types it does not know.
+
+`resolve_entities(..., observation_selectors=None)` and `pivot_entity(..., observation_selectors=None)` take at most 4 selectors that look up devices other security products report (Sophos, CrowdStrike, Office 365, Entra ID, Okta, Duo): `{"type": "vendor_device_id", "platform": "sophos", "value": "<device id>"}` (optional `origin_sid`) or `{"type": "foreign_hostname", "value": "<name>"}`. The client checks only the shape (a list of at most 4 dicts holding just `type`, `value`, `platform` and `origin_sid`, each a non-empty string of at most 512 bytes) and raises `ValueError` otherwise; the API owns the selector types and platforms and returns HTTP 400 for unknown ones. Selectors need `insight.evt.get`. Answers are leads, never matches: they come back in the top-level `observed_matches` with `observations` (`status` is `ok`, `incomplete`, `unavailable` or `forbidden`; only `ok` with nothing found means none), `pivot_entity` passes both through and never follows them into cards, and `at` pins the UTC day searched. An input typed `hostname` that the inventory does not know is also looked up as a foreign hostname automatically. `get_entity` cards add `also_seen_as` (Host) and `cloud_sign_ins` (Host and User) under the same permission, and a `redirect_to` can change kind (an old `eh_` Host id of a Chrome browser profile redirects to an `eu_` User).
 
 ```python
 pivot = cloud.pivot_entity("fixture@example.com", type="email")
 for card in pivot["cards"]:
     print(card["card"]["entity"]["id"], card.get("redirect_to"))
+
+observed = cloud.resolve_entities(
+    [{"value": "web-01"}],
+    observation_selectors=[{"type": "foreign_hostname", "value": "WEB-01"}],
+)
+print(observed["observations"]["status"], observed.get("observed_matches"))
 ```
 
 ## Email Security
