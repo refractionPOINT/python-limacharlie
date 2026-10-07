@@ -1251,7 +1251,7 @@ logs stored in Insight.
 
 You must provide a time range via --start and --end (unix epoch
 seconds).  Use --stream to specify the data stream ('event', 'detect',
-'audit').  Use --limit to cap the number of results.
+'audit').  Use --limit to cap the number of rows returned.
 
 LCQL query format:
 
@@ -1408,9 +1408,16 @@ Checkpoint/Resume:
   A checkpointed run is a bulk retrieval, so it runs batch unless
   --mode says otherwise, and the checkpoint records the mode it ran.
   A resume submits a fresh search and re-sends that recorded mode.
-  --mode is allowed on a resume and overrides it for that leg: the mode
-  moves the page boundaries and nothing else, so the rows already on
-  disk and the rows still to come are unaffected.
+  --mode is allowed on a resume and overrides it, and the checkpoint
+  records the override so a later resume repeats it: the mode moves the
+  page boundaries and nothing else, so the rows already on disk and the
+  rows still to come are unaffected. A checkpoint with no pagination
+  token is the exception, because its resume re-fetches from the start
+  and skips the saved results by count; it re-sends the original mode
+  and ignores --mode with a warning.
+
+  --limit caps rows across the whole checkpoint, so on a resume the rows
+  already saved count against it.
 
 IMPORTANT: Do not write LCQL queries from scratch. Use
 'limacharlie ai generate-query --prompt "<description>"' to generate
@@ -1425,7 +1432,7 @@ register_explain("search.run", _EXPLAIN_RUN)
 @click.option("--start", default=None, type=int, help="Start time (unix seconds).")
 @click.option("--end", default=None, type=int, help="End time (unix seconds).")
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
-@click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option("--limit", default=None, type=click.IntRange(min=0), help="Maximum number of rows to return, across all pages.")
 @click.option("--mode", default=None, type=click.Choice(_SEARCH_MODE_CHOICES), help=_MODE_HELP)
 @click.option(
     "--token-expiry", default=None, type=float,
@@ -1719,12 +1726,23 @@ def _run_resume(
     checkpointed data.
 
     A resume submits a fresh search, so it re-sends the consumption mode
-    the checkpoint recorded. ``mode`` overrides it for this leg, which is
-    safe because the mode moves the page boundaries and nothing else: the
-    rows already on disk and the rows still to come are the same either
-    way. A checkpoint written before the mode was recorded carries neither,
-    and falls back to the checkpoint-driven default like any other bulk
-    retrieval.
+    the checkpoint recorded. ``mode`` overrides it, and the override is
+    written back to the checkpoint so a later plain ``--resume`` repeats it.
+    That is safe when the checkpoint holds a pagination token, because the
+    mode moves the page boundaries and nothing else: the rows already on
+    disk and the rows still to come are the same either way. A checkpoint
+    written before the mode was recorded falls back to the checkpoint-driven
+    default like any other bulk retrieval.
+
+    Without a token the resume re-fetches from the start and skips the
+    results already saved, counted as result objects. That only lines up
+    when the pages split the same way as in the original run, so this path
+    re-sends exactly what the original run sent - no mode at all for a
+    checkpoint that predates recording it - and ignores ``mode`` with a
+    warning.
+
+    ``limit`` caps rows across the whole checkpoint, so the rows already
+    saved count against it.
     """
     debug_fn = ctx.obj.debug_fn
     if debug_fn:
@@ -1759,12 +1777,47 @@ def _run_resume(
 
     # Use the resume limit if provided, otherwise use the original limit.
     effective_limit = limit if limit is not None else checkpoint_limit
-    # Same precedence for the consumption mode, with the checkpoint's own
-    # record standing in for the original run's resolved mode.
-    effective_mode = _resolve_search_mode(
-        ctx, mode if mode is not None else meta.get("mode"),
-        checkpoint_driven=True,
-    )
+    total_events = meta.get("total_events", 0)
+    if last_token:
+        # Same precedence for the consumption mode, with the checkpoint's own
+        # record standing in for the original run's resolved mode.
+        effective_mode: str | None = _resolve_search_mode(
+            ctx, mode if mode is not None else meta.get("mode"),
+            checkpoint_driven=True,
+        )
+        # The search resumes past the rows already saved, so only the rest of
+        # the row cap is left for it.
+        if effective_limit:
+            leg_limit: int | None = effective_limit - total_events
+            if leg_limit <= 0:
+                click.echo(
+                    f"Checkpoint already holds {total_events:,} rows, which "
+                    f"meets --limit {effective_limit}. Nothing to resume.",
+                    err=True,
+                )
+                with resumer:
+                    resumer.update_progress(meta.get("page", 1), existing_count,
+                                            completed=True)
+                _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)
+                return
+        else:
+            leg_limit = effective_limit
+    else:
+        # The re-fetch below skips saved results by count, which only lines up
+        # when the pages split as in the original run, so re-send exactly what
+        # it sent. A checkpoint without a "mode" key predates recording it and
+        # was submitted with no mode at all.
+        effective_mode = meta.get("mode")
+        if mode is not None and mode != effective_mode:
+            _warn(
+                ctx,
+                f"Warning: --mode {mode} is ignored. This checkpoint has no "
+                f"pagination token, so the resume re-fetches from the start "
+                f"and skips the {existing_count} results already saved, which "
+                f"only lines up when the pages split as in the original run.",
+            )
+        # The re-fetch starts from the first row, so the whole cap applies.
+        leg_limit = effective_limit
 
     if debug_fn:
         debug_fn(f"Checkpoint: {existing_count} existing results, "
@@ -1798,17 +1851,18 @@ def _run_resume(
 
     count = existing_count
     page = resume_page
-    total_events = meta.get("total_events", 0)
     last_token_new: str | None = last_token
     last_event_ts: int | None = meta.get("last_event_ts")
     try:
         with resumer:
+            if effective_mode != meta.get("mode") and last_token:
+                resumer.record_mode(effective_mode)
             # Use start_token to skip directly to the next un-fetched page
             # on the server side. If no token is available (e.g. interrupted
             # on page 1 before any results), fall back to re-fetch + skip.
             gen = search.execute(
                 query, start, end, stream=stream,
-                limit=effective_limit, progress_fn=progress_fn,
+                limit=leg_limit, progress_fn=progress_fn,
                 start_token=last_token,
                 start_page=resume_page,
                 mode=effective_mode,
@@ -2306,7 +2360,7 @@ The saved query must include 'start' and 'end' times.  If they are
 missing, the command will error -- use 'search run' with explicit
 --start/--end instead, or update the saved query to include times.
 
-Use --limit to cap the number of results returned.
+Use --limit to cap the number of rows returned.
 
 Related: 'search saved-list' to find query names,
 'search saved-get' to inspect a query before running.
@@ -2316,7 +2370,7 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 
 @group.command("saved-run")
 @click.option("--name", required=True, help="Name of the saved query to execute.")
-@click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option("--limit", default=None, type=click.IntRange(min=0), help="Maximum number of rows to return, across all pages.")
 @click.option("--mode", default=None, type=click.Choice(_SEARCH_MODE_CHOICES), help=_MODE_HELP)
 @click.option(
     "--token-expiry", default=None, type=float,

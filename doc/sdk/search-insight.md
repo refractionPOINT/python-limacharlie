@@ -36,6 +36,8 @@ Passing `mode=None` explicitly sends no mode at all and leaves the choice to the
 
 The mode is submitted once. Continuation pages fetched with the pagination token inherit it, so it is never resent. It applies to a paginated search only, and a query that must process all the data before it can answer anything, such as `GROUP BY`, `ORDER BY` or an aggregation over every record, is unaffected.
 
+`limit` caps rows, counted across pages, so the same `limit` returns the same rows whatever mode the search ran as. The page that reaches the cap is yielded with its `rows` cut to fit and without its `nextToken`, because that token would resume past the rows that were cut. Items that carry no rows, such as `facets`, do not count against it.
+
 ### Open queries
 
 `list_open_queries()` reports the searches the organization currently has open, and which of them are consuming its concurrency limit. Those are different numbers: a paginated search sitting between pages is open and resumable but holds no slot, so `slotsHeld` (not `count`) is what the limit applies to.

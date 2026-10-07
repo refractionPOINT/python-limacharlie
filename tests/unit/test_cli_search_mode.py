@@ -27,7 +27,7 @@ import pytest
 from click.testing import CliRunner
 
 from limacharlie.commands.search import _BULK_OUTPUT_FORMATS, _build_fresh_query_cmd
-from limacharlie.search_checkpoint import CheckpointReader, _meta_path
+from limacharlie.search_checkpoint import CheckpointReader, CheckpointWriter, _meta_path
 from limacharlie.cli import cli
 
 
@@ -510,18 +510,39 @@ class TestResumeCarriesTheMode:
         assert result.exit_code == 0, result.output
         assert _posts(mock_org)[0]["mode"] == "interactive"
 
-    def test_the_override_does_not_rewrite_what_the_checkpoint_recorded(
+    def test_the_override_is_recorded_so_the_next_resume_repeats_it(
             self, mock_org, tmp_path):
-        """The override applies to this leg only, the same way --limit does."""
+        """A resume interrupted after a --mode override must not silently
+        revert to the original mode when it is resumed again without one."""
         data_path = self._interrupted_checkpoint(mock_org, tmp_path, mode="batch")
+        calls = {"n": 0}
 
+        def interrupt_after_one_page(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"queryId": "q-resume"}
+            if calls["n"] == 2:
+                return {"results": [_page(next_token="tok-2")], "completed": True}
+            if calls["n"] == 3:
+                raise KeyboardInterrupt()
+            return {}
+
+        mock_org.client.request.side_effect = interrupt_after_one_page
         _invoke(mock_org, [
             "--oid", "test-oid", "--output", "json",
             "search", "run", "--resume", "--checkpoint", data_path,
             "--mode", "interactive",
+        ], mix_stderr=False)
+        assert CheckpointReader.read_metadata(data_path)["mode"] == "interactive"
+        mock_org.client.request.reset_mock()
+
+        result = _invoke(mock_org, [
+            "--oid", "test-oid", "--output", "json",
+            "search", "run", "--resume", "--checkpoint", data_path,
         ], _responses(_page()))
 
-        assert CheckpointReader.read_metadata(data_path)["mode"] == "batch"
+        assert result.exit_code == 0, result.output
+        assert _posts(mock_org)[0]["mode"] == "interactive"
 
     def test_the_resume_still_hands_the_server_the_stored_cursor(
             self, mock_org, tmp_path):
@@ -553,6 +574,116 @@ class TestResumeCarriesTheMode:
             "/tmp/cp.jsonl",
         )
         assert "--mode" not in cmd
+
+
+def _tokenless_checkpoint(tmp_path, mode="batch", legacy=False, rows=1):
+    """A checkpoint holding one saved result and no pagination token, as left
+    by a run interrupted before its first page finished. ``legacy`` drops the
+    ``mode`` key, as metadata written before the mode was recorded has none."""
+    data_path = str(tmp_path / "tokenless.jsonl")
+    writer = CheckpointWriter(
+        data_path=data_path, query="* | * | *", start_time=1700000000,
+        end_time=1700086400, stream=None, limit=None, oid="test-oid", mode=mode,
+    )
+    with writer:
+        writer.write_result(_page(rows=rows))
+        writer.update_progress(1, 1, completed=False, total_events=rows)
+    if legacy:
+        meta_file = _meta_path(data_path)
+        with open(meta_file, "r", encoding="utf-8") as handle:
+            meta = json.load(handle)
+        del meta["mode"]
+        with open(meta_file, "w", encoding="utf-8") as handle:
+            json.dump(meta, handle)
+    return data_path
+
+
+class TestTokenlessResumeKeepsTheOriginalPageSplit:
+    """Without a token a resume re-fetches and skips saved results by count.
+
+    That skip only lines up when the pages split as in the original run, so
+    this path must re-send exactly what the original run sent.
+    """
+
+    def test_a_legacy_checkpoint_resumes_with_no_mode_key(self, mock_org, tmp_path):
+        """The original run predates the mode and sent none. Sending batch
+        now would split the pages differently from what is already on disk."""
+        data_path = _tokenless_checkpoint(tmp_path, legacy=True)
+
+        result = _invoke(mock_org, [
+            "--oid", "test-oid", "--output", "json",
+            "search", "run", "--resume", "--checkpoint", data_path,
+        ], _responses(_page()))
+
+        assert result.exit_code == 0, result.output
+        assert "mode" not in _posts(mock_org)[0]
+
+    def test_a_mode_override_is_ignored_with_a_warning(self, mock_org, tmp_path):
+        data_path = _tokenless_checkpoint(tmp_path, mode="batch")
+
+        result = _invoke(mock_org, [
+            "--oid", "test-oid", "--output", "json",
+            "search", "run", "--resume", "--checkpoint", data_path,
+            "--mode", "interactive",
+        ], _responses(_page()), mix_stderr=False)
+
+        assert result.exit_code == 0, result.output
+        assert _posts(mock_org)[0]["mode"] == "batch"
+        assert "--mode interactive is ignored" in result.stderr
+        assert CheckpointReader.read_metadata(data_path)["mode"] == "batch"
+
+
+class TestLimitCapsRowsAcrossAResume:
+    """``--limit`` caps rows across the whole checkpoint, not per leg."""
+
+    def test_the_resumed_leg_only_gets_the_rest_of_the_cap(self, mock_org, tmp_path):
+        data_path = TestResumeCarriesTheMode()._interrupted_checkpoint(
+            mock_org, tmp_path, mode="batch")
+        assert CheckpointReader.read_metadata(data_path)["total_events"] == 1
+
+        result = _invoke(mock_org, [
+            "--oid", "test-oid", "--output", "jsonl",
+            "search", "run", "--resume", "--checkpoint", data_path,
+            "--limit", "3",
+        ], _responses(_page(rows=5)))
+
+        assert result.exit_code == 0, result.output
+        meta = CheckpointReader.read_metadata(data_path)
+        assert meta["total_events"] == 3
+        assert meta["completed"] is True
+
+    def test_a_checkpoint_already_at_the_cap_completes_without_a_search(
+            self, mock_org, tmp_path):
+        data_path = TestResumeCarriesTheMode()._interrupted_checkpoint(
+            mock_org, tmp_path, mode="batch")
+
+        result = _invoke(mock_org, [
+            "--oid", "test-oid", "--output", "json",
+            "search", "run", "--resume", "--checkpoint", data_path,
+            "--limit", "1",
+        ], [], mix_stderr=False)
+
+        assert result.exit_code == 0, result.output
+        assert _posts(mock_org) == []
+        assert CheckpointReader.read_metadata(data_path)["completed"] is True
+
+    def test_a_tokenless_resume_counts_the_refetched_rows_against_the_cap(
+            self, mock_org, tmp_path):
+        """The re-fetch starts from the first row, so the rows it skips are
+        the ones already saved and the whole cap applies to it."""
+        data_path = _tokenless_checkpoint(tmp_path, mode="batch", rows=2)
+
+        result = _invoke(mock_org, [
+            "--oid", "test-oid", "--output", "jsonl",
+            "search", "run", "--resume", "--checkpoint", data_path,
+            "--limit", "3",
+        ], [{"queryId": "q-mode"},
+            {"results": [_page(rows=2), _page(rows=4)], "completed": True},
+            {}])
+
+        assert result.exit_code == 0, result.output
+        meta = CheckpointReader.read_metadata(data_path)
+        assert meta["total_events"] == 3
 
 
 class TestSavedRunMode:

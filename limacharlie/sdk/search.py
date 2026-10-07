@@ -270,7 +270,15 @@ class Search:
             start_time: Start time (unix seconds).
             end_time: End time (unix seconds).
             stream: Stream type ('event', 'detect', 'audit').
-            limit: Max results.
+            limit: Maximum number of rows to return, counted across
+                pages. The page that reaches the cap is yielded with its
+                ``rows`` cut to fit and without its ``nextToken``, since that
+                token would resume past the rows that were cut. The cap is
+                applied client-side: the server still sizes its pages, so the
+                same ``limit`` returns the same rows whatever ``mode`` the
+                search ran as. Items that carry no rows (such as ``facets``)
+                are yielded but do not count. ``None`` or ``0`` means no cap;
+                a negative value is refused.
             progress_fn: Optional callback for progress messages (e.g.,
                 "Running search...", "Fetching page 2...").  Called with
                 a human-readable status string.  Intended for CLI progress
@@ -321,7 +329,8 @@ class Search:
             has arrived.
 
         Raises:
-            ValidationError: If ``mode`` is not one of ``SEARCH_MODES``.
+            ValidationError: If ``mode`` is not one of ``SEARCH_MODES``, or
+                ``limit`` is negative.
             SearchError: On search failure. Includes query_id, region, and oid
                 for troubleshooting.
         """
@@ -333,6 +342,9 @@ class Search:
                 f"mode must be one of {', '.join(sorted(SEARCH_MODES))} "
                 f"(got {mode!r})"
             )
+
+        if limit is not None and limit < 0:
+            raise ValidationError(f"limit must not be negative (got {limit!r})")
 
         search_url = self._get_search_url()
         oid = self._org.oid
@@ -391,7 +403,7 @@ class Search:
         if progress_fn:
             progress_fn(f"Running search... query_id: {query_id}")
 
-        count = 0
+        rows_left = limit or None
         page = start_page
         total_events = 0
         start_ts = time.monotonic()
@@ -430,12 +442,18 @@ class Search:
                 for item in poll.get("results", []):
                     if item.get("nextToken"):
                         next_token = item["nextToken"]
-                    if item.get("type") == "events":
-                        total_events += len(item.get("rows") or [])
-                    yield item
-                    count += 1
-                    if limit and count >= limit:
+                    rows = item.get("rows") or []
+                    if rows_left is not None and len(rows) >= rows_left:
+                        if len(rows) > rows_left:
+                            item = {k: v for k, v in item.items() if k != "nextToken"}
+                            item["rows"] = rows[:rows_left]
+                        yield item
                         return
+                    if item.get("type") == "events":
+                        total_events += len(rows)
+                    yield item
+                    if rows_left is not None:
+                        rows_left -= len(rows)
 
                 if poll.get("completed", False):
                     if next_token:

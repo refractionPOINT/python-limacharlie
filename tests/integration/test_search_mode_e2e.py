@@ -93,6 +93,8 @@ _WINDOW_SECONDS = 24 * 3600
 # not a failure: it means the result set is larger than this test needs, which
 # is exactly the case it wants to observe.
 _MAX_PAGES = 5
+# Rows each mode returns in the cross-mode comparison.
+_COMPARED_ROWS = 2000
 
 # The three fields a paginated page reports about its own shape.
 _PAGINATION_STAT_FIELDS = ("searchMode", "pageSize", "paginatedByteCap")
@@ -277,7 +279,7 @@ def test_both_modes_return_the_same_rows_in_the_same_order(oid, key):
     def rows_for(mode):
         collected = []
         for result in search.execute(_QUERY, start_time=start, end_time=end,
-                                     mode=mode, limit=_MAX_PAGES):
+                                     mode=mode, limit=_COMPARED_ROWS):
             for row in result.get("rows") or []:
                 collected.append(row)
         return collected
@@ -292,10 +294,13 @@ def test_both_modes_return_the_same_rows_in_the_same_order(oid, key):
             "window."
         )
 
-    # The per-page limit means each run may stop at a different point in the
-    # result set, so compare the common prefix rather than the whole thing.
-    common = min(len(batch_rows), len(interactive_rows))
-    assert batch_rows[:common] == interactive_rows[:common], (
+    # limit caps rows rather than pages, so both runs stop at the same row
+    # however their pages split, and the whole of each is compared.
+    assert len(batch_rows) == len(interactive_rows), (
+        f"batch returned {len(batch_rows)} rows and interactive "
+        f"{len(interactive_rows)} for the same query and limit"
+    )
+    assert batch_rows == interactive_rows, (
         "the two modes returned different rows for the same query. Only the "
         "page boundaries are meant to differ between modes; the result set "
         "and its ordering are meant to be identical."

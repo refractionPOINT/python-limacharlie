@@ -141,12 +141,15 @@ class TestSearchExecute:
     def test_execute_with_limit(self, search, mock_org):
         mock_org.client.request.side_effect = [
             {"queryId": "q-456"},
-            {"results": [{"a": 1}, {"a": 2}, {"a": 3}], "completed": False},
+            {"results": [{"type": "events", "rows": [{"a": 1}]},
+                         {"type": "events", "rows": [{"a": 2}]},
+                         {"type": "events", "rows": [{"a": 3}]}],
+             "completed": False},
             {},  # DELETE cleanup
         ]
 
         results = list(search.execute("event", 1000, 2000, limit=2))
-        assert len(results) == 2
+        assert [r["rows"] for r in results] == [[{"a": 1}], [{"a": 2}]]
 
     @patch("limacharlie.sdk.search.time.sleep")
     def test_execute_polls_until_completed(self, mock_sleep, search, mock_org):
@@ -1397,3 +1400,102 @@ class TestSearchModePageStats:
         batch = list(Search(mock_org).execute("event", 1000, 2000, mode="batch"))
 
         assert interactive == batch
+
+
+def _rows(start, n):
+    return [{"i": i} for i in range(start, start + n)]
+
+
+def _paged_responses(page_sizes, facets=False):
+    """Submission, one completed poll per page linked by tokens, DELETE."""
+    out = [{"queryId": "q-cap"}]
+    first = 0
+    for index, size in enumerate(page_sizes):
+        item = {"type": "events", "rows": _rows(first, size)}
+        if index < len(page_sizes) - 1:
+            item["nextToken"] = f"tok-{index + 1}"
+        results = [item]
+        if facets:
+            results.insert(0, {"type": "facets", "facets": {"x": 1}})
+        out.append({"results": results, "completed": True})
+        first += size
+    out.append({})
+    return out
+
+
+class TestExecuteLimitCapsRows:
+    """``limit`` caps rows, so it means the same thing whatever the page shape."""
+
+    def _flat(self, results):
+        return [row for r in results for row in (r.get("rows") or [])]
+
+    @pytest.mark.parametrize("page_sizes", [[2, 2, 2, 2], [5, 3], [8]],
+                             ids=["small-pages", "mixed-pages", "one-page"])
+    def test_the_same_limit_returns_the_same_rows_for_any_page_split(
+            self, search, mock_org, page_sizes):
+        """The page split is what the mode changes, so the cap must not
+        depend on it."""
+        mock_org.client.request.side_effect = _paged_responses(page_sizes)
+
+        results = list(search.execute("event", 1000, 2000, limit=5))
+
+        assert self._flat(results) == _rows(0, 5)
+
+    def test_the_page_that_reaches_the_cap_is_cut_and_loses_its_token(
+            self, search, mock_org):
+        """A token on a cut page would resume past the rows that were cut."""
+        mock_org.client.request.side_effect = _paged_responses([3, 3])
+
+        results = list(search.execute("event", 1000, 2000, limit=4))
+
+        assert results[0]["nextToken"] == "tok-1"
+        assert results[1]["rows"] == _rows(3, 1)
+        assert "nextToken" not in results[1]
+
+    def test_reaching_the_cap_stops_fetching_and_cancels_the_search(
+            self, search, mock_org):
+        mock_org.client.request.side_effect = _paged_responses([3, 3, 3])
+
+        list(search.execute("event", 1000, 2000, limit=3))
+
+        methods = [c[0][0] for c in mock_org.client.request.call_args_list]
+        assert methods == ["POST", "GET", "DELETE"]
+
+    def test_a_cap_landing_on_a_page_boundary_keeps_the_page_whole(
+            self, search, mock_org):
+        mock_org.client.request.side_effect = _paged_responses([3, 3])
+
+        results = list(search.execute("event", 1000, 2000, limit=3))
+
+        assert len(results) == 1
+        assert results[0]["nextToken"] == "tok-1"
+
+    def test_items_without_rows_are_yielded_but_not_counted(self, search, mock_org):
+        mock_org.client.request.side_effect = _paged_responses([2, 2], facets=True)
+
+        results = list(search.execute("event", 1000, 2000, limit=3))
+
+        assert [r["type"] for r in results] == ["facets", "events", "facets", "events"]
+        assert self._flat(results) == _rows(0, 3)
+
+    def test_the_server_page_is_not_mutated(self, search, mock_org):
+        responses = _paged_responses([4])
+        page_item = responses[1]["results"][0]
+        mock_org.client.request.side_effect = responses
+
+        list(search.execute("event", 1000, 2000, limit=1))
+
+        assert len(page_item["rows"]) == 4
+
+    @pytest.mark.parametrize("limit", [None, 0], ids=["none", "zero"])
+    def test_no_cap(self, search, mock_org, limit):
+        mock_org.client.request.side_effect = _paged_responses([2, 2])
+
+        results = list(search.execute("event", 1000, 2000, limit=limit))
+
+        assert self._flat(results) == _rows(0, 4)
+
+    def test_a_negative_limit_is_refused_before_any_request(self, search, mock_org):
+        with pytest.raises(ValidationError):
+            list(search.execute("event", 1000, 2000, limit=-1))
+        mock_org.client.request.assert_not_called()

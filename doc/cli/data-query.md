@@ -28,6 +28,8 @@ limacharlie search run --query '* | * | *' --start 1704067200 --end 1704153600 -
 
 It is a hint. The mode is enabled per organization and the server may also pick one itself, so a search can run as something other than what you asked for. The stats line on stderr reports the mode the page actually ran as, and `--output json` carries it as `searchMode` in each page's stats alongside `pageSize` and `paginatedByteCap`. It also only applies to a paginated search: a query that must process all the data before it can answer anything, such as one with `GROUP BY` or `ORDER BY`, is unaffected.
 
+`--limit` caps rows, across every page, not pages, so the same `--limit` returns the same rows whichever mode the search ran as. On `--resume` the rows already in the checkpoint count against it.
+
 ## ioc
 
 ```bash

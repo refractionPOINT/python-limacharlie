@@ -468,6 +468,21 @@ class CheckpointResumer:
         self._file.write(json.dumps(result, default=str) + "\n")
         self._file.flush()
 
+    def record_mode(self, mode: str | None) -> None:
+        """Record the consumption mode this resume submitted with.
+
+        A resume may override the mode the checkpoint was written with.
+        Recording the override means a later resume repeats it rather than
+        silently reverting to the original.
+
+        Args:
+            mode: The mode the resumed search was submitted with.
+        """
+        self._metadata["mode"] = mode
+        self._metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+        content = json.dumps(self._metadata, indent=2).encode("utf-8")
+        atomic_write(self._meta_path, content)
+
     def update_progress(self, page: int, result_count: int, completed: bool,
                         last_token: str | None = None,
                         total_events: int | None = None,
