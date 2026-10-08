@@ -263,7 +263,14 @@ Instead of a full record, you can assemble a rule from separate
 component files: --detect <file> and --respond <file> are loaded
 and combined into {data: {detect, respond}, usr_mtd: {...}}.  They
 must be given together and are mutually exclusive with --input-file
-(stdin is ignored in this mode).  --tag (repeatable) adds usr_mtd tags.
+(stdin is ignored in this mode).  --tag (repeatable) sets the usr_mtd
+tag list, replacing the existing tags.
+
+With --tag or --enabled/--disabled and no usr_mtd in the input, an
+existing rule keeps the metadata the flags do not change, so tagging a
+live rule does not disable it.  A usr_mtd block in the input replaces
+the rule's metadata: without an enabled key, even {}, the rule is
+stored disabled.
 
 Examples:
   limacharlie dr set --key my-rule --input-file rule.yaml --enabled

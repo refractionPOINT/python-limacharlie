@@ -11,20 +11,35 @@ from dataclasses import dataclass
 from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as urlescape
 
-from ..errors import ApiError
+from ..errors import ApiError, PermissionDeniedError
 
 if TYPE_CHECKING:
     from ..client import Client
     from .organization import Organization
 
 
+def _lc_error_code(exc: Exception) -> str | None:
+    """Return the ``lc_error_code`` of an HTTP 400 API answer, if any.
+
+    The gateway reports hive failures as HTTP 400 whose body error is
+    ``"lc_error_code:<CODE> - <detail>"``, so the code in the body is the
+    only reliable signal of what went wrong.
+    """
+    if not isinstance(exc, ApiError) or not isinstance(exc.response_body, dict):
+        return None
+    error = exc.response_body.get("error")
+    prefix = "lc_error_code:"
+    if not isinstance(error, str) or not error.startswith(prefix):
+        return None
+    return error[len(prefix):].split(" ", 1)[0]
+
+
 def is_record_not_found(exc: Exception) -> bool:
     """Check whether an exception is the API's RECORD_NOT_FOUND answer.
 
-    The gateway reports a missing record as HTTP 400 whose body error is
-    ``"lc_error_code:RECORD_NOT_FOUND - ..."``, not as a 404, so the code in
-    the body is the only reliable signal. Any other failure (permissions,
-    network, unknown hive, ...) is not "the record is missing".
+    A missing record comes back as HTTP 400 with ``RECORD_NOT_FOUND``, not
+    as a 404. Any other failure (permissions, network, unknown hive, ...) is
+    not "the record is missing".
 
     Args:
         exc: The exception raised by a hive read.
@@ -32,10 +47,22 @@ def is_record_not_found(exc: Exception) -> bool:
     Returns:
         bool: True only for a missing-record answer.
     """
-    if not isinstance(exc, ApiError) or not isinstance(exc.response_body, dict):
-        return False
-    error = exc.response_body.get("error")
-    return isinstance(error, str) and error.startswith("lc_error_code:RECORD_NOT_FOUND")
+    return _lc_error_code(exc) == "RECORD_NOT_FOUND"
+
+
+def is_permission_denied(exc: Exception) -> bool:
+    """Check whether an exception means the caller lacks a permission.
+
+    The hive denies an operation with HTTP 400 and ``UNAUTHORIZED``; an
+    HTTP 403 raises :class:`PermissionDeniedError`.
+
+    Args:
+        exc: The exception raised by a hive call.
+
+    Returns:
+        bool: True for either form of permission denial.
+    """
+    return isinstance(exc, PermissionDeniedError) or _lc_error_code(exc) == "UNAUTHORIZED"
 
 
 @dataclass

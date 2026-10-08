@@ -50,6 +50,13 @@ _NOT_FOUND_BODY = {
 }
 
 
+_DENIED_BODY = {
+    "data": {},
+    "error": "lc_error_code:UNAUTHORIZED - access to test-oid requires cloudsec_policy.get.mtd",
+    "retry": False,
+}
+
+
 def _existing(usr_mtd):
     """The /mtd GET answer for an existing record (data is {} there)."""
     return {"data": {}, "usr_mtd": usr_mtd, "sys_mtd": {"etag": "server-etag"}}
@@ -123,6 +130,7 @@ def test_metadata_flags_on_new_record_warn_and_create_disabled():
 
 @pytest.mark.parametrize("error", [
     ApiError("API error (400)", status_code=400, response_body={"error": "lc_error_code:INVALID_REQUEST - bad"}),
+    ApiError("API error (400)", status_code=400, response_body=_DENIED_BODY),
     ApiError("API error (500)", status_code=500, response_body="boom"),
     PermissionDeniedError("Permission denied", code=403),
 ])
@@ -148,9 +156,12 @@ def test_enablement_flag_with_data_keeps_other_metadata(flags, want):
     assert json.loads(posts[0][2]["usr_mtd"]) == want
 
 
-def test_enablement_flag_without_metadata_read_permission_sends_flags_with_warning():
-    _, posts, result = _set_with_current(
-        PermissionDeniedError("Permission denied", code=403), ["--enabled", "--tag-add", "t"])
+@pytest.mark.parametrize("error", [
+    ApiError("API error (400)", status_code=400, response_body=_DENIED_BODY),
+    PermissionDeniedError("Permission denied", code=403),
+])
+def test_enablement_flag_without_metadata_read_permission_sends_flags_with_warning(error):
+    _, posts, result = _set_with_current(error, ["--enabled", "--tag-add", "t"])
     assert result.exit_code == 0, result.output
     assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True, "tags": ["t"]}
     assert "permission denied" in result.stderr
@@ -263,7 +274,7 @@ def test_shortcut_explicit_enabled_keeps_other_metadata():
 
 def test_shortcut_write_only_key_can_still_set_with_enabled():
     _, posts, result = _shortcut_set(
-        ["secret"], PermissionDeniedError("Permission denied", code=403),
+        ["secret"], ApiError("API error (400)", status_code=400, response_body=_DENIED_BODY),
         ["--value", "v", "--enabled"], {})
     assert result.exit_code == 0, result.output
     assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True}
@@ -376,3 +387,11 @@ def test_dr_set_null_input_metadata_is_absent():
     assert result.exit_code == 0, result.output
     assert gets == []
     assert "usr_mtd" not in posts[0][2]
+
+
+def test_dr_set_write_only_key_can_still_set_with_enabled():
+    _, posts, result = _dr_set(
+        ApiError("API error (400)", status_code=400, response_body=_DENIED_BODY), ["--enabled"], _RULE)
+    assert result.exit_code == 0, result.output
+    assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True}
+    assert "permission denied" in result.stderr

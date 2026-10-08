@@ -44,7 +44,7 @@ whole whenever any is sent, and a metadata block without `enabled` is stored as 
 |----------|--------------|
 | data only | No metadata. An existing record keeps its metadata; a new one gets the hive's default. |
 | data with a `usr_mtd` block in the input | The block, with any flags applied on top. It is authoritative: a block without `enabled` (even `{}`) means disabled. A null `usr_mtd:` counts as absent. |
-| data with metadata flags and no `usr_mtd` block | The record's current metadata is read and merged: the enabled state and every field you did not set are kept. If the record does not exist, it is created with the flags as given; without `--enabled` that means disabled, and a warning on stderr says to pass `--enabled`. Any other error reading the record aborts the command. |
+| data with metadata flags and no `usr_mtd` block | The record's current metadata is read and merged: the enabled state and every field you did not set are kept. If the record does not exist, it is created with the flags as given; without `--enabled` that means disabled, and a warning on stderr says to pass `--enabled`. If reading the metadata is denied (it needs `<hive>.get.mtd`), an explicit `--enabled/--disabled` sends the flags as given, with a warning; otherwise the command aborts, as it does on any other error reading the record. |
 | no data, metadata flags | A metadata-only update, merged the same way. |
 
 The shortcut commands below, and `dr set`, merge the same way for `--tag`, `--comment`

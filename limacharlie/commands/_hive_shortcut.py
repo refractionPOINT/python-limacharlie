@@ -12,10 +12,9 @@ import yaml
 from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
-from ..sdk.hive import Hive, HiveRecord
+from ..sdk.hive import Hive, HiveRecord, is_permission_denied
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
-from ..errors import PermissionDeniedError
 
 
 def _get_org(ctx: click.Context) -> Organization:
@@ -72,13 +71,13 @@ def merge_current_metadata_or_warn(hive: Hive, hive_name: str, record: HiveRecor
     """
     try:
         exists = hive.merge_current_metadata(record)
-    except PermissionDeniedError:
-        if not enabled_explicit:
+    except Exception as e:
+        if not enabled_explicit or not is_permission_denied(e):
             raise
         click.echo(
             f"Warning: cannot read the metadata of record '{record.name}' in hive "
             f"'{hive_name}' (permission denied), so the metadata flags replace it: "
-            "existing tags, comment and expiry are not kept.",
+            "existing tags, comment, expiry and ui_actions are not kept.",
             err=True,
         )
         return
