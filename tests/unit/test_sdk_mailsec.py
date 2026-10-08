@@ -401,19 +401,24 @@ class TestReports:
 
 class TestVerdictRevision:
     """A verdict revision is a human triage decision appended to the message's
-    verdict history. mode defaults to analyst because the caller is a person;
-    the rationale is required and audited. Oversized rationale warns but is
+    verdict history. The caller declares no mode (the server records it from the
+    credential); the rationale is required and audited. Oversized rationale warns but is
     sent so the server can accept the verdict and report truncation."""
 
-    def test_revise_body_defaults_to_analyst_mode(self, ms, mock_org):
+    def test_revise_body_carries_no_mode(self, ms, mock_org):
         ms.revise_verdict("msg-1", "malicious", ["confirmed phish"])
         url, body = _post_call(mock_org)
         assert url == f"mailsec/{OID}/messages/msg-1/verdict"
         assert body == {
             "verdict": "malicious",
-            "mode": "analyst",
             "rationale": ["confirmed phish"],
         }
+
+    def test_revise_and_release_refuse_a_caller_declared_mode(self, ms):
+        with pytest.raises(TypeError):
+            ms.revise_verdict("msg-1", "malicious", ["x"], mode="ai")
+        with pytest.raises(TypeError):
+            ms.release_message("msg-1", reason="x", mode="ai")
 
     def test_revise_forwards_score_and_multiple_rationale(self, ms, mock_org):
         ms.revise_verdict("msg-1", "benign", ["a", "b"], score=12)
@@ -903,8 +908,8 @@ class TestDispositionFeedback:
     def test_filter_release_and_remediation_contract(self, ms, mock_org):
         ms.list_messages(disposition="none")
         assert ("disposition", "none") in _get_call(mock_org)[1]
-        ms.release_message("msg-1", reason="reviewed", mode="ai", force=True)
-        assert _post_call(mock_org)[1] == {"action": "release_message", "reason": "reviewed", "mode": "ai", "force": True}
+        ms.release_message("msg-1", reason="reviewed", force=True)
+        assert _post_call(mock_org)[1] == {"action": "release_message", "reason": "reviewed", "force": True}
         remediation = {"scope": "message", "action": "quarantine_message"}
         ms.resolve_report("rep-1", "malicious", remediation=remediation)
         assert _post_call(mock_org)[1] == {"disposition": "malicious", "remediation": remediation}

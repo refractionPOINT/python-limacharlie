@@ -669,24 +669,26 @@ class Mailsec:
         body["msg_uuids"] = msg_uuids
         return self._post("messages/dispositions", body)
 
-    def release_message(self, msg_uuid: str, *, reason: str, mode: str = "analyst", force: bool = False) -> dict[str, Any]:
+    def release_message(self, msg_uuid: str, *, reason: str, force: bool = False) -> dict[str, Any]:
         """Restore a message, revise its verdict and set disposition to benign.
 
         Args:
             msg_uuid: Stable message identity.
             reason: Audited reason for releasing the message.
-            mode: Analyst or ai decision mode.
             force: Override alert-only mode for this action.
 
         Returns:
             dict: Audited release outcome; alert_only means no changes were made.
 
         Raises:
-            ValueError: If mode or reason is invalid.
+            ValueError: If reason is blank or too long.
+
+        The decision mode is not a parameter: the server records it from the
+        credential used to make the call.
         """
-        if mode not in ("analyst", "ai") or not reason.strip() or len(reason) > 1024:
-            raise ValueError("release requires a bounded reason and analyst/ai mode")
-        return self._post(f"messages/{_seg(msg_uuid)}/actions", {"action": "release_message", "reason": reason, "mode": mode, "force": force})
+        if not reason.strip() or len(reason) > 1024:
+            raise ValueError("release requires a bounded reason")
+        return self._post(f"messages/{_seg(msg_uuid)}/actions", {"action": "release_message", "reason": reason, "force": force})
 
     def act_on_message(
         self,
@@ -757,19 +759,18 @@ class Mailsec:
         verdict: str,
         rationale: list[str],
         *,
-        mode: str = "analyst",
         score: int | None = None,
     ) -> dict[str, Any]:
         """Revise the verdict on one message. Requires ``mailsec.act``.
 
-        This records a human's disposition over the scorer's — a triage
-        decision, not a remediation — and appends a revision to the message's
-        immutable verdict history rather than overwriting the last one.
+        This records a triage decision over the scorer's — not a remediation —
+        and appends a revision to the message's immutable verdict history
+        rather than overwriting the last one.
 
-        ``mode`` defaults to ``analyst`` because the caller of this SDK from
-        the CLI is a person. An autonomous agent revises with its own key and
-        ``mode="ai"``; the two are kept distinct so the audit trail can always
-        say whether a person or a model decided.
+        There is no ``mode`` parameter. The server records who decided from
+        the credential used for the call: a user login is recorded as
+        ``analyst`` and an API key as ``api`` (older revisions may read
+        ``ai``). Every authorized caller has the same effect.
 
         The rationale is REQUIRED and audited. The server drops blank lines,
         clips to ten lines of 280 characters and sets ``rationale_truncated``
@@ -780,9 +781,6 @@ class Mailsec:
             verdict: ``malicious``, ``suspicious``, ``graymail``, ``benign``,
                 or ``unknown``.
             rationale: One or more free-text lines explaining the change.
-            mode: The deciding actor's mode; ``analyst`` for a human,
-                ``ai`` for an agent. The gateway stamps the actor identity
-                itself — this only says which KIND of actor decided.
             score: Optional integer score. The API defines no revision-score range;
                 omitting it preserves the existing score.
 
@@ -812,7 +810,6 @@ class Mailsec:
             raise ValueError("score must be an integer")
         body: dict[str, Any] = {
             "verdict": verdict,
-            "mode": mode,
             "rationale": list(rationale),
         }
         if score is not None:
@@ -823,7 +820,8 @@ class Mailsec:
         """The verdict revision history for one message, oldest first.
 
         Requires ``mailsec.get``. Every entry carries its ``seq``, the
-        ``mode`` and ``actor`` that decided it, the ``verdict`` it set, its
+        ``mode`` (``analyst`` for a user login, ``api`` for an API key; older entries
+        may read ``ai``) and ``actor`` that decided it, the ``verdict`` it set, its
         ``decided_at`` time, and the ``rationale`` given — the audit of how a
         message's disposition moved over time, read from the bottom up.
 
