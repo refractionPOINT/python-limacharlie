@@ -3104,8 +3104,10 @@ class CloudSec:
         nothing.
 
         Args:
-            repo: the ``"<owner>/<name>"`` key :meth:`list_code_repos`
-                returns. It must be selected by an enabled ``code_scanning``
+            repo: the repository key :meth:`list_code_repos` returns. GitLab
+                keys keep the full namespace (``group/subgroup/name``) and need
+                ``provider="gitlab"``; GitHub and Bitbucket need a flat
+                ``<owner>/<name>``. It must be selected by an enabled ``code_scanning``
                 policy — the same switch the hosted lane uses — but it does
                 NOT have to be in the org's collected inventory: pushing for
                 a repository no connected source-control organization covers

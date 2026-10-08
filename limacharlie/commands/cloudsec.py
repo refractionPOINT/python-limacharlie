@@ -2241,7 +2241,9 @@ def code_autofix(ctx, finding_id, repo, provider) -> None:
 
 @code_group.command("ingest")
 @click.option("--repo", required=True,
-              help="Repository key '<owner>/<name>' as 'code repos' returns it.")
+              help="Repository key as 'code repos' returns it. GitLab keys keep the full "
+                   "namespace (group/subgroup/name) and need --provider gitlab; GitHub "
+                   "and Bitbucket need a flat <owner>/<name>.")
 @click.option("--source", required=True,
               type=click.Choice(["sarif", "cyclonedx", "report"]),
               help="Format of the document: a SARIF results file, a CycloneDX "

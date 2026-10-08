@@ -113,8 +113,9 @@ mode: off to stand enforcement down.
 
 The server validates the record and rejects invalid values with the
 reason.  A new record sent with no metadata is enabled.  Passing --tag
-or --comment without --enabled stores it DISABLED, so pass --enabled
-with them.
+or --comment without --enabled keeps an existing record's enabled state;
+a record that does not exist yet is created DISABLED (with a warning),
+so pass --enabled with them when creating.
 
 Provide data via --input-file (YAML/JSON) or pipe through stdin.
 
@@ -164,8 +165,9 @@ Use --comment for a note and the record expiry for a temporary exception.
 
 The server validates the record and rejects invalid values with the
 reason.  A new record sent with no metadata is enabled.  Passing --tag
-or --comment without --enabled stores it DISABLED, so pass --enabled
-with them.
+or --comment without --enabled keeps an existing record's enabled state;
+a record that does not exist yet is created DISABLED (with a warning),
+so pass --enabled with them when creating.
 
 Provide data via --input-file (YAML/JSON) or pipe through stdin.
 

@@ -11,9 +11,58 @@ from dataclasses import dataclass
 from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import quote as urlescape
 
+from ..errors import ApiError, PermissionDeniedError
+
 if TYPE_CHECKING:
     from ..client import Client
     from .organization import Organization
+
+
+def _lc_error_code(exc: Exception) -> str | None:
+    """Return the ``lc_error_code`` of an HTTP 400 API answer, if any.
+
+    The gateway reports hive failures as HTTP 400 whose body error is
+    ``"lc_error_code:<CODE> - <detail>"``, so the code in the body is the
+    only reliable signal of what went wrong.
+    """
+    if not isinstance(exc, ApiError) or not isinstance(exc.response_body, dict):
+        return None
+    error = exc.response_body.get("error")
+    prefix = "lc_error_code:"
+    if not isinstance(error, str) or not error.startswith(prefix):
+        return None
+    return error[len(prefix):].split(" ", 1)[0]
+
+
+def is_record_not_found(exc: Exception) -> bool:
+    """Check whether an exception is the API's RECORD_NOT_FOUND answer.
+
+    A missing record comes back as HTTP 400 with ``RECORD_NOT_FOUND``, not
+    as a 404. Any other failure (permissions, network, unknown hive, ...) is
+    not "the record is missing".
+
+    Args:
+        exc: The exception raised by a hive read.
+
+    Returns:
+        bool: True only for a missing-record answer.
+    """
+    return _lc_error_code(exc) == "RECORD_NOT_FOUND"
+
+
+def is_permission_denied(exc: Exception) -> bool:
+    """Check whether an exception means the caller lacks a permission.
+
+    The hive denies an operation with HTTP 400 and ``UNAUTHORIZED``; an
+    HTTP 403 raises :class:`PermissionDeniedError`.
+
+    Args:
+        exc: The exception raised by a hive call.
+
+    Returns:
+        bool: True for either form of permission denial.
+    """
+    return isinstance(exc, PermissionDeniedError) or _lc_error_code(exc) == "UNAUTHORIZED"
 
 
 @dataclass
@@ -164,8 +213,48 @@ class Hive:
         record.data = None
         return record
 
+    def merge_current_metadata(self, record: HiveRecord) -> bool:
+        """Start a record's metadata from the stored record's metadata.
+
+        ``set()`` replaces the stored metadata wholesale, and a metadata block
+        sent without ``enabled`` is stored as disabled. Sending only the
+        fields a caller wants to change would therefore silently disable an
+        existing record and drop its other metadata. This copies enabled,
+        tags, comment, expiry and ui_actions of the stored record onto
+        ``record`` (overwriting what it holds for them) so the caller can then
+        apply its changes on top. Nothing is changed when the record does not
+        exist yet.
+
+        Args:
+            record: HiveRecord about to be passed to :meth:`set`.
+
+        Returns:
+            bool: True if the record exists and was merged, False if it does not exist.
+
+        Raises:
+            ApiError: On any failure reading the metadata other than a missing record.
+        """
+        try:
+            current = self.get_metadata(record.name)
+        except ApiError as e:
+            if is_record_not_found(e):
+                return False
+            raise
+        record.enabled = current.enabled
+        record.tags = current.tags
+        record.comment = current.comment
+        record.expiry = current.expiry
+        record.ui_actions = current.ui_actions
+        return True
+
     def set(self, record: HiveRecord) -> dict[str, Any]:
         """Create or update a record.
+
+        When ``record`` carries no data, only the metadata is written. When it
+        carries data and no metadata, the server keeps an existing record's
+        metadata (or applies the hive's default to a new one). Any metadata
+        present replaces the stored metadata wholesale, and a block without
+        ``enabled`` is stored as disabled; see :meth:`merge_current_metadata`.
 
         Args:
             record: HiveRecord instance with data and optional metadata.

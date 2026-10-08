@@ -13,13 +13,50 @@ Reads usually require `cloudsec.get`. Local `code scan` without ingestion and
 limacharlie extension subscribe --name ext-cloud-security
 ```
 
-Provider credentials and the cloudsec policies are hive records — manage them with the hive commands (`limacharlie hive list cloudsec_provider`, `... cloudsec_policy`, `... cloudsec_query`, `... cloudsec_code_rule`).
+Provider credentials and the cloudsec policies are hive records — manage them with the hive commands (`limacharlie hive list --hive-name cloudsec_provider`, and likewise `cloudsec_policy`, `cloudsec_query`, `cloudsec_code_rule`).
 
 Every command supports `--ai-help` for a detailed description with examples.
 
 For `code pr-check`, GitHub requires `--base-sha`; GitLab.com and Bitbucket
 Cloud may omit it because the provider resolves the base. Supply `--head-sha`
 and `--action` for every provider. `--action edited` is GitHub-only.
+
+## Policy record enablement
+
+Every `cloudsec_policy` type honours the Hive record's `usr_mtd.enabled` flag. A
+disabled record does not apply, regardless of its policy type or body. For
+`code_scanning`, the nested `code_scanning.enabled` must also be `true` to scan.
+
+**Operator note.** Before October 2026 the backend did not honour the flag for
+every policy type, so a policy created disabled under the old default may have
+been applied anyway. It no longer applies. List your policy records and enable
+the ones you rely on:
+
+```bash
+limacharlie hive list --hive-name cloudsec_policy
+limacharlie hive enable --hive-name cloudsec_policy --key my-policy
+```
+
+New `cloudsec_policy` records created without `usr_mtd` default to enabled. Other hives have their own defaults.
+Data-only updates preserve an existing record's metadata. Explicit metadata
+remains authoritative: `usr_mtd.enabled: false`, or a metadata block without
+an `enabled` key, creates a disabled record. A null `usr_mtd:` counts as absent.
+
+Tagging, commenting on, enabling or disabling a policy together with its data
+(`hive set ... --input-file policy.yaml --tag-add reviewed`) keeps an existing
+record's other metadata, like a metadata-only update. A policy that does not
+exist yet is created disabled unless you pass `--enabled`, and a warning says
+so. See [Metadata on `hive set`](hive-data.md#metadata-on-hive-set).
+
+Use `--disabled` to stage a new policy, or disable an existing record:
+
+```bash
+limacharlie hive set --hive-name cloudsec_policy --key my-policy --input-file policy.yaml --disabled
+limacharlie hive disable --hive-name cloudsec_policy --key my-policy
+limacharlie hive enable --hive-name cloudsec_policy --key my-policy
+```
+
+Pass `--enabled` when creating a policy to request enablement explicitly.
 
 ## Overview & posture
 
@@ -491,6 +528,10 @@ limacharlie cloudsec code rescan acme/api --ref refs/heads/main
 limacharlie cloudsec code autofix <FINDING_ID>         # open the upgrade PR
 limacharlie cloudsec code ingest --repo acme/api --source sarif --file report.sarif
 ```
+
+The `--repo` key is the one `code repos` returns. GitLab keys keep the full
+namespace (`group/subgroup/name`) and need `--provider gitlab`; GitHub and
+Bitbucket need a flat `<owner>/<name>`.
 
 For a repository created through ingest, a CI push that names a branch should
 send its default branch too:

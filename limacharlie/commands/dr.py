@@ -23,6 +23,7 @@ from ..sdk.hive import Hive, HiveRecord
 from ..sdk.replay import Replay as ReplaySDK
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._hive_shortcut import input_metadata_block, merge_current_metadata_or_warn
 from ._time_validation import validate_epoch_seconds
 
 
@@ -262,7 +263,14 @@ Instead of a full record, you can assemble a rule from separate
 component files: --detect <file> and --respond <file> are loaded
 and combined into {data: {detect, respond}, usr_mtd: {...}}.  They
 must be given together and are mutually exclusive with --input-file
-(stdin is ignored in this mode).  --tag (repeatable) adds usr_mtd tags.
+(stdin is ignored in this mode).  --tag (repeatable) sets the usr_mtd
+tag list, replacing the existing tags.
+
+With --tag or --enabled/--disabled and no usr_mtd in the input, an
+existing rule keeps the metadata the flags do not change, so tagging a
+live rule does not disable it.  A usr_mtd block in the input replaces
+the rule's metadata: without an enabled key, even {}, the rule is
+stored disabled.
 
 Examples:
   limacharlie dr set --key my-rule --input-file rule.yaml --enabled
@@ -300,11 +308,12 @@ register_explain("dr.set", _EXPLAIN_SET)
 )
 @click.option(
     "--enabled/--disabled", "enabled", default=None,
-    help="Set usr_mtd.enabled on the rule. Overrides any value in the input file. New rules default to disabled if neither this flag nor usr_mtd.enabled is provided.",
+    help="Set usr_mtd.enabled on the rule. Overrides any value in the input file. New rules default to disabled if neither this flag nor usr_mtd.enabled is provided. With --tag or this flag and no usr_mtd in the input, an existing rule keeps the metadata the flags do not change.",
 )
 @pass_context
 def set_cmd(ctx, key, input_file, detect_path, respond_path, tags, namespace, enabled) -> None:
     using_components = detect_path is not None or respond_path is not None
+    input_has_mtd = False
 
     if using_components:
         # --detect/--respond assemble a rule in-command and express explicit
@@ -352,16 +361,30 @@ def set_cmd(ctx, key, input_file, detect_path, respond_path, tags, namespace, en
         # Support the full hive record format (with "data" wrapper) or
         # a bare rule dict with detect/respond at the top level.
         if isinstance(data, dict) and "data" in data:
+            usr = input_metadata_block(data)
+            input_has_mtd = usr is not None
             raw = {
                 "data": data["data"],
-                "usr_mtd": data.get("usr_mtd", {}),
+                "usr_mtd": usr or {},
                 "sys_mtd": {},
             }
             if data.get("etag"):
                 raw["sys_mtd"]["etag"] = data["etag"]
             record = HiveRecord.from_raw(key, raw)
+            # A supplied block is explicit, and the API stores one without
+            # "enabled" as disabled, even {}.
+            if input_has_mtd and record.enabled is None:
+                record.enabled = False
         else:
             record = HiveRecord(key, data=data)
+
+    org = _get_org(ctx)
+    hive_name = _hive_name(namespace)
+    hive = Hive(org, hive_name)
+    if (tags or enabled is not None) and not input_has_mtd:
+        # The flags are sent as the whole metadata block: start from the stored
+        # one so tagging a live rule does not disable it.
+        merge_current_metadata_or_warn(hive, hive_name, record, enabled is not None)
 
     if tags:
         record.tags = list(tags)
@@ -369,8 +392,6 @@ def set_cmd(ctx, key, input_file, detect_path, respond_path, tags, namespace, en
     if enabled is not None:
         record.enabled = enabled
 
-    org = _get_org(ctx)
-    hive = Hive(org, _hive_name(namespace))
     result = hive.set(record)
     _output(ctx, result)
 
