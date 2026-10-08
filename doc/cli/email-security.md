@@ -456,7 +456,7 @@ limacharlie mailsec message disposition <MSG_UUID> --disposition spam --note "Re
 limacharlie mailsec message disposition <MSG_UUID> --clear
 limacharlie mailsec message list --disposition none
 limacharlie mailsec message bulk-disposition --input-file ids.json --disposition simulation
-limacharlie mailsec message release <MSG_UUID> --reason "Confirmed safe" --mode analyst
+limacharlie mailsec message release <MSG_UUID> --reason "Confirmed safe"
 ```
 
 Bulk disposition accepts `--input-file PATH` (`--input` remains an alias), or

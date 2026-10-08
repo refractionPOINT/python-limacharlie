@@ -165,9 +165,9 @@ Examples:
 """
 
 _EXPLAIN_MESSAGE_REVISE = """\
-Revise a message's verdict as an analyst. Requires mailsec.act.
+Revise a message's verdict. Requires mailsec.act.
 
-This records a human triage decision over the scorer's — it is a
+This records a triage decision over the scorer's — it is a
 verdict revision — and appends to the message's verdict
 history rather than overwriting it. --rationale is required and audited:
 at least one nonblank line. The server clips to ten lines of 280 characters,
@@ -175,10 +175,9 @@ sets rationale_truncated in the revision history, and accepts the change.
 Oversized explanations warn locally. --score takes an integer; the API
 has no revision-score range.
 
-mode is fixed to 'analyst' here because the operator of this CLI is a
-person. An autonomous agent revises with its OWN key and mode 'ai'
-through the API, not this command, so the audit can always say whether a
-person or a model decided.
+Who decided is recorded from the credential you used: a user login is
+recorded as 'analyst', an API key as 'api'. There is no mode to pass, and
+every authorized caller has the same effect.
 
 applied:false is an honest outcome, not an error: it means the message
 was already at this verdict and nothing changed.
@@ -191,7 +190,8 @@ Examples:
 _EXPLAIN_MESSAGE_REVISIONS = """\
 The verdict revision history for one message, oldest first.
 
-Each entry is who decided (mode/actor), the verdict they set, when, and
+Each entry is who decided (mode/actor; mode is 'analyst' for a user login and
+'api' for an API key, older entries may read 'ai'), the verdict they set, when, and
 the rationale they gave — the audit of how a message's verdict moved
 over time.
 
@@ -1657,11 +1657,11 @@ def message_withdraw_sample(ctx, msg_uuid, reason, attempt) -> None:
 @click.option("--score", default=None, type=int, help="Optional integer score; the API defines no revision-score range.")
 @pass_context
 def message_revise(ctx, msg_uuid, verdict, rationale, score) -> None:
-    """Revise a message's verdict as an analyst (mailsec.act).
+    """Revise a message's verdict (mailsec.act).
 
     \b
-    mode is 'analyst' — the operator of this CLI is a person. An agent
-    revises with its own key and mode 'ai' through the API, not here.
+    Who decided is recorded from the credential you used (a user login
+    or an API key); there is no mode to pass.
     applied:false means it was already this verdict, not an error.
 
     \b
@@ -2409,13 +2409,12 @@ def message_bulk_disposition(ctx, msg_uuids, input_file, disposition, clear, not
 @message_group.command("release")
 @click.argument("msg_uuid")
 @click.option("--reason", required=True)
-@click.option("--mode", default="analyst", type=click.Choice(["analyst", "ai"]))
 @click.option("--force", is_flag=True, help=_FORCE_HELP)
 @pass_context
-def message_release(ctx, msg_uuid, reason, mode, force) -> None:
+def message_release(ctx, msg_uuid, reason, force) -> None:
     """Restore and classify a message as benign (mailsec.act)."""
     try:
-        result = _get_mailsec(ctx).release_message(msg_uuid, reason=reason, mode=mode, force=force)
+        result = _get_mailsec(ctx).release_message(msg_uuid, reason=reason, force=force)
     except ValueError as exc:
         raise click.UsageError(str(exc)) from exc
     _output(ctx, result)
