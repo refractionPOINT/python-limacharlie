@@ -35,9 +35,12 @@ def test_explicit_metadata_and_flags_remain_authoritative(metadata, flags, want)
 
 
 @pytest.mark.parametrize("flag,want", [("--enabled", True), ("--disabled", False)])
-def test_enablement_flag_without_input_metadata(flag, want):
-    params = _set_request({"data": {"a": 1}}, [flag])
-    assert json.loads(params["usr_mtd"]) == {"enabled": want}
+def test_enablement_flag_on_new_record_creates_it_as_asked(flag, want):
+    _, posts, result = _set_with_current(
+        ApiError("API error (400)", status_code=400, response_body=_NOT_FOUND_BODY), [flag])
+    assert result.exit_code == 0, result.output
+    assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": want}
+    assert "Warning" not in result.stderr
 
 
 _NOT_FOUND_BODY = {
@@ -129,15 +132,45 @@ def test_metadata_read_errors_other_than_not_found_propagate(error):
     assert posts == []
 
 
+_STORED = {"enabled": True, "tags": ["old"], "comment": "server", "expiry": 5000,
+           "ui_actions": [{"name": "run", "url": "https://example.invalid"}]}
+
+
 @pytest.mark.parametrize("flags,want", [
-    (["--enabled", "--tag-add", "t"], {"enabled": True, "tags": ["t"]}),
-    (["--disabled", "--comment", "c"], {"enabled": False, "comment": "c"}),
+    (["--disabled"], {**_STORED, "enabled": False}),
+    (["--enabled", "--tag-add", "t"], {**_STORED, "tags": ["old", "t"]}),
+    (["--disabled", "--comment", "c"], {**_STORED, "enabled": False, "comment": "c"}),
 ])
-def test_explicit_enablement_flag_sends_metadata_without_fetching(flags, want):
-    gets, posts, result = _set_with_current(_existing({"enabled": True}), flags)
+def test_enablement_flag_with_data_keeps_other_metadata(flags, want):
+    gets, posts, result = _set_with_current(_existing(dict(_STORED)), flags)
     assert result.exit_code == 0, result.output
-    assert gets == []
+    assert len(gets) == 1
     assert json.loads(posts[0][2]["usr_mtd"]) == want
+
+
+def test_enablement_flag_without_metadata_read_permission_sends_flags_with_warning():
+    _, posts, result = _set_with_current(
+        PermissionDeniedError("Permission denied", code=403), ["--enabled", "--tag-add", "t"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True, "tags": ["t"]}
+    assert "permission denied" in result.stderr
+
+
+@pytest.mark.parametrize("usr_mtd", [False, [], "x", 0])
+def test_non_mapping_input_metadata_is_refused(usr_mtd):
+    gets, posts, result = _set_with_current(
+        _existing({"enabled": True}), [], payload={"data": {"a": 1}, "usr_mtd": usr_mtd})
+    assert result.exit_code != 0
+    assert "usr_mtd must be a mapping" in result.stderr
+    assert posts == []
+
+
+def test_input_metadata_block_keeps_its_ui_actions():
+    block = {"enabled": True, "ui_actions": _STORED["ui_actions"]}
+    _, posts, result = _set_with_current(
+        _existing({"enabled": True}), [], payload={"data": {"a": 1}, "usr_mtd": block})
+    assert result.exit_code == 0, result.output
+    assert json.loads(posts[0][2]["usr_mtd"]) == block
 
 
 @pytest.mark.parametrize("usr_mtd,want", [
@@ -219,13 +252,25 @@ def test_shortcut_new_record_with_tag_warns_and_is_created_disabled():
     assert "created DISABLED" in result.stderr
 
 
-def test_shortcut_explicit_enabled_and_input_metadata_are_not_fetched():
+def test_shortcut_explicit_enabled_keeps_other_metadata():
     gets, posts, result = _shortcut_set(
-        ["secret"], _existing({"enabled": False}),
-        ["--tag", "t", "--enabled"], {"data": {"secret": "v"}})
+        ["secret"], _existing({"enabled": False, "tags": ["old"], "comment": "server"}),
+        ["--enabled"], {"data": {"secret": "v"}})
     assert result.exit_code == 0, result.output
-    assert gets == []
-    assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True, "tags": ["t"]}
+    assert len(gets) == 1
+    assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True, "tags": ["old"], "comment": "server"}
+
+
+def test_shortcut_write_only_key_can_still_set_with_enabled():
+    _, posts, result = _shortcut_set(
+        ["secret"], PermissionDeniedError("Permission denied", code=403),
+        ["--value", "v", "--enabled"], {})
+    assert result.exit_code == 0, result.output
+    assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True}
+    assert "permission denied" in result.stderr
+
+
+def test_shortcut_input_metadata_is_not_fetched():
     gets, posts, result = _shortcut_set(
         ["secret"], _existing({"enabled": False}),
         ["--tag", "t"], {"data": {"secret": "v"}, "usr_mtd": {"enabled": True}})
@@ -270,3 +315,64 @@ def _set_request(payload, flags=()):
     args, kwargs = client.request.call_args
     assert args == ("POST", "hive/cloudsec_policy/test-oid/policy/data")
     return kwargs["params"]
+
+
+def _dr_set(current, args, payload):
+    client = MagicMock()
+    client.oid = "test-oid"
+    calls = []
+
+    def request(verb, url, params=None, **kw):
+        calls.append((verb, url, params))
+        if verb == "GET":
+            if isinstance(current, Exception):
+                raise current
+            return current
+        return {"guid": "test-guid"}
+
+    client.request.side_effect = request
+    with patch("limacharlie.commands.dr.Client", return_value=client):
+        result = CliRunner(mix_stderr=False).invoke(
+            cli, ["dr", "set", "--key", "k", *args], input=json.dumps(payload))
+    return [c for c in calls if c[0] == "GET"], [c for c in calls if c[0] == "POST"], result
+
+
+_RULE = {"detect": {"event": "NEW_PROCESS", "op": "exists", "path": "event"}, "respond": [{"action": "report", "name": "x"}]}
+
+
+@pytest.mark.parametrize("flags,want", [
+    (["--tag", "t"], {"enabled": True, "tags": ["t"], "comment": "server"}),
+    (["--disabled"], {"enabled": False, "tags": ["old"], "comment": "server"}),
+])
+def test_dr_set_flags_keep_a_live_rule_metadata(flags, want):
+    gets, posts, result = _dr_set(
+        _existing({"enabled": True, "tags": ["old"], "comment": "server"}), flags, _RULE)
+    assert result.exit_code == 0, result.output
+    assert [g[1] for g in gets] == ["hive/dr-general/test-oid/k/mtd"]
+    assert json.loads(posts[0][2]["usr_mtd"]) == want
+
+
+def test_dr_set_tag_on_new_rule_warns_and_creates_it_disabled():
+    _, posts, result = _dr_set(
+        ApiError("API error (400)", status_code=400, response_body=_NOT_FOUND_BODY), ["--tag", "t"], _RULE)
+    assert result.exit_code == 0, result.output
+    assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": False, "tags": ["t"]}
+    assert "created DISABLED" in result.stderr
+
+
+@pytest.mark.parametrize("usr_mtd,flags,want", [
+    ({}, [], {"enabled": False}),
+    ({"comment": "c"}, ["--tag", "t"], {"enabled": False, "comment": "c", "tags": ["t"]}),
+])
+def test_dr_set_input_metadata_is_authoritative(usr_mtd, flags, want):
+    gets, posts, result = _dr_set(_existing({"enabled": True}), flags, {"data": _RULE, "usr_mtd": usr_mtd})
+    assert result.exit_code == 0, result.output
+    assert gets == []
+    assert json.loads(posts[0][2]["usr_mtd"]) == want
+
+
+def test_dr_set_null_input_metadata_is_absent():
+    gets, posts, result = _dr_set(_existing({"enabled": True}), [], {"data": _RULE, "usr_mtd": None})
+    assert result.exit_code == 0, result.output
+    assert gets == []
+    assert "usr_mtd" not in posts[0][2]

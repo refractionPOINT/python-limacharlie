@@ -42,11 +42,11 @@ Data-only updates preserve an existing record's metadata. Explicit metadata
 remains authoritative: `usr_mtd.enabled: false`, or a metadata block without
 an `enabled` key, creates a disabled record. A null `usr_mtd:` counts as absent.
 
-Tagging or commenting on a policy together with its data
+Tagging, commenting on, enabling or disabling a policy together with its data
 (`hive set ... --input-file policy.yaml --tag-add reviewed`) keeps an existing
-record's enabled state and its other metadata, like a metadata-only update. A
-policy that does not exist yet is created disabled and a warning says so; pass
-`--enabled` to activate it. See [Metadata on `hive set`](hive-data.md#metadata-on-hive-set).
+record's other metadata, like a metadata-only update. A policy that does not
+exist yet is created disabled unless you pass `--enabled`, and a warning says
+so. See [Metadata on `hive set`](hive-data.md#metadata-on-hive-set).
 
 Use `--disabled` to stage a new policy, or disable an existing record:
 

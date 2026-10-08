@@ -15,6 +15,7 @@ from ..sdk.organization import Organization
 from ..sdk.hive import Hive, HiveRecord
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ..errors import PermissionDeniedError
 
 
 def _get_org(ctx: click.Context) -> Organization:
@@ -28,22 +29,60 @@ def _output(ctx: click.Context, data: Any) -> None:
         click.echo(format_output(data, fmt))
 
 
-def merge_current_metadata_or_warn(hive: Hive, hive_name: str, record: HiveRecord) -> None:
-    """Start ``record``'s metadata from the stored record, for edits that carry no ``enabled``.
+def input_metadata_block(data: Any) -> dict[str, Any] | None:
+    """Return the ``usr_mtd`` block of parsed set input.
 
-    A metadata block sent without ``enabled`` replaces the stored metadata and
-    stores the record disabled, so changing only tags/comment/expiry would
-    silently disable a live record. This keeps the stored enabled state and the
-    fields the caller is not changing. A record that does not exist yet is
-    created disabled, which is said on stderr so nobody finds out from a rule
-    that never fires. Errors other than a missing record propagate.
+    Args:
+        data: Parsed JSON/YAML input.
+
+    Returns:
+        dict | None: The block, or None when absent or null (a bare
+            ``usr_mtd:`` in YAML counts as absent).
+
+    Raises:
+        click.UsageError: If the block is not a mapping.
+    """
+    if not isinstance(data, dict) or data.get("usr_mtd") is None:
+        return None
+    if not isinstance(data["usr_mtd"], dict):
+        raise click.UsageError("usr_mtd must be a mapping of metadata fields.")
+    return data["usr_mtd"]
+
+
+def merge_current_metadata_or_warn(hive: Hive, hive_name: str, record: HiveRecord, enabled_explicit: bool = False) -> None:
+    """Start ``record``'s metadata from the stored record, before metadata flags are applied.
+
+    A metadata block replaces the stored metadata wholesale, and one sent
+    without ``enabled`` stores the record disabled, so sending only the fields
+    being changed would silently disable a live record or drop its tags,
+    comment, expiry and ui_actions. This keeps every field the caller is not
+    changing. A record that does not exist yet is created with the flags as
+    given; when the caller did not choose ``enabled`` that means disabled,
+    which is said on stderr so nobody finds out from a rule that never fires.
+    Reading metadata takes its own ``<hive>.get.mtd`` permission. When that
+    is denied and the caller chose ``enabled``, the flags are sent as given,
+    with a warning, as they were before merging existed. Other errors
+    propagate.
 
     Args:
         hive: Hive the record is written to.
         hive_name: Its name, for the warning.
         record: Record about to be written, with the caller's edits not yet applied.
+        enabled_explicit: Whether the caller passed --enabled/--disabled.
     """
-    if hive.merge_current_metadata(record):
+    try:
+        exists = hive.merge_current_metadata(record)
+    except PermissionDeniedError:
+        if not enabled_explicit:
+            raise
+        click.echo(
+            f"Warning: cannot read the metadata of record '{record.name}' in hive "
+            f"'{hive_name}' (permission denied), so the metadata flags replace it: "
+            "existing tags, comment and expiry are not kept.",
+            err=True,
+        )
+        return
+    if exists or enabled_explicit:
         return
     click.echo(
         f"Warning: record '{record.name}' does not exist in hive '{hive_name}', so the new "
@@ -118,9 +157,9 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         f"Provide data via --input-file (JSON/YAML) or stdin. "
         f"{value_hint}"
         f"--tag (repeatable) and --comment populate usr_mtd. "
-        f"With --tag/--comment and no --enabled/--disabled (and no usr_mtd in the input), an existing "
-        f"record keeps its enabled state and the metadata you did not set; a record that does not exist "
-        f"yet is created disabled, with a warning. "
+        f"With --tag/--comment/--enabled/--disabled and no usr_mtd in the input, the record's current "
+        f"metadata is kept and only the flagged fields change (--tag replaces the tag list). A record that "
+        f"does not exist yet is created disabled, with a warning, unless --enabled is passed. "
         f"With no metadata at all, a new record gets the hive's own default (most hives: disabled; "
         f"cloudsec_policy, acl and the app-control hives: enabled). "
         f"Pass --enabled/--disabled, or set usr_mtd.enabled in the input file, to be explicit."
@@ -198,7 +237,7 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
     @click.option("--comment", default=None, help="Set usr_mtd.comment on the record.")
     @click.option(
         "--enabled/--disabled", "enabled", default=None,
-        help=f"Set usr_mtd.enabled on the {noun_singular}. Overrides any value in the input file. Without metadata, a new record gets the hive's own default (most hives: disabled). With --tag/--comment alone, an existing record keeps its enabled state and a new one is created disabled (with a warning).",
+        help=f"Set usr_mtd.enabled on the {noun_singular}. Overrides any value in the input file. Without metadata, a new record gets the hive's own default (most hives: disabled). With metadata flags and no usr_mtd in the input, an existing record keeps the metadata the flags do not change; a new record without --enabled is created disabled (with a warning).",
     )
     @pass_context
     def set_cmd(ctx, key, input_file, tags, comment, enabled, value=None) -> None:
@@ -231,11 +270,11 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
             if isinstance(data, dict) and "data" in data:
                 # Build a raw dict matching the API format so HiveRecord
                 # picks up usr_mtd and etag correctly.
-                # A null usr_mtd (a bare "usr_mtd:" in YAML) counts as absent.
-                input_has_mtd = data.get("usr_mtd") is not None
+                usr = input_metadata_block(data)
+                input_has_mtd = usr is not None
                 raw = {
                     "data": data["data"],
-                    "usr_mtd": data.get("usr_mtd") or {},
+                    "usr_mtd": usr or {},
                     "sys_mtd": {},
                 }
                 if data.get("etag"):
@@ -249,10 +288,10 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
                 record = HiveRecord(key, data=data)
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
-        if (tags or comment is not None) and enabled is None and not input_has_mtd:
-            # Without this the metadata block would carry no "enabled" and the
-            # server would store an existing record disabled.
-            merge_current_metadata_or_warn(hive, hive_name, record)
+        if (tags or comment is not None or enabled is not None) and not input_has_mtd:
+            # The flags are sent as the whole metadata block, so start from the
+            # stored one or the record loses its enabled state or other fields.
+            merge_current_metadata_or_warn(hive, hive_name, record, enabled is not None)
         if tags:
             record.tags = list(tags)
         if comment is not None:

@@ -37,4 +37,7 @@ def test_provider_create_then_update_sends_zero_without_merging(tmp_path, envelo
             call = org.client.request.call_args
             assert call.args == ("POST", "hive/mailsec_provider/test-oid/gws-prod/data")
             assert json.loads(call.kwargs["params"]["data"]) == payload
-        assert org.client.request.call_count == 2  # No GET-then-merge on update.
+        # The data is never read back and merged; --enabled only reads metadata.
+        reads = [c.args[1] for c in org.client.request.call_args_list if c.args[0] == "GET"]
+        assert reads == ["hive/mailsec_provider/test-oid/gws-prod/mtd"] * 2
+        assert org.client.request.call_count == 4
