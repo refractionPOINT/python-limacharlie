@@ -23,23 +23,21 @@ and `--action` for every provider. `--action edited` is GitHub-only.
 
 ## Policy record enablement
 
-Once the updated cloud security backend is live in your environment, every
-`cloudsec_policy` type honours the Hive record's `usr_mtd.enabled` flag. A
+Every `cloudsec_policy` type honours the Hive record's `usr_mtd.enabled` flag. A
 disabled record does not apply, regardless of its policy type or body. For
 `code_scanning`, the nested `code_scanning.enabled` must also be `true` to scan.
 
-**Operator note.** Older backends did not honour the flag for every policy type,
-so a policy created disabled under the old default may have been applied anyway.
-Once the updated backend is live, it stops applying. List your policy records
-and enable the ones you rely on:
+**Operator note.** Before October 2026 the backend did not honour the flag for
+every policy type, so a policy created disabled under the old default may have
+been applied anyway. It no longer applies. List your policy records and enable
+the ones you rely on:
 
 ```bash
 limacharlie hive list --hive-name cloudsec_policy
 limacharlie hive enable --hive-name cloudsec_policy --key my-policy
 ```
 
-Once the updated Hive default is live, new `cloudsec_policy` records created
-without `usr_mtd` default to enabled. Other hives have their own defaults.
+New `cloudsec_policy` records created without `usr_mtd` default to enabled. Other hives have their own defaults.
 Data-only updates preserve an existing record's metadata. Explicit metadata
 remains authoritative: `usr_mtd.enabled: false`, or a metadata block without
 an `enabled` key, creates a disabled record. A null `usr_mtd:` counts as absent.
@@ -58,8 +56,7 @@ limacharlie hive disable --hive-name cloudsec_policy --key my-policy
 limacharlie hive enable --hive-name cloudsec_policy --key my-policy
 ```
 
-Pass `--enabled` when creating a policy to request enablement explicitly,
-including while the new default is being rolled out.
+Pass `--enabled` when creating a policy to request enablement explicitly.
 
 ## Overview & posture
 

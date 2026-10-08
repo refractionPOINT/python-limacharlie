@@ -32,7 +32,7 @@ The flag is `--hive-name`; `--category` does not exist and never has.
 | `app_control_policy` | Application Control policies |
 | `app_control_rule` | Application Control allow and deny rules |
 
-Store provider credentials in `secret` records and reference them with `hive://secret/<key>`. Most hives default new records to disabled; `cloudsec_policy` (once the updated hive is live in your environment), `acl` and the app-control hives default them to enabled. Pass `--enabled` or `--disabled` to be explicit. See the [Cloud Security](cloud-security.md) and [Email Security](email-security.md) onboarding guides before creating connections.
+Store provider credentials in `secret` records and reference them with `hive://secret/<key>`. Most hives default new records to disabled; `cloudsec_policy`, `acl` and the app-control hives default them to enabled. Pass `--enabled` or `--disabled` to be explicit. See the [Cloud Security](cloud-security.md) and [Email Security](email-security.md) onboarding guides before creating connections.
 
 ### Metadata on `hive set`
 

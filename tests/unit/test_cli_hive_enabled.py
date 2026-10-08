@@ -234,6 +234,19 @@ def test_shortcut_explicit_enabled_and_input_metadata_are_not_fetched():
     assert json.loads(posts[0][2]["usr_mtd"]) == {"enabled": True, "tags": ["t"]}
 
 
+@pytest.mark.parametrize("metadata,want", [
+    ({}, {"enabled": False}),
+    ({"enabled": None}, {"enabled": False}),
+    ({"comment": "staged"}, {"enabled": False, "comment": "staged"}),
+])
+def test_shortcut_input_metadata_without_enabled_means_disabled(metadata, want):
+    gets, posts, result = _shortcut_set(
+        ["secret"], _existing({"enabled": True}), [], {"data": {"secret": "v"}, "usr_mtd": metadata})
+    assert result.exit_code == 0, result.output
+    assert gets == []
+    assert json.loads(posts[0][2]["usr_mtd"]) == want
+
+
 def test_shortcut_data_only_set_sends_no_metadata():
     gets, posts, result = _shortcut_set(["secret"], _existing({"enabled": True}), [], {"data": {"secret": "v"}})
     assert result.exit_code == 0, result.output

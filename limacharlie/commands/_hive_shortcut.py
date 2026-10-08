@@ -241,6 +241,10 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
                 if data.get("etag"):
                     raw["sys_mtd"]["etag"] = data["etag"]
                 record = HiveRecord.from_raw(key, raw)
+                # As in 'hive set': a supplied block is explicit, and the API
+                # stores one without "enabled" as disabled, even {}.
+                if input_has_mtd and record.enabled is None:
+                    record.enabled = False
             else:
                 record = HiveRecord(key, data=data)
         org = _get_org(ctx)
