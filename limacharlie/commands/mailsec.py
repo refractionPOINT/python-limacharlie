@@ -1147,12 +1147,13 @@ def message_groups() -> None:
 @click.option("--link-domain", default=None, help="Link registrable root domain.")
 @click.option("--attachment-sha256", default=None, help="Attachment digest.")
 @click.option("--state", multiple=True, help="delivered|quarantined|trashed|restored|bannered|spam (repeatable).")
+@click.option("--exclude-state", "exclude_state", multiple=True, help="Hide mail in these states: delivered|quarantined|trashed|restored|bannered|spam (repeatable). A group is hidden only when every copy is in an excluded state. The same value in --state is refused.")
 @click.option("--direction", multiple=True, type=click.Choice(["inbound", "outbound", "internal"]))
 @click.option("--min-score", default=None, type=click.IntRange(0,100), help="Minimum copy score.")
 @click.option("--lane", default=None, type=click.Choice(["live", "backfill"]))
 @click.option("--search", "--q", "q", default=None, help="Literal text search; requires --since or an indexed selector.")
 @pass_context
-def groups_list(ctx, verdict, severity, disposition, user_reported, all_groups, since, until, cursor, limit, mailbox, sender_email, sender_domain, campaign_id, group_id, link_domain, attachment_sha256, state, direction, min_score, lane, q) -> None:
+def groups_list(ctx, verdict, severity, disposition, user_reported, all_groups, since, until, cursor, limit, mailbox, sender_email, sender_domain, campaign_id, group_id, link_domain, attachment_sha256, state, exclude_state, direction, min_score, lane, q) -> None:
     """List groups whose one recipient copy matches every active filter.
 
     Order uses the newest matching copy. Continue short or empty pages while a
@@ -1168,6 +1169,7 @@ def groups_list(ctx, verdict, severity, disposition, user_reported, all_groups, 
             mailbox=mailbox, sender_email=sender_email, sender_domain=sender_domain,
             campaign_id=campaign_id, group_id=group_id, link_domain=link_domain,
             attachment_sha256=attachment_sha256, state=list(state) or None,
+            exclude_state=list(exclude_state) or None,
             direction=list(direction) or None, min_score=min_score, lane=lane, q=q,
         )
     except (TypeError, ValueError) as error:
@@ -1406,6 +1408,7 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--group-id", default=None, help="Restrict to recipient copies of one message group.")
 @click.option("--severity", multiple=True, type=click.Choice(["informational","low","medium","high","critical"]), help="Rule impact (repeatable).")
 @click.option("--state", multiple=True, help="delivered|quarantined|trashed|restored|bannered|spam (repeatable).")
+@click.option("--exclude-state", "exclude_state", multiple=True, help="Hide mail in these states: delivered|quarantined|trashed|restored|bannered|spam (repeatable). Applied after --state; the same value in both is refused.")
 @click.option("--direction", multiple=True, help="inbound|outbound|internal (repeatable).")
 @click.option("--disposition", multiple=True, type=click.Choice([*DISPOSITIONS, "none"]), help="Analyst/SOAR disposition (repeatable, OR); none selects untriaged.")
 @click.option("--lane", default=None, type=click.Choice(["live", "backfill"]),
@@ -1423,7 +1426,7 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
 @click.option("--limit", default=None, type=int, help="Page size (1-1000); other values are refused by the API.")
 @pass_context
 def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id, group_id, severity, state,
-                 direction, lane, disposition, user_reported, no_user_reported, min_score, link_domain,
+                 exclude_state, direction, lane, disposition, user_reported, no_user_reported, min_score, link_domain,
                  attachment_sha256, q, since, until, cursor, limit) -> None:
     """The message index — the triage queue.
 
@@ -1446,6 +1449,7 @@ def message_list(ctx, verdict, mailbox, sender_email, sender_domain, campaign_id
             sender_domain=sender_domain,
             campaign_id=campaign_id,
             state=list(state) or None,
+            exclude_state=list(exclude_state) or None,
             direction=list(direction) or None,
             **lane_params,
             **({"group_id":group_id} if group_id else {}),

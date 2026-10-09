@@ -84,6 +84,27 @@ class TestRepeatableFilters:
         assert ("verdict", "malicious") in qp
         assert ("verdict", "suspicious") in qp
 
+    def test_exclude_state_forwards_a_single_value(self, ms, mock_org):
+        ms.list_messages(exclude_state=["spam"])
+        _, qp = _get_call(mock_org)
+        assert qp == [("exclude_state", "spam")]
+
+    def test_exclude_state_repeats_one_pair_per_value(self, ms, mock_org):
+        ms.list_messages(exclude_state=["spam", "trashed"])
+        _, qp = _get_call(mock_org)
+        assert qp == [("exclude_state", "spam"), ("exclude_state", "trashed")]
+
+    def test_exclude_state_is_a_separate_key_from_state(self, ms, mock_org):
+        ms.list_messages(state=["delivered", "quarantined"], exclude_state=["spam"])
+        _, qp = _get_call(mock_org)
+        assert [p for p in qp if p[0] == "state"] == [("state", "delivered"), ("state", "quarantined")]
+        assert [p for p in qp if p[0] == "exclude_state"] == [("exclude_state", "spam")]
+
+    def test_absent_exclude_state_sends_nothing(self, ms, mock_org):
+        ms.list_messages(state=["delivered"])
+        _, qp = _get_call(mock_org)
+        assert all(key != "exclude_state" for key, _ in qp)
+
     def test_mixed_filters_all_present(self, ms, mock_org):
         ms.list_messages(
             verdict=["malicious"],

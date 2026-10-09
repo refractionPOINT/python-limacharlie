@@ -379,6 +379,7 @@ class Mailsec:
         sender_domain: str | None = None,
         campaign_id: str | None = None,
         state: list[str] | None = None,
+        exclude_state: list[str] | None = None,
         direction: list[str] | None = None,
         lane: str | None = None,
         user_reported: bool | None = None,
@@ -410,6 +411,7 @@ class Mailsec:
         _add_pairs(pairs, "verdict", verdict)
         _add_pairs(pairs, "severity", severity)
         _add_pairs(pairs, "state", state)
+        _add_pairs(pairs, "exclude_state", exclude_state)
         _add_pairs(pairs, "direction", direction)
         for key, val in (
             ("mailbox", mailbox),
@@ -442,6 +444,7 @@ class Mailsec:
         sender_domain: str | None = None,
         campaign_id: str | None = None,
         state: list[str] | None = None,
+        exclude_state: list[str] | None = None,
         direction: list[str] | None = None,
         lane: str | None = None,
         disposition: list[str] | str | None = None,
@@ -472,6 +475,10 @@ class Mailsec:
             severity: Rule impact (informational, low, medium, high, critical), repeatable.
             state: Placement: delivered, quarantined, trashed, restored, bannered,
                 spam (repeatable).
+            exclude_state: Hide messages whose placement is any of these
+                (repeatable; same values as ``state``). Applied after
+                ``state``, so the two compose. The same value in both is
+                refused by the server with a 400. Omit to exclude nothing.
             direction: ``inbound``, ``outbound``, ``internal`` (repeatable).
             disposition: Repeatable analyst/SOAR labels, OR within the filter;
                 ``none`` selects untriaged. A single string remains supported.
@@ -516,6 +523,7 @@ class Mailsec:
             sender_domain=sender_domain,
             campaign_id=campaign_id,
             state=state,
+            exclude_state=exclude_state,
             direction=direction,
             lane=lane,
             user_reported=user_reported,
@@ -1091,6 +1099,7 @@ class Mailsec:
         sender_domain: str | None = None, campaign_id: str | None = None,
         group_id: str | None = None, link_domain: str | None = None,
         attachment_sha256: str | None = None, state: list[str] | None = None,
+        exclude_state: list[str] | None = None,
         direction: list[str] | None = None, min_score: int | None = None,
         lane: str | None = None, q: str | None = None,
     ) -> dict[str, Any]:
@@ -1123,6 +1132,12 @@ class Mailsec:
             attachment_sha256: Attachment digest.
             state: Repeatable delivered, quarantined, trashed, restored,
                 bannered or spam placement state.
+            exclude_state: Repeatable placement states to hide (same values
+                as ``state``; the same value in both is refused by the server
+                with a 400). Unlike ``state``, which matches ONE recipient
+                copy, a group is hidden only when EVERY copy is in an
+                excluded state; a group with at least one other copy is
+                returned with its whole-group per-state counts.
             direction: Repeatable inbound, outbound or internal direction.
             min_score: Minimum copy score.
             lane: Live or backfill, with the same supported combinations as messages.
@@ -1146,6 +1161,7 @@ class Mailsec:
             sender_domain=sender_domain,
             campaign_id=campaign_id,
             state=state,
+            exclude_state=exclude_state,
             direction=direction,
             lane=lane,
             user_reported=user_reported,

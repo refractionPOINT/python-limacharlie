@@ -91,6 +91,26 @@ def test_message_search_cli_argument_reaches_the_sdk_unchanged():
     assert kwargs["since"] == "2026-08-01"
 
 
+def test_message_exclude_state_reaches_the_sdk_single_and_repeated():
+    result, mailsec = invoke_message_list("--exclude-state", "spam")
+    assert result.exit_code == 0, result.output
+    _, kwargs = mailsec.list_messages.call_args
+    assert kwargs["exclude_state"] == ["spam"]
+    assert kwargs["state"] is None
+    result, mailsec = invoke_message_list("--state", "delivered", "--exclude-state", "spam", "--exclude-state", "trashed")
+    assert result.exit_code == 0, result.output
+    _, kwargs = mailsec.list_messages.call_args
+    assert kwargs["exclude_state"] == ["spam", "trashed"]
+    assert kwargs["state"] == ["delivered"]
+
+
+def test_message_exclude_state_absent_is_not_sent():
+    result, mailsec = invoke_message_list("--state", "delivered")
+    assert result.exit_code == 0, result.output
+    _, kwargs = mailsec.list_messages.call_args
+    assert kwargs["exclude_state"] is None
+
+
 def test_message_q_alias_reaches_the_sdk():
     result, mailsec = invoke_message_list("--q", "needle", "--verdict", "suspicious")
     assert result.exit_code == 0, result.output

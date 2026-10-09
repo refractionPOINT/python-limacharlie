@@ -82,7 +82,8 @@ def test_group_list_forwards_every_copy_filter():
     result, ms = invoke("list", "--mailbox", "copy@example.invalid", "--sender-email", "sender@example.invalid",
                         "--sender-root-domain", "example.invalid", "--campaign-id", JOB, "--group-id", GID,
                         "--link-domain", "linked.invalid", "--attachment-sha256", "b" * 64,
-                        "--state", "delivered", "--state", "quarantined", "--direction", "inbound",
+                        "--state", "delivered", "--state", "quarantined", "--exclude-state", "spam", "--exclude-state", "trashed",
+                        "--direction", "inbound",
                         "--direction", "internal", "--min-score", "70", "--lane", "live", "--q", "literal 50%",
                         "--since", "2026-10-01T00:00:00Z", "--until", "2026-10-02T00:00:00Z",
                         "--verdict", "malicious", "--severity", "critical", "--disposition", "none",
@@ -93,5 +94,15 @@ def test_group_list_forwards_every_copy_filter():
         since="2026-10-01T00:00:00Z", until="2026-10-02T00:00:00Z", cursor="opaque", limit=5,
         mailbox="copy@example.invalid", sender_email="sender@example.invalid", sender_domain="example.invalid",
         campaign_id=JOB, group_id=GID, link_domain="linked.invalid", attachment_sha256="b" * 64,
-        state=["delivered", "quarantined"], direction=["inbound", "internal"], min_score=70, lane="live", q="literal 50%",
+        state=["delivered", "quarantined"], exclude_state=["spam", "trashed"], direction=["inbound", "internal"], min_score=70, lane="live", q="literal 50%",
     )
+
+
+def test_group_list_passes_exclude_state_and_omits_it_when_absent():
+    result, ms = invoke("list", "--exclude-state", "spam")
+    assert result.exit_code == 0, result.output
+    assert ms.list_groups.call_args.kwargs["exclude_state"] == ["spam"]
+    assert ms.list_groups.call_args.kwargs["state"] is None
+    result, ms = invoke("list")
+    assert result.exit_code == 0, result.output
+    assert ms.list_groups.call_args.kwargs["exclude_state"] is None

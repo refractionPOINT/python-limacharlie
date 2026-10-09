@@ -99,6 +99,16 @@ def test_submission_reason_and_repeated_disposition_reach_api():
     assert parse_qsl(urlsplit(transport.call_args.args[0].full_url).query) == [("disposition", "malicious"), ("disposition", "none")]
 
 
+def test_exclude_state_reaches_the_wire_for_messages_and_groups():
+    for noun, key in (("message", "messages"), ("group", "groups")):
+        result, transport = invoke(noun, "list", "--exclude-state", "spam", "--exclude-state", "trashed", body={key: []})
+        assert result.exit_code == 0, result.stderr
+        assert parse_qsl(urlsplit(transport.call_args.args[0].full_url).query) == [("exclude_state", "spam"), ("exclude_state", "trashed")]
+        result, transport = invoke(noun, "list", body={key: []})
+        assert result.exit_code == 0, result.stderr
+        assert "exclude_state" not in transport.call_args.args[0].full_url
+
+
 def test_revision_oversized_rationale_and_integer_score_are_sent():
     with pytest.warns(UserWarning, match="truncate rationale"):
         result, transport = invoke("message", "revise", MSG, "--verdict", "malicious", "--rationale", "x" * 281, "--score", "101", body={"applied": True})
