@@ -1159,6 +1159,8 @@ def groups_list(ctx, verdict, severity, disposition, user_reported, all_groups, 
     Order uses the newest matching copy. Continue short or empty pages while a
     next_cursor is present. Summaries and group actions cover ALL copies,
     including copies outside the filters; exact matched-copy counts are omitted.
+    --exclude-state is the exception to one-copy matching: a group is hidden only
+    when every copy is in an excluded state.
     """
     try:
         result = _get_mailsec(ctx).list_groups(

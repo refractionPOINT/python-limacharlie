@@ -1109,6 +1109,8 @@ class Mailsec:
         alternatives within a key, AND across keys on one copy. Filtered order
         is the newest matching copy. Returned summaries and group actions always
         cover the whole group; exact matched-copy counts are omitted to bound cost.
+        ``exclude_state`` is the exception to one-copy matching: a group is
+        hidden only when every copy is in an excluded state.
         Continue through short/empty pages until next_cursor is empty. Cursors
         pin a snapshot for 50 minutes; restart after expiry or changing filters.
 
