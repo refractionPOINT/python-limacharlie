@@ -116,6 +116,7 @@ class CheckpointWriter:
         limit: int | None,
         oid: str,
         force: bool = False,
+        mode: str | None = None,
     ) -> None:
         """Initialize checkpoint writer.
 
@@ -131,6 +132,11 @@ class CheckpointWriter:
             limit: Result limit or None.
             oid: Organization ID.
             force: If True, overwrite existing data file and metadata.
+            mode: Search consumption mode the search was submitted with, or
+                None for the server default. Recorded because a resume
+                submits a fresh search, which would otherwise drop the mode
+                the original run asked for. A checkpoint written without one
+                has no ``mode`` key, which reads back as None.
 
         Raises:
             FileExistsError: If data_path already exists and force is False.
@@ -174,6 +180,7 @@ class CheckpointWriter:
             "end_time": end_time,
             "stream": stream,
             "limit": limit,
+            "mode": mode,
             "oid": oid,
             "created_at": now,
             "updated_at": now,
@@ -460,6 +467,21 @@ class CheckpointResumer:
         """
         self._file.write(json.dumps(result, default=str) + "\n")
         self._file.flush()
+
+    def record_mode(self, mode: str | None) -> None:
+        """Record the consumption mode this resume submitted with.
+
+        A resume may override the mode the checkpoint was written with.
+        Recording the override means a later resume repeats it rather than
+        silently reverting to the original.
+
+        Args:
+            mode: The mode the resumed search was submitted with.
+        """
+        self._metadata["mode"] = mode
+        self._metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+        content = json.dumps(self._metadata, indent=2).encode("utf-8")
+        atomic_write(self._meta_path, content)
 
     def update_progress(self, page: int, result_count: int, completed: bool,
                         last_token: str | None = None,
