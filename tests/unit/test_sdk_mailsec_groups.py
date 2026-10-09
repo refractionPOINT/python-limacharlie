@@ -30,6 +30,25 @@ def test_groups_preserve_repeated_filters_and_false_report_constraint(client):
     assert ("limit", "25") in pairs
 
 
+def test_group_exclude_state_forwarded_single_and_repeated(client):
+    ms, transport = client
+    ms.list_groups(exclude_state=["spam"])
+    args, kwargs = transport.request.call_args
+    assert args == ("GET", f"mailsec/{OID}/groups")
+    assert kwargs["query_params"] == [("exclude_state", "spam")]
+    ms.list_groups(state=["delivered"], exclude_state=["spam", "trashed"])
+    pairs = transport.request.call_args.kwargs["query_params"]
+    assert [(k, v) for k, v in pairs if k == "exclude_state"] == [("exclude_state", "spam"), ("exclude_state", "trashed")]
+    assert ("state", "delivered") in pairs
+
+
+def test_group_absent_exclude_state_sends_nothing(client):
+    ms, transport = client
+    ms.list_groups(state=["spam"])
+    pairs = transport.request.call_args.kwargs["query_params"]
+    assert all(key != "exclude_state" for key, _ in pairs)
+
+
 def test_group_preview_freezes_force_reason_text_and_client_identity(client):
     ms, transport = client
     ms.prepare_group_action(GID, "banner_message", JOB, force=True, reason="Fixture review", text="Review this message")
@@ -134,7 +153,7 @@ def test_group_and_message_filter_wire_parity(client):
     ms, transport = client
     filters = dict(verdict=["malicious", "suspicious"], severity=["high", "critical"],
                    group_id=GID, mailbox="copy@example.invalid", sender_email="sender@example.invalid",
-                   sender_domain="example.invalid", campaign_id=JOB, state=["delivered", "quarantined"],
+                   sender_domain="example.invalid", campaign_id=JOB, state=["delivered", "quarantined"], exclude_state=["spam", "trashed"],
                    direction=["inbound", "internal"], lane="live", user_reported=False, min_score=70,
                    link_domain="linked.invalid", attachment_sha256="b" * 64, q="  literal 50%  ",
                    since="2026-10-01T00:00:00Z", until="2026-10-02T00:00:00Z", cursor="opaque", limit=5)

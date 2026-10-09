@@ -171,6 +171,11 @@ Repeatable filters are OR within a key and AND across keys, including repeated
 `--disposition`. Message states are `delivered`, `quarantined`, `trashed`,
 `restored`, `bannered` and `spam`. Verdicts are `malicious`, `suspicious`,
 `graymail`, `benign`, `unknown` and `error`; `error` means judgement failed.
+`--exclude-state` (repeatable, same values as `--state`) hides mail whose state is
+in the list, for example `--exclude-state spam` to leave out mail the mailbox
+provider already put in its spam folder. It applies after `--state`, so the two
+compose; naming the same value in both is refused by the API (HTTP 400). Leave it
+out and nothing is hidden.
 `--limit` is 1–1000; out-of-range limits are refused, rather than clamped. Cursors are opaque and passed back verbatim; changing a filter mid-walk is an error, not a differently-meaning page.
 
 ```bash
@@ -503,11 +508,15 @@ disposition summaries. The default group list is the flagged triage queue; use
 Group listing accepts every message-list filter, with the same names and encoding:
 `--search`/`--q`, `--mailbox`, `--sender-email`, `--sender-domain`/`--sender-root-domain`,
 `--campaign-id`, `--group-id`, `--link-domain`, `--attachment-sha256`, repeatable
-`--state`, `--direction`, `--verdict`, `--severity`, `--disposition` (including `none`),
+`--state`, `--exclude-state`, `--direction`, `--verdict`, `--severity`, `--disposition` (including `none`),
 `--min-score`, `--lane`, `--user-reported true|false`, `--since` and `--until`.
 A group is returned only when **one recipient copy matches every active filter**.
 Filtered order follows that group's newest matching copy; summary badges still
 cover all copies. Search and lane have the same bounds/refusals as message lists.
+
+`--exclude-state` works differently on groups than `--state`. A group is hidden only
+when **every** copy is in an excluded state; a group with at least one copy outside
+the excluded set is still listed, with its whole-group per-state counts.
 
 Continue through short or empty pages while `next_cursor` is present. Filtered
 cursors pin a snapshot for 50 minutes; restart on expiry or changing filters.

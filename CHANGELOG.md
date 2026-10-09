@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Email Security — exclude placement states from message and group lists
+
+- `mailsec message list` and `mailsec group list` take a repeatable
+  `--exclude-state` (SDK: `exclude_state=` on `Mailsec.list_messages` and
+  `Mailsec.list_groups`) that hides mail in the given placement states
+  (`delivered`, `quarantined`, `trashed`, `restored`, `bannered`, `spam`), for
+  example `--exclude-state spam` to leave out provider spam-folder mail. It
+  composes with `--state` (include first, then exclude); the same value in both
+  is refused by the API. A group is hidden only when every copy is in an
+  excluded state. Needs an API release that accepts `exclude_state`.
+
 ### Application Control hives and CLI
 
 - New `limacharlie app-control policy` and `limacharlie app-control rule` command
