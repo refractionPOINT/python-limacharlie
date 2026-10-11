@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### `auth signup` no longer calls the retired signup endpoint
+
+- `limacharlie auth signup` no longer calls the legacy `signUp` Cloud
+  Function. The user profile is created by the JWT service on the first
+  token exchange, so the flow is now two steps: OAuth, then organization
+  creation. Removes `limacharlie.signup` and the `SIGNUP_URL` and
+  `INTERNAL_EMAIL_DOMAINS` constants.
+
 ### Email Security — exclude placement states from message and group lists
 
 - `mailsec message list` and `mailsec group list` take a repeatable

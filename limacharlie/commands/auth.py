@@ -532,9 +532,9 @@ Create a brand new LimaCharlie account through OAuth, directly from
 the CLI.  This command performs the full onboarding flow:
 
   1. Authenticate via browser-based OAuth (Google or Microsoft).
-  2. Create a LimaCharlie user profile.
-  3. Create a new organization.
-  4. Save credentials so the CLI is ready to use.
+  2. Create a new organization (your user profile is created on the
+     first sign-in).
+  3. Save credentials so the CLI is ready to use.
 
 If you already have an account, use 'limacharlie auth login --oauth'
 instead.
@@ -582,7 +582,7 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
         provider_map = {"google": "google.com", "microsoft": "microsoft.com"}
 
         if not ctx.obj.quiet:
-            click.echo("Step 1/3: Authenticating via OAuth...")
+            click.echo("Step 1/2: Authenticating via OAuth...")
 
         tokens = auth.start_auth_flow(
             provider_id=provider_map[provider],
@@ -608,23 +608,12 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
         return
 
     # ------------------------------------------------------------------
-    # Step 2: Create user profile (idempotent)
+    # Step 2: Save credentials and create organization
     # ------------------------------------------------------------------
+    # The user profile is created server-side by the JWT service on the
+    # first token exchange below (refresh_jwt), so no separate call is needed.
     if not ctx.obj.quiet:
-        click.echo(f"Step 2/3: Setting up user profile for {email}...")
-
-    from ..signup import signup_user, SignupError
-    try:
-        signup_user(tokens["id_token"], email)
-    except SignupError as e:
-        click.echo(f"Warning: Account setup returned an error: {e}", err=True)
-        click.echo("Continuing -- the account may already exist.", err=True)
-
-    # ------------------------------------------------------------------
-    # Step 3: Save credentials and create organization
-    # ------------------------------------------------------------------
-    if not ctx.obj.quiet:
-        click.echo("Step 3/3: Creating organization...")
+        click.echo(f"Step 2/2: Creating organization for {email}...")
 
     # Save OAuth credentials (no OID yet).
     firebase_uid = tokens.pop("uid", None)
