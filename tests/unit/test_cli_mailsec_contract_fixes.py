@@ -184,3 +184,67 @@ def test_repeated_dispositions_reach_cli_query_independently():
     result, transport = invoke("message", "list", "--disposition", "malicious", "--disposition", "none", body={"messages": []})
     assert result.exit_code == 0, result.stderr
     assert parse_qsl(urlsplit(transport.call_args.args[0].full_url).query) == [("disposition", "malicious"), ("disposition", "none")]
+
+
+def test_analyze_org_context_flag_and_preview_fields_survive_output(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_bytes(b"From: sender@example.test\r\n\r\nHello\xff")
+    body = {
+        "context": "preview", "with_org_context": True, "org_context_read": True, "stored": False,
+        "unavailable_evidence": ["attachment_explosion", "link_detonation"],
+        "unevaluated_rules": [{"rule_id": "attachment-rule", "unavailable_evidence": ["attachment_explosion"], "matched": False}],
+        "mdm": {"verdict": {"top_signals": [{"rule_id": "conditional-rule", "depends_on_missing_context": True, "unavailable_evidence": ["attachment_explosion"]}]}},
+    }
+    result, transport = invoke("analyze", "--file", str(path), "--direction", "inbound", "--with-org-context", body=body)
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout) == body
+    sent = json.loads(transport.call_args[0][0].data)
+    assert sent["with_org_context"] is True
+    assert sent["direction"] == "inbound"
+    import base64
+    assert base64.b64decode(sent["eml_b64"]) == path.read_bytes()
+    assert "Unavailable evidence: attachment_explosion, link_detonation" in result.stderr
+    assert "current state, not delivery-time state" in result.stderr
+    assert "1 unmatched rules" in result.stderr
+
+
+def test_analyze_default_does_not_request_org_context(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    result, transport = invoke("analyze", "--file", str(path), body={"context": "preview", "unavailable_evidence": ["sender_history"]})
+    assert result.exit_code == 0, result.stderr
+    assert "with_org_context" not in json.loads(transport.call_args[0][0].data)
+    assert "Preview score" in result.stderr
+
+
+def test_analyze_transport_413_names_limit(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    result, transport = invoke("analyze", "--file", str(path), body={"error": "request body exceeds the 16777216-byte JSON limit", "request_body_limit_bytes": 16777216}, status=413)
+    assert result.exit_code != 0
+    assert "16777216" in result.stderr
+    assert transport.call_count == 1
+
+
+def test_analyze_failed_org_context_does_not_claim_current_stamps(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    body = {"context": "preview", "with_org_context": True, "org_context_read": False, "verdict_available": False, "verdict_note": "Cannot load rules"}
+    result, transport = invoke("analyze", "--file", str(path), "--with-org-context", body=body)
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout) == body
+    assert "Organization context could not be read" in result.stderr
+    assert "uses current state" not in result.stderr
+
+
+def test_analyze_org_domains_allow_server_direction_derivation(tmp_path):
+    path = tmp_path / "received.eml"
+    path.write_text("From: sender@vendor.example\nTo: staff@corp.example\n\nHello")
+    body = {"context": "preview", "direction_source": "received_org_domains",
+            "mdm": {"direction": "inbound"}, "unavailable_evidence": ["sender_history"]}
+    result, transport = invoke("analyze", "--file", str(path), "--org-domain", "corp.example", body=body)
+    assert result.exit_code == 0, result.stderr
+    sent = json.loads(transport.call_args[0][0].data)
+    assert sent["org_domains"] == ["corp.example"]
+    assert "direction" not in sent
+    assert json.loads(result.stdout) == body

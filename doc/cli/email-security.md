@@ -307,14 +307,45 @@ A refused submission (the organization has not opted in, the datacenter has no s
 limacharlie mailsec report list --status open
 limacharlie mailsec report resolve <REPORT_ID> --disposition benign
 limacharlie mailsec report reopen <REPORT_ID>
-limacharlie mailsec analyze --file suspect.eml --org-domain corp.example   # no ingest
+limacharlie mailsec analyze --file suspect.eml --org-domain corp.example --direction inbound
+limacharlie mailsec analyze --file suspect.eml --direction inbound --with-org-context
 limacharlie mailsec rule validate --file rule.json --rule-id custom-lookalike
 limacharlie mailsec rule backtest --file rule.json --since 2026-08-01
 ```
 
 `rule backtest` reports `precision: null` — not `0` — when nothing it matched has an analyst disposition yet, and counts what it could not examine, so a precision figure whose denominator silently shrank is visible as one.
 
-`analyze --direction` accepts `inbound`, `outbound` or `internal`.
+`analyze` returns `context: preview`. Its score is not a delivery-equivalent
+re-score: missing evidence can hide attacks and remove legitimate exemptions.
+`unavailable_evidence` identifies unavailable or partial families. Its closed
+vocabulary is `sender_history`, `domain_history`, `domain_popularity`, `rdap_age`,
+`thread_verification`, `vip`, `attachment_explosion`, `link_detonation`,
+`threat_feeds`, `organization_domains`, `direction`, and `provider_context`.
+`unevaluated_rules` lists unmatched rules with unavailable inputs;
+`rules_with_unavailable_evidence` also includes matches affected by missing
+branches or exemptions. These dependency lists are conservative across all rule
+branches. `rule_diagnostics_available` confirms rules were loaded;
+`rule_diagnostics_truncated` identifies an incomplete dependency walk.
+Each `mdm.verdict.top_signals` entry includes
+`depends_on_missing_context` and its own `unavailable_evidence` list.
+
+`--with-org-context` adds read-only enrichment from the organization's **current**
+sender/domain profiles, popularity, cached registry age, thread context and VIP
+lists. `org_context_read` reports whether the enrichment read ran.
+It does not reconstruct facts from the original delivery. Reads are
+audited, no message is ingested, and history is unchanged. Attachment
+explosion/OCR and link detonation are still not run. Failed or partial reads stay
+in `unavailable_evidence`.
+
+The JSON request limit is 16 MiB (about 12 MiB of raw EML sent as base64,
+with JSON overhead also consuming the envelope). Larger requests receive HTTP
+413 naming the limit. Busy preview capacity returns HTTP 429 with retry advice.
+`--direction` accepts `inbound`, `outbound` or `internal`; omitted direction
+is derived as received mail (`inbound` or `internal`) from supplied org domains
+or current domains read by `--with-org-context`. Set `outbound` explicitly for
+sent mail; EML does not carry its mailbox folder. Without known domains, direction
+remains unavailable. `direction_source` reports `caller`,
+`received_org_domains` or `unavailable`.
 Rule validation, backtesting and banner preview accept JSON or YAML, including
 exported hive records with `{data, usr_mtd}`; only `data` is sent to the API.
 Rules require `phase` (`pre_verdict` or `post_verdict`), `detect`, `name` and

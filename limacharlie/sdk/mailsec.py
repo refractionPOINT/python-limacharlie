@@ -1679,23 +1679,38 @@ class Mailsec:
         eml_b64: str | None = None,
         org_domains: list[str] | None = None,
         direction: str | None = None,
+        with_org_context: bool = False,
     ) -> dict[str, Any]:
         """Parse and score an EML without ingesting it.
 
-        Nothing is persisted and no mailbox is touched — this is the "what
-        would you say about this file" path, served by the stateless api-mode
-        actor rather than by the collector.
+        The result is a preview, not a delivery-equivalent re-score. No message
+        is ingested and sender history is unchanged. Optional organization reads
+        are audited; attachment explosion/OCR and link detonation are not run.
 
         Args:
             eml: Raw RFC822 text.
             eml_b64: The same bytes base64-encoded, for content that does not
                 survive a text field.
-            org_domains: The org's own domains, which is what makes direction
-                and impersonation computable.
-            direction: Override the computed direction: inbound, outbound or internal.
+            org_domains: The org's own domains for impersonation checks.
+            direction: The message direction: inbound, outbound or internal.
+                When omitted, known org domains derive received-mail direction
+                (inbound or internal). Set outbound explicitly for sent mail.
+            with_org_context: Read current sender/domain profiles, popularity,
+                cached registry age, thread context and VIP lists. These are
+                today's facts, not the facts at delivery time.
+
+        Returns:
+            Preview with context, unavailable_evidence, unevaluated_rules and
+            per-top-signal depends_on_missing_context and unavailable_evidence.
+            Rule gaps conservatively include missing branches and exemptions.
+
+        Raises:
+            ValueError: Content is absent or with_org_context is not a boolean.
         """
         if not eml and not eml_b64:
             raise ValueError("analyze needs the message: pass eml or eml_b64")
+        if not isinstance(with_org_context, bool):
+            raise ValueError("with_org_context must be a boolean")
         body: dict[str, Any] = {}
         for key, val in (
             ("eml", eml),
@@ -1705,6 +1720,8 @@ class Mailsec:
         ):
             if val is not None:
                 body[key] = val
+        if with_org_context:
+            body["with_org_context"] = True
         return self._post("analyze", body)
 
     # ------------------------------------------------------------------
