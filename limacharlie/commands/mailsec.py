@@ -521,12 +521,18 @@ Examples:
 """
 
 _EXPLAIN_ANALYZE = """\
-Parse and score an EML without ingesting it. Nothing is persisted and
-no mailbox is touched.
+Parse and score an EML preview without ingesting it or changing sender history.
+The output reports unavailable evidence, unmatched rules whose inputs are absent,
+and each top signal's dependency on missing context. Missing evidence can hide
+attacks and remove exemptions; the score is not a delivery-equivalent re-score.
+
+--with-org-context reads the organization's current profiles, popularity,
+cached registry age, thread context and VIP lists. These reads are audited.
+Attachment explosion/OCR and link detonation are still not run.
 
 Examples:
   limacharlie mailsec analyze --file suspect.eml
-  limacharlie mailsec analyze --file suspect.eml --org-domain corp.example
+  limacharlie mailsec analyze --file suspect.eml --org-domain corp.example --direction inbound --with-org-context
 """
 
 _EXPLAIN_REPORT_LIST = """\
@@ -1350,10 +1356,12 @@ def coverage(ctx, window_days, since, until) -> None:
 @click.option("--file", "eml_file", required=True, type=click.Path(exists=True, dir_okay=False),
               help="Path to the .eml to analyse.")
 @click.option("--org-domain", "org_domains", multiple=True,
-              help="One of your org's domains (repeatable); makes direction and impersonation computable.")
-@click.option("--direction", default=None, type=click.Choice(["inbound", "outbound", "internal"]), help="Override the computed direction.")
+              help="One of your org's domains for impersonation checks (repeatable).")
+@click.option("--direction", default=None, type=click.Choice(["inbound", "outbound", "internal"]), help="Set the direction; omitted means unknown.")
+@click.option("--with-org-context", is_flag=True,
+              help="Read current organization evidence without ingesting; audited. Scanners are not run.")
 @pass_context
-def analyze(ctx, eml_file, org_domains, direction) -> None:
+def analyze(ctx, eml_file, org_domains, direction, with_org_context) -> None:
     """Parse and score an EML without ingesting it.
 
     \b
@@ -1367,11 +1375,28 @@ def analyze(ctx, eml_file, org_domains, direction) -> None:
     # Sent base64 rather than as text: an EML is bytes, and a raw 8-bit body or
     # a stray CR would not survive a JSON string round trip intact.
     ms = _get_mailsec(ctx)
-    _output(ctx, ms.analyze(
-        eml_b64=base64.b64encode(raw).decode("ascii"),
-        org_domains=list(org_domains) or None,
-        direction=direction,
-    ))
+    try:
+        response = ms.analyze(
+            eml_b64=base64.b64encode(raw).decode("ascii"),
+            org_domains=list(org_domains) or None,
+            direction=direction,
+            with_org_context=with_org_context,
+        )
+    except ApiError as exc:
+        if exc.status_code == 413:
+            raise click.ClickException(str(exc)) from exc
+        raise
+    _output(ctx, response)
+    if response.get("context") == "preview":
+        note(ctx, "Preview score; missing evidence can change detections and exemptions.")
+        unavailable = response.get("unavailable_evidence", [])
+        if unavailable:
+            note(ctx, "Unavailable evidence: " + ", ".join(unavailable))
+        gaps = response.get("unevaluated_rules", [])
+        if gaps:
+            note(ctx, f"{len(gaps)} unmatched rules have unavailable inputs; see unevaluated_rules.")
+        if response.get("with_org_context"):
+            note(ctx, "Organization context uses current state, not delivery-time state. Explosion/OCR and detonation are not run.")
 
 
 @group.command("onboarding")

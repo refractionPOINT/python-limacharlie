@@ -1109,3 +1109,12 @@ class TestSampleSubmission:
         ms.withdraw_submission("a/../b")
         args, _ = mock_org.client.request.call_args
         assert args[1] == f"mailsec/{OID}/submissions/a%2F..%2Fb"
+
+
+def test_analyze_rejects_non_boolean_org_context():
+    from limacharlie.sdk.mailsec import Mailsec
+    from unittest.mock import MagicMock
+    client = Mailsec(MagicMock())
+    for value in ("true", 1, None):
+        with pytest.raises(ValueError, match="boolean"):
+            client.analyze(eml="From: sender@example.test\n\nHello", with_org_context=value)
