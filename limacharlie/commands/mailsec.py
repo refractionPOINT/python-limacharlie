@@ -529,6 +529,8 @@ attacks and remove exemptions; the score is not a delivery-equivalent re-score.
 --with-org-context reads the organization's current profiles, popularity,
 cached registry age, thread context and VIP lists. These reads are audited.
 Attachment explosion/OCR and link detonation are still not run.
+Known org domains derive received-mail direction (inbound/internal). Set
+--direction outbound for sent mail; without known domains direction is unknown.
 
 Examples:
   limacharlie mailsec analyze --file suspect.eml
@@ -1357,7 +1359,7 @@ def coverage(ctx, window_days, since, until) -> None:
               help="Path to the .eml to analyse.")
 @click.option("--org-domain", "org_domains", multiple=True,
               help="One of your org's domains for impersonation checks (repeatable).")
-@click.option("--direction", default=None, type=click.Choice(["inbound", "outbound", "internal"]), help="Set the direction; omitted means unknown.")
+@click.option("--direction", default=None, type=click.Choice(["inbound", "outbound", "internal"]), help="Set direction; otherwise known org domains derive inbound/internal. Set outbound for sent mail.")
 @click.option("--with-org-context", is_flag=True,
               help="Read current organization evidence without ingesting; audited. Scanners are not run.")
 @pass_context

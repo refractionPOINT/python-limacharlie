@@ -235,3 +235,16 @@ def test_analyze_failed_org_context_does_not_claim_current_stamps(tmp_path):
     assert json.loads(result.stdout) == body
     assert "Organization context could not be read" in result.stderr
     assert "uses current state" not in result.stderr
+
+
+def test_analyze_org_domains_allow_server_direction_derivation(tmp_path):
+    path = tmp_path / "received.eml"
+    path.write_text("From: sender@vendor.example\nTo: staff@corp.example\n\nHello")
+    body = {"context": "preview", "direction_source": "received_org_domains",
+            "mdm": {"direction": "inbound"}, "unavailable_evidence": ["sender_history"]}
+    result, transport = invoke("analyze", "--file", str(path), "--org-domain", "corp.example", body=body)
+    assert result.exit_code == 0, result.stderr
+    sent = json.loads(transport.call_args[0][0].data)
+    assert sent["org_domains"] == ["corp.example"]
+    assert "direction" not in sent
+    assert json.loads(result.stdout) == body

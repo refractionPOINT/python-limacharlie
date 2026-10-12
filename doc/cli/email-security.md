@@ -339,10 +339,13 @@ in `unavailable_evidence`.
 
 The JSON request limit is 16 MiB (about 12 MiB of raw EML sent as base64,
 with JSON overhead also consuming the envelope). Larger requests receive HTTP
-413 naming the limit. Preview requests share an organization budget of 23 calls
-per 10 minutes; HTTP 429 includes retry advice.
+413 naming the limit. Busy preview capacity returns HTTP 429 with retry advice.
 `--direction` accepts `inbound`, `outbound` or `internal`; omitted direction
-remains unknown, even when org domains are supplied.
+is derived as received mail (`inbound` or `internal`) from supplied org domains
+or current domains read by `--with-org-context`. Set `outbound` explicitly for
+sent mail; EML does not carry its mailbox folder. Without known domains, direction
+remains unavailable. `direction_source` reports `caller`,
+`received_org_domains` or `unavailable`.
 Rule validation, backtesting and banner preview accept JSON or YAML, including
 exported hive records with `{data, usr_mtd}`; only `data` is sent to the API.
 Rules require `phase` (`pre_verdict` or `post_verdict`), `detect`, `name` and

@@ -1693,7 +1693,8 @@ class Mailsec:
                 survive a text field.
             org_domains: The org's own domains for impersonation checks.
             direction: The message direction: inbound, outbound or internal.
-                Omitted direction remains unknown.
+                When omitted, known org domains derive received-mail direction
+                (inbound or internal). Set outbound explicitly for sent mail.
             with_org_context: Read current sender/domain profiles, popularity,
                 cached registry age, thread context and VIP lists. These are
                 today's facts, not the facts at delivery time.
