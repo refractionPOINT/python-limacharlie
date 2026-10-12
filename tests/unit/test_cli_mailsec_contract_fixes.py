@@ -17,7 +17,7 @@ OID = "11111111-2222-3333-4444-555555555555"
 MSG = "0057db2b-3a06-5aab-b3be-c1e6c15dcf10"
 
 
-def invoke(*args, body=None, status=200, stdin=None):
+def invoke(*args, body=None, status=200, stdin=None, output="json"):
     client = Client(oid=OID, jwt="test-jwt")
     response = MagicMock()
     response.read.return_value = json.dumps(body or {}).encode()
@@ -27,7 +27,7 @@ def invoke(*args, body=None, status=200, stdin=None):
             transport.side_effect = HTTPError("https://api.example.test", status, "refused", {}, io.BytesIO(json.dumps(body).encode()))
         else:
             transport.return_value = response
-        result = CliRunner(mix_stderr=False).invoke(cli, ["--oid", OID, "--output", "json", "mailsec", *args], input=stdin)
+        result = CliRunner(mix_stderr=False).invoke(cli, ["--oid", OID, "--output", output, "mailsec", *args], input=stdin)
     return result, transport
 
 
@@ -206,6 +206,40 @@ def test_analyze_org_context_flag_and_preview_fields_survive_output(tmp_path):
     assert "Unavailable evidence: attachment_explosion, link_detonation" in result.stderr
     assert "current state, not delivery-time state" in result.stderr
     assert "1 unmatched rules" in result.stderr
+    assert "attachment-rule: attachment_explosion" in result.stderr
+    assert "Signal conditional-rule: depends_on_missing_context=true; unavailable_evidence=attachment_explosion" in result.stderr
+
+
+def test_analyze_table_reports_nested_rule_and_signal_diagnostics(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    body = {
+        "context": "preview",
+        "unavailable_evidence": ["attachment_explosion"],
+        "unevaluated_rules": [{"rule_id": "attachment-rule", "unavailable_evidence": ["attachment_explosion"]}],
+        "mdm": {"verdict": {"top_signals": [
+            {"rule_id": "conditional-rule", "depends_on_missing_context": True, "unavailable_evidence": ["attachment_explosion"]},
+            {"rule_id": "auth-rule", "depends_on_missing_context": False, "unavailable_evidence": []},
+        ]}},
+    }
+    result, _ = invoke("analyze", "--file", str(path), body=body, output="table")
+    assert result.exit_code == 0, result.stderr
+    assert "preview" in result.stdout
+    assert "attachment-rule: attachment_explosion" in result.stderr
+    assert "Signal conditional-rule: depends_on_missing_context=true; unavailable_evidence=attachment_explosion" in result.stderr
+    assert "Signal auth-rule: depends_on_missing_context=false; unavailable_evidence=none" in result.stderr
+
+
+def test_analyze_diagnostic_rule_ids_escape_terminal_controls(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    body = {"context": "preview", "unevaluated_rules": [{"rule_id": "rule\x1b[2J", "unavailable_evidence": ["vip"]}],
+            "mdm": {"verdict": {"top_signals": [{"rule_id": "signal\x9b2J", "depends_on_missing_context": True, "unavailable_evidence": ["vip"]}]}}}
+    result, _ = invoke("analyze", "--file", str(path), body=body)
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout) == body
+    assert "\x1b" not in result.stderr
+    assert "\x9b" not in result.stderr
 
 
 def test_analyze_default_does_not_request_org_context(tmp_path):
