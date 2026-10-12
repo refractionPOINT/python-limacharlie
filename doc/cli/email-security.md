@@ -331,13 +331,16 @@ Each `mdm.verdict.top_signals` entry includes
 
 `--with-org-context` adds read-only enrichment from the organization's **current**
 sender/domain profiles, popularity, cached registry age, thread context and VIP
-lists. It does not reconstruct facts from the original delivery. Reads are
+lists. `org_context_read` reports whether the enrichment read ran.
+It does not reconstruct facts from the original delivery. Reads are
 audited, no message is ingested, and history is unchanged. Attachment
 explosion/OCR and link detonation are still not run. Failed or partial reads stay
 in `unavailable_evidence`.
 
-The JSON request limit is 16 MiB (approximately 12 MiB of base64-encoded EML,
-including JSON overhead); larger requests receive HTTP 413 naming the limit.
+The JSON request limit is 16 MiB (about 12 MiB of raw EML sent as base64,
+with JSON overhead also consuming the envelope). Larger requests receive HTTP
+413 naming the limit. Preview requests share an organization budget of 23 calls
+per 10 minutes; HTTP 429 includes retry advice.
 `--direction` accepts `inbound`, `outbound` or `internal`; omitted direction
 remains unknown, even when org domains are supplied.
 Rule validation, backtesting and banner preview accept JSON or YAML, including

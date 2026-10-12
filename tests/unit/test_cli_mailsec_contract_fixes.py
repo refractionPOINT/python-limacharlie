@@ -190,7 +190,7 @@ def test_analyze_org_context_flag_and_preview_fields_survive_output(tmp_path):
     path = tmp_path / "sample.eml"
     path.write_bytes(b"From: sender@example.test\r\n\r\nHello\xff")
     body = {
-        "context": "preview", "with_org_context": True, "stored": False,
+        "context": "preview", "with_org_context": True, "org_context_read": True, "stored": False,
         "unavailable_evidence": ["attachment_explosion", "link_detonation"],
         "unevaluated_rules": [{"rule_id": "attachment-rule", "unavailable_evidence": ["attachment_explosion"], "matched": False}],
         "mdm": {"verdict": {"top_signals": [{"rule_id": "conditional-rule", "depends_on_missing_context": True, "unavailable_evidence": ["attachment_explosion"]}]}},
@@ -224,3 +224,14 @@ def test_analyze_transport_413_names_limit(tmp_path):
     assert result.exit_code != 0
     assert "16777216" in result.stderr
     assert transport.call_count == 1
+
+
+def test_analyze_failed_org_context_does_not_claim_current_stamps(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    body = {"context": "preview", "with_org_context": True, "org_context_read": False, "verdict_available": False, "verdict_note": "Cannot load rules"}
+    result, transport = invoke("analyze", "--file", str(path), "--with-org-context", body=body)
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout) == body
+    assert "Organization context could not be read" in result.stderr
+    assert "uses current state" not in result.stderr

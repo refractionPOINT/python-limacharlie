@@ -1395,8 +1395,10 @@ def analyze(ctx, eml_file, org_domains, direction, with_org_context) -> None:
         gaps = response.get("unevaluated_rules", [])
         if gaps:
             note(ctx, f"{len(gaps)} unmatched rules have unavailable inputs; see unevaluated_rules.")
-        if response.get("with_org_context"):
+        if response.get("org_context_read"):
             note(ctx, "Organization context uses current state, not delivery-time state. Explosion/OCR and detonation are not run.")
+        elif response.get("with_org_context"):
+            note(ctx, "Organization context could not be read; see verdict_note and unavailable_evidence.")
 
 
 @group.command("onboarding")
