@@ -328,6 +328,10 @@ branches. `rule_diagnostics_available` confirms rules were loaded;
 `rule_diagnostics_truncated` identifies an incomplete dependency walk.
 Each `mdm.verdict.top_signals` entry includes
 `depends_on_missing_context` and its own `unavailable_evidence` list.
+The terminal report lists each unmatched rule's ID and missing evidence, and
+each top signal's missing-context status and evidence. These details are printed
+on stderr even when the table format summarizes nested fields. JSON stdout
+preserves the complete response; `--quiet` suppresses the terminal report.
 
 `--with-org-context` adds read-only enrichment from the organization's **current**
 sender/domain profiles, popularity, cached registry age, thread context and VIP

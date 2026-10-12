@@ -50,7 +50,7 @@ from ..sdk.mailsec import (
     BULK_ACTIONS, DISPOSITIONS, SAMPLE_CATEGORIES, Mailsec,
     normalize_bulk_selection, _check_eml_justification, _api_error_data,
 )
-from ..output import format_output, detect_output_format
+from ..output import format_output, detect_output_format, escape_control_chars
 from ..discovery import register_explain
 from ._input_helpers import load_file, load_stdin
 from ._output_helpers import note
@@ -1396,7 +1396,15 @@ def analyze(ctx, eml_file, org_domains, direction, with_org_context) -> None:
             note(ctx, "Unavailable evidence: " + ", ".join(unavailable))
         gaps = response.get("unevaluated_rules", [])
         if gaps:
-            note(ctx, f"{len(gaps)} unmatched rules have unavailable inputs; see unevaluated_rules.")
+            note(ctx, f"{len(gaps)} unmatched rules have unavailable inputs:")
+            for gap in gaps:
+                note(ctx, escape_control_chars(f"  {gap['rule_id']}: " + ", ".join(gap.get("unavailable_evidence", []))))
+        mdm = response.get("mdm") or {}
+        verdict = mdm.get("verdict") or {}
+        for signal in verdict.get("top_signals", []):
+            missing = signal.get("depends_on_missing_context", False)
+            evidence = ", ".join(signal.get("unavailable_evidence", [])) or "none"
+            note(ctx, escape_control_chars(f"Signal {signal['rule_id']}: depends_on_missing_context={str(missing).lower()}; unavailable_evidence={evidence}"))
         if response.get("org_context_read"):
             note(ctx, "Organization context uses current state, not delivery-time state. Explosion/OCR and detonation are not run.")
         elif response.get("with_org_context"):
