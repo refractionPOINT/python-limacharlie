@@ -17,7 +17,7 @@ OID = "11111111-2222-3333-4444-555555555555"
 MSG = "0057db2b-3a06-5aab-b3be-c1e6c15dcf10"
 
 
-def invoke(*args, body=None, status=200, stdin=None, output="json"):
+def invoke(*args, body=None, status=200, stdin=None, output="json", quiet=False):
     client = Client(oid=OID, jwt="test-jwt")
     response = MagicMock()
     response.read.return_value = json.dumps(body or {}).encode()
@@ -27,7 +27,10 @@ def invoke(*args, body=None, status=200, stdin=None, output="json"):
             transport.side_effect = HTTPError("https://api.example.test", status, "refused", {}, io.BytesIO(json.dumps(body).encode()))
         else:
             transport.return_value = response
-        result = CliRunner(mix_stderr=False).invoke(cli, ["--oid", OID, "--output", output, "mailsec", *args], input=stdin)
+        options = ["--oid", OID, "--output", output]
+        if quiet:
+            options.append("--quiet")
+        result = CliRunner(mix_stderr=False).invoke(cli, [*options, "mailsec", *args], input=stdin)
     return result, transport
 
 
@@ -240,6 +243,34 @@ def test_analyze_diagnostic_rule_ids_escape_terminal_controls(tmp_path):
     assert json.loads(result.stdout) == body
     assert "\x1b" not in result.stderr
     assert "\x9b" not in result.stderr
+
+
+@pytest.mark.parametrize("output", ["json", "table"])
+@pytest.mark.parametrize("mdm", [None, {"verdict": None}])
+def test_analyze_preview_without_verdict_remains_successful(tmp_path, output, mdm):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    body = {"context": "preview", "mdm": mdm, "verdict_available": False,
+            "verdict_note": "No enabled rules"}
+    result, _ = invoke("analyze", "--file", str(path), body=body, output=output)
+    assert result.exit_code == 0, result.stderr
+    if output == "json":
+        assert json.loads(result.stdout) == body
+    else:
+        assert "No enabled rules" in result.stdout
+    assert "Signal " not in result.stderr
+
+
+def test_analyze_quiet_suppresses_preview_diagnostics(tmp_path):
+    path = tmp_path / "sample.eml"
+    path.write_text("From: sender@example.test\n\nHello")
+    body = {"context": "preview", "unevaluated_rules": [{"rule_id": "vip-rule", "unavailable_evidence": ["vip"]}],
+            "mdm": {"verdict": {"top_signals": [{"rule_id": "auth-rule", "depends_on_missing_context": False, "unavailable_evidence": []}]}}}
+    result, transport = invoke("analyze", "--file", str(path), body=body, quiet=True)
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert transport.call_count == 1
 
 
 def test_analyze_default_does_not_request_org_context(tmp_path):

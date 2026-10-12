@@ -1399,7 +1399,9 @@ def analyze(ctx, eml_file, org_domains, direction, with_org_context) -> None:
             note(ctx, f"{len(gaps)} unmatched rules have unavailable inputs:")
             for gap in gaps:
                 note(ctx, escape_control_chars(f"  {gap['rule_id']}: " + ", ".join(gap.get("unavailable_evidence", []))))
-        for signal in response.get("mdm", {}).get("verdict", {}).get("top_signals", []):
+        mdm = response.get("mdm") or {}
+        verdict = mdm.get("verdict") or {}
+        for signal in verdict.get("top_signals", []):
             missing = signal.get("depends_on_missing_context", False)
             evidence = ", ".join(signal.get("unavailable_evidence", [])) or "none"
             note(ctx, escape_control_chars(f"Signal {signal['rule_id']}: depends_on_missing_context={str(missing).lower()}; unavailable_evidence={evidence}"))
