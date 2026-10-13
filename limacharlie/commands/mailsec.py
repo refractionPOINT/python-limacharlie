@@ -1913,6 +1913,20 @@ def campaign_get(ctx, campaign_id) -> None:
     _output(ctx, _get_mailsec(ctx).get_campaign(campaign_id))
 
 
+@campaign_group.command("members")
+@click.argument("campaign_id")
+@click.option("--cursor", default=None, help="Opaque next_cursor from the same campaign's previous page.")
+@click.option("--limit", default=None, type=click.IntRange(1, 200), help="Page size; default 50, maximum 200.")
+@pass_context
+def campaign_members(ctx, campaign_id, cursor, limit) -> None:
+    """List campaign members with current message context (mailsec.get).
+
+    Expired message copies retain their membership with message=null.
+    Continue with --cursor until next_cursor is null.
+    """
+    _output(ctx, _get_mailsec(ctx).list_campaign_members(campaign_id, cursor=cursor, limit=limit))
+
+
 @campaign_group.command("action")
 @click.argument("campaign_id")
 @click.option("--action", "action_name", required=True, help="The typed action to sweep.")
@@ -2349,6 +2363,7 @@ register_explain("mailsec.message.bulk-action", _EXPLAIN_MESSAGE_BULK_ACTION)
 register_explain("mailsec.message.bulk-status", _EXPLAIN_MESSAGE_BULK_STATUS)
 register_explain("mailsec.campaign.list", _EXPLAIN_CAMPAIGN_LIST)
 register_explain("mailsec.campaign.get", _EXPLAIN_CAMPAIGN_GET)
+register_explain("mailsec.campaign.members", "List one page of complete campaign membership, newest first. Each row carries join-time evidence and a current message summary, or message=null if its index row expired. Requires mailsec.get. Default limit 50, maximum 200; pass next_cursor back with --cursor for the same campaign until it is null.")
 register_explain("mailsec.campaign.action", _EXPLAIN_CAMPAIGN_ACTION)
 register_explain("mailsec.sender.get", _EXPLAIN_SENDER_GET)
 register_explain("mailsec.action.get", _EXPLAIN_ACTION_GET)

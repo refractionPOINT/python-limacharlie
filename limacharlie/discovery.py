@@ -285,7 +285,7 @@ PROFILES = {
             "mailsec group confirm",
             "mailsec message submit-sample", "mailsec message withdraw-sample",
             "mailsec submission list", "mailsec submission get", "mailsec submission withdraw",
-            "mailsec campaign list", "mailsec campaign get", "mailsec campaign action",
+            "mailsec campaign list", "mailsec campaign get", "mailsec campaign members", "mailsec campaign action",
             "mailsec sender get",
             "mailsec action get",
             "mailsec analyze",

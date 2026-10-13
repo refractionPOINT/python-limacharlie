@@ -592,3 +592,15 @@ Group classification uses the same complete preview and confirmation as remediat
 - [Hive & Data Stores](hive-data.md) — the `mailsec_provider`, `mailsec_policy` and `dr-mail` hives
 
 Historical email searches use platform LCQL over `EMAIL_MESSAGE` events. Pass selected message UUIDs to `mailsec message bulk-action` for a preview, then repeat it with the selection-bound `--confirm` token; there is no separate MailSec hunt job API.
+
+### Campaign member context
+
+`limacharlie mailsec campaign members <campaign-id>` reads one page of complete
+membership, newest first, using `mailsec.get`. Use `--limit` (1–200, default 50)
+and pass the response's `next_cursor` back with `--cursor` until it is null.
+Keep the organization and campaign unchanged between pages.
+
+Each member includes `msg_uuid`, `ts`, `verdict`, `score`, `mailbox_address`,
+`joined_at` and `message`. The first fields describe membership when joined;
+`message` is the current retained index summary, or null after that row expires.
+A null message does not indicate a benign verdict or missing membership.
