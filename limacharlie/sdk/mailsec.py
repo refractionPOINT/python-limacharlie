@@ -1361,6 +1361,42 @@ class Mailsec:
         """One campaign with its aggregates and cluster keys."""
         return self._get(f"campaigns/{_seg(campaign_id)}")
 
+    def list_campaign_members(
+        self,
+        campaign_id: str,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """List one page of campaign members, including expired message copies.
+
+        Args:
+            campaign_id: Campaign to inspect.
+            cursor: Opaque continuation from the same campaign and organization.
+            limit: Page size from 1 to 200; omit for the server default of 50.
+
+        Returns:
+            dict: Members with join-time fields and current message summaries;
+                message is null when no longer retained. next_cursor is null
+                at the end. Pass a nonempty cursor back unchanged to continue.
+
+        Raises:
+            ValueError: If the page size or cursor exceeds the route's bounds.
+            ApiError: If the request fails or the cursor belongs to another walk.
+        """
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200
+        ):
+            raise ValueError("limit must be between 1 and 200")
+        if cursor is not None and (
+            not isinstance(cursor, str) or len(cursor.encode("utf-8")) > 512
+        ):
+            raise ValueError("cursor must be a string of at most 512 bytes")
+        pairs: list[tuple[str, str]] = []
+        _add_scalar(pairs, "cursor", cursor)
+        _add_scalar(pairs, "limit", limit)
+        return self._get(f"campaigns/{_seg(campaign_id)}/members", pairs)
+
     def act_on_campaign(
         self,
         campaign_id: str,
