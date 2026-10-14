@@ -313,3 +313,15 @@ def test_analyze_org_domains_allow_server_direction_derivation(tmp_path):
     assert sent["org_domains"] == ["corp.example"]
     assert "direction" not in sent
     assert json.loads(result.stdout) == body
+
+
+def test_analyze_reports_vip_account_binding_availability(tmp_path):
+    path = tmp_path / "message.eml"
+    path.write_bytes(b"From: sender@example.test\r\n\r\nHello")
+    binding = {"available": False, "configured": True, "configuration_available": True,
+               "applied": False, "reason": "unavailable_receiver_authentication"}
+    body = {"context": "preview", "vip_account_binding": binding}
+    result, _ = invoke("analyze", "--file", str(path), "--with-org-context", body=body)
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["vip_account_binding"] == binding
+    assert "VIP account binding: unavailable_receiver_authentication" in result.stderr
