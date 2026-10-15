@@ -19,6 +19,12 @@
   rotating API keys that were used with a custom expiry.
 - `auth get-token --format json` reports the expiry the token actually carries
   (its `exp` claim) instead of the requested one.
+- When the server grants a shorter lifetime than requested (it caps token
+  lifetimes), `get_jwt` records the granted lifetime in the JWT cache. Later
+  requests above it reuse a cached token that still has at least 90% of it,
+  instead of minting a new token on every command: no token could cover such
+  a request anyway. A request within the cap still needs a token that covers
+  it in full, and a later full grant clears the recorded value.
 
 ### `auth signup` no longer calls the retired signup endpoint
 

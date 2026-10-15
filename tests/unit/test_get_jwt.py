@@ -25,11 +25,13 @@ from limacharlie.commands.search import (
 from limacharlie.errors import ValidationError
 
 
-def _make_jwt(exp: float | int) -> str:
-    """Return an unsigned JWT-shaped string whose payload carries ``exp``."""
+def _make_jwt(exp: float | int, iat: float | int | None = None) -> str:
+    """Return an unsigned JWT-shaped string whose payload carries ``exp``
+    (and ``iat`` when given)."""
     def seg(obj):
         return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
-    return f"{seg({'alg': 'HS256'})}.{seg({'exp': exp})}.{seg('sig')}"
+    payload = {"exp": exp} if iat is None else {"exp": exp, "iat": iat}
+    return f"{seg({'alg': 'HS256'})}.{seg(payload)}.{seg('sig')}"
 
 
 def _make_ctx():
@@ -619,3 +621,155 @@ class TestGetTokenCommand:
             assert result.exit_code == 0
             # Warning goes to stderr
             assert "Warning" in result.stderr or "security" in result.stderr.lower()
+
+
+@pytest.fixture
+def tmp_jwt_cache(monkeypatch, tmp_path):
+    """Point the JWT cache at a temp directory, so tests never read or
+    write the real one."""
+    from limacharlie.config import _reset_config_cache
+    from limacharlie.jwt_cache import _reset_cache_disabled
+    from limacharlie.paths import _reset_path_cache
+
+    config_dir = tmp_path / "lc_config"
+    config_dir.mkdir()
+    monkeypatch.setenv("LC_CONFIG_DIR", str(config_dir))
+    for var in ("LC_CREDS_FILE", "LC_LEGACY_CONFIG", "LC_EPHEMERAL_CREDS", "LC_NO_JWT_CACHE"):
+        monkeypatch.delenv(var, raising=False)
+    _reset_path_cache()
+    _reset_cache_disabled()
+    _reset_config_cache()
+    yield
+    _reset_path_cache()
+    _reset_cache_disabled()
+    _reset_config_cache()
+
+
+class TestGetJwtCappedLifetime:
+    """get_jwt when the server grants less than the requested lifetime.
+
+    The server caps every token's lifetime. A request above the cap can
+    never be covered by any token, so the cache must not mint a new token
+    on every command: it records the granted lifetime and reuses a token
+    that still has at least 90% of it. Each test builds a new Client per
+    step, the way separate CLI invocations do, with only ``urlopen``
+    mocked and the cache in a temp directory.
+    """
+
+    CAP = 48 * 3600
+    CREDS = {"oid": "test-oid", "uid": None, "api_key": "test-api-key-12345678", "oauth": None}
+
+    @staticmethod
+    def _serve(mock_urlopen, lifetime):
+        """Make the mocked endpoint mint tokens of ``lifetime`` seconds."""
+        def respond(request, *a, **k):
+            now = int(time.time())
+            response = MagicMock()
+            response.read.return_value = json.dumps(
+                {"jwt": _make_jwt(now + lifetime, iat=now)}
+            ).encode()
+            return response
+        mock_urlopen.side_effect = respond
+
+    def _cache_entry(self):
+        from limacharlie.jwt_cache import _compute_cache_key, _load_cache
+        return _load_cache()[_compute_cache_key("test-oid", self.CREDS["api_key"], None, None)]
+
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_capped_grant_is_recorded_and_reused_by_the_next_command(self, mock_urlopen, mock_resolve, tmp_jwt_cache):
+        mock_resolve.return_value = dict(self.CREDS)
+        self._serve(mock_urlopen, self.CAP)
+
+        first = Client(oid="test-oid").get_jwt(expiry_hours=72)
+        assert mock_urlopen.call_count == 1
+        assert self._cache_entry()["max_lifetime"] == self.CAP
+
+        # The next command asks for 72h again. No token can cover it, and the
+        # cached one has (almost) the whole cap left, so it is reused.
+        second = Client(oid="test-oid").get_jwt(expiry_hours=72)
+        assert second == first
+        assert mock_urlopen.call_count == 1
+
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_capped_token_below_90_percent_of_the_cap_is_replaced(self, mock_urlopen, mock_resolve, tmp_jwt_cache):
+        from limacharlie.jwt_cache import put_cached_jwt, set_cached_max_lifetime
+
+        mock_resolve.return_value = dict(self.CREDS)
+        now = int(time.time())
+        # 40h left of a 48h cap: under the 43.2h reuse threshold.
+        stale = _make_jwt(now + 40 * 3600, iat=now - 8 * 3600)
+        put_cached_jwt(stale, "test-oid", self.CREDS["api_key"], None, None)
+        set_cached_max_lifetime(self.CAP, "test-oid", self.CREDS["api_key"], None, None)
+        self._serve(mock_urlopen, self.CAP)
+
+        fresh = Client(oid="test-oid").get_jwt(expiry_hours=72)
+
+        assert fresh != stale
+        assert mock_urlopen.call_count == 1
+
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_request_within_the_cap_still_needs_the_full_request(self, mock_urlopen, mock_resolve, tmp_jwt_cache):
+        """The 90% rule only applies to requests the cap cannot cover."""
+        from limacharlie.jwt_cache import put_cached_jwt, set_cached_max_lifetime
+
+        mock_resolve.return_value = dict(self.CREDS)
+        now = int(time.time())
+        cached = _make_jwt(now + 3 * 3600, iat=now - 45 * 3600)
+        put_cached_jwt(cached, "test-oid", self.CREDS["api_key"], None, None)
+        set_cached_max_lifetime(self.CAP, "test-oid", self.CREDS["api_key"], None, None)
+        self._serve(mock_urlopen, 4 * 3600)
+
+        Client(oid="test-oid").get_jwt(expiry_hours=4)
+
+        assert mock_urlopen.call_count == 1
+
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_full_grant_clears_a_recorded_cap(self, mock_urlopen, mock_resolve, tmp_jwt_cache):
+        """When the server grants the full request again (the cap was raised
+        or removed), the old cap stops lowering the reuse threshold.
+
+        A raised cap is only seen at the next mint, which happens once the
+        cached token drops below 90% of the old cap.
+        """
+        from limacharlie.jwt_cache import put_cached_jwt, set_cached_max_lifetime
+
+        mock_resolve.return_value = dict(self.CREDS)
+        now = int(time.time())
+        put_cached_jwt(_make_jwt(now + 40 * 3600, iat=now - 8 * 3600), "test-oid", self.CREDS["api_key"], None, None)
+        set_cached_max_lifetime(self.CAP, "test-oid", self.CREDS["api_key"], None, None)
+        self._serve(mock_urlopen, 72 * 3600)
+
+        Client(oid="test-oid").get_jwt(expiry_hours=72)
+
+        assert mock_urlopen.call_count == 1
+        assert "max_lifetime" not in self._cache_entry()
+
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_full_grant_records_nothing(self, mock_urlopen, mock_resolve, tmp_jwt_cache):
+        mock_resolve.return_value = dict(self.CREDS)
+        self._serve(mock_urlopen, 4 * 3600)
+
+        Client(oid="test-oid").get_jwt(expiry_hours=4)
+
+        assert "max_lifetime" not in self._cache_entry()
+
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_default_token_refresh_keeps_the_recorded_cap(self, mock_urlopen, mock_resolve, tmp_jwt_cache):
+        """A default (1h) refresh rewrites the cached token; the recorded
+        cap is a property of the server and must survive it."""
+        mock_resolve.return_value = dict(self.CREDS)
+        self._serve(mock_urlopen, self.CAP)
+        Client(oid="test-oid").get_jwt(expiry_hours=72)
+
+        self._serve(mock_urlopen, 3600)
+        client = Client(oid="test-oid")
+        client._jwt = None
+        client.refresh_jwt()
+
+        assert self._cache_entry()["max_lifetime"] == self.CAP

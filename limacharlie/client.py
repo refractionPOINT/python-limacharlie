@@ -67,6 +67,17 @@ ROOT_URL = _root_from_env("LC_API_URL", "https://api.limacharlie.io")
 API_VERSION = "v1"
 JWT_URL = _root_from_env("LC_JWT_URL", "https://jwt.limacharlie.io")
 
+# When the server grants a shorter JWT lifetime than requested (it caps
+# lifetimes), get_jwt reuses a cached token for requests above that cap while
+# it still has at least this fraction of the cap left. A fresh token could
+# not cover such a request either, so re-minting on every command would only
+# buy back the last 10%.
+_CAPPED_REUSE_FRACTION = 0.9
+
+# A token whose lifetime (exp - iat) is within this many seconds of the
+# request counts as granted in full: the server rounds to whole seconds.
+_GRANTED_LIFETIME_SLACK_SECONDS = 60
+
 HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
 HTTP_TOO_MANY_REQUESTS = 429
@@ -395,6 +406,14 @@ class Client:
         generating a new one. This avoids unnecessary JWT requests when
         running multiple search commands in sequence.
 
+        The server may grant a shorter lifetime than requested (it caps
+        every token's lifetime). When it does, the granted lifetime is
+        recorded in the JWT cache, and later requests above it reuse a
+        token that still has at least 90% of it
+        (``_CAPPED_REUSE_FRACTION``): no fresh token could cover such a
+        request either, and without this every command would mint a new
+        one.
+
         Args:
             expiry_hours: Token validity duration in hours. If None, uses
                 the default expiry (~1 hour). For long-running search
@@ -424,23 +443,34 @@ class Client:
                 )
             expiry_seconds = math.ceil(expiry_hours * 3600)
 
+        # Cache entries are keyed like refresh_jwt picks its auth path:
+        # OAuth takes priority over api_key.
+        cache_api_key = None if self._oauth_creds is not None else self._api_key
+
         # If we already have a JWT (from cache or prior call), check if it
         # has enough remaining TTL for the requested expiry. If so, reuse it.
-        if self._jwt is not None and expiry_hours is not None:
-            from .jwt_cache import _decode_jwt_exp
+        if self._jwt is not None and expiry_seconds is not None:
+            from .jwt_cache import _decode_jwt_exp, get_cached_max_lifetime
 
+            needed = float(expiry_seconds)
+            max_lifetime = get_cached_max_lifetime(
+                self._oid, cache_api_key, self._oauth_creds, self._uid
+            )
+            if max_lifetime is not None and expiry_seconds > max_lifetime:
+                needed = max_lifetime * _CAPPED_REUSE_FRACTION
             current_exp = _decode_jwt_exp(self._jwt)
             if current_exp is not None:
-                remaining_hours = (current_exp - time_module.time()) / 3600
-                if remaining_hours >= expiry_hours:
+                remaining = current_exp - time_module.time()
+                if remaining >= needed:
                     self._debug(
                         f"JWT: reusing current token "
-                        f"({remaining_hours:.1f}h remaining >= {expiry_hours}h requested)"
+                        f"({remaining / 3600:.1f}h remaining >= {needed / 3600:.1f}h needed, "
+                        f"{expiry_hours}h requested)"
                     )
                     return self._jwt
                 self._debug(
-                    f"JWT: current token has {remaining_hours:.1f}h remaining, "
-                    f"need {expiry_hours}h, fetching new one"
+                    f"JWT: current token has {remaining / 3600:.1f}h remaining, "
+                    f"need {needed / 3600:.1f}h, fetching new one"
                 )
 
         self.refresh_jwt(expiry=expiry_seconds)
@@ -449,23 +479,34 @@ class Client:
             from .errors import AuthenticationError
             raise AuthenticationError("Failed to generate JWT token.")
 
-        # Cache the long-lived JWT so subsequent CLI invocations reuse it.
-        # Mirror auth path selection: OAuth takes priority over api_key.
+        # Cache the long-lived JWT so subsequent CLI invocations reuse it,
+        # with the longest lifetime the server grants when it granted less
+        # than requested (cleared when it granted the full request).
         if expiry_seconds is not None:
-            from .jwt_cache import put_cached_jwt
+            from .jwt_cache import (
+                _decode_jwt_lifetime,
+                put_cached_jwt,
+                set_cached_max_lifetime,
+            )
 
             self._debug(
                 f"JWT cache: writing long-lived token to disk "
                 f"(requested {expiry_hours}h expiry)"
             )
-            if self._oauth_creds is not None:
-                put_cached_jwt(
-                    self._jwt, self._oid, None, self._oauth_creds, self._uid
+            put_cached_jwt(
+                self._jwt, self._oid, cache_api_key, self._oauth_creds, self._uid
+            )
+            granted = _decode_jwt_lifetime(self._jwt)
+            capped = granted is not None and granted < expiry_seconds - _GRANTED_LIFETIME_SLACK_SECONDS
+            if capped:
+                self._debug(
+                    f"JWT: server granted {granted / 3600:.1f}h of the "
+                    f"{expiry_hours}h requested"
                 )
-            else:
-                put_cached_jwt(
-                    self._jwt, self._oid, self._api_key, None, self._uid
-                )
+            set_cached_max_lifetime(
+                int(granted) if capped else None,
+                self._oid, cache_api_key, self._oauth_creds, self._uid,
+            )
 
         return self._jwt
 
