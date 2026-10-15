@@ -708,11 +708,17 @@ def get_token(ctx: click.Context, hours: float, output_format: str) -> None:
             err=True,
         )
 
+    from ..jwt_cache import _decode_jwt_exp
+
     client = _get_client(ctx)
-    # Compute expiry timestamp before generating the token so the displayed
-    # value closely matches the actual JWT expiry (avoids time skew).
-    expiry_ts = int(time_mod.time()) + int(hours * 3600)
+    requested_expiry_ts = int(time_mod.time()) + int(hours * 3600)
     token = client.get_jwt(expiry_hours=hours)
+    # Report the expiry the token actually carries: get_jwt may reuse a
+    # cached token that outlives the request, and the server decides the
+    # final lifetime. Fall back to the requested one if the claim is
+    # unreadable.
+    token_exp = _decode_jwt_exp(token)
+    expiry_ts = int(token_exp) if token_exp is not None else requested_expiry_ts
 
     if output_format == "json":
         expiry_iso = datetime.fromtimestamp(expiry_ts, tz=timezone.utc).isoformat()

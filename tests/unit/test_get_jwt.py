@@ -5,9 +5,11 @@ like search queries. Covers SDK method, resolution logic (CLI flag >
 config file > constant default), and CLI commands.
 """
 
+import base64
 import json
 import time
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs
 
 import click
 import pytest
@@ -21,6 +23,13 @@ from limacharlie.commands.search import (
     _resolve_token_expiry,
 )
 from limacharlie.errors import ValidationError
+
+
+def _make_jwt(exp: float | int) -> str:
+    """Return an unsigned JWT-shaped string whose payload carries ``exp``."""
+    def seg(obj):
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+    return f"{seg({'alg': 'HS256'})}.{seg({'exp': exp})}.{seg('sig')}"
 
 
 def _make_ctx():
@@ -49,7 +58,7 @@ class TestClientGetJwt:
 
     @patch("limacharlie.client.resolve_credentials")
     def test_get_jwt_custom_expiry_hours(self, mock_resolve):
-        """get_jwt(expiry_hours=8) computes correct unix timestamp."""
+        """get_jwt(expiry_hours=8) requests a lifetime of 8 hours in seconds."""
         mock_resolve.return_value = {
             "oid": "test-oid", "uid": None,
             "api_key": "test-api-key-12345678", "oauth": None,
@@ -58,17 +67,10 @@ class TestClientGetJwt:
         client.refresh_jwt = MagicMock()
         client._jwt = "mock-jwt-8h"
 
-        before = int(time.time())
         token = client.get_jwt(expiry_hours=8)
-        after = int(time.time())
 
-        client.refresh_jwt.assert_called_once()
-        call_kwargs = client.refresh_jwt.call_args
-        expiry_ts = call_kwargs[1]["expiry"] if "expiry" in (call_kwargs[1] or {}) else call_kwargs[0][0]
-        # Expiry should be ~8 hours from now
-        expected_min = before + 8 * 3600
-        expected_max = after + 8 * 3600
-        assert expected_min <= expiry_ts <= expected_max
+        # A duration, not a timestamp: the JWT endpoint adds it to now.
+        client.refresh_jwt.assert_called_once_with(expiry=8 * 3600)
         assert token == "mock-jwt-8h"
 
     @patch("limacharlie.client.resolve_credentials")
@@ -82,15 +84,24 @@ class TestClientGetJwt:
         client.refresh_jwt = MagicMock()
         client._jwt = "mock-jwt-30m"
 
-        before = int(time.time())
         client.get_jwt(expiry_hours=0.5)
-        after = int(time.time())
 
-        call_kwargs = client.refresh_jwt.call_args
-        expiry_ts = call_kwargs[1]["expiry"] if "expiry" in (call_kwargs[1] or {}) else call_kwargs[0][0]
-        expected_min = before + 1800
-        expected_max = after + 1800
-        assert expected_min <= expiry_ts <= expected_max
+        client.refresh_jwt.assert_called_once_with(expiry=1800)
+
+    @patch("limacharlie.client.resolve_credentials")
+    def test_get_jwt_sub_second_hours_round_up(self, mock_resolve):
+        """A lifetime under one second rounds up to 1, never down to 0."""
+        mock_resolve.return_value = {
+            "oid": "test-oid", "uid": None,
+            "api_key": "test-api-key-12345678", "oauth": None,
+        }
+        client = Client(oid="test-oid")
+        client.refresh_jwt = MagicMock()
+        client._jwt = "mock-jwt-tiny"
+
+        client.get_jwt(expiry_hours=0.0001)  # 0.36 seconds
+
+        client.refresh_jwt.assert_called_once_with(expiry=1)
 
     @patch("limacharlie.client.resolve_credentials")
     def test_get_jwt_zero_hours_raises_validation_error(self, mock_resolve):
@@ -131,6 +142,83 @@ class TestClientGetJwt:
         with pytest.raises(AuthenticationError, match="Failed to generate"):
             client.get_jwt()
 
+
+
+class TestJwtExpirySentToEndpoint:
+    """The expiry the SDK puts on the wire to the JWT endpoint.
+
+    The endpoint reads ``expiry`` as a lifetime in seconds and adds it to
+    the time of the request, so these tests drive get_jwt through the real
+    refresh path and read the form body that reaches ``urlopen``.
+    """
+
+    @staticmethod
+    def _respond_with(mock_urlopen, jwt):
+        response = MagicMock()
+        response.read.return_value = json.dumps({"jwt": jwt}).encode()
+        mock_urlopen.return_value = response
+
+    @staticmethod
+    def _sent_form(mock_urlopen):
+        request = mock_urlopen.call_args[0][0]
+        return parse_qs(request.data.decode())
+
+    @patch("limacharlie.jwt_cache.put_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_api_key_path_sends_lifetime_in_seconds(self, mock_urlopen, mock_resolve, _get, _put):
+        mock_resolve.return_value = {
+            "oid": "test-oid", "uid": None,
+            "api_key": "test-api-key-12345678", "oauth": None,
+        }
+        jwt = _make_jwt(time.time() + 4 * 3600)
+        self._respond_with(mock_urlopen, jwt)
+        client = Client(oid="test-oid")
+
+        assert client.get_jwt(expiry_hours=4) == jwt
+
+        form = self._sent_form(mock_urlopen)
+        assert form["expiry"] == ["14400"]
+        assert form["oid"] == ["test-oid"]
+
+    @patch("limacharlie.jwt_cache.put_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_oauth_path_sends_lifetime_in_seconds(self, mock_urlopen, mock_resolve, _get, _put):
+        mock_resolve.return_value = {
+            "oid": "test-oid", "uid": None, "api_key": None,
+            "oauth": {"id_token": "id", "refresh_token": "ref"},
+        }
+        jwt = _make_jwt(time.time() + 8 * 3600)
+        self._respond_with(mock_urlopen, jwt)
+        client = Client(oid="test-oid")
+
+        with patch.object(Client, "_refreshed_oauth_id_token", return_value="id-token"):
+            assert client.get_jwt(expiry_hours=8) == jwt
+
+        form = self._sent_form(mock_urlopen)
+        assert form["fb_auth"] == ["id-token"]
+        assert form["expiry"] == ["28800"]
+
+    @patch("limacharlie.jwt_cache.put_cached_jwt")
+    @patch("limacharlie.jwt_cache.get_cached_jwt", return_value=None)
+    @patch("limacharlie.client.resolve_credentials")
+    @patch("limacharlie.client.urlopen")
+    def test_default_sends_no_expiry(self, mock_urlopen, mock_resolve, _get, _put):
+        """Without expiry_hours the endpoint's own default applies."""
+        mock_resolve.return_value = {
+            "oid": "test-oid", "uid": None,
+            "api_key": "test-api-key-12345678", "oauth": None,
+        }
+        self._respond_with(mock_urlopen, _make_jwt(time.time() + 3600))
+        client = Client(oid="test-oid")
+        client._jwt = None
+
+        client.get_jwt()
+
+        assert "expiry" not in self._sent_form(mock_urlopen)
 
 class TestResolveTokenExpiry:
     """Tests for _resolve_token_expiry resolution logic.
@@ -452,6 +540,52 @@ class TestGetTokenCommand:
             assert data["oid"] == "test-oid"
             assert "expiry" in data
             assert "expiry_iso" in data
+
+    def test_get_token_json_reports_the_tokens_own_expiry(self):
+        """The reported expiry is the token's exp claim, not the requested one.
+
+        get_jwt may hand back a cached token whose lifetime differs from
+        the request, so only the claim says when the token stops working.
+        """
+        from limacharlie.commands.auth import get_token
+
+        exp = int(time.time()) + 30 * 24 * 3600
+        runner = CliRunner()
+        with patch("limacharlie.commands.auth._get_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.get_jwt.return_value = _make_jwt(exp)
+            mock_client.oid = "test-oid"
+            mock_get_client.return_value = mock_client
+
+            result = runner.invoke(get_token, [
+                "--hours", "4", "--format", "json",
+            ], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["expiry"] == exp
+        assert data["valid_hours"] == 4.0
+
+    def test_get_token_json_falls_back_to_requested_expiry(self):
+        """A token without a readable exp claim reports the requested expiry."""
+        from limacharlie.commands.auth import get_token
+
+        runner = CliRunner()
+        with patch("limacharlie.commands.auth._get_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.get_jwt.return_value = "not-a-jwt"
+            mock_client.oid = "test-oid"
+            mock_get_client.return_value = mock_client
+
+            before = int(time.time())
+            result = runner.invoke(get_token, [
+                "--hours", "2", "--format", "json",
+            ], catch_exceptions=False)
+            after = int(time.time())
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert before + 7200 <= data["expiry"] <= after + 7200
 
     def test_get_token_default_1_hour(self):
         """get-token without --hours uses 1 hour default."""

@@ -193,6 +193,30 @@ class TestGetCachedJwt:
     def test_returns_none_when_cache_empty(self, tmp_jwt_cache):
         assert get_cached_jwt("oid", "key", None, None) is None
 
+    def test_discards_and_removes_decades_long_token(self, tmp_jwt_cache):
+        """A token valid for decades is not reused and leaves the cache file.
+
+        The exp below has the exact shape the JWT endpoint produces when a
+        client sends an absolute timestamp as ``expiry`` for a 4-hour
+        request: it adds that timestamp to the current time.
+        """
+        now = time.time()
+        put_cached_jwt(_make_jwt(2 * now + 4 * 3600), "oid", "key", None, None)
+        other = _make_jwt(now + 3600)
+        put_cached_jwt(other, "oid", "other-key", None, None)
+
+        assert get_cached_jwt("oid", "key", None, None) is None
+        cache = _load_cache()
+        assert _compute_cache_key("oid", "key", None, None) not in cache
+        # Only the offending entry is removed.
+        assert get_cached_jwt("oid", "other-key", None, None) == other
+
+    def test_reuses_long_but_plausible_token(self, tmp_jwt_cache):
+        """A long lifetime under the 10-year bound is still reused."""
+        jwt = _make_jwt(time.time() + 9 * 365 * 24 * 3600)
+        put_cached_jwt(jwt, "oid", "key", None, None)
+        assert get_cached_jwt("oid", "key", None, None) == jwt
+
     def test_returns_none_when_key_doesnt_match(self, tmp_jwt_cache):
         exp = time.time() + 3600
         put_cached_jwt(_make_jwt(exp), "oid", "key1", None, None)

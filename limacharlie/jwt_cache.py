@@ -20,6 +20,13 @@ No file locking. Worst case on concurrent access is a redundant JWT request.
 
 Expiry buffer: 10 minutes. A cached JWT is only reused if it has more
 than 10 minutes remaining before expiration.
+
+Implausible lifetimes: a cached JWT with more than 10 years remaining is
+never reused, and its entry is removed from the cache file. The JWT
+endpoint reads ``expiry`` as a lifetime and adds it to the current time,
+so a client that sends an absolute timestamp there (SDK releases 5.4.1 to
+5.8.0 did) is issued a token valid for decades. No lifetime this SDK
+requests comes close to 10 years, so such an entry is one of those tokens.
 """
 
 from __future__ import annotations
@@ -37,6 +44,10 @@ from .paths import get_jwt_cache_path as _resolve_jwt_cache_path
 
 # Cached JWT must have at least this many seconds remaining to be reused.
 _EXPIRY_BUFFER_SECONDS = 600  # 10 minutes
+
+# A cached JWT with more than this many seconds remaining is discarded
+# rather than reused. See "Implausible lifetimes" in the module docstring.
+_MAX_REUSABLE_REMAINING_SECONDS = 10 * 365 * 24 * 3600  # 10 years
 
 # Per-process cache for the disabled check. Each CLI invocation is a
 # separate process, so evaluating once is sufficient - the config file
@@ -227,7 +238,9 @@ def get_cached_jwt(
     """Return a cached JWT if one exists and is still valid.
 
     A JWT is considered valid if it has more than 10 minutes remaining
-    before expiration (the _EXPIRY_BUFFER_SECONDS constant).
+    before expiration (the _EXPIRY_BUFFER_SECONDS constant) and no more
+    than 10 years (the _MAX_REUSABLE_REMAINING_SECONDS constant). An entry
+    past the upper bound is removed from the cache file.
 
     Args:
         oid: organization ID.
@@ -258,7 +271,13 @@ def get_cached_jwt(
     if exp is None:
         return None
 
-    if time.time() + _EXPIRY_BUFFER_SECONDS >= exp:
+    now = time.time()
+    if now + _EXPIRY_BUFFER_SECONDS >= exp:
+        return None
+
+    if exp - now > _MAX_REUSABLE_REMAINING_SECONDS:
+        del cache[cache_key]
+        _save_cache(cache)
         return None
 
     return jwt_str
