@@ -368,6 +368,70 @@ class TestFormatStatsSummary:
         assert "scanned: 0" in summary
 
 
+class TestFormatStatsSummarySearchMode:
+    """The summary reports the mode the page actually ran as.
+
+    The requested mode is a hint, so the line the user reads has to come from
+    the page's own stats rather than from what was asked for.
+    """
+
+    def test_applied_mode_is_reported(self):
+        summary = _format_stats_summary({"searchMode": "batch", "eventsMatched": 3})
+        assert "mode: batch" in summary
+        assert "matched: 3" in summary
+
+    def test_mode_leads_the_line(self):
+        """It answers 'what did this run as', which frames every counter after
+        it, so it reads first."""
+        summary = _format_stats_summary({"searchMode": "interactive", "eventsMatched": 3})
+        assert summary.startswith("mode: interactive")
+
+    def test_omitted_when_the_search_did_not_paginate(self):
+        """An unpaginated search reports no mode, and the line says nothing
+        about one rather than guessing a default."""
+        summary = _format_stats_summary({"eventsMatched": 3, "eventsScanned": 9})
+        assert "mode" not in summary
+
+    def test_read_from_the_page_stats_not_the_cumulative_rollup(self):
+        """The counters roll up across pages; the mode is a property of this
+        one page, so it is read beside the roll-up rather than out of it."""
+        stats = {
+            "searchMode": "batch",
+            "cumulativeStats": {"eventsMatched": 100},
+        }
+        summary = _format_stats_summary(stats)
+        assert "mode: batch" in summary
+        assert "matched: 100" in summary
+
+    def test_a_mode_only_in_the_rollup_is_not_reported(self):
+        summary = _format_stats_summary({"cumulativeStats": {"searchMode": "batch"}})
+        assert "mode" not in summary
+
+    @pytest.mark.parametrize("value", [None, "", 1, True, [], {}, ["batch"]])
+    def test_a_non_string_mode_is_ignored(self, value):
+        """Fields are additive and the server may send a shape this client does
+        not know; an unusable value drops out of the line instead of rendering
+        as one."""
+        summary = _format_stats_summary({"searchMode": value, "eventsMatched": 3})
+        assert "mode" not in summary
+        assert "matched: 3" in summary
+
+    def test_an_unrecognised_mode_is_still_reported(self):
+        """A mode this client has no constant for is what the page ran as, so
+        it is shown rather than hidden."""
+        summary = _format_stats_summary({"searchMode": "something-new"})
+        assert "mode: something-new" in summary
+
+    def test_control_characters_in_the_mode_are_escaped(self):
+        """The value is rendered to a terminal and it arrives over the wire."""
+        summary = _format_stats_summary({"searchMode": "batch\r\n\x1b[2J"})
+        assert "\r" not in summary
+        assert "\x1b" not in summary
+
+    def test_mode_alone_produces_a_line_of_its_own(self):
+        assert _format_stats_summary({"searchMode": "batch"}) == "mode: batch"
+
+
 # ---------------------------------------------------------------------------
 # _limit_event_columns
 # ---------------------------------------------------------------------------

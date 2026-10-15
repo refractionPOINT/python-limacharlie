@@ -103,7 +103,8 @@ class TestCheckpointEndToEnd:
 
     def test_checkpoint_survives_interruption(self, tmp_path, mock_org):
         """Checkpoint preserves results even when search is interrupted."""
-        # Search that returns 3 pages, but we stop after 2
+        # Search that returns 3 pages of 2 rows, but a 4-row limit stops it
+        # after 2
         responses = _make_search_responses(3, 2)
         mock_org.client.request.side_effect = responses
         search = Search(mock_org)
@@ -113,7 +114,7 @@ class TestCheckpointEndToEnd:
                               "event", None, "test-oid") as writer:
             count = 0
             for item in search.execute("test query", 1000, 2000,
-                                       stream="event", limit=2):
+                                       stream="event", limit=4):
                 writer.write_result(item)
                 count += 1
                 writer.update_progress(1, count, completed=False)

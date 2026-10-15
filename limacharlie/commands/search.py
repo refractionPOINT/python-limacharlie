@@ -41,7 +41,7 @@ from ..cli import pass_context
 from ..client import Client
 from ..config import get_config_value
 from ..sdk.organization import Organization
-from ..sdk.search import Search
+from ..sdk.search import Search, SEARCH_MODE_BATCH, SEARCH_MODE_INTERACTIVE
 from ..sdk.hive import Hive, HiveRecord
 from ..output import format_output, format_table, detect_output_format, escape_control_chars
 from ..discovery import register_explain
@@ -56,6 +56,81 @@ DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS: float = 4.0
 
 # Config file key for overriding the default search token expiry.
 CONFIG_KEY_SEARCH_TOKEN_EXPIRY = "search_token_expiry_hours"
+
+# Choices for --mode, in the order the help text lists them.
+_SEARCH_MODE_CHOICES = [SEARCH_MODE_INTERACTIVE, SEARCH_MODE_BATCH]
+
+_MODE_HELP = (
+    "How the search will be consumed: 'interactive' favours time to first "
+    "results, 'batch' favours throughput over the whole result set (fewer, "
+    "larger pages). Defaults to interactive, or batch when the run is a bulk "
+    "retrieval (--checkpoint, redirected output, or --output jsonl/csv/toon). "
+    "A hint, not a guarantee."
+)
+
+# Output formats that exist to be consumed by something other than a reader,
+# and so mark the run as a bulk retrieval:
+#   jsonl  the streaming export format this CLI recommends for 100K+ events
+#   csv    a buffered export, fed to a spreadsheet or a loader
+#   toon   a compact encoding whose stated purpose is feeding an LLM prompt
+# json and yaml are excluded on purpose. Both are readable, and json is what
+# an unset --output resolves to whenever stdout is not a terminal, which the
+# redirect check already covers.
+_BULK_OUTPUT_FORMATS = frozenset({"jsonl", "csv", "toon"})
+
+
+def _stdout_is_terminal() -> bool:
+    """Whether the results are going to a screen rather than a file or a pipe.
+
+    A separate question from which format they are rendered in, and the one
+    that decides whether anyone is reading pages as they arrive.
+    """
+    return sys.stdout.isatty()
+
+
+def _resolve_search_mode(
+    ctx: click.Context,
+    requested: str | None,
+    checkpoint_driven: bool = False,
+) -> str:
+    """Pick the consumption mode for a CLI-initiated search.
+
+    ``--mode`` always wins. With nothing requested the default is
+    ``interactive``, and ``batch`` only where the run is evidently a bulk
+    retrieval rather than something a person is reading:
+
+    1. it is driven by a checkpoint, whose whole purpose is to fetch a
+       result set to a file, resumably;
+    2. stdout is not a terminal, so the output is redirected to a file or
+       piped into another program;
+    3. the resolved output format is one of ``_BULK_OUTPUT_FORMATS``.
+
+    Everything else resolves to ``interactive``, including every case those
+    signals leave ambiguous. The asymmetry is deliberate: an over-large page
+    in front of someone waiting at a terminal is a worse outcome than a
+    slightly chattier bulk fetch that nobody is watching.
+
+    This is also why the CLI never inherits the SDK default, which is
+    ``batch`` for the scripts that call it directly.
+
+    Args:
+        ctx: Click context, read for the selected output format.
+        requested: The value of ``--mode``, or None when it was not given.
+        checkpoint_driven: True when results are being written to, or
+            resumed from, a checkpoint file.
+
+    Returns:
+        str: One of ``SEARCH_MODE_INTERACTIVE`` or ``SEARCH_MODE_BATCH``.
+    """
+    if requested is not None:
+        return requested
+    if checkpoint_driven:
+        return SEARCH_MODE_BATCH
+    if not _stdout_is_terminal():
+        return SEARCH_MODE_BATCH
+    if (ctx.obj.output_format or detect_output_format()) in _BULK_OUTPUT_FORMATS:
+        return SEARCH_MODE_BATCH
+    return SEARCH_MODE_INTERACTIVE
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +315,8 @@ def _build_fresh_query_cmd(meta: dict[str, Any], checkpoint_path: str) -> str:
         parts.append(f"--stream {shlex.quote(str(meta['stream']))}")
     if meta.get("limit"):
         parts.append(f"--limit {meta['limit']}")
+    if meta.get("mode"):
+        parts.append(f"--mode {shlex.quote(str(meta['mode']))}")
     parts.append(f"--checkpoint {shlex.quote(checkpoint_path)}")
     parts.append("--force")
     return " \\\n    ".join(parts)
@@ -389,11 +466,20 @@ def _format_stats_summary(stats: dict[str, Any]) -> str:
 
     Prefers cumulative stats (aggregated across all pages by the server)
     when available, falling back to the page-level stats.
+
+    ``searchMode`` is read from the page-level stats rather than the
+    cumulative roll-up: it is what this page actually ran as, which the
+    server decides per organization and may choose itself, so it answers
+    a different question from the counters beside it. A search that ran
+    without pagination reports no mode and the summary omits it.
     """
     # Use cumulative stats if available (server-aggregated across pages).
     effective = stats.get("cumulativeStats") or stats
 
     parts: list[str] = []
+    search_mode = stats.get("searchMode")
+    if isinstance(search_mode, str) and search_mode:
+        parts.append(f"mode: {escape_control_chars(search_mode)}")
     matched = effective.get("eventsMatched")
     scanned = effective.get("eventsScanned")
     if matched is not None:
@@ -1165,7 +1251,7 @@ logs stored in Insight.
 
 You must provide a time range via --start and --end (unix epoch
 seconds).  Use --stream to specify the data stream ('event', 'detect',
-'audit').  Use --limit to cap the number of results.
+'audit').  Use --limit to cap the number of rows returned.
 
 LCQL query format:
 
@@ -1253,6 +1339,47 @@ Output formats:
   For large result sets (100K+ events), prefer --output jsonl or
   --checkpoint to avoid high memory usage.
 
+Search mode:
+  --mode declares how you intend to consume the search, not how much
+  data you want.  You never ask for a row count; the server sizes the
+  pages.
+
+    interactive  favour time to first results
+    batch        favour throughput over the whole result set, which
+                 means fewer and larger pages
+
+  Both modes return the same rows in the same order.  Only where the
+  page boundaries fall changes.
+
+  You rarely need to pass it.  The default is interactive, and batch
+  whenever the run is evidently a bulk retrieval rather than something
+  you are reading:
+
+    --checkpoint (or --resume)   results go to a file as they arrive
+    stdout is not a terminal     redirected to a file, or piped
+    --output jsonl, csv, toon    formats that exist to be consumed by
+                                 something other than a reader
+
+  Anything else, including anything those signals leave ambiguous, runs
+  interactive: an over-large page in front of someone waiting at a
+  terminal is worse than a chattier fetch nobody is watching.  --mode
+  overrides the default in every case.
+
+  It only applies to a paginated search.  A query that must process all
+  the data before it can answer anything - GROUP BY, ORDER BY, an
+  aggregation over every record - is unaffected.
+
+  It is a hint.  The mode is enabled per organization and the server may
+  also pick one itself, so a search can run as something other than what
+  you asked for.  The stats line printed to stderr reports the mode the
+  page actually ran as, and --raw or --output json carries it as
+  'searchMode' in each page's stats, alongside 'pageSize' (the soft
+  per-page result cap) and 'paginatedByteCap' (the reply-byte ceiling).
+  A page can end below pageSize on a time or byte limit and slightly
+  above it, because a page stops only once a whole batch has arrived.
+
+  Send it once.  Continuation pages inherit the mode automatically.
+
 Token expiry defaults to 4 hours to avoid mid-query JWT expiry on
 long-running searches.  Override with --token-expiry or set
 'search_token_expiry_hours' in ~/.limacharlie.
@@ -1278,6 +1405,20 @@ Checkpoint/Resume:
   The --query, --start, --end, and --stream flags are incompatible
   with --resume (query parameters are loaded from the checkpoint).
 
+  A checkpointed run is a bulk retrieval, so it runs batch unless
+  --mode says otherwise, and the checkpoint records the mode it ran.
+  A resume submits a fresh search and re-sends that recorded mode.
+  --mode is allowed on a resume and overrides it, and the checkpoint
+  records the override so a later resume repeats it: the mode moves the
+  page boundaries and nothing else, so the rows already on disk and the
+  rows still to come are unaffected. A checkpoint with no pagination
+  token is the exception, because its resume re-fetches from the start
+  and skips the saved results by count; it re-sends the original mode
+  and ignores --mode with a warning.
+
+  --limit caps rows across the whole checkpoint, so on a resume the rows
+  already saved count against it.
+
 IMPORTANT: Do not write LCQL queries from scratch. Use
 'limacharlie ai generate-query --prompt "<description>"' to generate
 a query from a natural language description, then pass the result to
@@ -1291,7 +1432,8 @@ register_explain("search.run", _EXPLAIN_RUN)
 @click.option("--start", default=None, type=int, help="Start time (unix seconds).")
 @click.option("--end", default=None, type=int, help="End time (unix seconds).")
 @click.option("--stream", default=None, help="Stream type (event, detect, audit).")
-@click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option("--limit", default=None, type=click.IntRange(min=0), help="Maximum number of rows to return, across all pages.")
+@click.option("--mode", default=None, type=click.Choice(_SEARCH_MODE_CHOICES), help=_MODE_HELP)
 @click.option(
     "--token-expiry", default=None, type=float,
     help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
@@ -1307,7 +1449,8 @@ register_explain("search.run", _EXPLAIN_RUN)
               help="Overwrite existing checkpoint data file (use with --checkpoint).")
 @pass_context
 def run(ctx: click.Context, query: str | None, start: int | None, end: int | None,
-        stream: str | None, limit: int | None, token_expiry: float | None,
+        stream: str | None, limit: int | None, mode: str | None,
+        token_expiry: float | None,
         raw: bool, expand: bool, checkpoint_path: str | None, resume: bool,
         force: bool) -> None:
     """Execute an LCQL query against historical telemetry."""
@@ -1353,18 +1496,19 @@ def run(ctx: click.Context, query: str | None, start: int | None, end: int | Non
             return
 
     if resume:
-        _run_resume(ctx, checkpoint_path, limit, token_expiry, raw, expand)
+        _run_resume(ctx, checkpoint_path, limit, mode, token_expiry, raw, expand)
     elif checkpoint_path:
-        _run_with_checkpoint(ctx, query, start, end, stream, limit,
+        _run_with_checkpoint(ctx, query, start, end, stream, limit, mode,
                              token_expiry, raw, expand, checkpoint_path, force)
     else:
-        _run_normal(ctx, query, start, end, stream, limit,
+        _run_normal(ctx, query, start, end, stream, limit, mode,
                     token_expiry, raw, expand)
 
 
 def _run_normal(
     ctx: click.Context, query: str, start: int, end: int,
-    stream: str | None, limit: int | None, token_expiry: float | None,
+    stream: str | None, limit: int | None, mode: str | None,
+    token_expiry: float | None,
     raw: bool, expand: bool,
 ) -> None:
     """Execute a search without checkpointing.
@@ -1411,7 +1555,9 @@ def _run_normal(
     search = Search(org)
     progress_fn = _make_progress_fn(ctx)
     try:
-        gen = search.execute(query, start, end, stream=stream, limit=limit, progress_fn=progress_fn)
+        gen = search.execute(query, start, end, stream=stream, limit=limit,
+                             progress_fn=progress_fn,
+                             mode=_resolve_search_mode(ctx, mode))
         # Try streaming output first (JSONL, JSON, expand). If the format
         # requires buffering (table, CSV, YAML), fall back to list().
         if _stream_search_output(ctx, gen, raw=raw, expand=expand):
@@ -1428,13 +1574,22 @@ def _run_normal(
 
 def _run_with_checkpoint(
     ctx: click.Context, query: str, start: int, end: int,
-    stream: str | None, limit: int | None, token_expiry: float | None,
+    stream: str | None, limit: int | None, mode: str | None,
+    token_expiry: float | None,
     raw: bool, expand: bool, checkpoint_path: str, force: bool = False,
 ) -> None:
-    """Execute a search with checkpoint persistence."""
+    """Execute a search with checkpoint persistence.
+
+    A checkpointed run is a bulk retrieval by construction: every page goes
+    to the file as it arrives and nothing is rendered until the search ends.
+    So it resolves to batch unless ``--mode`` says otherwise, and the
+    resolved mode - not the raw flag - is what the checkpoint records, so a
+    later resume repeats what this run actually did.
+    """
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     _warn_cost_if_over_30_days(ctx, query, start, end, stream, checkpoint_path)
+    effective_mode = _resolve_search_mode(ctx, mode, checkpoint_driven=True)
     org = _get_org(ctx)
     debug_fn = ctx.obj.debug_fn
     effective_expiry = _resolve_token_expiry(token_expiry, environment=ctx.obj.environment)
@@ -1462,6 +1617,7 @@ def _run_with_checkpoint(
             limit=limit,
             oid=org.oid,
             force=force,
+            mode=effective_mode,
         )
     except FileExistsError:
         # Give a context-aware message based on checkpoint state.
@@ -1516,7 +1672,8 @@ def _run_with_checkpoint(
     try:
         with writer:
             for item in search.execute(query, start, end, stream=stream,
-                                       limit=limit, progress_fn=progress_fn):
+                                       limit=limit, progress_fn=progress_fn,
+                                       mode=effective_mode):
                 writer.write_result(item)
                 count += 1
                 # Track token, page, events, and timestamps.
@@ -1559,7 +1716,7 @@ def _run_with_checkpoint(
 
 def _run_resume(
     ctx: click.Context, checkpoint_path: str,
-    limit: int | None, token_expiry: float | None,
+    limit: int | None, mode: str | None, token_expiry: float | None,
     raw: bool, expand: bool,
 ) -> None:
     """Resume a search from an existing checkpoint.
@@ -1567,6 +1724,25 @@ def _run_resume(
     Uses the stored pagination token to skip directly to the next
     un-fetched page on the server side, avoiding re-fetching already-
     checkpointed data.
+
+    A resume submits a fresh search, so it re-sends the consumption mode
+    the checkpoint recorded. ``mode`` overrides it, and the override is
+    written back to the checkpoint so a later plain ``--resume`` repeats it.
+    That is safe when the checkpoint holds a pagination token, because the
+    mode moves the page boundaries and nothing else: the rows already on
+    disk and the rows still to come are the same either way. A checkpoint
+    written before the mode was recorded falls back to the checkpoint-driven
+    default like any other bulk retrieval.
+
+    Without a token the resume re-fetches from the start and skips the
+    results already saved, counted as result objects. That only lines up
+    when the pages split the same way as in the original run, so this path
+    re-sends exactly what the original run sent - no mode at all for a
+    checkpoint that predates recording it - and ignores ``mode`` with a
+    warning.
+
+    ``limit`` caps rows across the whole checkpoint, so the rows already
+    saved count against it.
     """
     debug_fn = ctx.obj.debug_fn
     if debug_fn:
@@ -1601,6 +1777,47 @@ def _run_resume(
 
     # Use the resume limit if provided, otherwise use the original limit.
     effective_limit = limit if limit is not None else checkpoint_limit
+    total_events = meta.get("total_events", 0)
+    if last_token:
+        # Same precedence for the consumption mode, with the checkpoint's own
+        # record standing in for the original run's resolved mode.
+        effective_mode: str | None = _resolve_search_mode(
+            ctx, mode if mode is not None else meta.get("mode"),
+            checkpoint_driven=True,
+        )
+        # The search resumes past the rows already saved, so only the rest of
+        # the row cap is left for it.
+        if effective_limit:
+            leg_limit: int | None = effective_limit - total_events
+            if leg_limit <= 0:
+                click.echo(
+                    f"Checkpoint already holds {total_events:,} rows, which "
+                    f"meets --limit {effective_limit}. Nothing to resume.",
+                    err=True,
+                )
+                with resumer:
+                    resumer.update_progress(meta.get("page", 1), existing_count,
+                                            completed=True)
+                _output_checkpoint_results(ctx, checkpoint_path, raw=raw, expand=expand)
+                return
+        else:
+            leg_limit = effective_limit
+    else:
+        # The re-fetch below skips saved results by count, which only lines up
+        # when the pages split as in the original run, so re-send exactly what
+        # it sent. A checkpoint without a "mode" key predates recording it and
+        # was submitted with no mode at all.
+        effective_mode = meta.get("mode")
+        if mode is not None and mode != effective_mode:
+            _warn(
+                ctx,
+                f"Warning: --mode {mode} is ignored. This checkpoint has no "
+                f"pagination token, so the resume re-fetches from the start "
+                f"and skips the {existing_count} results already saved, which "
+                f"only lines up when the pages split as in the original run.",
+            )
+        # The re-fetch starts from the first row, so the whole cap applies.
+        leg_limit = effective_limit
 
     if debug_fn:
         debug_fn(f"Checkpoint: {existing_count} existing results, "
@@ -1634,19 +1851,21 @@ def _run_resume(
 
     count = existing_count
     page = resume_page
-    total_events = meta.get("total_events", 0)
     last_token_new: str | None = last_token
     last_event_ts: int | None = meta.get("last_event_ts")
     try:
         with resumer:
+            if effective_mode != meta.get("mode") and last_token:
+                resumer.record_mode(effective_mode)
             # Use start_token to skip directly to the next un-fetched page
             # on the server side. If no token is available (e.g. interrupted
             # on page 1 before any results), fall back to re-fetch + skip.
             gen = search.execute(
                 query, start, end, stream=stream,
-                limit=effective_limit, progress_fn=progress_fn,
+                limit=leg_limit, progress_fn=progress_fn,
                 start_token=last_token,
                 start_page=resume_page,
+                mode=effective_mode,
             )
 
             if last_token:
@@ -2141,7 +2360,7 @@ The saved query must include 'start' and 'end' times.  If they are
 missing, the command will error -- use 'search run' with explicit
 --start/--end instead, or update the saved query to include times.
 
-Use --limit to cap the number of results returned.
+Use --limit to cap the number of rows returned.
 
 Related: 'search saved-list' to find query names,
 'search saved-get' to inspect a query before running.
@@ -2151,7 +2370,8 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 
 @group.command("saved-run")
 @click.option("--name", required=True, help="Name of the saved query to execute.")
-@click.option("--limit", default=None, type=int, help="Maximum number of results.")
+@click.option("--limit", default=None, type=click.IntRange(min=0), help="Maximum number of rows to return, across all pages.")
+@click.option("--mode", default=None, type=click.Choice(_SEARCH_MODE_CHOICES), help=_MODE_HELP)
 @click.option(
     "--token-expiry", default=None, type=float,
     help=f"JWT token validity in hours (default: {DEFAULT_SEARCH_TOKEN_EXPIRY_HOURS}). "
@@ -2160,7 +2380,8 @@ register_explain("search.saved-run", _EXPLAIN_SAVED_RUN)
 @click.option("--raw", is_flag=True, default=False, help="Show raw API result objects without unwrapping.")
 @click.option("--expand", is_flag=True, default=False, help="Show each event as a full pretty-printed JSON block.")
 @pass_context
-def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: float | None, raw: bool, expand: bool) -> None:
+def saved_run(ctx: click.Context, name: str, limit: int | None, mode: str | None,
+              token_expiry: float | None, raw: bool, expand: bool) -> None:
     """Execute a saved query."""
     org = _get_org(ctx)
 
@@ -2202,7 +2423,9 @@ def saved_run(ctx: click.Context, name: str, limit: int | None, token_expiry: fl
     search = Search(org)
     progress_fn = _make_progress_fn(ctx)
     try:
-        gen = search.execute(query_str, start_time, end_time, stream=stream, limit=limit, progress_fn=progress_fn)
+        gen = search.execute(query_str, start_time, end_time, stream=stream,
+                             limit=limit, progress_fn=progress_fn,
+                             mode=_resolve_search_mode(ctx, mode))
         if _stream_search_output(ctx, gen, raw=raw, expand=expand):
             return
         results = list(gen)
