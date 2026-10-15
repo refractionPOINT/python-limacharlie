@@ -527,7 +527,10 @@ and each top signal's dependency on missing context. Missing evidence can hide
 attacks and remove exemptions; the score is not a delivery-equivalent re-score.
 
 --with-org-context reads the organization's current profiles, popularity,
-cached registry age, thread context and VIP lists. These reads are audited.
+cached registry age, thread context and VIP lists, including configured platform
+accounts. These reads are audited. vip_account_binding reports whether the
+configuration is available; submitted EML cannot prove receiver-authenticated actor
+identity, so it cannot grant verified VIP account credit.
 Attachment explosion/OCR and link detonation are still not run.
 Known org domains derive received-mail direction (inbound/internal). Set
 --direction outbound for sent mail; without known domains direction is unknown.
@@ -1394,6 +1397,9 @@ def analyze(ctx, eml_file, org_domains, direction, with_org_context) -> None:
         unavailable = response.get("unavailable_evidence", [])
         if unavailable:
             note(ctx, "Unavailable evidence: " + ", ".join(unavailable))
+        binding = response.get("vip_account_binding")
+        if isinstance(binding, dict):
+            note(ctx, "VIP account binding: " + escape_control_chars(str(binding.get("reason", "unavailable"))))
         gaps = response.get("unevaluated_rules", [])
         if gaps:
             note(ctx, f"{len(gaps)} unmatched rules have unavailable inputs:")

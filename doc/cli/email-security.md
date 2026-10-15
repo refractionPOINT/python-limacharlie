@@ -604,3 +604,19 @@ Each member includes `msg_uuid`, `ts`, `verdict`, `score`, `mailbox_address`,
 `joined_at` and `message`. The first fields describe membership when joined;
 `message` is the current retained index summary, or null after that row expires.
 A null message does not indicate a benign verdict or missing membership.
+
+### VIP platform accounts
+
+VIP configuration uses `mailsec_policy` hive records. Each VIP may include an optional
+`platform_identities` array with up to eight
+`{platform: google, email: executive@example.test}` entries. Only Google Workspace
+share notifications are supported. GitHub and other platforms are rejected. Existing hive commands
+accept the complete JSON/YAML record, including these fields. Only authenticated
+supported provider notifications with a matching provider-controlled actor identifier
+can receive account credit; names, comments without account IDs and concrete threats
+keep their normal checks. Maintain bindings after account rename or ownership changes.
+
+`mailsec analyze --with-org-context` reads current configured VIP accounts. Its
+`vip_account_binding` diagnostic distinguishes missing configuration from missing
+receiver authentication. Submitted EML is unattested: its headers cannot prove the
+platform authenticated the actor, even when current configuration was read.
