@@ -3,6 +3,7 @@
 import sys
 import os
 import uuid
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
@@ -13,7 +14,12 @@ TEST_PREFIX = "test-cli-v2-"
 
 
 def _unique_name(base=""):
-    return f"{TEST_PREFIX}{base}{uuid.uuid4().hex[:8]}"
+    """Return a unique test key name that carries its UTC creation time.
+
+    Keys do not report when they were created, so the timestamp is what tells
+    a key a test run left behind from one that is still in use.
+    """
+    return f"{TEST_PREFIX}{base}{datetime.now(timezone.utc):%Y-%m-%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
 
 
 def test_v2_api_keys_crud(oid, key, api_key_cleanup):

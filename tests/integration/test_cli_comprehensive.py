@@ -14,6 +14,7 @@ import os
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -27,6 +28,15 @@ TEST_PREFIX = "test-cli-v2-"
 
 def _unique(base=""):
     return f"{TEST_PREFIX}{base}{uuid.uuid4().hex[:8]}"
+
+
+def _unique_key_name(base=""):
+    """Like _unique, with the UTC creation time in the name.
+
+    Keys do not report when they were created, so the timestamp is what tells
+    a key a test run left behind from one that is still in use.
+    """
+    return f"{TEST_PREFIX}{base}{datetime.now(timezone.utc):%Y-%m-%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
 
 
 def _invoke(oid, key, args, expect_success=True):
@@ -281,7 +291,7 @@ class TestCliApiKey:
         assert result.exit_code == 0
 
     def test_crud(self, oid, key, api_key_cleanup):
-        name = _unique("apikey-")
+        name = _unique_key_name("apikey-")
         # Registered before the create, so the key is deleted at teardown even
         # if any step below fails.
         api_key_cleanup(name)
@@ -315,7 +325,7 @@ class TestCliInstallationKey:
         assert result.exit_code == 0
 
     def test_crud(self, oid, key, installation_key_cleanup):
-        desc = _unique("instkey-")
+        desc = _unique_key_name("instkey-")
         # Registered before the create, so the key is deleted at teardown even
         # if any step below fails.
         installation_key_cleanup(desc)
@@ -351,7 +361,7 @@ class TestCliIngestionKey:
         assert result.exit_code == 0
 
     def test_crud(self, oid, key):
-        name = _unique("ingkey-")
+        name = _unique_key_name("ingkey-")
 
         try:
             # Create
