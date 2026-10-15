@@ -49,8 +49,9 @@ def _invoke(oid, key, args, expect_success=True):
     parsed = None
     output = result.output.strip()
     if output:
-        # Some commands print a status line then JSON — try to find JSON
-        for line in output.split("\n"):
+        # Some commands print a status line then JSON - try to find JSON
+        lines = output.split("\n")
+        for line in lines:
             line = line.strip()
             if line.startswith("{") or line.startswith("["):
                 try:
@@ -64,6 +65,17 @@ def _invoke(oid, key, args, expect_success=True):
                 parsed = json.loads(output)
             except json.JSONDecodeError:
                 pass
+        # A status line followed by pretty-printed (multi-line) JSON, which is
+        # what the create commands print, fails both attempts above: decode
+        # from the first line that opens a JSON value instead.
+        if parsed is None:
+            for i, line in enumerate(lines):
+                if line.lstrip().startswith(("{", "[")):
+                    try:
+                        parsed, _ = json.JSONDecoder().raw_decode("\n".join(lines[i:]).lstrip())
+                        break
+                    except json.JSONDecodeError:
+                        pass
     return result, parsed
 
 
@@ -268,28 +280,29 @@ class TestCliApiKey:
         result, _ = _invoke(oid, key, ["api-key", "list"])
         assert result.exit_code == 0
 
-    def test_crud(self, oid, key):
+    def test_crud(self, oid, key, api_key_cleanup):
         name = _unique("apikey-")
-        created_hash = None
+        # Registered before the create, so the key is deleted at teardown even
+        # if any step below fails.
+        api_key_cleanup(name)
 
-        try:
-            # Create
-            result, data = _invoke(oid, key, [
-                "api-key", "create", "--name", name, "--permissions", "org.get",
-            ])
-            assert result.exit_code == 0
-            # Extract key hash from output for cleanup
-            if data and isinstance(data, dict):
-                created_hash = data.get("key_hash") or data.get("hash")
+        # Create
+        _, data = _invoke(oid, key, [
+            "api-key", "create", "--name", name, "--permissions", "org.get",
+        ])
+        # The output carries the key's secret, so it is not echoed on failure.
+        assert isinstance(data, dict), "create output did not parse as a JSON object"
+        created_hash = data.get("key_hash") or data.get("hash")
+        assert created_hash, f"create output has no key_hash: {sorted(data)}"
 
-            # List — just verify it works after creation
-            result, _ = _invoke(oid, key, ["api-key", "list"])
-            assert result.exit_code == 0
-        finally:
-            if created_hash:
-                _invoke(oid, key, [
-                    "api-key", "delete", "--key-hash", created_hash, "--confirm",
-                ])
+        # List, filtered to the new key
+        _, data = _invoke(oid, key, ["api-key", "list", "--name", name])
+        assert isinstance(data, dict) and created_hash in data
+
+        # Delete
+        _invoke(oid, key, ["api-key", "delete", "--key-hash", created_hash, "--confirm"])
+        _, data = _invoke(oid, key, ["api-key", "list", "--name", name])
+        assert data == {}
 
 
 # ============================================================================
@@ -301,27 +314,31 @@ class TestCliInstallationKey:
         result, _ = _invoke(oid, key, ["installation-key", "list"])
         assert result.exit_code == 0
 
-    def test_crud(self, oid, key):
+    def test_crud(self, oid, key, installation_key_cleanup):
         desc = _unique("instkey-")
-        created_iid = None
+        # Registered before the create, so the key is deleted at teardown even
+        # if any step below fails.
+        installation_key_cleanup(desc)
 
-        try:
-            # Create
-            result, data = _invoke(oid, key, [
-                "installation-key", "create", "--description", desc,
-            ])
-            assert result.exit_code == 0
-            if data and isinstance(data, dict):
-                created_iid = data.get("iid")
+        # Create
+        _, data = _invoke(oid, key, [
+            "installation-key", "create", "--description", desc,
+        ])
+        assert isinstance(data, dict), "create output did not parse as a JSON object"
+        created_iid = data.get("iid")
+        assert created_iid, f"create output has no iid: {sorted(data)}"
 
-            # List
-            result, _ = _invoke(oid, key, ["installation-key", "list"])
-            assert result.exit_code == 0
-        finally:
-            if created_iid:
-                _invoke(oid, key, [
-                    "installation-key", "delete", "--iid", created_iid, "--confirm",
-                ])
+        # List. Every entry carries its enrollment key, so the assertions
+        # check a bool rather than letting pytest print the whole listing.
+        _, data = _invoke(oid, key, ["installation-key", "list"])
+        listed = isinstance(data, dict) and created_iid in data
+        assert listed, f"installation key {created_iid} not in the list"
+
+        # Delete
+        _invoke(oid, key, ["installation-key", "delete", "--iid", created_iid, "--confirm"])
+        _, data = _invoke(oid, key, ["installation-key", "list"])
+        listed = isinstance(data, dict) and created_iid in data
+        assert not listed, f"installation key {created_iid} still listed after delete"
 
 
 # ============================================================================
