@@ -12,6 +12,7 @@ import pytest
 from limacharlie.jwt_cache import (
     _compute_cache_key,
     _decode_jwt_exp,
+    _decode_jwt_lifetime,
     _get_cache_path,
     _is_cache_disabled,
     _load_cache,
@@ -19,8 +20,10 @@ from limacharlie.jwt_cache import (
     _save_cache,
     clear_jwt_cache,
     get_cached_jwt,
+    get_cached_max_lifetime,
     invalidate_cached_jwt,
     put_cached_jwt,
+    set_cached_max_lifetime,
 )
 
 
@@ -192,6 +195,30 @@ class TestGetCachedJwt:
 
     def test_returns_none_when_cache_empty(self, tmp_jwt_cache):
         assert get_cached_jwt("oid", "key", None, None) is None
+
+    def test_discards_and_removes_decades_long_token(self, tmp_jwt_cache):
+        """A token valid for decades is not reused and leaves the cache file.
+
+        The exp below has the exact shape the JWT endpoint produces when a
+        client sends an absolute timestamp as ``expiry`` for a 4-hour
+        request: it adds that timestamp to the current time.
+        """
+        now = time.time()
+        put_cached_jwt(_make_jwt(2 * now + 4 * 3600), "oid", "key", None, None)
+        other = _make_jwt(now + 3600)
+        put_cached_jwt(other, "oid", "other-key", None, None)
+
+        assert get_cached_jwt("oid", "key", None, None) is None
+        cache = _load_cache()
+        assert _compute_cache_key("oid", "key", None, None) not in cache
+        # Only the offending entry is removed.
+        assert get_cached_jwt("oid", "other-key", None, None) == other
+
+    def test_reuses_long_but_plausible_token(self, tmp_jwt_cache):
+        """A long lifetime under the 10-year bound is still reused."""
+        jwt = _make_jwt(time.time() + 9 * 365 * 24 * 3600)
+        put_cached_jwt(jwt, "oid", "key", None, None)
+        assert get_cached_jwt("oid", "key", None, None) == jwt
 
     def test_returns_none_when_key_doesnt_match(self, tmp_jwt_cache):
         exp = time.time() + 3600
@@ -838,3 +865,69 @@ class TestSaveCacheDirectoryPermissions:
         assert parent_mode == 0o700, f"Expected 0o700, got {oct(parent_mode)}"
 
         _reset_path_cache()
+
+
+def _make_jwt_with_iat(exp, iat) -> str:
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b"=")
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp, "iat": iat}).encode()).rstrip(b"=")
+    return f"{header.decode()}.{payload.decode()}.c2ln"
+
+
+class TestDecodeJwtLifetime:
+    def test_exp_minus_iat(self):
+        assert _decode_jwt_lifetime(_make_jwt_with_iat(1000 + 172800, 1000)) == 172800
+
+    def test_missing_iat_returns_none(self):
+        assert _decode_jwt_lifetime(_make_jwt(time.time() + 3600)) is None
+
+    def test_malformed_returns_none(self):
+        assert _decode_jwt_lifetime("not-a-jwt") is None
+
+
+class TestCachedMaxLifetime:
+    def test_round_trip(self, tmp_jwt_cache):
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "key", None, None)
+        set_cached_max_lifetime(172800, "oid", "key", None, None)
+        assert get_cached_max_lifetime("oid", "key", None, None) == 172800
+
+    def test_none_when_not_recorded(self, tmp_jwt_cache):
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "key", None, None)
+        assert get_cached_max_lifetime("oid", "key", None, None) is None
+
+    def test_clear(self, tmp_jwt_cache):
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "key", None, None)
+        set_cached_max_lifetime(172800, "oid", "key", None, None)
+        set_cached_max_lifetime(None, "oid", "key", None, None)
+        assert get_cached_max_lifetime("oid", "key", None, None) is None
+
+    def test_put_keeps_the_recorded_value(self, tmp_jwt_cache):
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "key", None, None)
+        set_cached_max_lifetime(172800, "oid", "key", None, None)
+        put_cached_jwt(_make_jwt(time.time() + 7200), "oid", "key", None, None)
+        assert get_cached_max_lifetime("oid", "key", None, None) == 172800
+
+    def test_set_without_an_entry_is_a_noop(self, tmp_jwt_cache):
+        set_cached_max_lifetime(172800, "oid", "key", None, None)
+        assert get_cached_max_lifetime("oid", "key", None, None) is None
+        assert not os.path.exists(tmp_jwt_cache)
+
+    def test_scoped_to_credentials(self, tmp_jwt_cache):
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "key", None, None)
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "other", None, None)
+        set_cached_max_lifetime(172800, "oid", "key", None, None)
+        assert get_cached_max_lifetime("oid", "other", None, None) is None
+
+    def test_disabled_cache_reads_nothing(self, tmp_jwt_cache, monkeypatch):
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "key", None, None)
+        set_cached_max_lifetime(172800, "oid", "key", None, None)
+        monkeypatch.setenv("LC_NO_JWT_CACHE", "1")
+        _reset_cache_disabled()
+        assert get_cached_max_lifetime("oid", "key", None, None) is None
+
+    @pytest.mark.parametrize("bad", ["172800", 0, -5, True, 1.5, None, [1]])
+    def test_invalid_stored_values_are_ignored(self, tmp_jwt_cache, bad):
+        put_cached_jwt(_make_jwt(time.time() + 3600), "oid", "key", None, None)
+        cache = _load_cache()
+        cache[_compute_cache_key("oid", "key", None, None)]["max_lifetime"] = bad
+        _save_cache(cache)
+        assert get_cached_max_lifetime("oid", "key", None, None) is None

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Custom token expiry requested a lifetime of decades
+
+- `Client.get_jwt(expiry_hours=...)` sent the JWT endpoint an absolute Unix
+  timestamp as `expiry`, but the endpoint reads `expiry` as a lifetime in
+  seconds and adds it to the current time. Every token requested with a custom
+  expiry was valid for about 57 years instead of the requested hours. This
+  covers `limacharlie search` (4 hours by default, or `--token-expiry`),
+  `limacharlie auth get-token --hours`, and SDK callers of `get_jwt` with
+  `expiry_hours`. Tokens requested without a custom expiry were not affected.
+  Affected releases: 5.4.1 to 5.8.0.
+- `get_jwt` now sends the lifetime in seconds, rounded up.
+- A cached token with more than 10 years remaining is no longer reused, and its
+  entry is removed from the JWT cache file the first time it is read. This does
+  not shorten tokens that were already issued and copied elsewhere; consider
+  rotating API keys that were used with a custom expiry.
+- `auth get-token --format json` reports the expiry the token actually carries
+  (its `exp` claim) instead of the requested one.
+- When the server grants a shorter lifetime than requested (it caps token
+  lifetimes), `get_jwt` records the granted lifetime in the JWT cache. Later
+  requests above it reuse a cached token that still has at least 90% of it,
+  instead of minting a new token on every command: no token could cover such
+  a request anyway. A request within the cap still needs a token that covers
+  it in full, and a later full grant clears the recorded value.
+
 ### `auth signup` no longer calls the retired signup endpoint
 
 - `limacharlie auth signup` no longer calls the legacy `signUp` Cloud

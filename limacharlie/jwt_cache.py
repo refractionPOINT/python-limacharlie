@@ -13,13 +13,24 @@ Cache file location:
 - Respects LC_NO_JWT_CACHE: no disk caching when set
 - Respects no_jwt_cache config option: no disk caching when true
 
-Format: JSON dict keyed by SHA-256 hash of credential identity.
+Format: JSON dict keyed by SHA-256 hash of credential identity. Each entry
+is ``{"jwt": ...}``, plus ``"max_lifetime"`` (seconds) when the server
+granted a shorter lifetime than requested: the longest lifetime it grants,
+used by ``Client.get_jwt`` to decide whether a cached token is as good as a
+fresh one. Writing a new token keeps ``max_lifetime``.
 
 Concurrency model: last-write-wins with atomic writes (tempfile + move).
 No file locking. Worst case on concurrent access is a redundant JWT request.
 
 Expiry buffer: 10 minutes. A cached JWT is only reused if it has more
 than 10 minutes remaining before expiration.
+
+Implausible lifetimes: a cached JWT with more than 10 years remaining is
+never reused, and its entry is removed from the cache file. The JWT
+endpoint reads ``expiry`` as a lifetime and adds it to the current time,
+so a client that sends an absolute timestamp there (SDK releases 5.4.1 to
+5.8.0 did) is issued a token valid for decades. No lifetime this SDK
+requests comes close to 10 years, so such an entry is one of those tokens.
 """
 
 from __future__ import annotations
@@ -37,6 +48,10 @@ from .paths import get_jwt_cache_path as _resolve_jwt_cache_path
 
 # Cached JWT must have at least this many seconds remaining to be reused.
 _EXPIRY_BUFFER_SECONDS = 600  # 10 minutes
+
+# A cached JWT with more than this many seconds remaining is discarded
+# rather than reused. See "Implausible lifetimes" in the module docstring.
+_MAX_REUSABLE_REMAINING_SECONDS = 10 * 365 * 24 * 3600  # 10 years
 
 # Per-process cache for the disabled check. Each CLI invocation is a
 # separate process, so evaluating once is sufficient - the config file
@@ -148,17 +163,17 @@ def _compute_cache_key(
     return hashlib.sha256("\0".join(parts).encode()).hexdigest()
 
 
-def _decode_jwt_exp(jwt_str: str) -> float | None:
-    """Extract the exp claim from a JWT without signature verification.
+def _decode_jwt_claim(jwt_str: str, claim: str) -> float | None:
+    """Extract a numeric claim from a JWT without signature verification.
 
-    Decodes only the payload (middle segment) via base64url to read
-    the expiration timestamp.
+    Decodes only the payload (middle segment) via base64url.
 
     Args:
         jwt_str: the JWT string (header.payload.signature).
+        claim: the claim name, e.g. "exp" or "iat".
 
     Returns:
-        The exp claim as a float, or None if parsing fails.
+        The claim as a float, or None if parsing fails or it is absent.
     """
     try:
         parts = jwt_str.split(".")
@@ -171,12 +186,43 @@ def _decode_jwt_exp(jwt_str: str) -> float | None:
             payload_b64 += "=" * padding
         payload_bytes = base64.urlsafe_b64decode(payload_b64)
         payload = json.loads(payload_bytes)
-        exp = payload.get("exp")
-        if exp is None:
+        value = payload.get(claim)
+        if value is None:
             return None
-        return float(exp)
+        return float(value)
     except Exception:
         return None
+
+
+def _decode_jwt_exp(jwt_str: str) -> float | None:
+    """Extract the exp claim from a JWT without signature verification.
+
+    Args:
+        jwt_str: the JWT string (header.payload.signature).
+
+    Returns:
+        The exp claim as a float, or None if parsing fails.
+    """
+    return _decode_jwt_claim(jwt_str, "exp")
+
+
+def _decode_jwt_lifetime(jwt_str: str) -> float | None:
+    """Return the lifetime the server gave a JWT: its exp minus its iat.
+
+    Both claims come from the server's clock, so the result does not depend
+    on the local clock.
+
+    Args:
+        jwt_str: the JWT string (header.payload.signature).
+
+    Returns:
+        exp - iat in seconds, or None if either claim is missing.
+    """
+    exp = _decode_jwt_claim(jwt_str, "exp")
+    iat = _decode_jwt_claim(jwt_str, "iat")
+    if exp is None or iat is None:
+        return None
+    return exp - iat
 
 
 def _load_cache() -> dict[str, Any]:
@@ -227,7 +273,9 @@ def get_cached_jwt(
     """Return a cached JWT if one exists and is still valid.
 
     A JWT is considered valid if it has more than 10 minutes remaining
-    before expiration (the _EXPIRY_BUFFER_SECONDS constant).
+    before expiration (the _EXPIRY_BUFFER_SECONDS constant) and no more
+    than 10 years (the _MAX_REUSABLE_REMAINING_SECONDS constant). An entry
+    past the upper bound is removed from the cache file.
 
     Args:
         oid: organization ID.
@@ -258,7 +306,13 @@ def get_cached_jwt(
     if exp is None:
         return None
 
-    if time.time() + _EXPIRY_BUFFER_SECONDS >= exp:
+    now = time.time()
+    if now + _EXPIRY_BUFFER_SECONDS >= exp:
+        return None
+
+    if exp - now > _MAX_REUSABLE_REMAINING_SECONDS:
+        del cache[cache_key]
+        _save_cache(cache)
         return None
 
     return jwt_str
@@ -296,7 +350,83 @@ def put_cached_jwt(
         return
 
     cache = _load_cache()
-    cache[cache_key] = {"jwt": jwt_str}
+    entry = cache.get(cache_key)
+    if not isinstance(entry, dict):
+        entry = {}
+    entry["jwt"] = jwt_str
+    cache[cache_key] = entry
+    _save_cache(cache)
+
+
+def get_cached_max_lifetime(
+    oid: str | None,
+    api_key: str | None,
+    oauth_creds: dict[str, str] | None,
+    uid: str | None,
+) -> int | None:
+    """Return the longest JWT lifetime the server grants, if one is recorded.
+
+    It is recorded by set_cached_max_lifetime when the server granted less
+    than was requested.
+
+    Args:
+        oid: organization ID.
+        api_key: API key.
+        oauth_creds: OAuth credentials dict.
+        uid: user ID.
+
+    Returns:
+        The lifetime in seconds, or None when none is recorded (or caching
+        is disabled).
+    """
+    if _is_cache_disabled():
+        return None
+    cache_key = _compute_cache_key(oid, api_key, oauth_creds, uid)
+    if cache_key is None:
+        return None
+    entry = _load_cache().get(cache_key)
+    if not isinstance(entry, dict):
+        return None
+    value = entry.get("max_lifetime")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def set_cached_max_lifetime(
+    max_lifetime: int | None,
+    oid: str | None,
+    api_key: str | None,
+    oauth_creds: dict[str, str] | None,
+    uid: str | None,
+) -> None:
+    """Record (or, with None, clear) the longest lifetime the server grants.
+
+    Only updates an existing entry, so it is called after put_cached_jwt.
+    No-op when caching is disabled.
+
+    Args:
+        max_lifetime: lifetime in seconds, or None to clear it.
+        oid: organization ID.
+        api_key: API key.
+        oauth_creds: OAuth credentials dict.
+        uid: user ID.
+    """
+    if _is_cache_disabled():
+        return
+    cache_key = _compute_cache_key(oid, api_key, oauth_creds, uid)
+    if cache_key is None:
+        return
+    cache = _load_cache()
+    entry = cache.get(cache_key)
+    if not isinstance(entry, dict):
+        return
+    if max_lifetime is None:
+        if "max_lifetime" not in entry:
+            return
+        del entry["max_lifetime"]
+    else:
+        entry["max_lifetime"] = int(max_lifetime)
     _save_cache(cache)
 
 
