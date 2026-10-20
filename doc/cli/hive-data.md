@@ -9,6 +9,7 @@ Hives are key-value stores for LimaCharlie configuration data. Several hive type
 ```bash
 # Generic hive access
 limacharlie hive list --hive-name dr-general
+limacharlie hive list --hive-name lookup --metadata-only   # names and metadata, no record data
 limacharlie hive get --hive-name dr-general --key my-rule
 limacharlie hive set --hive-name secret --key my-key --input-file data.json
 limacharlie hive delete --hive-name secret --key my-key --confirm

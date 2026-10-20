@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Hive — paginated and metadata-only listing
+
+- New `Hive.list_mtd()` (server-side metadata-only listing), `Hive.list_page()`
+  and `Hive.iter_pages()` (cursor paging, with `mtd_only`, `tag_prefix` and
+  `max_bytes`), and `is_listing_too_large()`.
+- `Hive.list()` keeps its signature; when the API refuses a whole-hive listing
+  as too large (HTTP 413, `HIVE_LISTING_TOO_LARGE`) it reads the hive page by
+  page and returns the combined result.
+- `limacharlie hive list --metadata-only` lists names and metadata without the
+  record data; `hive export` lists names without data before fetching each
+  record.
+- Needs an API release that accepts `limit`, `cursor` and `mtd_only` on the
+  hive listing. Against an older API the new calls still work: the whole hive
+  comes back as one page, and `list_mtd()` drops the data client side.
+
 ### `auth signup` no longer calls the retired signup endpoint
 
 - `limacharlie auth signup` no longer calls the legacy `signUp` Cloud
