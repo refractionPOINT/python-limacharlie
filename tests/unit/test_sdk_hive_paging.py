@@ -302,3 +302,49 @@ def test_cli_export_lists_names_without_data_then_fetches_each_record(gateway, m
     assert gateway.queries == [{"mtd_only": "true"}]
     exported = json.loads(result.output)
     assert exported["rec-001"]["data"] == {"i": 1}
+
+
+def test_page_with_a_cursor_but_no_visible_records_is_an_envelope(gateway):
+    gateway.answer = lambda query: (200, {"next_cursor": "opaque"})
+    page, cursor = gateway.hive.list_page()
+    assert page == {} and cursor == "opaque"
+
+
+def test_records_that_is_not_an_object_is_an_error(gateway):
+    gateway.answer = lambda query: (200, {"records": [1], "next_cursor": ""})
+    with pytest.raises(ApiError, match="not an object"):
+        gateway.hive.list_page()
+
+
+def test_legacy_gateway_tag_prefix_is_applied_client_side(gateway):
+    fill(gateway, 4)
+    gateway.records["rec-001"]["usr_mtd"]["tags"] = ["env:prod", "x"]
+    gateway.records["rec-003"]["usr_mtd"]["tags"] = ["env:dev"]
+    gateway.legacy = True
+    page, cursor = gateway.hive.list_page(tag_prefix="env:")
+    assert sorted(page) == ["rec-001", "rec-003"] and cursor == ""
+    assert list(gateway.hive.list_page(tag_prefix="nope")[0]) == []
+
+
+def test_gateway_timeout_on_a_whole_hive_listing_is_not_replayed(gateway):
+    def timeout(query):
+        gateway.queries.append({k: v[0] for k, v in query.items()})
+        return 504, {"error": "timeout"}
+
+    gateway.answer = timeout
+    for call in (gateway.hive.list, gateway.hive.list_mtd):
+        with pytest.raises(ApiError):
+            call()
+    assert len(gateway.queries) == 2
+
+
+def test_cli_shortcut_and_dr_list_metadata_only(gateway, monkeypatch):
+    fill(gateway, 2)
+    for module in ("limacharlie.commands._hive_shortcut", "limacharlie.commands.dr"):
+        monkeypatch.setattr(f"{module}._get_org", lambda ctx: Organization(gateway.client))
+    for argv in (["lookup", "list", "--metadata-only"], ["dr", "list", "--metadata-only"]):
+        gateway.queries.clear()
+        result = CliRunner().invoke(cli, ["--output", "json", *argv])
+        assert result.exit_code == 0, result.output
+        assert gateway.queries == [{"mtd_only": "true"}]
+        assert all(rec["data"] is None for rec in json.loads(result.output).values())

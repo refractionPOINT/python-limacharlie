@@ -93,41 +93,49 @@ def _looks_like_record(value: Any) -> bool:
     return isinstance(value, dict) and ("sys_mtd" in value or "usr_mtd" in value)
 
 
-def _split_listing(resp: Any) -> tuple[dict[str, Any], str]:
+def _split_listing(resp: Any) -> tuple[dict[str, Any], str, bool]:
     """Split a hive listing answer into its records and next cursor.
 
     The paged answer is ``{"records": {...}, "next_cursor": "..."}``. A server
     that predates paging ignores the paging parameters and answers with the
     plain ``{name: record}`` map, which is then one final page.
 
-    It is the envelope when ``records`` is an object (or null) and
-    ``next_cursor`` is present as a string (or null). A plain map cannot match
-    that: every one of its values is a record object, so a record named
-    ``next_cursor`` is not a string, and one named ``records`` carries
-    ``sys_mtd``/``usr_mtd``. ``records`` alone, without ``next_cursor``, is
-    still read as an envelope unless its value is a record: a missing cursor
-    means the last page, and reading that as a plain map would silently drop
-    every record.
+    A ``next_cursor`` that is a string (or null) marks the envelope: every
+    value of a plain map is a record object, so a record named
+    ``next_cursor`` cannot be mistaken for it, and a page with no visible
+    records but more to come is still recognized. Without ``next_cursor``,
+    ``records`` as the only key is still read as an envelope unless its value
+    is a record (a plain map holding one record named ``records``): a missing
+    cursor means the last page, and reading that as a plain map would silently
+    drop every record.
 
     Args:
         resp: Parsed JSON answer of the listing endpoint.
 
     Returns:
-        tuple: (records as raw dicts, next cursor; "" when there is no more).
+        tuple: (records as raw dicts, next cursor ("" when there is no more), True for a paged envelope and False for a plain map).
+
+    Raises:
+        ApiError: If the answer is neither shape.
     """
     if not resp:
-        return {}, ""
+        return {}, "", False
     if not isinstance(resp, dict):
         raise ApiError(f"Unexpected hive listing response of type {type(resp).__name__}.")
-    records = resp.get("records")
-    if "records" in resp and (records is None or isinstance(records, dict)):
-        if "next_cursor" in resp:
-            cursor = resp["next_cursor"]
-            if cursor is None or isinstance(cursor, str):
-                return records or {}, cursor or ""
-        elif len(resp) == 1 and not _looks_like_record(records):
-            return records or {}, ""
-    return resp, ""
+    if "next_cursor" in resp and (resp["next_cursor"] is None or isinstance(resp["next_cursor"], str)):
+        records = resp.get("records")
+        if records is not None and not isinstance(records, dict):
+            raise ApiError("Unexpected hive listing response: 'records' is not an object.")
+        return records or {}, resp["next_cursor"] or "", True
+    if list(resp) == ["records"] and (resp["records"] is None or (
+            isinstance(resp["records"], dict) and not _looks_like_record(resp["records"]))):
+        return resp["records"] or {}, "", True
+    return resp, "", False
+
+
+def _has_tag_prefix(raw: dict[str, Any], prefix: str) -> bool:
+    tags = (raw.get("usr_mtd") or {}).get("tags") or []
+    return any(isinstance(t, str) and t.startswith(prefix) for t in tags)
 
 
 @dataclass
@@ -238,13 +246,15 @@ class Hive:
         A hive too big for the server to list in one response is read page by
         page transparently (see :meth:`iter_pages`), so the result is always
         the whole hive. Use :meth:`list_mtd` when the data is not needed, and
-        :meth:`iter_pages` to bound memory on a big hive.
+        :meth:`iter_pages` to bound memory on a big hive. A gateway timeout
+        is raised, not retried: the whole-hive request is heavy for the
+        backend.
 
         Returns:
             dict: Mapping of record name -> HiveRecord.
         """
         try:
-            resp = self.client.request("GET", self._list_path())
+            resp = self.client.request("GET", self._list_path(), retry_gateway_timeout=False)
         except ApiError as e:
             if not is_listing_too_large(e):
                 raise
@@ -264,7 +274,9 @@ class Hive:
             dict: Mapping of record name -> HiveRecord (metadata only).
         """
         try:
-            resp = self.client.request("GET", self._list_path(), query_params={"mtd_only": "true"})
+            resp = self.client.request(
+                "GET", self._list_path(), query_params={"mtd_only": "true"}, retry_gateway_timeout=False,
+            )
         except ApiError as e:
             if not is_listing_too_large(e):
                 raise
@@ -290,7 +302,8 @@ class Hive:
         """Get one page of this hive's records, in record name order.
 
         A server that predates paging answers with the whole hive, which is
-        returned as a single final page.
+        returned as a single final page (``mtd_only`` and ``tag_prefix`` are
+        then applied here).
 
         Args:
             limit: Maximum number of records in the page (the server caps it and also bounds the page size in bytes).
@@ -316,7 +329,10 @@ class Hive:
         if max_bytes:
             query["max_bytes"] = max_bytes
         resp = self.client.request("GET", self._list_path(), query_params=query)
-        raw_records, next_cursor = _split_listing(resp)
+        raw_records, next_cursor, is_paged = _split_listing(resp)
+        if tag_prefix and not is_paged:
+            # A server that predates paging ignores tag_prefix too.
+            raw_records = {n: r for n, r in raw_records.items() if _has_tag_prefix(r, tag_prefix)}
         if mtd_only:
             records = {name: self._mtd_record(name, raw) for name, raw in raw_records.items()}
         else:

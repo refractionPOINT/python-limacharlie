@@ -183,12 +183,16 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         )(fn)
 
     @grp.command("list", help=f"List all {noun_plural}.")
+    @click.option(
+        "--metadata-only", is_flag=True, default=False,
+        help="List records without their data (names and metadata only).",
+    )
     @_brief_option
     @pass_context
-    def list_cmd(ctx, brief: bool = False) -> None:
+    def list_cmd(ctx, metadata_only: bool = False, brief: bool = False) -> None:
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
-        records = hive.list()
+        records = hive.list_mtd() if metadata_only else hive.list()
         data = {name: rec.to_dict() for name, rec in records.items()}
         if brief:
             for record in data.values():

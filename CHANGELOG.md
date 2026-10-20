@@ -10,9 +10,13 @@
 - `Hive.list()` keeps its signature; when the API refuses a whole-hive listing
   as too large (HTTP 413, `HIVE_LISTING_TOO_LARGE`) it reads the hive page by
   page and returns the combined result.
-- `limacharlie hive list --metadata-only` lists names and metadata without the
-  record data; `hive export` lists names without data before fetching each
-  record.
+- `limacharlie hive list --metadata-only` (also on `dr list` and the hive
+  shortcut `list` commands such as `lookup list`) lists names and metadata
+  without the record data; `hive export` lists names without data before
+  fetching each record.
+- `Client.request()` takes `retry_gateway_timeout=False` to report a 504
+  instead of retrying it; whole-hive listings use it so a timed-out heavy
+  request is not replayed.
 - Needs an API release that accepts `limit`, `cursor` and `mtd_only` on the
   hive listing. Against an older API the new calls still work: the whole hive
   comes back as one page, and `list_mtd()` drops the data client side.

@@ -17,6 +17,9 @@ limacharlie hive delete --hive-name secret --key my-key --confirm
 
 The flag is `--hive-name`; `--category` does not exist and never has.
 
+Every `list` command of the hive shortcuts below (`secret`, `lookup`, `playbook`, ...)
+and `dr list` also takes `--metadata-only`.
+
 ### Security product configuration
 
 `limacharlie hive list-types` includes the product configuration hives:

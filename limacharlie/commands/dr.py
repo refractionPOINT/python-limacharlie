@@ -118,11 +118,13 @@ register_explain("dr.list", _EXPLAIN_LIST)
     "--namespace", default=None, type=_NS_CHOICES,
     help="Namespace (default: general).",
 )
+@click.option("--metadata-only", is_flag=True, default=False,
+              help="List rules without their detect/respond data (names and metadata only).")
 @pass_context
-def list_rules(ctx, namespace) -> None:
+def list_rules(ctx, namespace, metadata_only) -> None:
     org = _get_org(ctx)
     hive = Hive(org, _hive_name(namespace))
-    records = hive.list()
+    records = hive.list_mtd() if metadata_only else hive.list()
     data = {name: rec.to_dict() for name, rec in records.items()}
     _output(ctx, data)
 

@@ -771,7 +771,7 @@ class Client:
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
                 max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None,
                 raw_response: bool = False, retry_quota_errors: bool | None = None,
-                retry_service_unavailable: bool = False) -> Any:
+                retry_service_unavailable: bool = False, retry_gateway_timeout: bool = True) -> Any:
         """Make an API request with retry logic and JWT management.
 
         Args:
@@ -794,6 +794,9 @@ class Client:
             retry_service_unavailable: Retry one 503 after one second, within
                 ``max_retries``. Only enable for replay-safe operations; the
                 server may have applied a request before returning 503.
+            retry_gateway_timeout: Retry a 504 with backoff, within
+                ``max_retries``. Turn off for heavy requests that must not
+                be replayed against the backend after it timed out.
 
         Returns:
             dict: Parsed JSON response (or str when raw_response is set).
@@ -884,7 +887,7 @@ class Client:
                 break
 
             if code == HTTP_GATEWAY_TIMEOUT:
-                if retries < max_retries:
+                if retry_gateway_timeout and retries < max_retries:
                     wait = 2 ** (retries - 1)
                     self._debug(f"Gateway timeout, retrying in {wait}s...")
                     time.sleep(wait)
