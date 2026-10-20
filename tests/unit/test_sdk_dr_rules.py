@@ -27,13 +27,13 @@ class TestDRRulesList:
             "r1": {"data": {"detect": {}}, "usr_mtd": {}, "sys_mtd": {}},
         }
         result = rules.list()
-        mock_org.client.request.assert_called_once_with("GET", "hive/dr-general/test-oid")
+        mock_org.client.request.assert_called_once_with("GET", "hive/dr-general/test-oid", retry_gateway_timeout=False)
         assert "r1" in result
 
     def test_list_with_namespace(self, rules, mock_org):
         mock_org.client.request.return_value = {}
         rules.list(namespace="managed")
-        mock_org.client.request.assert_called_once_with("GET", "hive/dr-managed/test-oid")
+        mock_org.client.request.assert_called_once_with("GET", "hive/dr-managed/test-oid", retry_gateway_timeout=False)
 
 
 class TestDRRulesGet:

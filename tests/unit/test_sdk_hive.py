@@ -105,7 +105,7 @@ class TestHiveList:
         result = hive.list()
         assert "rule1" in result
         assert isinstance(result["rule1"], HiveRecord)
-        mock_org.client.request.assert_called_once_with("GET", "hive/dr-general/test-oid")
+        mock_org.client.request.assert_called_once_with("GET", "hive/dr-general/test-oid", retry_gateway_timeout=False)
 
 
 class TestHiveGet:
