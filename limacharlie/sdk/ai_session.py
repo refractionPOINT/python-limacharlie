@@ -116,6 +116,14 @@ class SessionAttachment:
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
+        """Open the WebSocket. A no-op when already connected.
+
+        Callers often connect explicitly (to handle a 403 before anything
+        else) and then enter ``async with``, which connects too. Opening a
+        second socket there would orphan the first one on the server.
+        """
+        if self._ws is not None:
+            return
         try:
             import websockets
         except ImportError as e:  # pragma: no cover - surfaced to the caller

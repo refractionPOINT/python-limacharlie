@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### `ai chat` and `ai session attach` open one WebSocket, not two
+
+- `SessionAttachment.connect()` is now a no-op when the attachment is already
+  connected. The CLI connected explicitly and then again on entering
+  `async with`, leaving an orphaned socket on the server that could drop the
+  live one with "no close frame received or sent".
+
 ### Hive — paginated and metadata-only listing
 
 - New `Hive.list_mtd()` (server-side metadata-only listing), `Hive.list_page()`

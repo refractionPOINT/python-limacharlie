@@ -106,6 +106,52 @@ def _make_attachment(ws: FakeWebSocket, *, read_only: bool = False) -> SessionAt
     return att
 
 
+class TestSessionAttachmentConnect:
+
+    @pytest.fixture
+    def opened(self, monkeypatch):
+        import websockets
+        sockets: list[FakeWebSocket] = []
+
+        async def fake_connect(url, **kwargs):
+            ws = FakeWebSocket()
+            sockets.append(ws)
+            return ws
+
+        monkeypatch.setattr(websockets, "connect", fake_connect)
+        return sockets
+
+    def _attachment(self) -> SessionAttachment:
+        ai_stub = SimpleNamespace(client=SimpleNamespace(get_jwt=lambda: "jwt"))
+        return SessionAttachment(ai_stub, "sid-xyz", base_url="https://ai.example")
+
+    def test_connect_then_context_manager_opens_one_socket(self, opened):
+        # The CLI connects first to handle a 403, then enters ``async with``.
+        att = self._attachment()
+
+        async def run():
+            await att.connect()
+            async with att:
+                pass
+
+        asyncio.run(run())
+        assert len(opened) == 1
+        assert opened[0].closed
+
+    def test_connect_after_close_reopens(self, opened):
+        att = self._attachment()
+
+        async def run():
+            await att.connect()
+            await att.close()
+            await att.connect()
+            await att.close()
+
+        asyncio.run(run())
+        assert len(opened) == 2
+        assert all(ws.closed for ws in opened)
+
+
 class TestSessionAttachmentSend:
 
     def test_send_prompt_writes_json(self):
