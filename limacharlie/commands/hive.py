@@ -191,17 +191,24 @@ Each record returned contains:
              timestamps, author
 
 Use --output json to get the full record data for export or backup.
+
+Use --metadata-only to list record names and metadata without loading the
+record data; the server never reads the data, so this is the way to list a
+very large hive.  Hives too big to list in one response are read in pages
+automatically.
 """
 register_explain("hive.list", _EXPLAIN_LIST)
 
 
 @group.command("list")
 @click.option("--hive-name", required=True, help="Hive name (e.g., dr-general, lookup, secret).")
+@click.option("--metadata-only", is_flag=True, default=False,
+              help="List records without their data (names and metadata only).")
 @pass_context
-def list_records(ctx, hive_name) -> None:
+def list_records(ctx, hive_name, metadata_only) -> None:
     org = _get_org(ctx)
     hive = Hive(org, hive_name)
-    records = hive.list()
+    records = hive.list_mtd() if metadata_only else hive.list()
     data = {name: rec.to_dict() for name, rec in records.items()}
     _output(ctx, data)
 
@@ -810,12 +817,12 @@ register_explain("hive.export", _EXPLAIN_EXPORT)
 def export_records(ctx, name, partition_key) -> None:
     org = _get_org(ctx)
     hive = Hive(org, name, partition_key=partition_key)
-    records = hive.list()
+    # Only the names are needed: the data of each record is fetched below.
+    records = hive.list_mtd()
 
     # Build a dict with full record data for each key.
     export_data = {}
-    for record_name, record in records.items():
-        # Fetch full data for each record (list only returns metadata).
+    for record_name in records:
         full_record = hive.get(record_name)
         export_data[record_name] = full_record.to_dict()
 

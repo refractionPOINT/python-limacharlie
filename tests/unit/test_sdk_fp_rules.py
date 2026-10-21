@@ -28,7 +28,7 @@ class TestFPRulesList:
             "rule-b": {"data": {"op": "and"}, "usr_mtd": {}, "sys_mtd": {}},
         }
         result = fp_rules.list()
-        mock_org.client.request.assert_called_once_with("GET", "hive/fp/test-oid")
+        mock_org.client.request.assert_called_once_with("GET", "hive/fp/test-oid", retry_gateway_timeout=False)
         assert "rule-a" in result
         assert "rule-b" in result
         # Each value should be the to_dict() format

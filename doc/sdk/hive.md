@@ -16,7 +16,33 @@ hive = Hive(org, "secret")
 
 ```python
 records = hive.list()                      # {name: HiveRecord}
+records = hive.list_mtd()                  # same, without the data (record.data is None)
 ```
+
+`list_mtd()` never loads the record data on the server, so prefer it when only
+names and metadata are needed. A hive too big for the server to return in one
+response is refused with HTTP 413 (`HIVE_LISTING_TOO_LARGE`); `list()` and
+`list_mtd()` then read it page by page by themselves and return the whole hive.
+
+### Paging
+
+To bound memory on a big hive, walk it page by page instead:
+
+```python
+for page in hive.iter_pages(limit=100):                # {name: HiveRecord} per page
+    for name, record in page.items():
+        ...
+
+page, next_cursor = hive.list_page(limit=100)          # one page, in record name order
+page, next_cursor = hive.list_page(limit=100, cursor=next_cursor)   # next_cursor == "" on the last page
+```
+
+`list_page()` and `iter_pages()` also take `mtd_only=True`, `tag_prefix="..."`
+(only records with a tag starting with it) and `max_bytes=...` (a lower size
+bound for a page). The server caps `limit` and the byte size of a page, so a
+page can hold fewer records than asked. An invalid cursor raises `ApiError`
+(HTTP 400, `INVALID_CURSOR`). Against an API that predates paging, the whole
+hive comes back as a single final page.
 
 ## Getting a Record
 
