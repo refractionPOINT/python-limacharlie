@@ -295,7 +295,7 @@ def size_limit_suggestion(status_code: int, body: Any) -> str | None:
         if status_code == 503:
             return (
                 f"Some hives could not be read right now{which}, so the result would be missing records. "
-                "Retry in a moment. To accept what could be read instead, pass 'allow_partial=true' (API); "
+                "Retry in a moment (a hive reported as HIVE_LISTING_TOO_LARGE stays skipped on every retry). To accept what could be read instead, pass 'allow_partial=true' (API); "
                 "the result is then flagged 'partial: true' and lists 'skipped_hives'. "
                 f"See {SIZE_LIMITS_DOC_URL}#incomplete_result"
             )

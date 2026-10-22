@@ -183,7 +183,7 @@ Non-200 responses are NOT errors: the raw response body is printed and the
 exit code reflects the HTTP status (0 for 2xx, 4 for 4xx, 5 for 5xx).
 
 When the API answers that a result is too large (HIVE_LISTING_TOO_LARGE,
-FP_LISTING_TOO_LARGE, HTTP 413) or incomplete (INCOMPLETE_RESULT, HTTP 413
+FP_LISTING_TOO_LARGE; HTTP 413 or, for the legacy fp listing, 400) or incomplete (INCOMPLETE_RESULT, HTTP 413
 or 503), or rejects a page cursor (INVALID_CURSOR), a one-line hint on what
 to do is printed to stderr; the body on stdout is unchanged.  The Stories
 and ACL resource endpoints have no dedicated command; to accept an

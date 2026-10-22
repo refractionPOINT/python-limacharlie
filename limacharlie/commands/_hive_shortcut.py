@@ -42,8 +42,8 @@ PAGING_HELP = (
     "{records: {...}, next_cursor: \"...\"}, with an empty next_cursor on the last page. In table/csv/jsonl "
     "output the records are printed as usual and the cursor is printed on stderr as 'next_cursor: ...'. "
     "Keep going until there is no next_cursor. Without --limit/--cursor the whole hive is listed, "
-    "paging by itself when the server says it is too large. A listing that fails with "
-    "HIVE_LISTING_TOO_LARGE (HTTP 413) needs --limit or --metadata-only. "
+    "paging by itself when the server says it is too large. A raw API call that "
+    "fails with HIVE_LISTING_TOO_LARGE (HTTP 413) needs limit= to be paged, as --limit does here. "
     "See https://docs.limacharlie.io/8-reference/faq/large-and-incomplete-results/"
 )
 

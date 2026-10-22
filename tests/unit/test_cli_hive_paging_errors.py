@@ -118,7 +118,7 @@ def test_row_format_last_page_says_so_on_stderr(cli_org):
     assert "No more pages" in result.stderr
 
 
-def test_quiet_silences_the_cursor_note_but_not_a_script_format(cli_org):
+def test_quiet_silences_everything_in_a_row_format(cli_org):
     fill(cli_org, 5)
     result = run("--quiet", "--output", "csv", "lookup", "list", "--limit", "2")
     assert result.exit_code == 0 and result.stderr == "" and result.stdout == ""

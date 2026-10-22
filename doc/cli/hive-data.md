@@ -48,7 +48,7 @@ done
 ```
 
 Without `--limit` or `--cursor` the whole hive is listed, as before; a hive too large for one response is then read page by page automatically.
-`--filter` and `--fields` apply to the `{records, next_cursor}` document in a paged listing.
+In a paged listing, `--filter` and `--fields` apply to the `{records, next_cursor}` document with `json`, `yaml` and `toon` output, and to the bare records map with `table`, `csv` and `jsonl` (the cursor is on stderr there).
 
 If the API refuses a result as too large or incomplete (`HIVE_LISTING_TOO_LARGE`, `INVALID_CURSOR`, `INCOMPLETE_RESULT`, `FP_LISTING_TOO_LARGE`), the CLI error ends with a `Suggestion:` naming the fix and linking to
 [Large and Incomplete Results](https://docs.limacharlie.io/8-reference/faq/large-and-incomplete-results/). For raw `limacharlie api` calls the same advice is printed as a `Hint:` line on stderr and the response body is untouched.
