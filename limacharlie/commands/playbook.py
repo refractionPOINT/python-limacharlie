@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("playbook", "playbook", "playbook")
@@ -14,7 +14,7 @@ List all playbooks in the organization.  Playbooks are Python scripts
 that run in LimaCharlie's serverless execution environment with full
 SDK access.  They can be triggered by D&R rules, the API, or other
 extensions.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("playbook.get", """\
 Get a specific playbook by key.  Returns the hive record containing

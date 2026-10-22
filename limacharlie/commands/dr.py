@@ -23,7 +23,10 @@ from ..sdk.hive import Hive, HiveRecord
 from ..sdk.replay import Replay as ReplaySDK
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
-from ._hive_shortcut import input_metadata_block, merge_current_metadata_or_warn
+from ._hive_shortcut import (
+    PAGING_HELP, input_metadata_block, list_hive_records, merge_current_metadata_or_warn,
+    output_listing, paging_options,
+)
 from ._time_validation import validate_epoch_seconds
 
 
@@ -109,7 +112,10 @@ Examples:
   limacharlie dr list
   limacharlie dr list --namespace managed
   limacharlie dr list --namespace service
-"""
+  limacharlie dr list --limit 100
+  limacharlie dr list --limit 100 --cursor "<next_cursor>" --output json
+
+""" + PAGING_HELP + "\n"
 register_explain("dr.list", _EXPLAIN_LIST)
 
 
@@ -120,13 +126,14 @@ register_explain("dr.list", _EXPLAIN_LIST)
 )
 @click.option("--metadata-only", is_flag=True, default=False,
               help="List rules without their detect/respond data (names and metadata only).")
+@paging_options
 @pass_context
-def list_rules(ctx, namespace, metadata_only) -> None:
+def list_rules(ctx, namespace, metadata_only, limit, cursor, max_bytes, tag_prefix) -> None:
     org = _get_org(ctx)
     hive = Hive(org, _hive_name(namespace))
-    records = hive.list_mtd() if metadata_only else hive.list()
+    records, next_cursor, paged = list_hive_records(hive, metadata_only, limit, cursor, max_bytes, tag_prefix)
     data = {name: rec.to_dict() for name, rec in records.items()}
-    _output(ctx, data)
+    output_listing(ctx, data, next_cursor, paged)
 
 
 # ---------------------------------------------------------------------------

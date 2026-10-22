@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from typing import Any
 
@@ -12,9 +13,10 @@ import yaml
 from ..cli import pass_context
 from ..client import Client
 from ..sdk.organization import Organization
-from ..sdk.hive import Hive, HiveRecord, is_permission_denied
+from ..sdk.hive import MAX_PAGE_SIZE, Hive, HiveRecord, is_permission_denied
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._output_helpers import command_output, note
 
 
 def _get_org(ctx: click.Context) -> Organization:
@@ -26,6 +28,120 @@ def _output(ctx: click.Context, data: Any) -> None:
     fmt = ctx.obj.output_format or detect_output_format()
     if not ctx.obj.quiet:
         click.echo(format_output(data, fmt))
+
+
+# Output formats that carry a document a script can parse: a paged listing is
+# wrapped in {"records": ..., "next_cursor": ...} there, as the API does. The
+# other formats (table, csv, jsonl) are rows, with nowhere to put a cursor.
+_STRUCTURED_FORMATS = ("json", "yaml", "toon")
+
+PAGING_HELP = (
+    "Paging: --limit N returns one page of at most N records in record name order "
+    "(the server also bounds a page by size, so a page can be shorter) and --cursor continues from "
+    "the next_cursor of the previous page. In json/yaml/toon output a paged listing is "
+    "{records: {...}, next_cursor: \"...\"}, with an empty next_cursor on the last page. In table/csv/jsonl "
+    "output the records are printed as usual and the cursor is printed on stderr as 'next_cursor: ...'. "
+    "Keep going until there is no next_cursor. Without --limit/--cursor the whole hive is listed, "
+    "paging by itself when the server says it is too large. A raw API call that "
+    "fails with HIVE_LISTING_TOO_LARGE (HTTP 413) needs limit= to be paged, as --limit does here. "
+    "See https://docs.limacharlie.io/8-reference/faq/large-and-incomplete-results/"
+)
+
+
+def paging_options(fn):
+    """Add the page-by-page listing options to a hive ``list`` command."""
+    options = [
+        click.option(
+            "--limit", type=click.IntRange(min=1), default=None,
+            help="List one page of at most this many records (the server caps it at 500) and print "
+                 "the next_cursor. Continue with --cursor.",
+        ),
+        click.option(
+            "--cursor", default=None,
+            help="Continue a paged listing from the next_cursor of the previous page. "
+                 "Selects the paged listing, like --limit.",
+        ),
+        click.option(
+            "--max-bytes", type=click.IntRange(min=1), default=None,
+            help="With --limit/--cursor: stop a page before it exceeds this many bytes "
+                 "(always at least one record). The server applies its own default and maximum.",
+        ),
+        click.option(
+            "--tag-prefix", default=None,
+            help="Only list records with a tag starting with this prefix.",
+        ),
+    ]
+    for option in reversed(options):
+        fn = option(fn)
+    return fn
+
+
+def list_hive_records(
+    hive: Hive,
+    metadata_only: bool = False,
+    limit: int | None = None,
+    cursor: str | None = None,
+    max_bytes: int | None = None,
+    tag_prefix: str | None = None,
+) -> tuple[dict[str, HiveRecord], str, bool]:
+    """Run a hive ``list`` command's query.
+
+    With neither ``limit`` nor ``cursor`` the whole hive is listed, exactly as
+    before the paging options existed (``tag_prefix`` then walks the pages
+    itself). With one of them, a single page is read.
+
+    Args:
+        hive: Hive to list.
+        metadata_only: List records without their data.
+        limit: Page size; selects the paged listing.
+        cursor: ``next_cursor`` of the previous page; selects the paged listing.
+        max_bytes: Size bound of a page (paged listing only).
+        tag_prefix: Only records with a tag starting with this prefix.
+
+    Returns:
+        tuple: (records, next cursor ("" on the last page), True for a paged listing).
+
+    Raises:
+        click.UsageError: If ``max_bytes`` is given without ``limit`` or ``cursor``.
+    """
+    paged = limit is not None or bool(cursor)
+    if max_bytes is not None and not paged:
+        raise click.UsageError("--max-bytes needs --limit or --cursor (it bounds the size of a page).")
+    if paged:
+        records, next_cursor = hive.list_page(
+            limit=limit, cursor=cursor or None, mtd_only=metadata_only,
+            tag_prefix=tag_prefix, max_bytes=max_bytes,
+        )
+        return records, next_cursor, True
+    if tag_prefix:
+        records = {}
+        for page in hive.iter_pages(limit=MAX_PAGE_SIZE, mtd_only=metadata_only, tag_prefix=tag_prefix):
+            records.update(page)
+        return records, "", False
+    return (hive.list_mtd() if metadata_only else hive.list()), "", False
+
+
+def output_listing(ctx: click.Context, data: Any, next_cursor: str, paged: bool) -> None:
+    """Print a listing, with the cursor of a paged one where a script finds it.
+
+    Args:
+        ctx: Click context.
+        data: Mapping of record name -> record dict.
+        next_cursor: Cursor of the next page; empty on the last one.
+        paged: Whether this was a page rather than the whole hive.
+    """
+    if not paged:
+        command_output(ctx, data)
+        return
+    fmt = ctx.obj.output_format or detect_output_format()
+    if fmt in _STRUCTURED_FORMATS:
+        command_output(ctx, {"records": data, "next_cursor": next_cursor})
+        return
+    command_output(ctx, data)
+    if next_cursor:
+        note(ctx, f"next_cursor: {next_cursor}\nMore records are available: repeat the command with --cursor={shlex.quote(next_cursor)}")
+    else:
+        note(ctx, "No more pages.")
 
 
 def input_metadata_block(data: Any) -> dict[str, Any] | None:
@@ -142,7 +258,7 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
 
     article = "an" if noun_singular[0].lower() in "aeiou" else "a"
 
-    explain_list = f"List all {noun_plural} stored in the '{hive_name}' hive."
+    explain_list = f"List all {noun_plural} stored in the '{hive_name}' hive. {PAGING_HELP}"
     explain_get = f"Get a specific {noun_singular} by its key name from the '{hive_name}' hive."
     value_hint = (
         f"Or use --value to set the {noun_singular} value directly "
@@ -187,12 +303,13 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
         "--metadata-only", is_flag=True, default=False,
         help="List records without their data (names and metadata only).",
     )
+    @paging_options
     @_brief_option
     @pass_context
-    def list_cmd(ctx, metadata_only: bool = False, brief: bool = False) -> None:
+    def list_cmd(ctx, metadata_only: bool = False, brief: bool = False, limit=None, cursor=None, max_bytes=None, tag_prefix=None) -> None:
         org = _get_org(ctx)
         hive = Hive(org, hive_name)
-        records = hive.list_mtd() if metadata_only else hive.list()
+        records, next_cursor, paged = list_hive_records(hive, metadata_only, limit, cursor, max_bytes, tag_prefix)
         data = {name: rec.to_dict() for name, rec in records.items()}
         if brief:
             for record in data.values():
@@ -208,7 +325,7 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
                     record["data"] = {}
                     continue
                 record["data"] = {k: payload[k] for k in index_keys if k in payload}
-        _output(ctx, data)
+        output_listing(ctx, data, next_cursor, paged)
 
     @grp.command("get", help=f"Get {article} {noun_singular} by key.")
     @click.option("--key", required=True, help="Record key name.")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("sop", "sop", "SOP", "SOPs", index_keys=("description",))
@@ -24,7 +24,7 @@ intact -- then pull the ones that apply:
 
 This is the intended flow for an agent deciding which procedures are
 relevant to the task in front of it.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("sop.get", """\
 Get a specific SOP by key.  Returns the full record including the

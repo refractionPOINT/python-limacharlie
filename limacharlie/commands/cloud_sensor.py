@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ._adapter_types import add_list_types, add_schema, add_sensors
 from ..discovery import register_explain
 
@@ -18,7 +18,7 @@ List all cloud adapter configurations.  Cloud adapters run in
 LimaCharlie's infrastructure (as opposed to external adapters which
 run on-prem).  They ingest data from cloud services like webhooks,
 S3 buckets, GCS, PubSub, and SaaS APIs.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("cloud-adapter.get", """\
 Get a specific cloud adapter configuration by key.  Returns the full

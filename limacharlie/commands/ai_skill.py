@@ -13,7 +13,7 @@ Reference: https://code.claude.com/docs/en/skills.md
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group(
@@ -35,7 +35,7 @@ skill is for -- then fetch the ones that apply:
 
   limacharlie ai-skill list --brief
   limacharlie ai-skill get --key <name>
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("ai-skill.get", """\
 Get a single skill record by key.  Returns the full SKILL.md body

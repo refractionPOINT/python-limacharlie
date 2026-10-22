@@ -10,6 +10,8 @@ Hives are key-value stores for LimaCharlie configuration data. Several hive type
 # Generic hive access
 limacharlie hive list --hive-name dr-general
 limacharlie hive list --hive-name lookup --metadata-only   # names and metadata, no record data
+limacharlie hive list --hive-name lookup --limit 100       # one page of at most 100 records
+limacharlie hive list --hive-name lookup --limit 100 --cursor "<next_cursor>"   # the next page
 limacharlie hive get --hive-name dr-general --key my-rule
 limacharlie hive set --hive-name secret --key my-key --input-file data.json
 limacharlie hive delete --hive-name secret --key my-key --confirm
@@ -18,7 +20,39 @@ limacharlie hive delete --hive-name secret --key my-key --confirm
 The flag is `--hive-name`; `--category` does not exist and never has.
 
 Every `list` command of the hive shortcuts below (`secret`, `lookup`, `playbook`, ...)
-and `dr list` also takes `--metadata-only`.
+and `dr list` also takes `--metadata-only` and the paging options below.
+
+### Listing a large hive page by page
+
+| Option | Effect |
+|---|---|
+| `--limit N` | List one page of at most `N` records, in record name order. The server caps it at 500 and also bounds a page by size, so a page can be shorter. |
+| `--cursor C` | Continue from the `next_cursor` of the previous page. Selects the paged listing, like `--limit` (default page size 50). |
+| `--max-bytes N` | With `--limit` or `--cursor`: stop a page before it exceeds `N` bytes (a page always holds at least one record). |
+| `--tag-prefix P` | Only list records with a tag starting with `P`. On its own it walks every page and prints the whole result. |
+| `--metadata-only` | Names and metadata only, no record data. |
+
+A paged listing prints where the next page starts. With `--output json`, `yaml` or `toon` the result is
+`{"records": {...}, "next_cursor": "..."}`, and `next_cursor` is empty on the last page. With `table`, `csv` or `jsonl`
+the records print as usual and `next_cursor: ...` is printed on stderr (`No more pages.` on the last page), so stdout stays parseable.
+Keep going until there is no `next_cursor`:
+
+```bash
+CURSOR=""
+while :; do
+  PAGE=$(limacharlie lookup list --limit 100 ${CURSOR:+--cursor "$CURSOR"} --output json)
+  echo "$PAGE" | jq -r '.records | keys[]'
+  CURSOR=$(echo "$PAGE" | jq -r '.next_cursor')
+  [ -z "$CURSOR" ] && break
+done
+```
+
+Without `--limit` or `--cursor` the whole hive is listed, as before; a hive too large for one response is then read page by page automatically.
+In a paged listing, `--filter` and `--fields` apply to the `{records, next_cursor}` document with `json`, `yaml` and `toon` output, and to the bare records map with `table`, `csv` and `jsonl` (the cursor is on stderr there).
+
+If the API refuses a result as too large or incomplete (`HIVE_LISTING_TOO_LARGE`, `INVALID_CURSOR`, `INCOMPLETE_RESULT`, `FP_LISTING_TOO_LARGE`), the CLI error ends with a `Suggestion:` naming the fix and linking to
+[Large and Incomplete Results](https://docs.limacharlie.io/8-reference/faq/large-and-incomplete-results/). For raw `limacharlie api` calls the same advice is printed as a `Hint:` line on stderr and the response body is untouched.
+There is no dedicated command for Stories or ACL resources; to accept a partial result use `limacharlie api 'orgs/{oid}/stories?allow_partial=true'` (keep the parameter in the URL: `-f` on its own turns the call into a POST).
 
 ### Security product configuration
 
