@@ -139,7 +139,7 @@ def output_listing(ctx: click.Context, data: Any, next_cursor: str, paged: bool)
         return
     command_output(ctx, data)
     if next_cursor:
-        note(ctx, f"next_cursor: {next_cursor}\nMore records are available: repeat the command with --cursor {shlex.quote(next_cursor)}")
+        note(ctx, f"next_cursor: {next_cursor}\nMore records are available: repeat the command with --cursor={shlex.quote(next_cursor)}")
     else:
         note(ctx, "No more pages.")
 

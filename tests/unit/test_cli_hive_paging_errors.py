@@ -107,7 +107,7 @@ def test_row_formats_keep_records_on_stdout_and_cursor_on_stderr(cli_org, fmt):
     assert "next_cursor" not in result.stdout
     assert "rec-000" in result.stdout and "rec-002" not in result.stdout
     assert "next_cursor: 2" in result.stderr
-    assert "--cursor 2" in result.stderr
+    assert "--cursor=2" in result.stderr
 
 
 def test_row_format_last_page_says_so_on_stderr(cli_org):
