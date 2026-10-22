@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Hive — page-by-page listing in the CLI, and errors that say what to do
+
+- `hive list`, `dr list` and every hive shortcut `list` command (`lookup list`,
+  `fp list`, `secret list`, ...) take `--limit N` and `--cursor C` to read one
+  page at a time, `--max-bytes` to bound a page, and `--tag-prefix` to keep the
+  records with a matching tag. `--metadata-only` works with them.
+- A paged listing prints the cursor of the next page: in `json`, `yaml` and
+  `toon` output the result is `{"records": {...}, "next_cursor": "..."}`
+  (`next_cursor` is empty on the last page); in `table`, `csv` and `jsonl`
+  output the records print as usual and `next_cursor: ...` goes to stderr.
+  Without these flags nothing changes: the whole hive is listed, paging by
+  itself when the API says it is too large.
+- `HIVE_LISTING_TOO_LARGE`, `INVALID_CURSOR`, `INCOMPLETE_RESULT` and
+  `FP_LISTING_TOO_LARGE` answers now come with a suggestion naming the flag,
+  SDK call or API parameter to use and a link to
+  https://docs.limacharlie.io/8-reference/faq/large-and-incomplete-results/ .
+  The error message itself, with the API's code and body, is unchanged.
+  `ApiError` gains `error_code` and `skipped_hives`; `limacharlie api` prints
+  the same advice as a `Hint:` line on stderr and leaves the body alone.
+- `is_listing_too_large()` no longer matches the HTTP 413 of an
+  `INCOMPLETE_RESULT` answer.
+
 ### `ai chat` and `ai session attach` open one WebSocket, not two
 
 - `SessionAttachment.connect()` is now a no-op when the attachment is already

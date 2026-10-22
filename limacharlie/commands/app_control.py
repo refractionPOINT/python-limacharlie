@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import click
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = click.Group(
@@ -72,7 +72,7 @@ per allow or deny rule, keyed by rule id.  See
 register_explain("app-control.policy.list", """\
 List all Application Control policies stored in the organization.  Each
 record is one policy.  The hive is per-org (OID-partitioned).
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("app-control.policy.get", """\
 Get a specific Application Control policy by key.  Returns the full
@@ -132,7 +132,7 @@ register_explain("app-control.rule.list", """\
 List all Application Control rules stored in the organization.  Each
 record is one allow or deny rule, keyed by rule id.  The hive is per-org
 (OID-partitioned).
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("app-control.rule.get", """\
 Get a specific Application Control rule by rule id.  Returns the full

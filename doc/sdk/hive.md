@@ -44,6 +44,28 @@ page can hold fewer records than asked. An invalid cursor raises `ApiError`
 (HTTP 400, `INVALID_CURSOR`). Against an API that predates paging, the whole
 hive comes back as a single final page.
 
+### Errors That Say What To Do
+
+`ApiError` carries the API's code and body: `err.status_code`, `err.error_code`
+(`HIVE_LISTING_TOO_LARGE`, `INVALID_CURSOR`, `INCOMPLETE_RESULT`,
+`FP_LISTING_TOO_LARGE`), `err.response_body`, and for `INCOMPLETE_RESULT`
+`err.skipped_hives` (hive name -> reason). For those codes `err.suggestion` names the
+fix and links to
+[Large and Incomplete Results](https://docs.limacharlie.io/8-reference/faq/large-and-incomplete-results/).
+`is_listing_too_large(err)` tells a hive that must be paged from other 413s.
+
+```python
+from limacharlie.errors import ApiError
+
+try:
+    page, cursor = hive.list_page(limit=100, cursor=saved_cursor)
+except ApiError as err:
+    if err.error_code == "INVALID_CURSOR":
+        page, cursor = hive.list_page(limit=100)   # start again from the first page
+    else:
+        raise
+```
+
 ## Getting a Record
 
 ```python

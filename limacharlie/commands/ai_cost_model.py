@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("ai-cost-model", "ai_cost_model", "AI cost model")
@@ -15,7 +15,7 @@ profile turns AI-agent activity into an auditable cost/savings figure
 by pairing a fully-burdened analyst rate with the standard manual
 handling time for one investigation of that kind of work.  Because
 this hive is per-org (OID-partitioned), the profiles are per-tenant.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("ai-cost-model.get", """\
 Get a specific AI cost-model profile by key.  Returns the full record

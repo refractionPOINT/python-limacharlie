@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("fp", "fp", "false positive rule", "false positive rules")
@@ -18,7 +18,7 @@ Each returned record has the same structure as a D&R detection
 component but operates on the content of a detection rather than a
 raw event.  The originating event is accessible at the 'detect/' path
 prefix.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("fp.get", """\
 Get a specific false positive rule by key.  Returns the rule's

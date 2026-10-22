@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ._adapter_types import add_list_types, add_schema, add_sensors
 from ..discovery import register_explain
 
@@ -25,7 +25,7 @@ threatlocker, and more.  Run 'limacharlie external-adapter list-types'
 for the full, up-to-date list.
 
 Use --output json for the full config including connection details.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("external-adapter.get", """\
 Get a specific external adapter configuration by key.  Returns the

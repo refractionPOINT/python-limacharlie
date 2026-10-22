@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("note", "org_notes", "note", index_keys=("description",))
@@ -22,7 +22,7 @@ then pull the ones you need:
 
   limacharlie note list --brief
   limacharlie note get --key <name>
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("note.get", """\
 Get a specific note by key.  Returns the full record including the

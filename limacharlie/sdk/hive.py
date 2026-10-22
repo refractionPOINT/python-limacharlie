@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator, TYPE_CHECKING
 from urllib.parse import quote as urlescape
 
-from ..errors import ApiError, PermissionDeniedError
+from ..errors import HIVE_LISTING_TOO_LARGE, ApiError, PermissionDeniedError
 
 if TYPE_CHECKING:
     from ..client import Client
@@ -86,7 +86,11 @@ def is_listing_too_large(exc: Exception) -> bool:
     """
     if not isinstance(exc, ApiError):
         return False
-    return exc.status_code == 413 or "HIVE_LISTING_TOO_LARGE" in str(exc)
+    code = exc.error_code
+    if code is not None:
+        # Another 413 (a story answer with too much left out) is not this one.
+        return code == HIVE_LISTING_TOO_LARGE
+    return exc.status_code == 413 or HIVE_LISTING_TOO_LARGE in str(exc)
 
 
 def _looks_like_record(value: Any) -> bool:

@@ -19,6 +19,8 @@ from ..cli import pass_context
 from ..client import Client
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ..errors import size_limit_suggestion
+from ._output_helpers import note
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +181,17 @@ Any other value is treated as a raw https:// URL.
 
 Non-200 responses are NOT errors: the raw response body is printed and the
 exit code reflects the HTTP status (0 for 2xx, 4 for 4xx, 5 for 5xx).
+
+When the API answers that a result is too large (HIVE_LISTING_TOO_LARGE,
+FP_LISTING_TOO_LARGE, HTTP 413) or incomplete (INCOMPLETE_RESULT, HTTP 413
+or 503), or rejects a page cursor (INVALID_CURSOR), a one-line hint on what
+to do is printed to stderr; the body on stdout is unchanged.  The Stories
+and ACL resource endpoints have no dedicated command; to accept an
+incomplete result, pass allow_partial:
+
+    limacharlie api 'orgs/{oid}/stories?allow_partial=true'
+
+See https://docs.limacharlie.io/8-reference/faq/large-and-incomplete-results/
 """
 register_explain("api", _EXPLAIN_API)
 
@@ -317,5 +330,12 @@ def cmd(ctx: click.Context, endpoint: str, method: str | None, raw_field: tuple[
         fmt = ctx.obj.output_format or detect_output_format()
         if not ctx.obj.quiet:
             click.echo(format_output(data, fmt))
+
+    if status >= 400:
+        # The body above stays exactly as the API sent it; what to do about a
+        # "too large" or "incomplete" answer goes to stderr beside it.
+        advice = size_limit_suggestion(status, data)
+        if advice:
+            note(ctx, f"Hint: {advice}")
 
     ctx.exit(_exit_code_for_status(status))

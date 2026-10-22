@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("lookup", "lookup", "lookup")
@@ -20,7 +20,7 @@ Each lookup record contains a data payload in one of these formats:
 
 Lookups can be populated manually, via the CLI, or automatically
 refreshed every 24 hours by the ext-lookup-manager extension.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("lookup.get", """\
 Get a specific lookup by its key name from the lookup hive.  Returns

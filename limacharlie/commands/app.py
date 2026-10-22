@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("app", "app", "app")
@@ -14,7 +14,7 @@ List all apps stored in the 'app' hive.  An app is a user-authored,
 AI-generated mini web application: a single self-contained HTML
 document that the LimaCharlie web UI renders inside a sandboxed
 <iframe>.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("app.get", """\
 Get a specific app by key.  Returns the full record including the

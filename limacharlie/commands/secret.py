@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._hive_shortcut import make_hive_group
+from ._hive_shortcut import PAGING_HELP, make_hive_group
 from ..discovery import register_explain
 
 group = make_hive_group("secret", "secret", "secret", value_key="secret")
@@ -13,7 +13,7 @@ register_explain("secret.list", """\
 List all secrets stored in the organization.  Only the key names and
 metadata are returned; the actual secret values require the secret.get
 permission to read.
-""")
+""" + "\n" + PAGING_HELP)
 
 register_explain("secret.get", """\
 Get a secret by key.  Returns the record including the secret value
