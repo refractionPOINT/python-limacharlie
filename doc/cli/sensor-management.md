@@ -80,9 +80,17 @@ limacharlie download sensor --platform linux --arch 64 -o - | ssh host 'cat > /t
 
 ```bash
 limacharlie installation-key list
-limacharlie installation-key create --description "Production fleet"
+limacharlie installation-key create --description "Production fleet" --get   # --get returns the key strings
 limacharlie installation-key delete --iid KEY_ID
 ```
+
+Which field to use:
+
+- `key`: native sensor installers (`lc_sensor -i <key>`).
+- `iid`: adapters (`client_options.identity.installation_key`).
+- `json_key`: browser sensors.
+
+`created` is a Unix timestamp in seconds and is reset when a key is edited. Keys do not expire. Deleting a key leaves enrolled native sensors running, but adapters using its `iid` are refused when they next connect.
 
 ## See Also
 

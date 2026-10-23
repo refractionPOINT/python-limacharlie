@@ -53,30 +53,30 @@ def group() -> None:
 
 _EXPLAIN_LIST = """\
 List all installation keys for the organization.  Installation keys
-are used to enroll new sensors and adapters.
+are used to enroll new sensors and adapters.  The result is a map
+keyed by iid, not an array.
 
 Each key record contains:
-  iid   - Installation key ID (auto-generated UUID, unique per key)
-  desc  - Human-readable description of the key's purpose
-  tags  - List of tags automatically applied at enrollment
-  created - Creation timestamp
-
-The response also includes two key strings that are commonly confused:
-
-  key      - The BINARY installation key (Base64-encoded RPCM payload).
-             This is used to install NATIVE SENSORS (EDR agents) on
-             endpoints.  Pass this value to the sensor installer:
+  iid      - Installation key ID (UUID).  ADAPTERS (USP, cloud and
+             external adapters) use THIS value as
+             client_options.identity.installation_key.  Sensors
+             enrolled with the key report it as their "iid".
+  key      - Base64 key for NATIVE SENSORS (EDR agents) only.  Pass
+             it to the sensor installer:
                ./lc_sensor_64 -i <VALUE_OF_key>
+  json_key - Base64 JSON key for BROWSER SENSORS only.
+  desc     - Human-readable description of the key's purpose.
+  tags     - Comma-separated tags applied to sensors at enrollment.
+  created  - Unix timestamp in SECONDS (10 digits), not milliseconds.
+             Set when the key was last written: editing a key resets
+             it.  It is NOT an expiry; installation keys never expire.
+  quota_total / quota_remaining
+           - Only present when the key has an enrollment quota.
+             Enrollment is refused once quota_remaining reaches 0.
 
-  json_key - The JSON installation key (Base64-encoded JSON object).
-             This is used for BROWSER SENSORS and ADAPTERS (USP).
-             When base64-decoded it contains PRIMARY_URL, SECONDARY_URL,
-             and HCP_IDENT fields.
-
-IMPORTANT: When a user asks to "install a sensor", they almost always
-need the "key" field (the binary key), NOT "json_key".  The "json_key"
-is only needed for browser-based sensors or adapter configurations.
-Do NOT confuse the two.
+IMPORTANT: When a user asks to "install a sensor", they need the
+"key" field.  When configuring an adapter, they need the "iid".
+"json_key" is only for browser sensors.  Do NOT confuse them.
 
 Use separate keys per deployment segment (e.g., 'production-linux',
 'staging-windows') so tags automatically classify sensors at
@@ -99,15 +99,16 @@ def list_keys(ctx) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_GET = """\
-Get a specific installation key by its IID.  Returns the key's
-description, tags, creation date, and both installation key strings.
+Get a specific installation key by its IID.  Returns the same record
+as one entry of "installation-key list":
 
-The response includes two key strings:
-  key      - Binary installation key (for native sensor installers).
-             Use this value with: ./lc_sensor_64 -i <VALUE_OF_key>
-  json_key - JSON installation key (for browser sensors and adapters).
-
-When a user needs to "install a sensor", provide the "key" field.
+  iid      - Use this UUID for adapters
+             (client_options.identity.installation_key).
+  key      - Use this for native sensor installers:
+               ./lc_sensor_64 -i <VALUE_OF_key>
+  json_key - Browser sensors only.
+  created  - Unix timestamp in SECONDS, reset whenever the key is
+             edited.  Not an expiry: keys never expire.
 
 Example:
   limacharlie installation-key get --iid <IID>
@@ -132,24 +133,23 @@ def get_key(ctx, iid) -> None:
 _EXPLAIN_CREATE = """\
 Create a new installation key.  The --description is required and
 should identify the purpose of the key (e.g., 'production-linux',
-'staging-windows').
+'staging-windows').  Before creating one, check whether an existing
+key already has a matching description and tags.
 
 Use --tags to apply tags to sensors enrolled with this key.  Multiple
 tags can be comma-separated.  Tags are applied automatically at
 enrollment and can be used in sensor selectors, D&R rule targeting,
 and fleet filtering.
 
-After creation, use --get to fetch the full key details.  The response
-will include two key strings:
+Without --get, the response contains only "oid" and "iid".  Pass
+--get (or run "installation-key get") to obtain the key strings:
 
-  key      - Binary installation key for NATIVE SENSOR installation.
-             This is the value to pass to the sensor installer:
+  iid      - For ADAPTERS (client_options.identity.installation_key).
+  key      - For NATIVE SENSOR installation:
                ./lc_sensor_64 -i <VALUE_OF_key>
+  json_key - For BROWSER SENSORS only.
 
-  json_key - JSON installation key for BROWSER SENSORS and ADAPTERS.
-
-IMPORTANT: For sensor installation, always use the "key" field, not
-"json_key".
+Never pass an empty value to an installer.
 
 Examples:
   limacharlie installation-key create --description "production linux"
@@ -188,10 +188,12 @@ def create(ctx, description, tags, get_after) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_DELETE = """\
-Delete an installation key by its IID.  Sensors already enrolled
-with this key will not be affected, but no new sensors can enroll
-using it.  The --confirm flag is required to prevent accidental
-deletion.
+Delete an installation key by its IID.  No new sensors can enroll
+with it afterwards.  Native sensors (EDR agents) already enrolled
+keep working, but ADAPTERS configured with this key's iid are refused
+the next time they connect, because they authenticate with the iid on
+every connection.  The --confirm flag is required to prevent
+accidental deletion.
 
 Example:
   limacharlie installation-key delete --iid <IID> --confirm
