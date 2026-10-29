@@ -714,7 +714,8 @@ HELP_TOPICS["email-security"] = """\
 Email Security (MailSec)
 =======================
 
-Email Security connects Microsoft 365 or Google Workspace without changing MX
+Email Security connects Microsoft 365, Google Workspace, or IMAP mailboxes
+(personal Gmail via an app password, or any IMAP host) without changing MX
 records. It judges messages, explains verdicts, groups campaigns, and supports
 analyst remediation and user reports.
 
@@ -727,13 +728,18 @@ Pilot onboarding:
   3. Read the provider setup instructions:
      limacharlie mailsec onboarding --provider m365
      limacharlie mailsec onboarding --provider gworkspace
+     limacharlie mailsec onboarding --provider imap
      https://docs.limacharlie.io/email-security/provider-setup/microsoft-365/
      https://docs.limacharlie.io/email-security/provider-setup/google-workspace/
+     https://docs.limacharlie.io/email-security/provider-setup/imap/
   4. Save the provider credential in the secret hive, then create an enabled
      mailsec_provider record referencing hive://secret/<key>. Set explicit pilot
      addresses in scope.include_addresses; empty include lists cover all
-     discovered mailboxes. Google Workspace also needs domain-wide delegation
-     and Pub/Sub configuration, not just a service-account key.
+     discovered mailboxes (not for imap, where the mailbox list is the scope).
+     Google Workspace also needs domain-wide delegation
+     and Pub/Sub configuration, not just a service-account key. IMAP uses one
+     imap record that lists mailboxes, each with its own secret in the
+     mailbox's credentials field.
   5. Test the SAVED connection by record name:
      limacharlie mailsec connection test pilot
   6. Check coverage and the first messages:
@@ -834,6 +840,7 @@ Email Security Cheatsheet
 limacharlie extension subscribe --name ext-email-security
 limacharlie mailsec onboarding --provider m365
 limacharlie mailsec onboarding --provider gworkspace
+limacharlie mailsec onboarding --provider imap
 
 # After saving the credential and enabled mailsec_provider record
 limacharlie mailsec connection test pilot

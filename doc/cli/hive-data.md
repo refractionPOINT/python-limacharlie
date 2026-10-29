@@ -64,7 +64,7 @@ There is no dedicated command for Stories or ACL resources; to accept a partial 
 | `cloudsec_policy` | Cloud posture and Code Security policies |
 | `cloudsec_query` | Saved Cloud Security graph queries |
 | `cloudsec_code_rule` | Enabled Code Security rules, including editable defaults and custom rules |
-| `mailsec_provider` | Microsoft 365 and Google Workspace mail connections |
+| `mailsec_provider` | Microsoft 365, Google Workspace and IMAP mail connections |
 | `mailsec_policy` | Email Security policies |
 | `dr-mail` | Email detection and verdict rules |
 | `app_control_policy` | Application Control policies |

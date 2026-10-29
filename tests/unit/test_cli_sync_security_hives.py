@@ -24,7 +24,11 @@ HIVES = {
         "languages": ["python"], "severity": "ERROR", "message": "Avoid eval", "pattern": "eval(...)"}]},
         "usr_mtd": {"enabled": True}}},
     "mailsec_provider": {"mail": {"data": {"provider": "m365",
-        "credentials": "hive://secret/mail-key"}, "usr_mtd": {"enabled": True}}},
+        "credentials": "hive://secret/mail-key"}, "usr_mtd": {"enabled": True}},
+        "imap": {"data": {"provider": "imap", "imap": {"mailboxes": [
+            {"address": "alice@gmail.com", "host": "imap.gmail.com", "port": 993,
+             "security": "tls", "credentials": "hive://secret/imap-alice"}]},
+            "ingest": {"mode": "auto"}}, "usr_mtd": {"enabled": True}}},
 }
 
 

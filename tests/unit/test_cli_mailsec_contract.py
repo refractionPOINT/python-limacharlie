@@ -46,6 +46,19 @@ def test_workspace_onboarding_substitutes_customer_resource_names():
     assert json.loads(result.output)["messages"] == []
 
 
+def test_imap_onboarding_sends_only_the_provider():
+    result, request = invoke("onboarding", "--provider", "imap")
+    assert result.exit_code == 0, result.output
+    assert dict(query(request, "onboarding")) == {"provider": "imap"}
+
+
+def test_onboarding_rejects_unknown_provider_before_any_request():
+    result, request = invoke("onboarding", "--provider", "pop3")
+    assert result.exit_code != 0
+    assert "imap" in result.output
+    request.assert_not_called()
+
+
 @pytest.mark.parametrize("lane", ["live", "backfill"])
 def test_lane_is_forwarded_with_opaque_cursor_and_existing_filters(lane):
     result, request = invoke(

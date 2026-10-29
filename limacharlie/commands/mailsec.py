@@ -658,9 +658,20 @@ fill those values into its setup commands; --topic and --subscription
 override the suggested names. Without substitutions the guide contains
 placeholders. Fetching it creates no resources.
 
+IMAP (--provider imap) covers personal Gmail accounts (via a Gmail app
+password) and generic IMAP hosts. The guide has a Gmail variant and a
+generic-host variant (host, port 993 TLS or 143 STARTTLS, password).
+Each IMAP mailbox has its own login, so the single imap record lists its
+mailboxes in imap.mailboxes and each mailbox references its own secret in
+its credentials field (hive://secret/<name>). The record's top-level
+credentials stay empty. IMAP cannot send mail, so reporter auto-replies are
+unavailable. Mail that a user's own filters move straight out of the Inbox
+is not covered.
+
 Saved mailsec_provider records use full projects/<p>/topics/<t> and
 projects/<p>/subscriptions/<s> resource names in features.pubsub_topic and
-features.pubsub_subscription. Only one enabled connection per provider is allowed.
+features.pubsub_subscription. Only one enabled connection per provider is allowed
+(for imap, that one record lists all of the org's IMAP mailboxes).
 scope.exclude_addresses overrides includes; scope.include_groups expands directory
 groups; scope.domains restricts coverage and contributes to direction;
 scope.internal_domains affects direction only. features.reports_mailbox feeds the
@@ -684,6 +695,7 @@ Examples:
   limacharlie mailsec onboarding --provider gworkspace
   limacharlie mailsec onboarding --provider gworkspace --project-id your-project --sa-email mailsec@your-project.iam.gserviceaccount.com
   limacharlie mailsec onboarding --provider m365
+  limacharlie mailsec onboarding --provider imap
 """
 
 _EXPLAIN_TENANT_PURGE = """\
@@ -1418,8 +1430,9 @@ def analyze(ctx, eml_file, org_domains, direction, with_org_context) -> None:
 
 
 @group.command("onboarding")
-@click.option("--provider", default=None, type=click.Choice(["m365", "gworkspace"]),
-              help="Which provider's guide to fetch.")
+@click.option("--provider", default=None, type=click.Choice(["m365", "gworkspace", "imap"]),
+              help="Which provider's guide to fetch (gworkspace, m365, or imap for "
+                   "personal Gmail and generic IMAP hosts).")
 @click.option("--project-id", default=None, help="Your Google Cloud project for Workspace setup commands.")
 @click.option("--sa-email", default=None, help="Your Workspace service account email for setup commands.")
 @click.option("--topic", default=None, help="Override the suggested Workspace Pub/Sub topic name.")
@@ -1429,8 +1442,9 @@ def onboarding(ctx, provider, project_id, sa_email, topic, subscription) -> None
     """Provider setup guide; supply Workspace values for copyable commands.
 
     \b
-    Example:
+    Examples:
       limacharlie mailsec onboarding --provider gworkspace
+      limacharlie mailsec onboarding --provider imap
     """
     kwargs = {"provider": provider}
     for key, value in (("project_id", project_id), ("sa_email", sa_email),
