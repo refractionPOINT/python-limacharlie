@@ -182,7 +182,8 @@ The record accepts up to 1,000 mailboxes. `ingest.mode` is `auto` only (`push` i
 `scope.internal_domains` keeps its usual meaning; `scope.include_*`, `scope.domains` and
 `scope.include_groups` are refused because the mailbox list is the scope. Personal mail domains
 such as `gmail.com` are never treated as internal. IMAP cannot send mail, so reporter auto-replies
-are not available. Mail that a user's own filter moves straight out of the Inbox (for example a
+are not available. Warning banners (`banner_message`) are refused on personal Gmail
+mailboxes for now and work on other IMAP hosts. Mail that a user's own filter moves straight out of the Inbox (for example a
 Gmail filter with "Skip the Inbox") is not covered. Every mailbox counts toward the organization's
 free-tier mailbox allowance like any other protected mailbox.
 

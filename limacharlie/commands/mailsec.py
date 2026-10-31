@@ -665,7 +665,8 @@ Each IMAP mailbox has its own login, so the single imap record lists its
 mailboxes in imap.mailboxes and each mailbox references its own secret in
 its credentials field (hive://secret/<name>). The record's top-level
 credentials stay empty. IMAP cannot send mail, so reporter auto-replies are
-unavailable. Mail that a user's own filters move straight out of the Inbox
+unavailable. Warning banners are refused on personal Gmail mailboxes for now
+(other IMAP hosts support them). Mail that a user's own filters move straight out of the Inbox
 is not covered.
 
 Saved mailsec_provider records use full projects/<p>/topics/<t> and
