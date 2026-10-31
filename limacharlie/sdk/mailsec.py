@@ -2068,9 +2068,12 @@ class Mailsec:
         The backend supplies current scopes and setup steps. Workspace
         commands contain placeholders until the customer supplies their own
         project and service account; this read creates no provider resources.
+        The ``imap`` guide has a Gmail app-password variant and a
+        generic-host variant; the substitution arguments do not apply to it.
 
         Args:
-            provider: ``gworkspace`` (default) or ``m365``.
+            provider: ``gworkspace`` (default), ``m365``, or ``imap``
+                (personal Gmail via an app password, or any IMAP host).
             project_id: Customer's Google Cloud project ID.
             sa_email: Customer's service account email address.
             topic: Workspace Pub/Sub topic name override.

@@ -47,6 +47,7 @@ limacharlie mailsec coverage --since 2026-09-01T00:00:00Z --until 2026-09-02T00:
 limacharlie mailsec onboarding --provider gworkspace
 limacharlie mailsec onboarding --provider gworkspace --project-id your-project --sa-email mailsec@your-project.iam.gserviceaccount.com
 limacharlie mailsec onboarding --provider m365
+limacharlie mailsec onboarding --provider imap
 limacharlie mailsec connection test workspace-mail     # post-save credential preflight
 limacharlie mailsec connection test workspace-mail --include-watch
 ```
@@ -96,7 +97,7 @@ remediation. New organizations have no automatic remediation configured; add an
 automation policy deliberately after validating coverage and verdicts.
 
 Only one enabled `mailsec_provider` connection per provider is supported in an
-organization (one Microsoft 365 and one Workspace connection can coexist).
+organization (one Microsoft 365, one Workspace and one IMAP connection can coexist).
 Workspace `features.pubsub_topic` must be `projects/<p>/topics/<t>` and
 `features.pubsub_subscription` must be `projects/<p>/subscriptions/<s>`.
 
@@ -113,6 +114,78 @@ Workspace `features.pubsub_topic` must be `projects/<p>/topics/<t>` and
 
 Use `scope.internal_domains` for send-as domains that should count as internal
 without excluding mailboxes on the organization's other domains from coverage.
+
+### IMAP mailboxes (personal Gmail and generic IMAP hosts)
+
+`provider: imap` protects mailboxes that have no admin API: personal Gmail
+accounts (using a Gmail app password) and any other IMAP host. The one-connection-per-provider
+rule still holds. An organization has a single `imap` record, and that record lists all of its
+mailboxes in `imap.mailboxes`. Add or remove a mailbox by editing the list in that record, not
+by creating another record.
+
+Each mailbox has its own login, so each one references its own `secret` record. Save the app
+password as JSON in the secret's `secret` value (spaces in a Gmail app password are stripped
+before login):
+
+```json
+{"secret":"{\"password\":\"abcd efgh ijkl mnop\"}"}
+```
+
+Save the connection body as `imap.json`. The record's top-level `credentials` must be empty:
+
+```json
+{
+  "provider": "imap",
+  "imap": {
+    "mailboxes": [
+      {
+        "address": "alice@gmail.com",
+        "host": "imap.gmail.com",
+        "port": 993,
+        "security": "tls",
+        "credentials": "hive://secret/imap-alice"
+      },
+      {
+        "address": "bob@mail.example.org",
+        "host": "imap.example.org",
+        "port": 143,
+        "security": "starttls",
+        "username": "bob",
+        "credentials": "hive://secret/imap-bob"
+      }
+    ]
+  },
+  "ingest": {"mode": "auto", "backfill_days": 14}
+}
+```
+
+```bash
+limacharlie mailsec onboarding --provider imap
+limacharlie secret set --key imap-alice --input-file alice-secret.json --enabled
+limacharlie secret set --key imap-bob --input-file bob-secret.json --enabled
+limacharlie hive set --hive-name mailsec_provider --key imap --input-file imap.json --enabled
+limacharlie mailsec connection test imap
+limacharlie mailsec coverage
+```
+
+| IMAP mailbox field | Purpose |
+|---|---|
+| `address` | The mailbox address. Required, unique within the record, and the mailbox's identity everywhere. |
+| `host` | IMAP server DNS name, for example `imap.gmail.com`. IP literals and `localhost` are refused. |
+| `port` | `993` (default) or `143`. |
+| `security` | `tls` (implicit TLS, default) or `starttls` (required on 143). There is no plaintext option and certificates are always verified. |
+| `username` | Optional login name when it differs from `address`. |
+| `credentials` | `hive://secret/<name>` holding this mailbox's password or app password. |
+
+The record accepts up to 1,000 mailboxes. `ingest.mode` is `auto` only (`push` is refused).
+`scope.exclude_addresses` pauses a mailbox without deleting its entry and
+`scope.internal_domains` keeps its usual meaning; `scope.include_*`, `scope.domains` and
+`scope.include_groups` are refused because the mailbox list is the scope. Personal mail domains
+such as `gmail.com` are never treated as internal. IMAP cannot send mail, so reporter auto-replies
+are not available. Warning banners (`banner_message`) are refused on personal Gmail
+mailboxes for now and work on other IMAP hosts. Mail that a user's own filter moves straight out of the Inbox (for example a
+Gmail filter with "Skip the Inbox") is not covered. Every mailbox counts toward the organization's
+free-tier mailbox allowance like any other protected mailbox.
 
 ## Policy records
 
