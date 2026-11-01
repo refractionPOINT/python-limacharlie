@@ -13,7 +13,7 @@ import click
 from ..cli import pass_context
 from ..client import Client
 from ..config import load_config, save_config
-from ..sdk.organization import Organization
+from ..sdk.organization import Organization, oid_from_create_response
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
 
@@ -298,16 +298,7 @@ def create(ctx: click.Context, name: str, location: str, template: str | None, u
     _output(ctx, data)
 
     # Show the web app URL for the new org on success.
-    oid = None
-    inner = data.get("data") if isinstance(data, dict) else None
-    if isinstance(inner, dict):
-        oid = inner.get("oid")
-    elif isinstance(inner, str):
-        try:
-            import json
-            oid = json.loads(inner).get("oid")
-        except (ValueError, AttributeError):
-            pass
+    oid = oid_from_create_response(data)
     if oid and not ctx.obj.quiet:
         click.echo(f"\nOrganization URL: https://app.limacharlie.io/orgs/{oid}")
 
