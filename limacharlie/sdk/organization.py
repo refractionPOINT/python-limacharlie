@@ -1134,3 +1134,30 @@ class Organization:
             return []
         jobs = self._client.unwrap(raw_jobs)
         return [job for job_id, job in jobs.items()]
+
+
+def oid_from_create_response(resp: Any) -> str | None:
+    """Return the new organization's OID from a :meth:`Organization.create_org` response.
+
+    The API nests it under ``data`` (``{"data": {"oid": ...}}``). ``data`` is
+    also accepted as a JSON-encoded string, as ``org create`` always did.
+
+    Args:
+        resp: The value returned by :meth:`Organization.create_org`.
+
+    Returns:
+        str | None: The OID, or None when the response does not carry one.
+    """
+    if not isinstance(resp, dict):
+        return None
+    inner = resp.get("data")
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except ValueError:
+            return None
+    if isinstance(inner, dict):
+        oid = inner.get("oid")
+        if isinstance(oid, str) and oid:
+            return oid
+    return None

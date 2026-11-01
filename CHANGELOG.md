@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Auth — `auth signup` selects the organization it creates
+
+- `auth signup` read the new organization's ID from the wrong place in the API
+  response, so it created the organization but never printed
+  `Organization created: <OID>` and never made it the default. It now reads
+  `data.oid`, as `org create` does, saves it as the default organization and
+  prints it.
+- When the response carries no ID, `auth signup` now exits with code 6 and says
+  to run `limacharlie org list` and `limacharlie auth use-org <OID>`, instead
+  of exiting 0 without a word. The sign-in is kept.
+- New SDK helper `limacharlie.sdk.organization.oid_from_create_response()`
+  reads the OID from an `Organization.create_org()` response.
+
 ### Hive — page-by-page listing in the CLI, and errors that say what to do
 
 - `hive list`, `dr list` and every hive shortcut `list` command (`lookup list`,

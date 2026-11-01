@@ -17,7 +17,7 @@ from ..config import (
     is_ephemeral,
 )
 from ..client import Client
-from ..sdk.organization import Organization
+from ..sdk.organization import Organization, oid_from_create_response
 from ..discovery import register_explain
 from ._output_helpers import command_output as _output
 
@@ -645,7 +645,7 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
 
     try:
         resp = Organization.create_org(client, name=org_name, location="auto")
-        chosen_oid = resp.get("oid")
+        chosen_oid = oid_from_create_response(resp)
     except Exception as e:
         click.echo(f"Error creating organization: {e}", err=True)
         click.echo(
@@ -656,11 +656,21 @@ def signup(ctx: click.Context, provider: str, no_browser: bool, org_name: str | 
         ctx.exit(5)
         return
 
-    if chosen_oid:
-        write_credentials(env_name, oid=chosen_oid, api_key=None)
-        if not ctx.obj.quiet:
-            click.echo(f"Organization created: {chosen_oid}")
-            click.echo(f"\nAll set! Credentials saved for environment '{env_name}'.")
+    if not chosen_oid:
+        click.echo(
+            "Error: the organization was requested, but the API response did "
+            "not include its ID.\n"
+            "Your OAuth credentials have been saved. Run 'limacharlie org list' "
+            "to find it, then 'limacharlie auth use-org <OID>'.",
+            err=True,
+        )
+        ctx.exit(6)
+        return
+
+    write_credentials(env_name, oid=chosen_oid, api_key=None)
+    if not ctx.obj.quiet:
+        click.echo(f"Organization created: {chosen_oid}")
+        click.echo(f"\nAll set! Credentials saved for environment '{env_name}'.")
 
 
 # ---------------------------------------------------------------------------

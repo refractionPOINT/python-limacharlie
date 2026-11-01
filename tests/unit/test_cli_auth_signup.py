@@ -53,7 +53,8 @@ def test_signup_creates_org_without_account_creation_call(tmp_config_file):
         "limacharlie.commands.auth.Client.refresh_jwt",
     ) as refresh_jwt, mock.patch(
         "limacharlie.commands.auth.Organization.create_org",
-        return_value={"oid": "new-oid"},
+        # The real POST /orgs/new response nests the OID under "data".
+        return_value={"data": {"oid": "new-oid"}},
     ) as create_org, mock.patch(
         "requests.post", side_effect=AssertionError("unexpected HTTP POST"),
     ), mock.patch(
@@ -64,6 +65,7 @@ def test_signup_creates_org_without_account_creation_call(tmp_config_file):
         ])
 
     assert result.exit_code == 0, result.output
+    assert "Organization created: new-oid" in result.output
     assert "Step 1/2" in result.output
     assert "Step 2/2" in result.output
     refresh_jwt.assert_called_once_with(oid_override="-")
@@ -74,3 +76,45 @@ def test_signup_creates_org_without_account_creation_call(tmp_config_file):
     assert config["oid"] == "new-oid"
     assert config["oauth"]["id_token"] == "id-token"
     assert "email" not in config["oauth"]
+
+
+def _run_signup(create_org_response):
+    with mock.patch(
+        "limacharlie.oauth_firebase_simple.SimpleFirebaseAuth.start_auth_flow",
+        return_value=_oauth_tokens(),
+    ), mock.patch(
+        "limacharlie.commands.auth.Client.refresh_jwt",
+    ), mock.patch(
+        "limacharlie.commands.auth.Organization.create_org",
+        return_value=create_org_response,
+    ):
+        return CliRunner().invoke(cli, [
+            "auth", "signup", "--no-browser", "--org-name", "My Org",
+        ])
+
+
+def test_signup_reads_oid_from_json_string_data(tmp_config_file):
+    result = _run_signup({"data": '{"oid": "str-oid"}'})
+
+    assert result.exit_code == 0, result.output
+    assert "Organization created: str-oid" in result.output
+    assert load_config()["oid"] == "str-oid"
+
+
+@pytest.mark.parametrize("response", [
+    {"oid": "top-level-oid"},
+    {"data": {}},
+    {"data": "not json"},
+    {},
+])
+def test_signup_without_oid_in_response_fails_with_guidance(tmp_config_file, response):
+    result = _run_signup(response)
+
+    assert result.exit_code == 6, result.output
+    assert "Organization created" not in result.output
+    assert "limacharlie org list" in result.output
+    assert "auth use-org" in result.output
+    config = load_config()
+    # The sign-in is kept so the person can select the org themselves.
+    assert config["oauth"]["id_token"] == "id-token"
+    assert not config.get("oid")
