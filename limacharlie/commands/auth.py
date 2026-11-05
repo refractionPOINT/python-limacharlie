@@ -83,7 +83,11 @@ discover your OIDs.
 
 For OAuth login, pass --oauth to authenticate via your browser using
 Google or Microsoft.  Use --provider to choose (default: google).
-Use --no-browser for headless environments (prints the URL instead).
+Use --no-browser for headless environments: it prints the URL instead of
+opening a browser. Over SSH without a display, this happens on its own.
+Sign in from any machine; your browser is then sent to a localhost URL
+that will not load there. Copy that URL from the address bar and paste
+it into the terminal to finish logging in.
 The --oid flag is optional with OAuth and can be set later via
 'limacharlie auth use-org'.
 
@@ -127,7 +131,7 @@ register_explain("auth.login", _EXPLAIN_LOGIN)
     "--provider", type=click.Choice(["google", "microsoft"], case_sensitive=False),
     default="google", help="OAuth provider (default: google). Only used with --oauth.",
 )
-@click.option("--no-browser", is_flag=True, default=False, help="Print the OAuth URL instead of opening a browser. Only used with --oauth.")
+@click.option("--no-browser", is_flag=True, default=False, help="Print the OAuth URL instead of opening a browser, then accept the redirect URL pasted back into the terminal. Only used with --oauth.")
 @pass_context
 def login(ctx: click.Context, oid: str | None, api_key: str | None, environment: str | None, uid: str | None, oauth: bool, provider: str, no_browser: bool) -> None:
     env_name = environment or ctx.obj.environment or "default"
@@ -553,7 +557,7 @@ register_explain("auth.signup", _EXPLAIN_SIGNUP)
     "--provider", type=click.Choice(["google", "microsoft"], case_sensitive=False),
     default="google", help="OAuth provider (default: google).",
 )
-@click.option("--no-browser", is_flag=True, default=False, help="Print the OAuth URL instead of opening a browser.")
+@click.option("--no-browser", is_flag=True, default=False, help="Print the OAuth URL instead of opening a browser, then accept the redirect URL pasted back into the terminal.")
 @click.option("--org-name", default=None, help="Create a new organization with this name.")
 @click.option(
     "--env", "environment", default=None,

@@ -626,6 +626,21 @@ class OAuthCallbackServer:
         except queue.Empty:
             return (False, None, 'Authentication timeout')
     
+    def poll_callback(self, timeout: float) -> Optional[Tuple[bool, Optional[str], Optional[str]]]:
+        """
+        Wait up to ``timeout`` seconds for an OAuth callback.
+
+        Returns:
+            Same tuple as wait_for_callback, or None if nothing arrived yet.
+        """
+        try:
+            result = self.callback_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        # Give the handler a moment to finish sending its HTML response.
+        time.sleep(0.5)
+        return (result['success'], result.get('path'), result.get('error'))
+
     def stop(self):
         """Stop the OAuth callback server."""
         if self.server:
