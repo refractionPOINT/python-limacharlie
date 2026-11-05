@@ -534,14 +534,18 @@ class OAuthCallbackServer:
             "  - Then try the OAuth login again."
         )
     
-    def start(self) -> int:
+    def start(self, port: Optional[int] = None) -> int:
         """
         Start the OAuth callback server.
-        
+
+        Args:
+            port: Port to listen on. Defaults to the first free OAuth
+                callback port; 0 lets the OS pick one.
+
         Returns:
             The port number the server is listening on
         """
-        self.port = self.find_free_port()
+        self.port = self.find_free_port() if port is None else port
         
         # Create handler with callback queue reference
         handler = lambda *args, **kwargs: OAuthCallbackHandler(
@@ -551,6 +555,7 @@ class OAuthCallbackServer:
         )
         
         self.server = socketserver.TCPServer(('localhost', self.port), handler)
+        self.port = self.server.server_address[1]
         self.server.timeout = 1  # Check for shutdown every second
         
         # Pass expected_state to the server if set
@@ -626,6 +631,21 @@ class OAuthCallbackServer:
         except queue.Empty:
             return (False, None, 'Authentication timeout')
     
+    def poll_callback(self, timeout: float) -> Optional[Tuple[bool, Optional[str], Optional[str]]]:
+        """
+        Wait up to ``timeout`` seconds for an OAuth callback.
+
+        Returns:
+            Same tuple as wait_for_callback, or None if nothing arrived yet.
+        """
+        try:
+            result = self.callback_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        # Give the handler a moment to finish sending its HTML response.
+        time.sleep(0.5)
+        return (result['success'], result.get('path'), result.get('error'))
+
     def stop(self):
         """Stop the OAuth callback server."""
         if self.server:

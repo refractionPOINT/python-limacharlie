@@ -61,6 +61,16 @@ limacharlie auth login --oauth --oid YOUR_ORG_ID --env production
 
 OAuth tokens are automatically refreshed when they expire.
 
+### Logging in over SSH or on a machine without a browser
+
+With `--no-browser`, the CLI prints the sign-in URL instead of opening a browser. Over SSH with no display, it does this without the flag.
+
+1. Open the printed URL in a browser on any machine, such as your laptop, and sign in.
+2. The browser is then sent to `http://localhost:8085/callback?...` (the port can be 8085 to 8089). That page does not load, because the CLI is on the other machine. This is expected.
+3. Copy the full URL from the browser's address bar, paste it into the terminal and press Enter.
+
+The CLI finishes the login, including the MFA prompt if your account has MFA. If you forward the port instead (`ssh -L 8085:localhost:8085 host`), the redirect reaches the CLI and there is nothing to paste. Pasting is not available on Windows; use port forwarding there.
+
 ## Managing Environments
 
 ```bash

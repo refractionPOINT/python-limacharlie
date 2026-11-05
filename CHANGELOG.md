@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Auth — OAuth login over SSH by pasting the redirect URL
+
+- `auth login --oauth --no-browser` and `auth signup --no-browser` now finish
+  the sign-in when the browser is on another machine. After signing in, copy
+  the `http://localhost:808x/callback?...` URL from the browser's address bar
+  (the page itself does not load) and paste it into the terminal. The local
+  callback server still listens at the same time, so port forwarding keeps
+  working. Works with Google and Microsoft, and with MFA.
+- Over SSH with no `DISPLAY`/`WAYLAND_DISPLAY`, the CLI no longer tries to open
+  a browser and behaves as if `--no-browser` was passed.
+- Pasting is offered only when stdin is a terminal, and not on Windows
+  (`select()` there does not work on stdin).
+
 ### Auth — `auth signup` selects the organization it creates
 
 - `auth signup` read the new organization's ID from the wrong place in the API

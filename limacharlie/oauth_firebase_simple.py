@@ -24,6 +24,8 @@ import urllib.parse
 import requests
 import time
 import os
+import select
+import sys
 from typing import Dict, Optional, Tuple
 
 from .oauth_server import OAuthCallbackServer
@@ -55,6 +57,8 @@ class SimpleFirebaseAuth:
     def __init__(self):
         """Initialize Firebase auth manager."""
         self.callback_server = None
+        # Set when the redirect URL was pasted rather than received by the server.
+        self._redirect_was_pasted = False
     
     def start_auth_flow(self, provider_id: str = "google.com", no_browser: bool = False) -> Dict[str, str]:
         """
@@ -87,22 +91,36 @@ class SimpleFirebaseAuth:
                 redirect_uri=redirect_uri
             )
             
-            # Open browser or print URL
+            if not no_browser and _is_remote_session():
+                print("SSH session without a display detected, not opening a browser.")
+                no_browser = True
+
+            # Open browser or print URL. When the user signs in from another
+            # machine, the redirect to localhost cannot reach this process, so
+            # they can paste the redirect URL into the terminal instead.
+            allow_paste = no_browser
             if no_browser:
                 print(f"\nPlease visit this URL to authenticate:\n{auth_uri}\n")
             else:
                 print(f"Opening browser for authentication...")
                 if not webbrowser.open(auth_uri):
                     print(f"\nCould not open browser. Please visit this URL:\n{auth_uri}\n")
-            
-            print("Waiting for authentication...")
-            
-            # Wait for callback
-            success, callback_data, error = self.callback_server.wait_for_callback()
-            
-            if not success:
-                raise FirebaseAuthError(f"Authentication failed: {error}")
-            
+                    allow_paste = True
+
+            allow_paste = allow_paste and _stdin_can_be_polled()
+            if allow_paste:
+                print(
+                    f"After you sign in, your browser is sent to {redirect_uri}.\n"
+                    "If you signed in on another machine (for example over SSH), that page\n"
+                    "will not load. That is expected: copy the full URL from the browser's\n"
+                    "address bar and paste it here.\n"
+                )
+                print("Paste the URL and press Enter, or wait for the browser: ", end="", flush=True)
+            else:
+                print("Waiting for authentication...")
+
+            callback_data = self._wait_for_redirect(allow_paste, redirect_uri)
+
             # Extract query string from callback
             query_string = self._extract_query_string(callback_data)
             
@@ -113,6 +131,57 @@ class SimpleFirebaseAuth:
         # Step 2: Exchange with Firebase using signInWithIdp
         return self._sign_in_with_idp(redirect_uri, query_string, session_id, provider_id)
     
+    def _wait_for_redirect(self, allow_paste: bool, redirect_uri: str) -> str:
+        """
+        Wait for the provider redirect, either on the local callback server
+        or, when allow_paste is set, pasted into the terminal.
+
+        Returns:
+            The callback path including its query string.
+
+        Raises:
+            FirebaseAuthError: On timeout or a failed callback.
+        """
+        server = self.callback_server
+        reader = _StdinLineReader() if allow_paste else None
+        deadline = time.monotonic() + server.timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise FirebaseAuthError("Authentication failed: Authentication timeout")
+
+            if allow_paste:
+                # Check the terminal first, then give the server a short turn.
+                line = reader.read_line(min(remaining, 0.5))
+                if line is not None:
+                    if line == "":
+                        # stdin closed: stop reading it, keep waiting on the server.
+                        allow_paste = False
+                    else:
+                        path = _parse_pasted_redirect(line)
+                        if path is not None:
+                            self._redirect_was_pasted = True
+                            return path
+                        if line.strip():
+                            print(
+                                "That does not look like the sign-in redirect URL. It should start with\n"
+                                f"{redirect_uri} and contain 'code=' and 'state='. Try again: ",
+                                end="", flush=True,
+                            )
+                result = server.poll_callback(timeout=0)
+            else:
+                result = server.poll_callback(timeout=min(remaining, 1.0))
+
+            if result is None:
+                continue
+            success, callback_data, error = result
+            if not success:
+                raise FirebaseAuthError(f"Authentication failed: {error}")
+            if allow_paste:
+                # The prompt is still on screen; end its line.
+                print()
+            return callback_data
+
     def _create_auth_uri(self, provider_id: str, scopes: Tuple[str, ...], 
                         redirect_uri: str) -> Tuple[str, str]:
         """
@@ -253,7 +322,15 @@ class SimpleFirebaseAuth:
             return result
 
         except requests.exceptions.RequestException as e:
-            raise FirebaseAuthError(f"Failed to sign in with IdP: {str(e)}")
+            msg = f"Failed to sign in with IdP: {str(e)}"
+            if self._redirect_was_pasted:
+                msg += (
+                    "\nThe pasted URL may have been cut short: some terminals limit how long a"
+                    " pasted line can be (1024 characters on macOS). Run the login again and"
+                    " paste the whole URL, or forward the port instead:"
+                    " ssh -L 8085:localhost:8085 <host>"
+                )
+            raise FirebaseAuthError(msg)
 
     def _handle_mfa_verification(self, mfa_pending_credential: str,
                                 mfa_info: list, provider_id: str,
@@ -324,6 +401,106 @@ class SimpleFirebaseAuth:
             
         except requests.exceptions.RequestException as e:
             raise FirebaseAuthError(f"Failed to refresh token: {str(e)}")
+
+
+def _is_remote_session() -> bool:
+    """True when running over SSH with no graphical display to open a browser on."""
+    if not (os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY")):
+        return False
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _stdin_can_be_polled() -> bool:
+    """
+    True when stdin is a terminal that can be waited on together with the
+    callback server.
+
+    On Windows, select() only accepts sockets, not stdin, so the paste
+    fallback is not offered there.
+    """
+    if os.name == "nt":
+        return False
+    stdin = sys.stdin
+    if stdin is None or getattr(stdin, "closed", True):
+        return False
+    try:
+        # Only a terminal: piped stdin is left alone for whoever owns it.
+        return os.isatty(stdin.fileno())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+class _StdinLineReader:
+    """
+    Reads stdin lines without blocking, so the wait can also watch the
+    callback server.
+
+    Reads the raw file descriptor rather than sys.stdin: sys.stdin buffers
+    ahead, and select() cannot see lines already sitting in that buffer.
+    """
+
+    def __init__(self):
+        self._fd = sys.stdin.fileno()
+        self._buf = b""
+        self._eof = False
+
+    def read_line(self, timeout: float) -> Optional[str]:
+        """
+        Return the next line if one is ready within ``timeout`` seconds.
+
+        Returns:
+            None if nothing is ready, "" at end of input, else the line
+            (a blank line is returned as " ").
+        """
+        if b"\n" not in self._buf and not self._eof:
+            try:
+                ready, _, _ = select.select([self._fd], [], [], timeout)
+                if ready:
+                    chunk = os.read(self._fd, 65536)
+                    if chunk:
+                        self._buf += chunk
+                    else:
+                        self._eof = True
+            except (OSError, ValueError):
+                self._eof = True
+        if b"\n" in self._buf:
+            line, self._buf = self._buf.split(b"\n", 1)
+        elif self._eof and self._buf:
+            line, self._buf = self._buf, b""
+        elif self._eof:
+            return ""
+        else:
+            return None
+        text = line.decode("utf-8", errors="replace")
+        return text if text.strip() else " "
+
+
+def _parse_pasted_redirect(text: str) -> Optional[str]:
+    """
+    Turn a pasted redirect URL into the callback path the server would see.
+
+    Accepts the full URL from the browser address bar, the path, or the bare
+    query string. Returns None when the text does not carry an OAuth
+    response: an 'error' parameter, or both 'code' and 'state'.
+    """
+    text = text.strip().strip("'\"")
+    if not text:
+        return None
+    if "://" in text or text.startswith("/"):
+        parsed = urllib.parse.urlparse(text)
+        query = parsed.query or parsed.fragment
+    else:
+        query = text.lstrip("?")
+    if not query:
+        return None
+    params = urllib.parse.parse_qs(query)
+    if "error" in params:
+        return f"/callback?{query}"
+    # A successful redirect carries both the code and Firebase's state; a
+    # missing state usually means the paste was cut short.
+    if "code" not in params or "state" not in params:
+        return None
+    return f"/callback?{query}"
 
 
 def perform_simple_firebase_auth(oid: Optional[str] = None, 
