@@ -8,8 +8,9 @@ people who forward the port or log in on the same machine.
 """
 
 import os
-import socket
+import pty
 import sys
+import termios
 import threading
 import urllib.request
 from unittest import mock
@@ -26,10 +27,14 @@ QUERY = "state=abc123&code=4%2F0Aean-xyz&scope=email+openid"
 
 @pytest.fixture
 def stdin_pipe(monkeypatch):
-    """Replace stdin with a pipe the test can write lines into."""
-    r, w = os.pipe()
-    reader = os.fdopen(r, "r")
-    writer = os.fdopen(w, "w")
+    """Replace stdin with a pseudo-terminal the test can type lines into."""
+    master, slave = pty.openpty()
+    # No echo, so typed lines don't pile up unread on the master side.
+    attrs = termios.tcgetattr(slave)
+    attrs[3] &= ~termios.ECHO
+    termios.tcsetattr(slave, termios.TCSANOW, attrs)
+    reader = os.fdopen(slave, "r")
+    writer = os.fdopen(master, "w")
     monkeypatch.setattr(sys, "stdin", reader)
     yield writer
     for f in (reader, writer):
@@ -121,7 +126,8 @@ def test_server_callback_still_wins_when_paste_enabled(stdin_pipe):
 
 
 def test_stdin_eof_falls_back_to_server(stdin_pipe):
-    stdin_pipe.close()
+    stdin_pipe.write("\x04")  # Ctrl-D: end of input on a terminal
+    stdin_pipe.flush()
 
     class LateServer(FakeServer):
         calls = 0
@@ -135,6 +141,17 @@ def test_stdin_eof_falls_back_to_server(stdin_pipe):
     path = _auth_with(LateServer())._wait_for_redirect(True, REDIRECT)
 
     assert path == f"/callback?{QUERY}"
+
+
+def test_piped_stdin_is_not_read(monkeypatch):
+    r, w = os.pipe()
+    with os.fdopen(r, "r") as reader, os.fdopen(w, "w"):
+        monkeypatch.setattr(sys, "stdin", reader)
+        assert fb._stdin_can_be_polled() is False
+
+
+def test_terminal_stdin_is_read(stdin_pipe):
+    assert fb._stdin_can_be_polled() is True
 
 
 def test_server_error_is_raised(stdin_pipe):
@@ -262,15 +279,9 @@ def test_ssh_with_forwarded_display_still_opens_browser(stdin_pipe, monkeypatch)
 
 def test_real_callback_server_works_while_waiting_for_paste(stdin_pipe):
     """A browser hitting the local server (or a forwarded port) still completes the login."""
-    class EphemeralPortServer(OAuthCallbackServer):
-        # The real server only uses 8085-8089; don't depend on those being free.
-        def find_free_port(self):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("localhost", 0))
-                return s.getsockname()[1]
-
-    server = EphemeralPortServer(timeout=10)
-    port = server.start()
+    # Port 0: don't depend on the real callback ports 8085-8089 being free.
+    server = OAuthCallbackServer(timeout=10)
+    port = server.start(port=0)
     try:
         auth = _auth_with(server)
         url = f"http://localhost:{port}/callback?{QUERY}"

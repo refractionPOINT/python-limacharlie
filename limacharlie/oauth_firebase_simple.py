@@ -412,7 +412,8 @@ def _is_remote_session() -> bool:
 
 def _stdin_can_be_polled() -> bool:
     """
-    True when stdin can be waited on together with the callback server.
+    True when stdin is a terminal that can be waited on together with the
+    callback server.
 
     On Windows, select() only accepts sockets, not stdin, so the paste
     fallback is not offered there.
@@ -423,10 +424,10 @@ def _stdin_can_be_polled() -> bool:
     if stdin is None or getattr(stdin, "closed", True):
         return False
     try:
-        stdin.fileno()
+        # Only a terminal: piped stdin is left alone for whoever owns it.
+        return os.isatty(stdin.fileno())
     except (AttributeError, OSError, ValueError):
         return False
-    return True
 
 
 class _StdinLineReader:

@@ -12,7 +12,8 @@
   working. Works with Google and Microsoft, and with MFA.
 - Over SSH with no `DISPLAY`/`WAYLAND_DISPLAY`, the CLI no longer tries to open
   a browser and behaves as if `--no-browser` was passed.
-- Pasting needs `select()` on stdin, so it is not offered on Windows.
+- Pasting is offered only when stdin is a terminal, and not on Windows
+  (`select()` there does not work on stdin).
 
 ### Auth — `auth signup` selects the organization it creates
 
