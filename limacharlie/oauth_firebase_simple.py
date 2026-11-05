@@ -57,6 +57,8 @@ class SimpleFirebaseAuth:
     def __init__(self):
         """Initialize Firebase auth manager."""
         self.callback_server = None
+        # Set when the redirect URL was pasted rather than received by the server.
+        self._redirect_was_pasted = False
     
     def start_auth_flow(self, provider_id: str = "google.com", no_browser: bool = False) -> Dict[str, str]:
         """
@@ -158,11 +160,12 @@ class SimpleFirebaseAuth:
                     else:
                         path = _parse_pasted_redirect(line)
                         if path is not None:
+                            self._redirect_was_pasted = True
                             return path
                         if line.strip():
                             print(
                                 "That does not look like the sign-in redirect URL. It should start with\n"
-                                f"{redirect_uri} and contain 'code='. Try again: ",
+                                f"{redirect_uri} and contain 'code=' and 'state='. Try again: ",
                                 end="", flush=True,
                             )
                 result = server.poll_callback(timeout=0)
@@ -319,7 +322,15 @@ class SimpleFirebaseAuth:
             return result
 
         except requests.exceptions.RequestException as e:
-            raise FirebaseAuthError(f"Failed to sign in with IdP: {str(e)}")
+            msg = f"Failed to sign in with IdP: {str(e)}"
+            if self._redirect_was_pasted:
+                msg += (
+                    "\nThe pasted URL may have been cut short: some terminals limit how long a"
+                    " pasted line can be (1024 characters on macOS). Run the login again and"
+                    " paste the whole URL, or forward the port instead:"
+                    " ssh -L 8085:localhost:8085 <host>"
+                )
+            raise FirebaseAuthError(msg)
 
     def _handle_mfa_verification(self, mfa_pending_credential: str,
                                 mfa_info: list, provider_id: str,
@@ -469,7 +480,7 @@ def _parse_pasted_redirect(text: str) -> Optional[str]:
 
     Accepts the full URL from the browser address bar, the path, or the bare
     query string. Returns None when the text does not carry an OAuth
-    response (no 'code' or 'error' parameter).
+    response: an 'error' parameter, or both 'code' and 'state'.
     """
     text = text.strip().strip("'\"")
     if not text:
@@ -482,7 +493,11 @@ def _parse_pasted_redirect(text: str) -> Optional[str]:
     if not query:
         return None
     params = urllib.parse.parse_qs(query)
-    if "code" not in params and "error" not in params:
+    if "error" in params:
+        return f"/callback?{query}"
+    # A successful redirect carries both the code and Firebase's state; a
+    # missing state usually means the paste was cut short.
+    if "code" not in params or "state" not in params:
         return None
     return f"/callback?{query}"
 

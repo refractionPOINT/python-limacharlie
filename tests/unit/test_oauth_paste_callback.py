@@ -8,6 +8,7 @@ people who forward the port or log in on the same machine.
 """
 
 import os
+import socket
 import sys
 import threading
 import urllib.request
@@ -81,6 +82,7 @@ def test_parse_pasted_redirect_keeps_provider_error():
     "   ",
     "hello",
     REDIRECT,
+    f"{REDIRECT}?code=4%2F0Aean-xyz",  # state cut off
     "https://accounts.google.com/o/oauth2/auth?client_id=x&state=y",
 ])
 def test_parse_pasted_redirect_rejects_non_redirects(pasted):
@@ -191,6 +193,27 @@ def test_no_browser_login_completes_from_pasted_url(stdin_pipe, capsys):
     assert "paste it here" in out
 
 
+def test_failed_exchange_after_paste_hints_at_truncation(stdin_pipe):
+    stdin_pipe.write(f"{REDIRECT}?{QUERY}\n")
+    stdin_pipe.flush()
+
+    class StubServer(FakeServer):
+        def start(self):
+            return self.port
+
+        def stop(self):
+            pass
+
+    rejected = mock.Mock()
+    rejected.raise_for_status.side_effect = fb.requests.exceptions.HTTPError("400 Client Error")
+    with mock.patch.object(fb, "OAuthCallbackServer", StubServer), \
+         mock.patch.object(SimpleFirebaseAuth, "_create_auth_uri",
+                           return_value=("session-1", "https://accounts.google.com/auth?x=1")), \
+         mock.patch.object(fb.requests, "post", return_value=rejected):
+        with pytest.raises(FirebaseAuthError, match="may have been cut short"):
+            SimpleFirebaseAuth().start_auth_flow("google.com", no_browser=True)
+
+
 def test_ssh_without_display_does_not_open_browser(stdin_pipe, monkeypatch):
     monkeypatch.setenv("SSH_CONNECTION", "10.0.0.1 5000 10.0.0.2 22")
     monkeypatch.delenv("DISPLAY", raising=False)
@@ -239,7 +262,14 @@ def test_ssh_with_forwarded_display_still_opens_browser(stdin_pipe, monkeypatch)
 
 def test_real_callback_server_works_while_waiting_for_paste(stdin_pipe):
     """A browser hitting the local server (or a forwarded port) still completes the login."""
-    server = OAuthCallbackServer(timeout=10)
+    class EphemeralPortServer(OAuthCallbackServer):
+        # The real server only uses 8085-8089; don't depend on those being free.
+        def find_free_port(self):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", 0))
+                return s.getsockname()[1]
+
+    server = EphemeralPortServer(timeout=10)
     port = server.start()
     try:
         auth = _auth_with(server)
