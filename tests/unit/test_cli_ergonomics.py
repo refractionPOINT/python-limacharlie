@@ -600,6 +600,61 @@ class TestAdapterTypeSchema:
 
 
 # ---------------------------------------------------------------------------
+# prisma_saas adapter type (Palo Alto SaaS Security)
+# ---------------------------------------------------------------------------
+
+class TestPrismaSaasAdapterType:
+    _SCHEMA = {"schema": {
+        "$ref": "#/$defs/CloudSensorRecord",
+        "$defs": {
+            "CloudSensorRecord": {"properties": {
+                "sensor_type": {"type": "string"},
+                "prisma_saas": {"$ref": "#/$defs/PrismaSaaSConfig"},
+            }},
+            "PrismaSaaSConfig": {"properties": {
+                "client_id": {"type": "string"},
+                "client_secret": {"type": "string"},
+                "region": {"type": "string"},
+                "base_url": {"type": "string"},
+                "max_concurrent_polls": {"type": "integer"},
+            }, "required": ["client_id", "client_secret"]},
+        },
+    }}
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_listed_and_schema_resolved_from_live_schema(self, mock_hive_cls):
+        from limacharlie.commands import _adapter_types as at
+        mock_hive = MagicMock(); mock_hive.get_schema.return_value = self._SCHEMA
+        mock_hive_cls.return_value = mock_hive
+        assert {r["type"] for r in at.adapter_types(None)} == {"prisma_saas"}
+        root, node = at.adapter_type_schema(None, "cloud_sensor", "prisma_saas")
+        assert node.get("$ref", "").endswith("PrismaSaaSConfig")
+        assert "PrismaSaaSConfig" in root["$defs"]
+
+    @patch("limacharlie.commands._adapter_types.Hive")
+    def test_cli_schema_renders_config_keys(self, mock_hive_cls):
+        mock_hive = MagicMock(); mock_hive.get_schema.return_value = self._SCHEMA
+        mock_hive_cls.return_value = mock_hive
+        runner = CliRunner()
+        with patch("limacharlie.client.Client"):
+            result = runner.invoke(cli, [
+                "--output", "table", "cloud-adapter", "schema", "--type", "prisma_saas"])
+        assert result.exit_code == 0, result.output
+        for key in ("client_id", "client_secret", "region", "base_url", "max_concurrent_polls"):
+            assert key in result.output
+
+    def test_help_text_documents_prisma_saas(self):
+        import limacharlie.commands.adapter  # noqa: F401  (registers explains)
+        import limacharlie.commands.cloud_sensor  # noqa: F401
+        from limacharlie.discovery import get_explain
+        cloud = get_explain("cloud-adapter.set")
+        assert "sensor_type: prisma_saas" in cloud
+        assert "client_secret: hive://secret/" in cloud
+        assert "prisma_saas" in get_explain("external-adapter.set")
+        assert "prisma_saas" in get_explain("external-adapter.list")
+
+
+# ---------------------------------------------------------------------------
 # adapter sensors --key  (find an adapter's sensor(s) by iid)
 # ---------------------------------------------------------------------------
 

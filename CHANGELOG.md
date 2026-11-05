@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Adapters — Palo Alto SaaS Security (`prisma_saas`)
+
+- `cloud-adapter` and `external-adapter` help now document the `prisma_saas`
+  adapter type (Palo Alto SaaS Security, formerly Prisma SaaS), including a
+  `cloud-adapter set` example using a `hive://secret/` client secret. The type
+  itself is discovered from the live adapter hive schema
+  (`cloud-adapter list-types` / `schema --type prisma_saas`); no SDK change is
+  needed to use it.
+
 ### Auth — OAuth login over SSH by pasting the redirect URL
 
 - `auth login --oauth --no-browser` and `auth signup --no-browser` now finish

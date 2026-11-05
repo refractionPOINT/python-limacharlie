@@ -21,7 +21,7 @@ the cloud via the external_adapter hive.
 Each record contains the adapter type and its connection settings.
 Common adapter types: syslog, file, s3, gcs, pubsub, webhook, stdin,
 office365, 1password, crowdstrike, carbon_black, duo, sophos,
-threatlocker, and more.  Run 'limacharlie external-adapter list-types'
+threatlocker, prisma_saas, and more.  Run 'limacharlie external-adapter list-types'
 for the full, up-to-date list.
 
 Use --output json for the full config including connection details.
@@ -58,7 +58,7 @@ Key client_options fields:
   hostname         - Display name for this adapter sensor
   sensor_seed_key  - Stable unique ID for this adapter instance
   platform         - Data format: text, json, xml, cef, carbon_black,
-                     crowdstrike, wel, gcp, aws, office365, etc.
+                     crowdstrike, wel, gcp, aws, office365, prisma_saas, etc.
   identity.installation_key - Enrollment key for the adapter
   identity.oid     - Target organization ID
   mapping          - Parsing and field mapping configuration

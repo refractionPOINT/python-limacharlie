@@ -58,13 +58,28 @@ S3 adapter example:
     secret_key: hive://secret/s3-creds
     prefix: logs/
 
+Palo Alto SaaS Security (Prisma SaaS) adapter example:
+
+  sensor_type: prisma_saas
+  prisma_saas:
+    client_options:
+      hostname: prisma-saas
+      identity:
+        installation_key: <your-installation-key>
+        oid: <your-oid>
+      platform: prisma_saas
+      sensor_seed_key: prisma-saas
+    client_id: <api-client-id>
+    client_secret: hive://secret/prisma-saas-client-secret
+    region: us
+
 The structure is the same as external adapters.  The top-level
 sensor_type selects the adapter kind, and client_options are shared
 across all types.
 
 Supported cloud adapter types include: webhook, s3, gcs, pubsub,
-office365, 1password, crowdstrike, duo, sophos, threatlocker, okta,
-google_workspace, sentinelone, mimecast, and more.  Run
+office365, 1password, crowdstrike, duo, sophos, threatlocker, prisma_saas,
+okta, google_workspace, sentinelone, mimecast, and more.  Run
 'limacharlie cloud-adapter list-types' for the full, up-to-date list.
 
 Secrets can be referenced with hive://secret/name syntax to avoid
