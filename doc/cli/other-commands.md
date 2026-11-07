@@ -132,3 +132,37 @@ limacharlie dr create --ai-help
 
 - [CLI Overview](README.md) — Global options and output formats
 - [Getting Started](../getting-started.md) — Installation and first steps
+
+## Case note editing and redaction
+
+Use `case get --case-number 42` to find the original note event ID in the
+case timeline. Both actions require `investigation.set` and use the selected
+organization (`--oid`), including its staging Cases URL when applicable.
+
+```bash
+limacharlie --oid <OID> case edit-note --case-number 42 --event-id <EID> --content "Corrected text"
+limacharlie --oid <OID> case edit-note --case-number 42 --event-id <EID> --input-file note.txt
+cat note.txt | limacharlie --oid <OID> case edit-note --case-number 42 --event-id <EID>
+limacharlie --oid <OID> case redact-note --case-number 42 --event-id <EID> --confirm
+```
+
+Editing accepts one text source: `--content`, `--input-file` (UTF-8 text,
+`-` for stdin), or stdin. Text must be nonempty and at most **8192 UTF-8 bytes**.
+Earlier text, editor and time stay in case history. A note permits **100 actual
+edits**; identical text is a no-op. After the limit, add a new note.
+Both commands return `{event}`; redaction also returns
+`images_pending_deletion`. JSON/YAML output preserves these fields.
+
+Redaction is irreversible: it replaces the note with `[redacted]`, removes
+all earlier text from active Cases storage and blocks image downloads.
+Redacted notes cannot be edited or have their visibility changed. A nonzero
+`images_pending_deletion` means image blobs still await cleanup; it does not
+mean every image has been deleted. Repeating redaction retries cleanup.
+
+Redaction deletes active records, not recovery copies: text may remain in
+point-in-time recovery for up to **7 days** and backups for up to **30 days**.
+Already delivered hooks-domain audit events follow the organization's retention
+and cannot be recalled. Downloaded images, existing client copies, queued old
+payloads and logs cannot be recalled either. Text submitted through extension
+actions can enter Cloud Logging; redaction does not rewrite old logs or change
+their retention. See `case edit-note --ai-help` and `case redact-note --ai-help`.

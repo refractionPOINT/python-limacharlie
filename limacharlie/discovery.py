@@ -100,7 +100,7 @@ PROFILES = {
             "task send", "task request",
             "sensor dump", "sensor sweep",
             "yara scan",
-            "case list", "case get", "case update", "case add-note",
+            "case list", "case get", "case update", "case add-note", "case edit-note", "case redact-note",
             "case entity add", "case entity search",
             "mailsec message list", "mailsec message get", "mailsec message action",
             "mailsec message bulk-action", "mailsec campaign action",
@@ -189,7 +189,7 @@ PROFILES = {
         "description": "SOC case lifecycle, investigation tracking, and reporting",
         "commands": [
             "case list", "case get", "case update",
-            "case add-note", "case bulk-update", "case merge",
+            "case add-note", "case edit-note", "case redact-note", "case bulk-update", "case merge",
             "case entity list", "case entity add", "case entity update",
             "case entity remove", "case entity search",
             "case telemetry list", "case telemetry add",
@@ -205,7 +205,7 @@ PROFILES = {
     "investigation_management": {
         "description": "Case workflows, analyst feedback, notes, and investigation artifacts",
         "commands": [
-            "case list", "case get", "case update", "case add-note",
+            "case list", "case get", "case update", "case add-note", "case edit-note", "case redact-note",
             "case bulk-update", "case merge", "case report", "case dashboard",
             "feedback request-approval", "feedback request-ack", "feedback request-question",
             "feedback channel list", "feedback channel add", "feedback channel remove",
