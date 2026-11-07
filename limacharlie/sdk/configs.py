@@ -18,6 +18,38 @@ class ConfigException(Exception):
     pass
 
 
+class _QuotedStrDumper(yaml.SafeDumper):
+    """SafeDumper that writes every string as a double-quoted scalar.
+
+    PyYAML implements YAML 1.1 and leaves a string unquoted whenever YAML 1.1
+    would read it back as a string. ext-infrastructure parses the pushed
+    config with gopkg.in/yaml.v3, which applies YAML 1.2 rules, where some of
+    those bare strings are numbers: ``0308``, ``0129``, ``1e3`` and ``0o17``
+    would be stored in the hive as 308, 129, 1000 and 15. A double-quoted
+    scalar is a string under every YAML version. Every other type is written
+    exactly as ``yaml.safe_dump`` writes it.
+    """
+
+
+def _represent_quoted_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
+
+
+_QuotedStrDumper.add_representer(str, _represent_quoted_str)
+
+
+def _dump_push_config(config: dict[str, Any]) -> str:
+    """Serialize a config for ext-infrastructure's ``push`` action.
+
+    Args:
+        config: Dict of configuration data to push.
+
+    Returns:
+        str: The config as a YAML document with every string double-quoted.
+    """
+    return yaml.dump(config, Dumper=_QuotedStrDumper, version=(1, 1))
+
+
 class Configs:
     """Infrastructure-as-Code: fetch and push org configuration.
 
@@ -151,7 +183,7 @@ class Configs:
         if sync_hives is None:
             sync_hives = {}
 
-        final_config = yaml.safe_dump(config, version=(1, 1))
+        final_config = _dump_push_config(config)
 
         from .extensions import Extensions
         ext = Extensions(self._org)
