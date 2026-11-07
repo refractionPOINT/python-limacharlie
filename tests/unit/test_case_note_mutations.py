@@ -56,6 +56,7 @@ def sdk():
          patch("limacharlie.commands.case_cmd.Organization"), \
          patch("limacharlie.commands.case_cmd.Cases") as cls:
         cls.return_value.edit_note.return_value = {"event": {"event_id": "evt-1"}}
+        cls.return_value.add_note.return_value = {"event": {"event_id": "evt-1"}}
         cls.return_value.redact_note.return_value = {
             "event": {"redacted": True}, "images_pending_deletion": 2,
         }
@@ -76,12 +77,12 @@ def test_cli_edit_sources(sdk, tmp_path, source):
              "stdin": [], "dash": ["--input-file", "-"]}[source]
     result = invoke("edit-note", extra, stdin=text)
     assert result.exit_code == 0, result.output
-    sdk[0].edit_note.assert_called_once_with(42, "evt-1", text)
+    sdk[0].edit_note.assert_called_once_with(42, "evt-1", text.strip())
     assert json.loads(result.output) == {"event": {"event_id": "evt-1"}}
     assert sdk[1].call_args.kwargs["oid"] == "test-oid"
 
 
-@pytest.mark.parametrize("text", ["", "  \n", "é" * 4097])
+@pytest.mark.parametrize("text", ["", "  \n", "é" * 4097, "  " + "é" * 4097 + "\n"])
 def test_cli_edit_invalid_content_never_calls_sdk(sdk, text):
     result = invoke("edit-note", ["--content", text])
     assert result.exit_code != 0
@@ -155,3 +156,39 @@ def test_cli_explain_and_discovery(command):
     assert result.exit_code == 0, result.output
     assert "8192" in result.output if command == "edit-note" else "30 days" in result.output
     assert f"case {command}" in PROFILES["cases"]["commands"]
+
+
+@pytest.mark.parametrize("method,suffix", [("edit_note", "content"), ("redact_note", "redact")])
+def test_sdk_encodes_event_id_as_single_path_segment(org, method, suffix):
+    args = (42, "../note/redact?oid=other%#fragment")
+    if method == "edit_note":
+        args += ("text",)
+    getattr(Cases(org), method)(*args)
+    assert org.client.request.call_args.args[1] == (
+        "api/v1/cases/42/notes/..%2Fnote%2Fredact%3Foid%3Dother%25%23fragment/" + suffix
+    )
+    assert org.client.request.call_args.kwargs["query_params"] == {"oid": "test-oid"}
+
+
+@pytest.mark.parametrize("source", ["content", "file", "stdin"])
+def test_cli_trims_before_byte_limit_matching_add_note(sdk, tmp_path, source):
+    text = "  " + "é" * 4096 + "\n"
+    path = tmp_path / "note.txt"
+    path.write_text(text, encoding="utf-8")
+    extra = {"content": ["--content", text], "file": ["--input-file", str(path)],
+             "stdin": []}[source]
+    result = invoke("edit-note", extra, stdin=text)
+    assert result.exit_code == 0, result.output
+    sdk[0].edit_note.assert_called_once_with(42, "evt-1", text.strip())
+    added = CliRunner().invoke(cli, ["--oid", "test-oid", "case", "add-note",
+        "--case-number", "42", *extra], input=text)
+    assert added.exit_code == 0, added.output
+    # Both commands submit the same text, so an unchanged file/stdin is a no-op.
+    assert sdk[0].add_note.call_args.args == (42, text.strip())
+
+
+def test_update_note_help_explains_redacted_conflict():
+    for flag in ("--help", "--ai-help"):
+        result = CliRunner().invoke(cli, ["case", "update-note", flag])
+        assert result.exit_code == 0
+        assert "409" in result.output

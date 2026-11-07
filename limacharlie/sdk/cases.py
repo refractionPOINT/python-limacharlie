@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, TYPE_CHECKING
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -243,10 +244,12 @@ class Cases:
         Raises:
             LimaCharlieError: If access is denied, the note is missing,
                 content is invalid, or the note is redacted or at its edit limit.
+                Malformed event IDs return HTTP 400; transient transaction
+                failures return HTTP 503 and can be retried.
         """
         return self._request(
             "PUT",
-            f"cases/{case_number}/notes/{event_id}/content",
+            f"cases/{case_number}/notes/{quote(event_id, safe='')}/content",
             query_params={"oid": self.oid},
             body={"content": content},
         )
@@ -271,10 +274,12 @@ class Cases:
 
         Raises:
             LimaCharlieError: If access is denied or the case/note is missing.
+                Malformed event IDs return HTTP 400; transient transaction
+                failures return HTTP 503 and can be retried.
         """
         return self._request(
             "POST",
-            f"cases/{case_number}/notes/{event_id}/redact",
+            f"cases/{case_number}/notes/{quote(event_id, safe='')}/redact",
             query_params={"oid": self.oid},
         )
 

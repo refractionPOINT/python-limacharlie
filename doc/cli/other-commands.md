@@ -128,11 +128,6 @@ limacharlie cheatsheet incident-response
 limacharlie dr create --ai-help
 ```
 
-## See Also
-
-- [CLI Overview](README.md) — Global options and output formats
-- [Getting Started](../getting-started.md) — Installation and first steps
-
 ## Case note editing and redaction
 
 Use `case get --case-number 42` to find the original note event ID in the
@@ -147,9 +142,13 @@ limacharlie --oid <OID> case redact-note --case-number 42 --event-id <EID> --con
 ```
 
 Editing accepts one text source: `--content`, `--input-file` (UTF-8 text,
-`-` for stdin), or stdin. Text must be nonempty and at most **8192 UTF-8 bytes**.
+`-` for stdin), or stdin. Leading/trailing whitespace is stripped, matching
+`add-note`, before checking that text is nonempty and at most **8192 UTF-8 bytes**.
 Earlier text, editor and time stay in case history. A note permits **100 actual
 edits**; identical text is a no-op. After the limit, add a new note.
+Malformed event IDs return HTTP 400. Transient transaction failures return
+HTTP 503; retry the operation. `case update-note` visibility changes on a
+redacted note return HTTP 409.
 Both commands return `{event}`; redaction also returns
 `images_pending_deletion`. JSON/YAML output preserves these fields.
 
@@ -166,3 +165,8 @@ and cannot be recalled. Downloaded images, existing client copies, queued old
 payloads and logs cannot be recalled either. Text submitted through extension
 actions can enter Cloud Logging; redaction does not rewrite old logs or change
 their retention. See `case edit-note --ai-help` and `case redact-note --ai-help`.
+
+## See Also
+
+- [CLI Overview](README.md) — Global options and output formats
+- [Getting Started](../getting-started.md) — Installation and first steps

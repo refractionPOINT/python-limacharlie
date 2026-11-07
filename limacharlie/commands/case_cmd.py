@@ -134,6 +134,7 @@ _EXPLAIN_EDIT_NOTE = """\
 Replace a note's text, keeping earlier text and editor/time in case history.
 Get the original note's event ID with case get --case-number <number>.
 Provide one source: --content, --input-file (UTF-8 text), or stdin.
+Leading/trailing whitespace is stripped, matching add-note.
 Content must be nonempty and at most 8192 UTF-8 bytes. The API permits
 100 actual edits per note; identical text is a no-op. After the limit,
 add a new note. Redacted notes cannot be edited. Requires investigation.set.
@@ -159,7 +160,7 @@ Example:
 
 _EXPLAIN_UPDATE_NOTE_VISIBILITY = """\
 Toggle a note's public/private visibility.  Public notes are visible
-to stakeholders.
+to stakeholders. Redacted notes reject visibility changes with HTTP 409.
 
 Requires the event ID of the note (from the case event timeline).
 
@@ -943,7 +944,8 @@ def edit_note(ctx, case_number, event_id, content, input_file) -> None:
         text = sys.stdin.read()
     else:
         raise click.UsageError("Provide content via --content, --input-file, or stdin.")
-    if not text.strip():
+    text = text.strip()
+    if not text:
         raise click.UsageError("Note content must not be empty; provide replacement text.")
     if len(text.encode("utf-8")) > 8192:
         raise click.UsageError("Note content exceeds 8192 UTF-8 bytes; shorten the text.")
@@ -1025,6 +1027,8 @@ def log_time(ctx, case_number, billable_seconds, cost_profile, assignee, note) -
 @pass_context
 def update_note(ctx, case_number, event_id, is_public) -> None:
     """Toggle a note's public/private visibility.
+
+    Redacted notes reject visibility changes with HTTP 409.
 
     Examples:
         limacharlie case update-note --case-number 42 --event-id <EID> --is-public
