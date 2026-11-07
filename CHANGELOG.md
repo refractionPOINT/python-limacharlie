@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Sync — `sync push` no longer turns quoted strings into numbers
+
+- `sync push` (and `Configs.push` / `Configs.push_from_file`) stored some
+  quoted strings as numbers: `'0308'`, `'0129'` and zero-padded IDs containing
+  an 8 or 9 became 308, 129, ..., `'1e3'` became 1000 and `'0o17'` became 15.
+  A D&R rule matching such a value then silently stopped matching. PyYAML
+  (YAML 1.1) wrote these strings without quotes, and the server reads the
+  config with YAML 1.2 rules, under which they are numbers. Every string in a
+  pushed config is now written double-quoted, which is a string under any YAML
+  version. Numbers, booleans, nulls, dates and binary values are written as
+  before.
+- Values already stored with the wrong type are corrected by pushing the
+  config again with this version.
+
 ### Adapters — Palo Alto SaaS Security (`prisma_saas`)
 
 - `cloud-adapter` and `external-adapter` help now document the `prisma_saas`

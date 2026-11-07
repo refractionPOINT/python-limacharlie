@@ -1,5 +1,9 @@
 """Tests for limacharlie.sdk.configs module."""
 
+import base64
+import datetime
+import gzip
+import json
 import os
 import tempfile
 from unittest.mock import MagicMock
@@ -125,6 +129,157 @@ class TestConfigsPush:
         assert results == []
         assert len(errors) == 1
         assert "bad-output" in errors[0]
+
+
+def _sent_push_config(mock_org):
+    """Return the config text the SDK sent to ext-infrastructure's push action."""
+    params = mock_org.client.request.call_args.kwargs["params"]
+    assert params["action"] == "push"
+    data = json.loads(gzip.decompress(base64.b64decode(params["gzdata"])))
+    return data["config"]
+
+
+def _scalar_nodes(node):
+    """Yield every scalar node of a composed YAML document, keys included."""
+    if isinstance(node, yaml.ScalarNode):
+        yield node
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            yield from _scalar_nodes(item)
+    elif isinstance(node, yaml.MappingNode):
+        for k, v in node.value:
+            yield from _scalar_nodes(k)
+            yield from _scalar_nodes(v)
+
+
+# Strings that PyYAML (YAML 1.1) leaves unquoted but that a YAML 1.2 reader,
+# such as ext-infrastructure's gopkg.in/yaml.v3, reads as numbers.
+YAML12_NUMBER_LOOKALIKES = [
+    "0308", "0129", "0389", "08", "09",
+    "00000000000000000000000000000308",
+    "1e3", "2e5", "1E10", "-1e3",
+    "0o17", "0o0",
+]
+
+
+class TestConfigsPushStringTyping:
+    """Strings must reach ext-infrastructure as strings under YAML 1.1 and 1.2."""
+
+    @pytest.mark.parametrize("value", YAML12_NUMBER_LOOKALIKES)
+    def test_number_lookalike_is_sent_double_quoted(self, configs, mock_org, value):
+        mock_org.client.request.return_value = {"data": {"ops": []}}
+        config = {"version": 3, "hives": {"dr-general": {"r1": {"data": {
+            "detect": {"event": "NEW_PROCESS", "op": "is", "path": "event/COMMAND_LINE", "value": value},
+            "respond": [{"action": "report", "name": "r1"}],
+        }}}}}
+        configs.push(config, sync_hives={"dr-general": True})
+
+        sent = _sent_push_config(mock_org)
+        assert f'"value": "{value}"' in sent
+        assert yaml.safe_load(sent) == config
+
+    def test_every_string_is_double_quoted_and_other_types_are_plain(self, configs, mock_org):
+        mock_org.client.request.return_value = {"data": {"ops": []}}
+        strings = YAML12_NUMBER_LOOKALIKES + [
+            "0307", "0123", "true", "yes", "off", "null", "~", "", " ", ".inf", ".nan",
+            "1.0", "1_000", "0x1F", "0b101", "12:30", "2026-01-01", "a: b", "- a", "#c",
+            "&a", "*a", "!tag", "|", ">", "%x", "@x", "'single'", '"double"', "back\\slash",
+            "line1\nline2", "trailing\n", "tab\there", " lead", "trail ", "\u00e9t\u00e9",
+            "\U0001F600", "\x7f", "\x85", "\u2028", "\ufeff", "\x00", "\x1b",
+            "x" * 3000, " ".join(["word"] * 500),
+        ]
+        config = {"version": 3, "hives": {"lookup": {"l1": {
+            "usr_mtd": {"enabled": True, "expiry": 0, "tags": ["0308"], "comment": "1e3"},
+            "data": {
+                "values": strings,
+                "keyed": {s: i for i, s in enumerate(strings)},
+                "long-key-" + "k" * 2000: "v",
+                "ints": [0, -5, 2**40, 2**63 - 1],
+                "floats": [0.5, 1.0, -2.25, 1e20, 1e-05],
+                "bools": [True, False],
+                "nothing": None,
+                "nested": [{"a": [{"b": s}]} for s in strings[:5]],
+            },
+        }}}}
+        configs.push(config, sync_hives={"lookup": True})
+
+        sent = _sent_push_config(mock_org)
+        assert yaml.safe_load(sent) == config
+        nodes = list(_scalar_nodes(yaml.compose(sent)))
+        str_nodes = [n for n in nodes if n.tag == "tag:yaml.org,2002:str"]
+        other_nodes = [n for n in nodes if n.tag != "tag:yaml.org,2002:str"]
+        assert len(str_nodes) > len(strings) * 2
+        assert {n.style for n in str_nodes} == {'"'}
+        assert other_nodes
+        assert {n.style for n in other_nodes} == {None}
+
+    def test_non_string_scalars_are_written_as_before(self, configs, mock_org):
+        mock_org.client.request.return_value = {"data": {"ops": []}}
+        config = {"version": 3, "hives": {"lookup": {"l1": {"data": {
+            "ints": [0, 7, -5, 2**63 - 1],
+            "floats": [0.5, 1e20, float("inf")],
+            "bools": [True, False],
+            "nothing": None,
+            "day": datetime.date(2026, 1, 1),
+            "when": datetime.datetime(2026, 1, 1, 10, 0, 0),
+            "raw": b"\x00\x01",
+        }}}}}
+        configs.push(config, sync_hives={"lookup": True})
+
+        def non_str(text):
+            return [(n.tag, n.value, n.style) for n in _scalar_nodes(yaml.compose(text))
+                    if n.tag != "tag:yaml.org,2002:str"]
+
+        sent = _sent_push_config(mock_org)
+        assert non_str(sent) == non_str(yaml.safe_dump(config, version=(1, 1)))
+        assert yaml.safe_load(sent) == config
+
+    def test_push_from_file_keeps_quoted_values_as_strings(self, configs, mock_org):
+        mock_org.client.request.return_value = {"data": {"ops": []}}
+        content = """version: 3
+hives:
+  dr-general:
+    zero-padded-ids:
+      usr_mtd:
+        enabled: false
+      data:
+        detect:
+          op: or
+          rules:
+            - op: is
+              path: event/COMMAND_LINE
+              value: '0389'
+            - op: is
+              path: event/FILE_PATH
+              value: '1e3'
+        respond:
+          - action: report
+            name: zero-padded-ids
+        tests:
+          non_match:
+            - - event:
+                  A: '00000000000000000000000000000307'
+                  B: '00000000000000000000000000000308'
+                  C: '0123'
+                  D: '0129'
+                  E: '0o17'
+                  N: 42
+                routing:
+                  event_type: NEW_PROCESS
+                  this: '00000000000000000000000000000309'
+"""
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.yaml")
+            with open(path, "w") as f:
+                f.write(content)
+            configs.push_from_file(path, sync_hives={"dr-general": True})
+
+        sent = _sent_push_config(mock_org)
+        assert yaml.safe_load(sent) == yaml.safe_load(content)
+        for value in ("0389", "1e3", "00000000000000000000000000000308", "0129", "0o17",
+                      "00000000000000000000000000000309"):
+            assert f'"{value}"' in sent
+        assert '"N": 42' in sent
 
 
 class TestConfigsLoadEffectiveConfig:
