@@ -12,7 +12,8 @@ from limacharlie.sdk.cases import Cases
 
 
 @pytest.fixture
-def org():
+def org(monkeypatch):
+    monkeypatch.delenv("LC_AI_SESSION_ID", raising=False)
     org = MagicMock()
     org.oid = "test-oid"
     org.get_urls.return_value = {"cases": "cases-staging.limacharlie.io"}
@@ -192,3 +193,50 @@ def test_update_note_help_explains_redacted_conflict():
         result = CliRunner().invoke(cli, ["case", "update-note", flag])
         assert result.exit_code == 0
         assert "409" in result.output
+
+
+@pytest.mark.parametrize("markers,env_session,expected", [
+    ({"ai_session_id": "current-session"}, None, {"ai_session_id": "current-session"}),
+    ({"ai_client": "automation-client"}, None, {"ai_client": "automation-client"}),
+    ({"ai_session_id": "current-session", "ai_client": "ai-agent"}, None,
+     {"ai_session_id": "current-session", "ai_client": "ai-agent"}),
+    ({}, "env-session", {"ai_session_id": "env-session"}),
+    ({"ai_session_id": "explicit-session"}, "env-session", {"ai_session_id": "explicit-session"}),
+    ({"ai_session_id": "", "ai_client": "ai-agent"}, "env-session",
+     {"ai_session_id": "env-session", "ai_client": "ai-agent"}),
+])
+def test_redact_actor_markers(org, monkeypatch, markers, env_session, expected):
+    if env_session is not None:
+        monkeypatch.setenv("LC_AI_SESSION_ID", env_session)
+    response = {"event": {"redacted": True}, "images_pending_deletion": 3}
+    org.client.request.return_value = response
+    assert Cases(org).redact_note(42, "evt-1", **markers) == response
+    args, kwargs = org.client.request.call_args
+    assert args == ("POST", "api/v1/cases/42/notes/evt-1/redact")
+    assert kwargs["query_params"] == {"oid": "test-oid"}
+    assert kwargs["alt_root"] == "https://cases-staging.limacharlie.io"
+    assert kwargs["content_type"] == "application/json"
+    assert json.loads(kwargs["raw_body"]) == expected
+
+
+@pytest.mark.parametrize("markers", [{}, {"ai_session_id": "", "ai_client": ""}])
+def test_redact_without_actor_markers_keeps_no_body(org, markers):
+    Cases(org).redact_note(42, "evt-1", **markers)
+    kwargs = org.client.request.call_args.kwargs
+    assert "raw_body" not in kwargs
+    assert "content_type" not in kwargs
+
+
+def test_cli_redaction_inherits_current_actor_session(org, monkeypatch):
+    monkeypatch.setenv("LC_AI_SESSION_ID", "current-cli-session")
+    org.client.request.return_value = {
+        "event": {"redacted": True}, "images_pending_deletion": 1,
+    }
+    with patch("limacharlie.commands.case_cmd.Client", return_value=org.client), \
+         patch("limacharlie.commands.case_cmd.Organization", return_value=org):
+        result = invoke("redact-note", ["--confirm"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(org.client.request.call_args.kwargs["raw_body"]) == {
+        "ai_session_id": "current-cli-session",
+    }
+    assert json.loads(result.output)["images_pending_deletion"] == 1
