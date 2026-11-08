@@ -130,9 +130,37 @@ Examples:
   echo "Handoff notes" | limacharlie case add-note --case-number 42 --type handoff
 """
 
+_EXPLAIN_EDIT_NOTE = """\
+Replace a note's text, keeping earlier text and editor/time in case history.
+Get the original note's event ID with case get --case-number <number>.
+Provide one source: --content, --input-file (UTF-8 text), or stdin.
+Leading/trailing whitespace is stripped, matching add-note.
+Content must be nonempty and at most 8192 UTF-8 bytes. The API permits
+100 actual edits per note; identical text is a no-op. After the limit,
+add a new note. Redacted notes cannot be edited. Requires investigation.set.
+
+Example:
+  limacharlie case edit-note --case-number 42 --event-id <EID> --content "Corrected notes"
+"""
+
+_EXPLAIN_REDACT_NOTE = """\
+Irreversibly replace a note with [redacted] and delete its earlier text
+from active Cases storage. Requires --confirm and investigation.set.
+Redacted notes cannot be edited or have their visibility changed.
+Image downloads are blocked immediately; images_pending_deletion reports
+blobs still awaiting cleanup. Repeating redaction retries pending cleanup.
+Text can remain in point-in-time recovery for up to 7 days and backups for
+up to 30 days. Delivered audit events, downloaded images, existing client
+copies, queued payloads and logs cannot be recalled. Text submitted through
+extension actions can enter Cloud Logging; redaction does not rewrite logs.
+
+Example:
+  limacharlie case redact-note --case-number 42 --event-id <EID> --confirm
+"""
+
 _EXPLAIN_UPDATE_NOTE_VISIBILITY = """\
 Toggle a note's public/private visibility.  Public notes are visible
-to stakeholders.
+to stakeholders. Redacted notes reject visibility changes with HTTP 409.
 
 Requires the event ID of the note (from the case event timeline).
 
@@ -459,6 +487,8 @@ register_explain("case.get", _EXPLAIN_GET)
 register_explain("case.update", _EXPLAIN_UPDATE)
 register_explain("case.add-note", _EXPLAIN_ADD_NOTE)
 register_explain("case.update-note", _EXPLAIN_UPDATE_NOTE_VISIBILITY)
+register_explain("case.edit-note", _EXPLAIN_EDIT_NOTE)
+register_explain("case.redact-note", _EXPLAIN_REDACT_NOTE)
 register_explain("case.bulk-update", _EXPLAIN_BULK_UPDATE)
 register_explain("case.merge", _EXPLAIN_MERGE)
 register_explain("case.entity.list", _EXPLAIN_ENTITY_LIST)
@@ -891,6 +921,62 @@ def add_note(ctx, case_number, content, input_file, note_type, is_public) -> Non
     _output(ctx, data)
 
 
+@group.command("edit-note")
+@click.option("--case-number", required=True, type=int, help="Case number.")
+@click.option("--event-id", required=True, help="Original note event ID from case get.")
+@click.option("--content", default=None, help="Replacement text (nonempty, max 8192 UTF-8 bytes).")
+@click.option("--input-file", type=click.File("r", encoding="utf-8"),
+              help="Read replacement text from a UTF-8 file; use - for stdin.")
+@pass_context
+def edit_note(ctx, case_number, event_id, content, input_file) -> None:
+    """Edit note text, preserving earlier versions in case history.
+
+    Provide --content, --input-file, or stdin. At most 100 actual edits
+    per note are allowed. Redacted notes cannot be edited.
+    """
+    if content is not None and input_file is not None:
+        raise click.UsageError("Choose either --content or --input-file.")
+    if content is not None:
+        text = content
+    elif input_file is not None:
+        text = input_file.read()
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read()
+    else:
+        raise click.UsageError("Provide content via --content, --input-file, or stdin.")
+    text = text.strip()
+    if not text:
+        raise click.UsageError("Note content must not be empty; provide replacement text.")
+    if len(text.encode("utf-8")) > 8192:
+        raise click.UsageError("Note content exceeds 8192 UTF-8 bytes; shorten the text.")
+    data = _get_cases(ctx).edit_note(case_number, event_id, text)
+    _output(ctx, data)
+
+
+@group.command("redact-note")
+@click.option("--case-number", required=True, type=int, help="Case number.")
+@click.option("--event-id", required=True, help="Original note event ID from case get.")
+@click.option("--confirm", is_flag=True, help="Confirm irreversible note redaction (required).")
+@pass_context
+def redact_note(ctx, case_number, event_id, confirm) -> None:
+    """Irreversibly redact note text, versions and attached images.
+
+    Requires --confirm. The response reports images_pending_deletion;
+    a nonzero count means blob cleanup is still pending.
+    See --ai-help for recovery-copy retention and external-copy limits.
+    """
+    if not confirm:
+        click.echo(
+            "Error: Destructive operation requires --confirm flag.\n"
+            "Suggestion: Re-run with --confirm to irreversibly redact the note.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+    data = _get_cases(ctx).redact_note(case_number, event_id)
+    _output(ctx, data)
+
+
 # ---------------------------------------------------------------------------
 # log-time
 # ---------------------------------------------------------------------------
@@ -941,6 +1027,8 @@ def log_time(ctx, case_number, billable_seconds, cost_profile, assignee, note) -
 @pass_context
 def update_note(ctx, case_number, event_id, is_public) -> None:
     """Toggle a note's public/private visibility.
+
+    Redacted notes reject visibility changes with HTTP 409.
 
     Examples:
         limacharlie case update-note --case-number 42 --event-id <EID> --is-public

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, TYPE_CHECKING
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -222,6 +223,64 @@ class Cases:
             f"cases/{case_number}/notes",
             query_params={"oid": self.oid},
             body=body,
+        )
+
+    def edit_note(
+        self, case_number: int, event_id: str, content: str,
+    ) -> dict[str, Any]:
+        """Edit a note while preserving earlier text in the case history.
+
+        The API permits 100 actual edits per note; identical text is a no-op.
+        Redacted notes cannot be edited. Requires investigation.set.
+
+        Args:
+            case_number: Case number.
+            event_id: Original note event ID from the case timeline.
+            content: Nonempty replacement text, at most 8192 UTF-8 bytes.
+
+        Returns:
+            dict: Updated note in ``event``.
+
+        Raises:
+            LimaCharlieError: If access is denied, the note is missing,
+                content is invalid, or the note is redacted or at its edit limit.
+                Malformed event IDs return HTTP 400; transient transaction
+                failures return HTTP 503 and can be retried.
+        """
+        return self._request(
+            "PUT",
+            f"cases/{case_number}/notes/{quote(event_id, safe='')}/content",
+            query_params={"oid": self.oid},
+            body={"content": content},
+        )
+
+    def redact_note(self, case_number: int, event_id: str) -> dict[str, Any]:
+        """Irreversibly redact a note and its earlier versions from active storage.
+
+        Redacted notes cannot be edited or have their visibility changed.
+        Repeating this call retries pending image deletion. Requires
+        investigation.set. Recovery copies can retain text for up to 7 days
+        in point-in-time recovery and 30 days in backups. Delivered audit
+        events, downloaded images, client copies and logs cannot be recalled.
+
+        Args:
+            case_number: Case number.
+            event_id: Original note event ID from the case timeline.
+
+        Returns:
+            dict: Redacted ``event`` and ``images_pending_deletion`` count.
+                A nonzero count means image blob cleanup is still pending;
+                image downloads are already blocked.
+
+        Raises:
+            LimaCharlieError: If access is denied or the case/note is missing.
+                Malformed event IDs return HTTP 400; transient transaction
+                failures return HTTP 503 and can be retried.
+        """
+        return self._request(
+            "POST",
+            f"cases/{case_number}/notes/{quote(event_id, safe='')}/redact",
+            query_params={"oid": self.oid},
         )
 
     def log_time(
