@@ -227,16 +227,26 @@ class Cases:
 
     def edit_note(
         self, case_number: int, event_id: str, content: str,
+        *,
+        ai_session_id: str | None = None,
+        ai_client: str | None = None,
     ) -> dict[str, Any]:
         """Edit a note while preserving earlier text in the case history.
 
         The API permits 100 actual edits per note; identical text is a no-op.
         Redacted notes cannot be edited. Requires investigation.set.
+        People and automation send no AI marker; the service classifies them
+        from caller identity. With no markers, the body contains only content.
 
         Args:
             case_number: Case number.
             event_id: Original note event ID from the case timeline.
             content: Nonempty replacement text, at most 8192 UTF-8 bytes.
+            ai_session_id: Session of the editor, rather than the original note
+                author. Falls back to ``LC_AI_SESSION_ID`` when omitted or
+                empty, matching add_note and redact_note.
+            ai_client: Optional marker for an outside AI editor (for example,
+                MCP). No environment fallback is applied.
 
         Returns:
             dict: Updated note in ``event``.
@@ -247,11 +257,17 @@ class Cases:
                 Malformed event IDs return HTTP 400; transient transaction
                 failures return HTTP 503 and can be retried.
         """
+        body: dict[str, Any] = {"content": content}
+        session_id = ai_session_id or os.environ.get("LC_AI_SESSION_ID")
+        if session_id:
+            body["ai_session_id"] = session_id
+        if ai_client:
+            body["ai_client"] = ai_client
         return self._request(
             "PUT",
             f"cases/{case_number}/notes/{quote(event_id, safe='')}/content",
             query_params={"oid": self.oid},
-            body={"content": content},
+            body=body,
         )
 
     def redact_note(
