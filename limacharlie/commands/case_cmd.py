@@ -138,6 +138,8 @@ Leading/trailing whitespace is stripped, matching add-note.
 Content must be nonempty and at most 8192 UTF-8 bytes. The API permits
 100 actual edits per note; identical text is a no-op. After the limit,
 add a new note. Redacted notes cannot be edited. Requires investigation.set.
+LC_AI_SESSION_ID, when set, attributes the edit to the current AI session
+through the SDK, rather than to the original note author.
 
 Example:
   limacharlie case edit-note --case-number 42 --event-id <EID> --content "Corrected notes"
@@ -149,6 +151,8 @@ from active Cases storage. Requires --confirm and investigation.set.
 Redacted notes cannot be edited or have their visibility changed.
 Image downloads are blocked immediately; images_pending_deletion reports
 blobs still awaiting cleanup. Repeating redaction retries pending cleanup.
+LC_AI_SESSION_ID, when set, attributes redaction to the current AI session
+through the SDK, rather than to the original note author.
 Text can remain in point-in-time recovery for up to 7 days and backups for
 up to 30 days. Delivered audit events, downloaded images, existing client
 copies, queued payloads and logs cannot be recalled. Text submitted through
