@@ -270,7 +270,8 @@ class Cases:
         in point-in-time recovery and 30 days in backups. Delivered audit
         events, downloaded images, client copies and logs cannot be recalled.
         With no actor markers, the POST has no body for backward compatibility;
-        otherwise only nonempty markers are sent as JSON.
+        otherwise only nonempty markers are sent as JSON. People and automation
+        send no AI marker; the service classifies them from caller identity.
 
         Args:
             case_number: Case number.
@@ -278,8 +279,8 @@ class Cases:
             ai_session_id: Session of the actor performing redaction, rather
                 than the original note author. Falls back to ``LC_AI_SESSION_ID``
                 when omitted or empty, matching add_note.
-            ai_client: Optional client marker for the actor performing redaction
-                (AI or automation). No environment fallback is applied.
+            ai_client: Optional marker for an outside AI client performing
+                redaction (for example, MCP). No environment fallback is applied.
 
         Returns:
             dict: Redacted ``event`` and ``images_pending_deletion`` count.

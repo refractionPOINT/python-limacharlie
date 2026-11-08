@@ -197,7 +197,7 @@ def test_update_note_help_explains_redacted_conflict():
 
 @pytest.mark.parametrize("markers,env_session,expected", [
     ({"ai_session_id": "current-session"}, None, {"ai_session_id": "current-session"}),
-    ({"ai_client": "automation-client"}, None, {"ai_client": "automation-client"}),
+    ({"ai_client": "outside-ai-client"}, None, {"ai_client": "outside-ai-client"}),
     ({"ai_session_id": "current-session", "ai_client": "ai-agent"}, None,
      {"ai_session_id": "current-session", "ai_client": "ai-agent"}),
     ({}, "env-session", {"ai_session_id": "env-session"}),

@@ -158,10 +158,12 @@ Redacted notes cannot be edited or have their visibility changed. A nonzero
 `images_pending_deletion` means image blobs still await cleanup; it does not
 mean every image has been deleted. Repeating redaction retries cleanup.
 
-The SDK accepts optional keyword markers for the actor performing redaction:
+The SDK accepts optional keyword markers for the AI actor performing redaction:
 `cases.redact_note(42, event_id, ai_session_id="session-id", ai_client="client-name")`.
-These describe the current actor (human, AI or automation), not the original
-note author. Like `add_note`, an omitted or empty `ai_session_id` falls back to
+These identify the current AI actor, not the original note author.
+`ai_client` identifies outside AI, such as an MCP server. People and automation
+send no AI marker; the service classifies them from the caller's identity.
+Like `add_note`, an omitted or empty `ai_session_id` falls back to
 `LC_AI_SESSION_ID`; `ai_client` has no environment fallback. Without either
 marker the SDK keeps the existing POST with no body. If a marker is present,
 it sends only the nonempty actor markers as JSON. The CLI automatically uses
