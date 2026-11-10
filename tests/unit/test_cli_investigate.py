@@ -317,7 +317,19 @@ class TestRuns:
         result = run(["investigate", "runs", "start", "--template", "p", "--detection-id", "d", "--follow"])
         assert result.exit_code == 0
         assert sdk.iter_run_events.call_args.args == ("r1",)
-        assert [json.loads(line)["seq"] for line in result.stdout.splitlines() if '"seq"' in line and line.startswith('{"seq"')] == [1, 2]
+        assert [json.loads(line).get("seq") for line in result.stdout.splitlines()] == [None, 1, 2]
+
+    def test_follow_in_a_structured_format_is_json_lines_from_the_first_line(self, sdk):
+        sdk.start_run.return_value = {"run": {"run_id": "r1"}, "joined": False}
+
+        def events(run_id, **kw):
+            kw["state"].update(next=1, done=True)
+            yield {"seq": 1, "type": "step", "data": {}}
+        sdk.iter_run_events.side_effect = events
+        result = run(["investigate", "runs", "start", "--template", "p", "--detection-id", "d", "--follow"])
+        lines = result.stdout.splitlines()
+        assert [json.loads(line) for line in lines] == [
+            {"run": {"run_id": "r1"}, "joined": False}, {"seq": 1, "type": "step", "data": {}}]
 
     def test_list_pages_with_a_cursor_envelope(self, sdk):
         sdk.list_runs.return_value = {"runs": [{"run_id": "r1"}], "next_cursor": "c2"}
@@ -437,16 +449,13 @@ class TestWave:
 
 
 class TestActionsAndPolicy:
-    def test_actions_list_paging(self, sdk):
-        sdk.list_actions.side_effect = [
-            {"actions": [{"id": "a1", "run_id": "r1", "class": "tag", "state": "awaiting_approval"}], "next_cursor": "c2"},
-            {"actions": [{"id": "a2", "run_id": "r2", "class": "tag", "state": "proposed"}], "next_cursor": ""},
-        ]
+    def test_actions_list_all_walks_every_page(self, sdk):
+        sdk.iter_actions.return_value = iter([{"id": "a1", "run_id": "r1"}, {"id": "a2", "run_id": "r2"}])
         data = out_json(run(["investigate", "actions", "list", "--state", "awaiting_approval,proposed", "--class", "tag", "--all"]))
         assert [a["id"] for a in data["actions"]] == ["a1", "a2"] and data["next_cursor"] == ""
-        first, second = sdk.list_actions.call_args_list
-        assert first.kwargs == {"state": "awaiting_approval,proposed", "action_class": "tag", "run_id": None, "limit": None, "cursor": None}
-        assert second.kwargs["cursor"] == "c2"
+        assert sdk.iter_actions.call_args.kwargs == {
+            "state": "awaiting_approval,proposed", "action_class": "tag", "run_id": None, "limit": None, "cursor": None}
+        sdk.list_actions.assert_not_called()
 
     def test_one_page_keeps_the_cursor(self, sdk):
         sdk.list_actions.return_value = {"actions": [], "next_cursor": "c9"}

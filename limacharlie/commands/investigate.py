@@ -234,7 +234,9 @@ the org's policy says (response actions may wait for a person's approval).
 --idempotency-key makes a repeated start return the same run.
 
 With --wait N the call blocks up to N seconds for the verdict; --follow then
-streams the run's events until it ends.
+streams the run's events until it ends. With --follow in a structured output
+format stdout is JSON lines: the first line is the start answer ({"run": ...,
+"joined": ...}), the following lines are events ({"seq": ..., "type": ...}).
 
 Examples:
   limacharlie investigate runs start --template my-plan --detection-id <ID>
@@ -873,7 +875,12 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
         request["wait_seconds"] = wait_seconds
     inv = _get_investigation(ctx)
     answer = inv.start_run(request)
-    command_output(ctx, answer)
+    if follow and _fmt(ctx) in _STRUCTURED:
+        # One compact line, like the events that follow: the stream is JSON lines.
+        if not ctx.obj.quiet:
+            click.echo(json.dumps(answer, separators=(",", ":"), default=str))
+    else:
+        command_output(ctx, answer)
     if follow:
         run_id = (answer.get("run") or {}).get("run_id")
         if run_id:
@@ -1061,14 +1068,12 @@ def actions_group() -> None:
 def actions_list(ctx, state, action_class, run_id, limit, cursor, fetch_all) -> None:
     """List the org's actions across runs; what needs a person comes first."""
     inv = _get_investigation(ctx)
-    items: list[Any] = []
-    while True:
-        page = inv.list_actions(state=state, action_class=action_class, run_id=run_id, limit=limit, cursor=cursor)
-        items += page.get("actions") or []
-        cursor = page.get("next_cursor") or ""
-        if not (fetch_all and cursor):
-            break
-    _emit_page(ctx, "actions", items, cursor, _action_row)
+    filters = dict(state=state, action_class=action_class, run_id=run_id, limit=limit, cursor=cursor)
+    if fetch_all:
+        _emit_page(ctx, "actions", list(inv.iter_actions(**filters)), "", _action_row)
+        return
+    page = inv.list_actions(**filters)
+    _emit_page(ctx, "actions", page.get("actions") or [], page.get("next_cursor") or "", _action_row)
 
 
 @actions_group.command("approve")

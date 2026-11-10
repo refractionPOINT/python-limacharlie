@@ -33,6 +33,7 @@ actions capped at ``suggest``.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import time
@@ -42,7 +43,7 @@ from urllib.parse import quote as _quote
 import yaml
 
 from ..errors import ApiError, LimaCharlieError, ValidationError
-from .hive import Hive, HiveRecord, is_record_not_found
+from .hive import Hive, HiveRecord, is_permission_denied, is_record_not_found
 
 if TYPE_CHECKING:
     from .organization import Organization
@@ -68,8 +69,10 @@ TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 # refused there. "." and ".." are refused as path traversal.
 _ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
-# Sent as the etag of a write that must create a record. It matches no stored
-# etag, so the hive refuses the write if the record exists by then.
+# Sent as the etag of a write that must create a record. The hive ignores the
+# etag when no record exists and refuses the write when one does (it matches no
+# stored etag), so a record created between our check and the write is never
+# overwritten.
 _CREATE_ONLY_ETAG = "create-only: the record must not exist"
 
 # The engine's long polls (run events, test results) wait at most this long.
@@ -199,6 +202,30 @@ def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
     )
 
 
+_TEMPLATE_PERMISSION_HINT = (
+    "Template records are the hive 'investigation_plan': reading needs investigation_plan.get, writing "
+    "investigation_plan.set, deleting investigation_plan.del. They are explicit grants that no default role has."
+)
+
+
+def _template_record_errors(fn: Any) -> Any:
+    """Say which permission a refused template-record operation needs."""
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except InvestigationError:
+            raise
+        except LimaCharlieError as exc:
+            if is_permission_denied(exc):
+                raise InvestigationError(
+                    exc.raw_message, status_code=403, response_body=getattr(exc, "response_body", None),
+                    suggestion=_TEMPLATE_PERMISSION_HINT, exit_code=exc.exit_code,
+                ) from exc
+            raise
+    return wrapper
+
+
 def _check_id(kind: str, value: str) -> str:
     if not isinstance(value, str) or value in (".", "..") or not _ID_RE.match(value):
         raise ValidationError(f"invalid {kind} {value!r}: use letters, digits and . _ : - (at most 128 characters)")
@@ -218,19 +245,43 @@ class _TemplateLoader(yaml.SafeLoader):
     would turn ``yes``/``no``/``on``/``off`` into booleans and an unquoted
     date into a ``datetime``, so a template would be stored as something other
     than what its author wrote. This loader keeps both as text and accepts
-    only ``true``/``false`` as booleans.
+    only ``true``/``false`` as booleans. Numbers follow the YAML 1.2 core
+    schema; one written the 1.1 way (``012``, ``1_000``, ``10:30``) stays text.
     """
 
 
 _BOOL_TAG = "tag:yaml.org,2002:bool"
+_INT_TAG = "tag:yaml.org,2002:int"
+_FLOAT_TAG = "tag:yaml.org,2002:float"
 _TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
 _TemplateLoader.yaml_implicit_resolvers = {
-    ch: [(tag, rx) for tag, rx in resolvers if tag not in (_BOOL_TAG, _TIMESTAMP_TAG)]
+    ch: [(tag, rx) for tag, rx in resolvers if tag not in (_BOOL_TAG, _INT_TAG, _FLOAT_TAG, _TIMESTAMP_TAG)]
     for ch, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
 }
+# YAML 1.2 core schema. A number written with a leading zero, an underscore or
+# a colon (`012`, `1_000`, `10:30`) is text here, as the author wrote it,
+# rather than the number YAML 1.1 reads it as.
 _TemplateLoader.add_implicit_resolver(
     _BOOL_TAG, re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF"),
 )
+_TemplateLoader.add_implicit_resolver(
+    _INT_TAG, re.compile(r"^(?:[-+]?(?:0|[1-9][0-9]*)|0o[0-7]+|0x[0-9a-fA-F]+)$"), list("-+0123456789"),
+)
+_TemplateLoader.add_implicit_resolver(
+    _FLOAT_TAG,
+    re.compile(r"^(?:[-+]?(?:[0-9]+\.[0-9]*|\.[0-9]+|[0-9]+(?=[eE]))(?:[eE][-+]?[0-9]+)?|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"),
+    list("-+0123456789."),
+)
+
+
+def _construct_core_int(loader: yaml.SafeLoader, node: yaml.Node) -> int:
+    value = str(loader.construct_scalar(node))
+    if value[:2] == "0o":
+        return int(value[2:], 8)
+    return int(value, 0) if value[:2] == "0x" else int(value)
+
+
+_TemplateLoader.add_constructor(_INT_TAG, _construct_core_int)
 
 
 def parse_template_source(source: str) -> dict[str, Any]:
@@ -815,6 +866,28 @@ class Investigation:
             state = ",".join(state)
         return self._get("actions", self._q(state=state, class_=action_class, run_id=run_id, limit=limit, cursor=cursor))
 
+    def iter_actions(self, **filters: Any) -> Iterator[dict[str, Any]]:
+        """Walk every action matching the filters, following cursors.
+
+        Args:
+            **filters: The keyword arguments of :meth:`list_actions`, ``cursor`` included.
+
+        Yields:
+            dict: One action at a time.
+
+        Raises:
+            ApiError: If the engine returns a cursor that does not advance.
+        """
+        while True:
+            page = self.list_actions(**filters)
+            yield from page.get("actions") or []
+            nxt = page.get("next_cursor") or ""
+            if not nxt:
+                return
+            if nxt == filters.get("cursor"):
+                raise ApiError("Action listing did not advance: the engine returned the same cursor.")
+            filters["cursor"] = nxt
+
     def decide_action(
         self, run_id: str, action_id: str, verb: str, note: str | None = None, seconds: int | None = None,
     ) -> dict[str, Any]:
@@ -852,6 +925,7 @@ class Investigation:
     def _plans(self) -> Hive:
         return Hive(self._org, PLAN_HIVE)
 
+    @_template_record_errors
     def get_template(self, name: str) -> dict[str, Any]:
         """Read a stored template.
 
@@ -885,6 +959,7 @@ class Investigation:
             "last_modified": record.last_modified,
         }
 
+    @_template_record_errors
     def save_template(
         self,
         name: str,
@@ -997,7 +1072,17 @@ class Investigation:
                 record.tags = list(dict.fromkeys((record.tags or []) + tags))
             if comment:
                 record.comment = comment
-        hive.set(record)
+        try:
+            hive.set(record)
+        except ApiError:
+            # A write the hive applied whose answer was lost, then replayed with
+            # its now stale etag, fails although the record is saved.
+            try:
+                landed = (hive.get(name).data or {}) == data
+            except LimaCharlieError:
+                landed = False
+            if not landed:
+                raise
 
         # Say what is stored, not what was sent.
         stored_record = hive.get(name)
@@ -1021,6 +1106,7 @@ class Investigation:
             ),
         }
 
+    @_template_record_errors
     def promote_template(self, name: str) -> dict[str, Any]:
         """Make a stored draft template active.
 
@@ -1056,6 +1142,7 @@ class Investigation:
             "warnings": report.get("warnings") or [],
         }
 
+    @_template_record_errors
     def delete_template(self, name: str) -> dict[str, Any]:
         """Delete a stored template record.
 

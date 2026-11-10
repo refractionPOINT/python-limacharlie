@@ -111,6 +111,18 @@ class TestRoutes:
         with pytest.raises(ApiError, match="did not advance"):
             list(inv.iter_runs(cursor="same"))
 
+    def test_iter_actions_follows_cursors_and_rejects_a_stuck_one(self, inv, mock_org):
+        mock_org.client.request.side_effect = [
+            {"actions": [{"id": "a"}], "next_cursor": "c1"},
+            {"actions": [{"id": "b"}], "next_cursor": ""},
+        ]
+        assert [a["id"] for a in inv.iter_actions(state="awaiting_approval")] == ["a", "b"]
+        assert dict(mock_org.client.request.call_args.kwargs["query_params"]) == {"state": "awaiting_approval", "cursor": "c1"}
+        mock_org.client.request.side_effect = None
+        mock_org.client.request.return_value = {"actions": [], "next_cursor": "same"}
+        with pytest.raises(ApiError, match="did not advance"):
+            list(inv.iter_actions(cursor="same"))
+
     def test_run_id_is_escaped_and_validated(self, inv, mock_org):
         mock_org.client.request.return_value = {}
         inv.get_run("run:1.a-b")
@@ -321,8 +333,14 @@ class TestErrors:
 
 class TestTemplateSource:
     def test_yaml_1_1_surprises_stay_text(self):
-        data = parse_template_source("a: yes\nb: off\nc: 2026-11-10\nd: true\ne: [on]\nf: 0o17\n")
-        assert data == {"a": "yes", "b": "off", "c": "2026-11-10", "d": True, "e": ["on"], "f": "0o17"}
+        data = parse_template_source("a: yes\nb: off\nc: 2026-11-10\nd: true\ne: [on]\nf: 10:30\ng: 012\nh: 1_000\n")
+        assert data == {"a": "yes", "b": "off", "c": "2026-11-10", "d": True, "e": ["on"],
+                        "f": "10:30", "g": "012", "h": "1_000"}
+
+    def test_yaml_1_2_numbers_are_numbers(self):
+        data = parse_template_source("a: 12\nb: -3\nc: 1.5\nd: 1e3\ne: 0x1f\nf: 0o17\ng: 0\nh: .5\ni: null\n")
+        assert data == {"a": 12, "b": -3, "c": 1.5, "d": 1000.0, "e": 31, "f": 15, "g": 0, "h": 0.5, "i": None}
+        assert type(data["a"]) is int
 
     def test_dump_round_trips_text_that_looks_like_something_else(self):
         data = {"a": "yes", "c": "2026-11-10", "n": "0308"}
@@ -471,6 +489,36 @@ class TestSaveTemplate:
             inv.save_template("my-plan", SRC + "status: retired\n")
         with pytest.raises(ValidationError):
             inv.save_template("my-plan", SRC, status="retired")
+
+
+    def test_a_write_that_landed_but_failed_on_replay_is_not_reported_as_an_error(self, inv, mock_org, hive):
+        mock_org.client.request.return_value = VALID
+        data = {"description": "test plan", "facts": {"a": {"op": "entity.get", "args": {"entity_id": "$entity"}}}, "status": "draft"}
+        landed = HiveRecord(name="my-plan", data=data, etag="e9")
+        hive.get.side_effect = [_not_found(), landed, landed]
+        hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH"})
+        assert inv.save_template("my-plan", SRC)["saved"] is True
+
+    def test_a_write_that_failed_and_did_not_land_is_an_error(self, inv, mock_org, hive):
+        mock_org.client.request.return_value = VALID
+        hive.get.side_effect = [_not_found(), _not_found()]
+        hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH"})
+        with pytest.raises(ApiError):
+            inv.save_template("my-plan", SRC)
+
+
+class TestTemplateRecordPermissions:
+    def test_a_refused_hive_operation_names_the_investigation_plan_permissions(self, inv, hive):
+        hive.get.side_effect = error_from_status_code(400, {"error": "lc_error_code:UNAUTHORIZED - nope"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.get_template("x")
+        assert "investigation_plan.get" in ei.value.suggestion and ei.value.status_code == 403
+
+    def test_other_hive_failures_are_not_rewritten(self, inv, hive):
+        hive.delete.side_effect = error_from_status_code(500, "boom")
+        with pytest.raises(ApiError) as ei:
+            inv.delete_template("x")
+        assert not isinstance(ei.value, InvestigationError)
 
 
 class TestPromote:
