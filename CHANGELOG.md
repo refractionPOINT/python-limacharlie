@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Investigation Engine — `limacharlie investigate` (experimental)
+
+- New `investigate` command group and `limacharlie.sdk.investigation.Investigation`
+  SDK class to build, test and tune Investigation Engine templates and to run
+  investigations, so a person or an AI agent can drive the whole loop from the
+  CLI: `kit` (authoring kit, fetched in sections), `operators`, `packs`,
+  `templates list|get|validate|test|save|promote|delete|install-defaults`,
+  `runs start|get|list|events|steps|case|cancel`, `wave`,
+  `actions list|approve|deny` and `policy get|status|pause|resume`. See
+  `doc/cli/investigation-engine.md`.
+- `templates save` always writes a DRAFT (a source that says `status: active`
+  is refused; only a person's explicit `--status active` activates), never
+  overwrites a record without `--overwrite`, and never replaces an active
+  template with a draft. `templates test` dry-runs a template on real past
+  detections or cases and prints per-sample verdicts and the agreement summary.
+- Engine failures keep the engine's coded issues (`code`, `path`, `message`,
+  `suggestion`) and error code verbatim, and say when the feature is not
+  enabled for the deployment or the permissions are missing.
+- `templates install-defaults` reads the authoring kit's `library` section; it
+  needs an engine version that serves it.
+- The typed 401/403/404/422/429 errors raised for an HTTP error answer now carry
+  the parsed answer as `response_body`, as `ApiError` already did.
+
 ### Sync — `sync push` no longer turns quoted strings into numbers
 
 - `sync push` (and `Configs.push` / `Configs.push_from_file`) stored some

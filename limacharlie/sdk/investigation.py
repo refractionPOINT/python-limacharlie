@@ -194,7 +194,7 @@ def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
         issues=issues,
         warnings=warnings,
         response_body=body,
-        suggestion=suggestion,
+        suggestion=suggestion or "",  # "": no generic advice when the engine's own message is enough
         exit_code=exc.exit_code,
     )
 
@@ -1141,5 +1141,10 @@ class Investigation:
                 item["installed_version"] = installed.get("version")
                 item["installed_status"] = installed.get("status")
                 item["update_available"] = installed.get("version") != entry.get("version")
+                if not overwrite:
+                    item["reason"] = (
+                        f"a {installed.get('status')} template named {name!r} is already installed; "
+                        "pass overwrite to replace it"
+                    )
             result["skipped"].append(item)
         return result

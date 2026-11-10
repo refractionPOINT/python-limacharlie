@@ -162,6 +162,7 @@ limacharlie schema dr create
 | [Infrastructure](infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
 | [Email Security](email-security.md) | mailsec (onboarding, coverage, triage, EML, remediation, campaigns, reports, sample submission, rules, tenant purge) |
+| [Investigation Engine](investigation-engine.md) | investigate (authoring kit, templates, dry runs on past alerts, runs, waves, approvals, policy) |
 | [Other Commands](other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover, case |
 
 ## See Also

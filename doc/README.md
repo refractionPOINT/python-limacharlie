@@ -18,6 +18,7 @@
 | [Hive & Data Stores](cli/hive-data.md) | hive, secret, lookup, playbook, note, sop, app-control, adapter, cloud-sensor, extension |
 | [Infrastructure](cli/infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cli/cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
+| [Investigation Engine](cli/investigation-engine.md) | investigate (authoring kit, templates, dry runs on past alerts, runs, waves, approvals, policy) |
 | [Email Security](cli/email-security.md) | mailsec (onboarding, coverage, triage, EML, remediation, campaigns, reports, sample submission, rules, tenant purge) |
 | [Other Commands](cli/other-commands.md) | api, arl, usp, spotcheck, job, schema, completion, help/discover |
 
