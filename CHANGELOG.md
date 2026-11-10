@@ -28,6 +28,14 @@
   needs an engine version that serves it.
 - The typed 401/403/404/422/429 errors raised for an HTTP error answer now carry
   the parsed answer as `response_body`, as `ApiError` already did.
+- The `investigate` flags and help match the engine: `runs start --urgency` is
+  `low|medium|high|critical` (default derived from the alert, else medium);
+  `--auto` sends no plan (the engine refuses `plan.auto` for a person's run) so
+  the engine picks the active template by `applies_to`, with new `--category`,
+  `--severity`, `--priority` and `--tag` to say what the alert looks like;
+  `templates test --strict` refuses overrides that would loosen the policy;
+  `runs list --trigger` takes the trigger kind (detection, message, entity, case,
+  question) and `--verdict` also takes `undecided`; `policy get` takes `--template`.
 
 ### Sync — `sync push` no longer turns quoted strings into numbers
 

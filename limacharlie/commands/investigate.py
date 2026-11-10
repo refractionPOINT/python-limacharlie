@@ -228,8 +228,12 @@ weighs them and reaches a verdict (true_positive, false_positive or
 inconclusive) with a proof.
 
 Pick the plan with --template NAME, --file plan.yaml (an inline draft) or
---auto (the active template whose applies_to matches the alert). Say what to
-investigate with --detection-id, --case-id, --entity-id or --question. A
+--auto (the engine picks the active template whose applies_to matches the
+trigger: detect_cat, severity, tag and source, the first three from --category,
+--severity and --tag; a draft is never picked, and no match is refused with the
+reason). Say what to investigate with --detection-id, --case-id, --entity-id or
+--question. --urgency (low, medium, high, critical) defaults to a value derived
+from --priority and --severity, else medium. A
 draft template runs with autonomy capped at suggest; an active one acts as
 the org's policy says (response actions may wait for a person's approval).
 --idempotency-key makes a repeated start return the same run.
@@ -241,7 +245,7 @@ format stdout is JSON lines: the first line is the start answer ({"run": ...,
 
 Examples:
   limacharlie investigate runs start --template my-plan --detection-id <ID>
-  limacharlie investigate runs start --auto --case-id 42 --wait 30
+  limacharlie investigate runs start --auto --case-id 42 --category my-category --wait 30
 """
 
 _EXPLAIN_RUNS_GET = """\
@@ -741,7 +745,7 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
 @click.option("--sample", "samples_json", multiple=True, help="Sample as a JSON object, e.g. '{\"inputs\": {...}, \"expected\": \"false_positive\"}' (repeatable).")
 @click.option("--samples-file", default=None, help="YAML/JSON file holding a list of samples.")
 @click.option("--mode", type=click.Choice(["triage", "full"]), default=None, help="triage (default for a test, the cheap pass) or full.")
-@click.option("--strict", is_flag=True, default=False, help="Treat any unknown as a failure of the plan.")
+@click.option("--strict", is_flag=True, default=False, help="Refuse the test when --overrides-json would loosen the org's policy (default: the loosening part is ignored and reported in policy.clamped).")
 @click.option("--overrides-json", default=None, help="Tighten-only budget overrides, e.g. '{\"budgets\": {\"max_wall_seconds\": 120}}'.")
 @click.option("--wait", "wait_seconds", type=click.IntRange(0, MAX_POLL_WAIT), default=5, show_default=True,
               help="Seconds the starting call waits for a fast test.")
@@ -873,23 +877,31 @@ def runs_group() -> None:
 @runs_group.command("start")
 @click.option("--template", default=None, help="Stored template to run.")
 @_file_option
-@click.option("--auto", is_flag=True, default=False, help="Pick the active template whose applies_to matches the alert.")
+@click.option("--auto", is_flag=True, default=False,
+              help="Let the engine pick the active template whose applies_to matches the trigger (sends no plan). "
+                   "applies_to keys: detect_cat, severity, tag (set them with --category, --severity, --tag) and source (always api here). "
+                   "Refused with a reason when no template matches.")
 @click.option("--detection-id", default=None, help="Detection to investigate.")
 @click.option("--case-id", default=None, help="Case to investigate.")
 @click.option("--entity-id", default=None, help="Entity to investigate.")
 @click.option("--question", default=None, help="Free-text question, for a template that takes one.")
+@click.option("--category", default=None, help="Detection category of the alert: matched by --auto and by run-scoped policy records.")
+@click.option("--severity", default=None, help="Severity of the alert (low, medium, high, critical): matched by --auto and policy records; sets the default urgency.")
+@click.option("--priority", type=int, default=None, help="Detection priority: matched by policy records; sets the default urgency (8+ critical, 6+ high, 3+ medium).")
+@click.option("--tag", "tags", multiple=True, help="Tag of the alert (repeatable): matched by --auto and by run-scoped policy records.")
 @click.option("--input", "inputs", multiple=True, help="Run input KEY=VALUE (repeatable; values are text).")
 @click.option("--inputs-json", default=None, help="Run inputs as a JSON object (typed values).")
-@click.option("--urgency", type=click.Choice(["low", "normal", "high"]), default=None, help="Run urgency.")
+@click.option("--urgency", type=click.Choice(["low", "medium", "high", "critical"]), default=None,
+              help="Run urgency; it picks the decision thresholds. Default: derived from --priority / --severity, else medium.")
 @click.option("--mode", type=click.Choice(["triage", "full", "scope"]), default=None, help="Run mode (engine default: full; triage is cheaper).")
-@click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case id> (default per the org's policy).")
+@click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case id> (default: the org's policy, or the template's report.case).")
 @click.option("--idempotency-key", default=None, help="Starting twice with the same key returns the same run.")
-@click.option("--wait", "wait_seconds", type=click.IntRange(0, 60), default=0, help="Block up to this many seconds (0..60) for the verdict.")
+@click.option("--wait", "wait_seconds", type=click.IntRange(0, 60), default=0, help="Block up to this many seconds for the verdict (this CLI accepts 0..60; the run goes on after it).")
 @click.option("--follow", is_flag=True, default=False, help="Then stream the run's events until it ends.")
 @pass_context
 @_engine_errors
-def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id, question, inputs, inputs_json,
-               urgency, mode, case_mode, idempotency_key, wait_seconds, follow) -> None:
+def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id, question, category, severity, priority,
+               tags, inputs, inputs_json, urgency, mode, case_mode, idempotency_key, wait_seconds, follow) -> None:
     """Start an investigation run on a detection, case, entity or question."""
     if sum(bool(x) for x in (template, file_path, auto)) != 1:
         raise click.UsageError("Give exactly one of --template, --file or --auto.")
@@ -897,14 +909,18 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
                                  ("entity_id", entity_id), ("question", question)) if v}
     if not trigger:
         raise click.UsageError("Give one of --detection-id, --case-id, --entity-id or --question.")
-    plan: dict[str, Any]
+    # The engine refuses plan.auto for a person's run; a start that names no plan at all is the one it gives the
+    # template whose applies_to matches the trigger, so --auto sends no plan.
+    for key, value in (("category", category), ("severity", severity), ("priority", priority)):
+        if value is not None and value != "":
+            trigger[key] = value
+    if tags:
+        trigger["tags"] = list(tags)
+    request: dict[str, Any] = {"trigger": trigger}
     if template:
-        plan = {"template": template}
+        request["plan"] = {"template": template}
     elif file_path:
-        plan = {"inline": _read_source(file_path)}
-    else:
-        plan = {"auto": True}
-    request: dict[str, Any] = {"trigger": trigger, "plan": plan}
+        request["plan"] = {"inline": _read_source(file_path)}
     run_inputs: dict[str, Any] = _parse_kv(inputs, "--input")
     run_inputs.update(_json_object(inputs_json, "--inputs-json") or {})
     if run_inputs:
@@ -939,11 +955,11 @@ def runs_get(ctx, run_id) -> None:
 
 @runs_group.command("list")
 @click.option("--state", default=None, help="Only runs in this state (queued, running, decided, completed, cancelled, failed, budget_exhausted).")
-@click.option("--verdict", default=None, help="Only runs with this verdict (true_positive, false_positive, inconclusive).")
+@click.option("--verdict", default=None, help="Only runs with this verdict (true_positive, false_positive, inconclusive, undecided).")
 @click.option("--template", default=None, help="Only runs of this template.")
-@click.option("--trigger", default=None, help="Only runs with this trigger source (api, dr-rule, case).")
+@click.option("--trigger", default=None, help="Only runs started from this kind of trigger (detection, message, entity, case, question).")
 @click.option("--entity", default=None, help="Only runs about this entity.")
-@click.option("--started-by", default=None, help="Only runs started by this identity, e.g. user:<uid>.")
+@click.option("--started-by", default=None, help="Only runs started by this identity (user:<uid>, apikey:<key id>) or, failing that, this name (a user's email, a key's name).")
 @click.option("--idempotency-key", default=None, help="Only the run started with this key.")
 @click.option("--since", default=None, help="Only runs created at or after this RFC 3339 time.")
 @click.option("--until", default=None, help="Only runs created before this RFC 3339 time.")
@@ -1153,13 +1169,14 @@ def policy_group() -> None:
 @click.option("--severity", default=None, help="Detection severity.")
 @click.option("--target-tag", "target_tags", multiple=True, help="Tag of the target sensor (repeatable).")
 @click.option("--class", "action_class", default=None, help="Restrict to one action class.")
+@click.option("--template", default=None, help="Template whose run identity to explain.")
 @pass_context
 @_engine_errors
-def policy_get(ctx, category, priority, severity, target_tags, action_class) -> None:
+def policy_get(ctx, category, priority, severity, target_tags, action_class, template) -> None:
     """Explain the effective policy."""
     command_output(ctx, _get_investigation(ctx).get_effective_policy(
         category=category, priority=priority, severity=severity,
-        target_tags=list(target_tags) or None, action_class=action_class,
+        target_tags=list(target_tags) or None, action_class=action_class, template=template,
     ))
 
 

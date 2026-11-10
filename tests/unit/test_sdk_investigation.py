@@ -87,6 +87,11 @@ class TestRoutes:
         query = dict(_request_args(mock_org)[2]["query_params"])
         assert query == {"category": "c", "priority": "3", "target_tags": "a,b", "class": "contain.host"}
 
+    def test_effective_policy_sends_the_template(self, inv, mock_org):
+        mock_org.client.request.return_value = {}
+        inv.get_effective_policy(template="t")
+        assert dict(_request_args(mock_org)[2]["query_params"]) == {"template": "t"}
+
     def test_list_runs_sends_only_set_filters(self, inv, mock_org):
         mock_org.client.request.return_value = {"runs": []}
         inv.list_runs(state="running", limit=20, cursor="cur")

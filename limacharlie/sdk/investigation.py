@@ -494,6 +494,7 @@ class Investigation:
         severity: str | None = None,
         target_tags: list[str] | None = None,
         action_class: str | None = None,
+        template: str | None = None,
     ) -> dict[str, Any]:
         """Explain the effective policy, optionally for a given alert shape.
 
@@ -503,6 +504,7 @@ class Investigation:
             severity: Detection severity.
             target_tags: Tags of the target sensor.
             action_class: Restrict the explanation to one action class.
+            template: Template whose run identity (``identity``) to explain.
 
         Returns:
             dict: The explained policy, including ``extension_requests``.
@@ -512,6 +514,7 @@ class Investigation:
             self._q(
                 category=category, priority=priority, severity=severity,
                 target_tags=",".join(target_tags) if target_tags else None, class_=action_class,
+                template=template,
             ),
         )
 
@@ -578,7 +581,9 @@ class Investigation:
             template: A stored template (draft or active). Give this or ``inline``.
             inline: Template YAML to test as a draft.
             overrides: Tighten-only budget overrides.
-            strict: Treat any unknown as a failure of the plan.
+            strict: Refuse the test when ``overrides`` would loosen the org's
+                policy; without it the loosening part is ignored and listed in
+                ``policy.clamped``.
             mode: ``triage`` (default) or ``full``.
             wait_seconds: Let the call wait this long for a fast test (0..10).
 
@@ -664,9 +669,12 @@ class Investigation:
         """Start an investigation run.
 
         Args:
-            request: The run request: ``trigger``, ``plan`` (``template``,
-                ``inline`` or ``auto``), ``inputs``, ``urgency``, ``mode``,
-                ``case``, ``idempotency_key``, ``wait_seconds``, ...
+            request: The run request: ``trigger``, ``plan`` (``template`` or
+                ``inline``; omit it to let the engine pick the active template
+                whose ``applies_to`` matches the trigger; ``{"auto": true}`` is
+                refused for a person's run), ``inputs``, ``urgency`` (``low``,
+                ``medium``, ``high`` or ``critical``), ``mode``, ``case``,
+                ``idempotency_key``, ``wait_seconds``, ...
 
         Returns:
             dict: ``run`` and ``joined`` (True when an open run of the same

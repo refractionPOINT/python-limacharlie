@@ -292,11 +292,35 @@ class TestRuns:
     def test_start_plan_choices(self, sdk, tmp_path):
         sdk.start_run.return_value = {"run": {"run_id": "r1"}}
         run(["investigate", "runs", "start", "--auto", "--case-id", "5"])
-        assert sdk.start_run.call_args.args[0] == {"trigger": {"case_id": "5"}, "plan": {"auto": True}}
+        # The engine refuses plan.auto for a person's run; no plan at all is what asks it to pick by applies_to.
+        assert sdk.start_run.call_args.args[0] == {"trigger": {"case_id": "5"}}
         f = tmp_path / "p.yaml"
         f.write_text("description: x\n")
         run(["investigate", "runs", "start", "--file", str(f), "--question", "why?"])
         assert sdk.start_run.call_args.args[0] == {"trigger": {"question": "why?"}, "plan": {"inline": "description: x\n"}}
+
+    def test_start_auto_sends_the_alert_attributes_applies_to_matches_on(self, sdk):
+        sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+        result = run(["investigate", "runs", "start", "--auto", "--detection-id", "d", "--category", "encoded-ps",
+                      "--severity", "high", "--priority", "7", "--tag", "a", "--tag", "b"])
+        assert result.exit_code == 0, result.stderr
+        assert sdk.start_run.call_args.args[0] == {"trigger": {
+            "detection_id": "d", "category": "encoded-ps", "severity": "high", "priority": 7, "tags": ["a", "b"]}}
+
+    def test_start_urgency_is_the_engines_set(self, sdk):
+        sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+        for urgency in ("low", "medium", "high", "critical"):
+            assert run(["investigate", "runs", "start", "--template", "a", "--detection-id", "d", "--urgency", urgency]).exit_code == 0
+            assert sdk.start_run.call_args.args[0]["urgency"] == urgency
+        sdk.start_run.reset_mock()
+        assert run(["investigate", "runs", "start", "--template", "a", "--detection-id", "d", "--urgency", "normal"]).exit_code != 0
+        sdk.start_run.assert_not_called()
+
+    def test_start_help_describes_auto_and_urgency_as_the_engine_does(self):
+        out = " ".join(CliRunner().invoke(cli, ["investigate", "runs", "start", "--help"]).output.split())
+        assert "low|medium|high|critical" in out
+        assert "normal" not in out
+        assert "applies_to" in out and "sends no plan" in out
 
     def test_start_usage_errors(self, sdk):
         assert run(["investigate", "runs", "start", "--detection-id", "d"]).exit_code != 0
@@ -338,6 +362,21 @@ class TestRuns:
         kwargs = sdk.list_runs.call_args.kwargs
         assert kwargs["state"] == "running" and kwargs["limit"] == 10 and kwargs["cursor"] == "c1"
         assert kwargs["since"] == "2026-11-01T00:00:00Z" and kwargs["verdict"] is None
+
+    def test_list_filters_pass_the_engines_values_through(self, sdk):
+        sdk.list_runs.return_value = {"runs": [], "next_cursor": ""}
+        run(["investigate", "runs", "list", "--verdict", "undecided", "--trigger", "detection", "--started-by", "a@x.io"])
+        kwargs = sdk.list_runs.call_args.kwargs
+        assert (kwargs["verdict"], kwargs["trigger"], kwargs["started_by"]) == ("undecided", "detection", "a@x.io")
+
+    def test_list_help_names_the_engines_trigger_kinds(self):
+        out = " ".join(CliRunner().invoke(cli, ["investigate", "runs", "list", "--help"]).output.split())
+        assert "detection, message, entity, case, question" in out and "undecided" in out
+        assert "dr-rule" not in out
+
+    def test_strict_help_says_it_refuses_loosening_overrides(self):
+        out = " ".join(CliRunner().invoke(cli, ["investigate", "templates", "test", "--help"]).output.split())
+        assert "loosen" in out and "unknown as a failure" not in out
 
     def test_list_table_rows_and_cursor_on_stderr(self, sdk):
         sdk.list_runs.return_value = {"runs": [{
@@ -471,9 +510,10 @@ class TestActionsAndPolicy:
 
     def test_policy_commands(self, sdk):
         sdk.get_effective_policy.return_value = {}
-        run(["investigate", "policy", "get", "--category", "c", "--priority", "4", "--target-tag", "a", "--target-tag", "b", "--class", "tag"])
+        run(["investigate", "policy", "get", "--category", "c", "--priority", "4", "--target-tag", "a", "--target-tag", "b", "--class", "tag",
+             "--template", "t"])
         sdk.get_effective_policy.assert_called_with(
-            category="c", priority=4, severity=None, target_tags=["a", "b"], action_class="tag")
+            category="c", priority=4, severity=None, target_tags=["a", "b"], action_class="tag", template="t")
         run(["investigate", "policy", "status"])
         sdk.get_autonomy.assert_called_once()
         run(["investigate", "policy", "pause"])

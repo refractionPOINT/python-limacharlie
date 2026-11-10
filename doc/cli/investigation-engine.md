@@ -116,7 +116,8 @@ Exit codes: `0` done, `4` the template is `invalid` (the `validation` report say
 ```bash
 limacharlie investigate runs start (--template NAME | --file plan.yaml | --auto) \
     (--detection-id ID | --case-id ID | --entity-id ID | --question TEXT) \
-    [--input K=V]... [--inputs-json JSON] [--urgency low|normal|high] [--mode triage|full|scope] \
+    [--category C] [--severity S] [--priority N] [--tag T]... \
+    [--input K=V]... [--inputs-json JSON] [--urgency low|medium|high|critical] [--mode triage|full|scope] \
     [--case-mode create|none|attach:ID] [--idempotency-key KEY] [--wait SECONDS] [--follow]
 limacharlie investigate runs get RUN_ID
 limacharlie investigate runs list [--state S] [--verdict V] [--template T] [--trigger T] [--entity E] \
@@ -127,7 +128,9 @@ limacharlie investigate runs case RUN_ID
 limacharlie investigate runs cancel RUN_ID [--revert-leases]
 ```
 
-`--auto` picks the active template whose `applies_to` matches the alert. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`).
+`--auto` sends no plan, which is how the engine is asked to pick the **active** template whose `applies_to` matches the trigger (a draft is never picked; the engine refuses `plan.auto` itself for a person's run). `applies_to` keys are `detect_cat`, `severity`, `tag` and `source`; the first three are matched against `--category`, `--severity` and `--tag` (a start from the CLI always has `source: api`), so pass the alert's attributes. When no template matches, the start is refused with the reason. `--category`, `--severity`, `--priority` and `--tag` also select the run-scoped policy records. `--urgency` defaults to a value derived from `--priority` (8+ critical, 6+ high, 3+ medium, else low) or `--severity`, and medium when neither is given. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`).
+
+`runs list` filters: `--state` (queued, running, decided, completed, cancelled, failed, budget_exhausted), `--verdict` (true_positive, false_positive, inconclusive, undecided), `--trigger` (the kind of trigger: detection, message, entity, case, question) and `--started-by` (an identity such as `user:UID` or `apikey:ID`, or a user's email or a key's name).
 
 `--mode` is `full` by default (triage, scoping and containment); `triage` stops at the verdict and costs less, `scope` is for scoping an already-triaged alert. (`templates test` defaults to `triage`.)
 
@@ -165,7 +168,7 @@ An invalid wave prints `{"valid": false, "errors": [...], "warnings": [...]}` wi
 limacharlie investigate actions list [--state awaiting_approval,proposed] [--class C] [--run-id ID] [--limit N] [--cursor C | --all]
 limacharlie investigate actions approve RUN_ID ACTION_ID
 limacharlie investigate actions deny RUN_ID ACTION_ID [--note TEXT]
-limacharlie investigate policy get [--category C] [--priority N] [--severity S] [--target-tag T]... [--class C]
+limacharlie investigate policy get [--category C] [--priority N] [--severity S] [--target-tag T]... [--class C] [--template NAME]
 limacharlie investigate policy status
 limacharlie investigate policy pause
 limacharlie investigate policy resume
