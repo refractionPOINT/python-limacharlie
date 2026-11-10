@@ -129,6 +129,8 @@ limacharlie investigate runs cancel RUN_ID [--revert-leases]
 
 `--auto` picks the active template whose `applies_to` matches the alert. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`).
 
+`--mode` is `full` by default (triage, scoping and containment); `triage` stops at the verdict and costs less, `scope` is for scoping an already-triaged alert. (`templates test` defaults to `triage`.)
+
 `runs list` pages: structured formats print `{"runs": [...], "next_cursor": "..."}` and table/CSV/JSONL print rows with the cursor on stderr. Continue with `--cursor`, or use `--all`.
 
 `runs events --follow` polls until the run is over and writes **one JSON event per line** (a text line in table mode), flushing as they arrive. It exits `0` when the run finished and `1` when `--timeout` (default 900 s) elapsed first; the resume point is printed on stderr (`--after N`). Events carry structure only, never customer values.
@@ -141,7 +143,7 @@ A wave is a batch of questions: the engine runs every ready step in parallel wit
 # wave.yaml
 steps:
   - {id: host, use: host_context, args: {sid: "<SID>"}}
-  - {id: prev, op: ioc.prevalence, args: {file_hash: "<SHA256>"}, select: [hosts_30d, first_seen]}
+  - {id: prev, op: ioc.prevalence, args: {file_hash: "<SHA256>"}, select: [hosts_30d, seen]}
   - {id: kids, op: event.children, args: {sid: "<SID>", atom: "<ATOM>"}, limit: 5}
 stop_when:
   - "prev.hosts_30d >= 50 and kids.count == 0"
@@ -186,6 +188,10 @@ In a structured output format (`--output json`, the default when piped) a failur
 ```
 
 `error_code` is the engine's (`bad_request`, `forbidden`, `not_found`, `conflict`, `too_many_runs`, `not_implemented`, `unavailable`). It is absent when the answer did not come from the engine: a 404 without it means the feature is not enabled, and `suggestion` says what to check. Exit codes follow the CLI's: `2` authentication or permission, `3` not found, `4` validation or a refused result, `5` rate limit.
+
+Every other failure is written the same way: a Hive or API error carries its `message`, HTTP `status` and the backend's code as `error_code` (the `lc_error_code` of a Hive answer, for example a refused promote), and a refused input file (unreadable, not YAML/JSON, wrong shape) carries `errors: [{code: invalid_input, path: --file, message}]` and exits `4`.
+
+Wave files, sample files and templates are read with YAML 1.2 scalar rules, so `off`, `yes`, `no` and an unquoted date such as `2026-11-10` are sent as the text you wrote, not as a boolean or a date.
 
 ## SDK
 

@@ -17,6 +17,7 @@ from limacharlie.sdk.investigation import (
     Investigation,
     InvestigationError,
     dump_template,
+    parse_document,
     parse_template_source,
 )
 
@@ -523,11 +524,26 @@ class TestTemplateRecordPermissions:
             inv.get_template("x")
         assert "investigation_plan.get" in ei.value.suggestion and ei.value.status_code == 403
 
-    def test_other_hive_failures_are_not_rewritten(self, inv, hive):
+    def test_other_hive_failures_keep_their_status_code_and_message(self, inv, hive):
         hive.delete.side_effect = error_from_status_code(500, "boom")
-        with pytest.raises(ApiError) as ei:
+        with pytest.raises(InvestigationError) as ei:
             inv.delete_template("x")
-        assert not isinstance(ei.value, InvestigationError)
+        assert ei.value.status_code == 500 and "boom" in ei.value.raw_message
+        assert "investigation_plan" not in (ei.value.suggestion or "")
+
+    def test_a_coded_hive_refusal_keeps_its_lc_error_code(self, inv, hive):
+        hive.get.side_effect = error_from_status_code(
+            400, {"error": "lc_error_code:API_KEY_NOT_ALLOWED - an API key cannot promote"})
+        record = HiveRecord(name="p", data={"status": "draft"}, etag="e1")
+        hive.get.side_effect = [record]
+        hive.set.side_effect = error_from_status_code(
+            400, {"error": "lc_error_code:API_KEY_NOT_ALLOWED - an API key cannot promote"})
+        with patch.object(Investigation, "validate_plan", return_value=VALID):
+            with pytest.raises(InvestigationError) as ei:
+                inv.promote_template("p")
+        doc = ei.value.to_dict()
+        assert doc["error_code"] == "API_KEY_NOT_ALLOWED" and "cannot promote" in doc["error"]
+        assert doc["status"] == 400 and ei.value.exit_code == 1
 
 
 class TestPromote:
@@ -624,3 +640,28 @@ class TestInstallDefaults:
         hive.get.side_effect = [_not_found(), HiveRecord(name="alpha", data={"status": "active"}, etag="e")]
         out = inv.install_default_templates(["alpha"], status="active")
         assert out["written"][0]["status"] == "active"
+
+
+class TestParseDocument:
+    def test_yaml_11_words_and_dates_are_sent_as_written(self):
+        doc = parse_document("a: off\nb: yes\nc: no\nd: 2026-11-10\ne: true\nf: 012\n")
+        assert doc == {"a": "off", "b": "yes", "c": "no", "d": "2026-11-10", "e": True, "f": "012"}
+        json.dumps(doc)
+
+    def test_json_is_accepted(self):
+        assert parse_document('{"steps": [{"id": "a", "n": 1}]}') == {"steps": [{"id": "a", "n": 1}]}
+
+    def test_anchors_are_expanded_not_refused(self):
+        assert parse_document("a: &x [1, 2]\nb: *x\n") == {"a": [1, 2], "b": [1, 2]}
+
+    def test_garbage_is_a_validation_error(self):
+        with pytest.raises(ValidationError):
+            parse_document("a: [unclosed")
+
+    def test_empty_is_a_validation_error(self):
+        with pytest.raises(ValidationError):
+            parse_document("  \n")
+
+    def test_values_json_cannot_carry_are_refused(self):
+        with pytest.raises(ValidationError):
+            parse_document("a: !!binary aGk=\n")

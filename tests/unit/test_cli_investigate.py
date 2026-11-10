@@ -7,7 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from limacharlie.cli import cli
-from limacharlie.errors import error_from_status_code
+from limacharlie.errors import AuthenticationError, error_from_status_code
 from limacharlie.sdk.investigation import InvestigationError
 
 
@@ -506,3 +506,74 @@ class TestErrorReporting:
         result = run(["investigate", "runs", "get", "r1"], fmt="table")
         assert result.exit_code != 0
         assert isinstance(result.exception, InvestigationError)
+
+
+class TestYaml12Input:
+    """Wave and sample files keep YAML 1.2 scalars: values reach the engine as written."""
+
+    def test_wave_file_words_and_dates_are_not_converted(self, sdk, tmp_path):
+        f = tmp_path / "wave.yaml"
+        f.write_text(
+            "steps:\n  - {id: a, op: entity.get, args: {mode: off, flag: yes, since: 2026-11-10}}\n")
+        sdk.run_wave.return_value = {}
+        result = run(["investigate", "wave", "--file", str(f)])
+        assert result.exit_code == 0, result.stderr
+        assert sdk.run_wave.call_args.args[0]["steps"][0]["args"] == {"mode": "off", "flag": "yes", "since": "2026-11-10"}
+
+    def test_samples_file_words_and_dates_are_not_converted(self, sdk, tmp_path):
+        f = tmp_path / "samples.yaml"
+        f.write_text("- inputs: {since: 2026-11-10, quiet: off}\n  expected: false_positive\n")
+        sdk.test_plan.return_value = {"state": "done", "done": True}
+        result = run(["investigate", "templates", "test", "my-plan", "--samples-file", str(f)])
+        assert result.exit_code == 0, result.stderr
+        assert sdk.test_plan.call_args.args[0] == [
+            {"inputs": {"since": "2026-11-10", "quiet": "off"}, "expected": "false_positive"}]
+
+    def test_an_unparseable_wave_file_is_a_coded_json_error(self, sdk, tmp_path):
+        f = tmp_path / "wave.yaml"
+        f.write_text("steps: [unclosed")
+        result = run(["investigate", "wave", "--file", str(f)])
+        assert result.exit_code == 4
+        doc = json.loads(result.stderr)
+        assert doc["errors"][0]["code"] == "invalid_input" and doc["errors"][0]["path"] == "--file"
+        sdk.run_wave.assert_not_called()
+
+    def test_a_wrong_shape_is_a_coded_json_error(self, sdk, tmp_path):
+        f = tmp_path / "samples.yaml"
+        f.write_text("just: a mapping\n")
+        result = run(["investigate", "templates", "test", "my-plan", "--samples-file", str(f)])
+        assert result.exit_code == 4
+        assert json.loads(result.stderr)["errors"][0]["path"] == "--samples-file"
+
+    def test_a_missing_file_is_a_coded_json_error(self, sdk, tmp_path):
+        result = run(["investigate", "wave", "--file", str(tmp_path / "nope.yaml")])
+        assert result.exit_code == 4
+        assert json.loads(result.stderr)["errors"][0]["code"] == "invalid_input"
+
+    def test_table_mode_still_fails_with_text(self, sdk, tmp_path):
+        f = tmp_path / "wave.yaml"
+        f.write_text("steps: [unclosed")
+        result = run(["investigate", "wave", "--file", str(f)], fmt="table")
+        assert result.exit_code == 1 and isinstance(result.exception, InvestigationError)
+
+
+class TestEveryFailureIsStructured:
+    def test_a_coded_hive_refusal_renders_as_json_with_its_code_and_exit_code(self, sdk):
+        sdk.promote_template.side_effect = error_from_status_code(
+            400, {"error": "lc_error_code:API_KEY_NOT_ALLOWED - an API key cannot promote a template"})
+        result = run(["investigate", "templates", "promote", "my-plan", "--confirm"])
+        assert result.exit_code == 1
+        doc = json.loads(result.stderr)
+        assert doc["error_code"] == "API_KEY_NOT_ALLOWED" and "cannot promote" in doc["error"]
+        assert doc["status"] == 400
+
+    def test_other_sdk_errors_keep_their_own_exit_code(self, sdk):
+        sdk.get_template.side_effect = AuthenticationError("bad key")
+        result = run(["investigate", "templates", "get", "my-plan"])
+        assert result.exit_code == AuthenticationError.exit_code
+        assert json.loads(result.stderr)["error"] == "bad key"
+
+    def test_table_mode_leaves_the_error_to_the_cli(self, sdk):
+        sdk.promote_template.side_effect = error_from_status_code(400, {"error": "lc_error_code:X - y"})
+        result = run(["investigate", "templates", "promote", "my-plan", "--confirm"], fmt="table")
+        assert result.exception is not None and not result.stderr.startswith("{")

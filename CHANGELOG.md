@@ -20,6 +20,10 @@
 - Engine failures keep the engine's coded issues (`code`, `path`, `message`,
   `suggestion`) and error code verbatim, and say when the feature is not
   enabled for the deployment or the permissions are missing.
+- `wave` and `templates test --samples-file` read YAML with 1.2 scalar rules (`off`/`yes`
+  stay text, an unquoted date stays a string) so values reach the engine as written;
+  unreadable or malformed input files and every Hive/API failure are reported as
+  structured JSON (with the backend's `error_code`) in a structured output format.
 - `templates install-defaults` reads the authoring kit's `library` section; it
   needs an engine version that serves it.
 - The typed 401/403/404/422/429 errors raised for an HTTP error answer now carry

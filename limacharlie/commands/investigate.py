@@ -24,14 +24,15 @@ from ..cli import pass_context
 from ..client import Client
 from ..discovery import register_explain
 from ..output import detect_output_format, format_output
+from ..errors import LimaCharlieError
 from ..sdk.investigation import (
     KIT_SECTIONS,
     MAX_POLL_WAIT,
     Investigation,
     InvestigationError,
+    parse_document,
 )
 from ..sdk.organization import Organization
-from ._input_helpers import load_file
 from ._output_helpers import command_output, note
 
 # Exit code of a result that is well-formed but says "no" (invalid template,
@@ -412,25 +413,65 @@ def _fmt(ctx: click.Context) -> str:
     return ctx.obj.output_format or detect_output_format()
 
 
-def _engine_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Report an engine failure as a document when the output is machine-read.
+def _error_document(exc: LimaCharlieError) -> dict[str, Any]:
+    """The machine-readable form of any SDK failure.
 
-    In a structured output format the failure is written to stderr as the
-    engine's own answer (message, ``error_code``, coded ``errors`` and
-    ``warnings``) and the command exits with the error's exit code. In table
-    mode the error propagates and prints as text, issues included.
+    An engine failure keeps the engine's own answer. Any other failure (a Hive
+    or API error, bad input) carries its message, HTTP status, the backend's
+    ``error_code`` (the ``lc_error_code`` of a Hive answer) and suggestion.
+    """
+    if isinstance(exc, InvestigationError):
+        return exc.to_dict()
+    out: dict[str, Any] = {"error": exc.raw_message, "status": exc.status_code}
+    code = getattr(exc, "error_code", None)
+    if code:
+        out["error_code"] = code
+    if exc.suggestion:
+        out["suggestion"] = exc.suggestion
+    return out
+
+
+def _engine_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Report a failure as a document when the output is machine-read.
+
+    In a structured output format every SDK failure (the engine's, a Hive or
+    API error, a refused input) is written to stderr as a document (message,
+    ``error_code``, coded ``errors`` and ``warnings`` when the engine sent
+    them) and the command exits with the error's exit code. In table mode the
+    error propagates and prints as text, issues included.
     """
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return fn(*args, **kwargs)
-        except InvestigationError as exc:
+        except LimaCharlieError as exc:
             ctx = click.get_current_context()
             if _fmt(ctx) not in _STRUCTURED:
                 raise
-            click.echo(format_output(exc.to_dict(), _fmt(ctx)), err=True)
+            click.echo(format_output(_error_document(exc), _fmt(ctx)), err=True)
             ctx.exit(exc.exit_code or 1)
     return wrapper
+
+
+def _input_error(hint: str, message: str) -> InvestigationError:
+    """A refused input, as a coded error (``invalid_input``) that renders as JSON when asked."""
+    return InvestigationError(
+        f"{hint}: {message}", status_code=None, exit_code=EXIT_REFUSED,
+        issues=[{"code": "invalid_input", "path": hint, "message": message}],
+    )
+
+
+def _load_document(path: str, hint: str) -> Any:
+    """Read a YAML or JSON file; scalars keep the meaning they have in YAML 1.2 (``off`` is text)."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError as exc:
+        raise _input_error(hint, f"cannot read file: {exc}") from exc
+    try:
+        return parse_document(content, "the file")
+    except LimaCharlieError as exc:
+        raise _input_error(hint, exc.raw_message) from exc
 
 
 def _read_source(path: str) -> str:
@@ -441,14 +482,14 @@ def _read_source(path: str) -> str:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
     except OSError as exc:
-        raise click.BadParameter(f"cannot read file: {exc}", param_hint="--file")
+        raise _input_error("--file", f"cannot read file: {exc}") from exc
 
 
 def _parse_kv(pairs: tuple[str, ...], hint: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for pair in pairs:
         if "=" not in pair:
-            raise click.BadParameter(f"expected KEY=VALUE, got {pair!r}", param_hint=hint)
+            raise _input_error(hint, f"expected KEY=VALUE, got {pair!r}")
         key, value = pair.split("=", 1)
         out[key] = value
     return out
@@ -460,9 +501,9 @@ def _json_object(text: str | None, hint: str) -> dict[str, Any] | None:
     try:
         value = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise click.BadParameter(f"invalid JSON: {exc}", param_hint=hint)
+        raise _input_error(hint, f"invalid JSON: {exc}") from exc
     if not isinstance(value, dict):
-        raise click.BadParameter("must be a JSON object", param_hint=hint)
+        raise _input_error(hint, "must be a JSON object")
     return value
 
 
@@ -699,7 +740,7 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
 @click.option("--last", type=click.IntRange(1, 25), default=10, show_default=True, help="How many alerts per --detect-cat.")
 @click.option("--sample", "samples_json", multiple=True, help="Sample as a JSON object, e.g. '{\"inputs\": {...}, \"expected\": \"false_positive\"}' (repeatable).")
 @click.option("--samples-file", default=None, help="YAML/JSON file holding a list of samples.")
-@click.option("--mode", type=click.Choice(["triage", "full"]), default=None, help="triage (default, the cheap pass) or full.")
+@click.option("--mode", type=click.Choice(["triage", "full"]), default=None, help="triage (default for a test, the cheap pass) or full.")
 @click.option("--strict", is_flag=True, default=False, help="Treat any unknown as a failure of the plan.")
 @click.option("--overrides-json", default=None, help="Tighten-only budget overrides, e.g. '{\"budgets\": {\"max_wall_seconds\": 120}}'.")
 @click.option("--wait", "wait_seconds", type=click.IntRange(0, MAX_POLL_WAIT), default=5, show_default=True,
@@ -727,9 +768,9 @@ def templates_test(ctx, name, file_path, test_id, detection_ids, case_ids, detec
         for text in samples_json:
             samples.append(_json_object(text, "--sample") or {})
         if samples_file:
-            loaded = load_file(samples_file, "--samples-file")
+            loaded = _load_document(samples_file, "--samples-file")
             if not isinstance(loaded, list) or not all(isinstance(s, dict) for s in loaded):
-                raise click.BadParameter("must be a list of sample objects", param_hint="--samples-file")
+                raise _input_error("--samples-file", "must be a list of sample objects")
             samples += loaded
         if not samples:
             raise click.UsageError("Give at least one sample: --detection-id, --case-id, --detect-cat, --sample or --samples-file.")
@@ -840,7 +881,7 @@ def runs_group() -> None:
 @click.option("--input", "inputs", multiple=True, help="Run input KEY=VALUE (repeatable; values are text).")
 @click.option("--inputs-json", default=None, help="Run inputs as a JSON object (typed values).")
 @click.option("--urgency", type=click.Choice(["low", "normal", "high"]), default=None, help="Run urgency.")
-@click.option("--mode", type=click.Choice(["triage", "full", "scope"]), default=None, help="Run mode (engine default: triage).")
+@click.option("--mode", type=click.Choice(["triage", "full", "scope"]), default=None, help="Run mode (engine default: full; triage is cheaper).")
 @click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case id> (default per the org's policy).")
 @click.option("--idempotency-key", default=None, help="Starting twice with the same key returns the same run.")
 @click.option("--wait", "wait_seconds", type=click.IntRange(0, 60), default=0, help="Block up to this many seconds (0..60) for the verdict.")
@@ -1018,11 +1059,11 @@ def runs_cancel(ctx, run_id, revert_leases) -> None:
 @_engine_errors
 def wave_cmd(ctx, file_path, stop_when, deadline_ms, inputs, full, validate_only) -> None:
     """Run a batch of operator and fact-pack questions in one call."""
-    wave = load_file(file_path, "--file")
+    wave = _load_document(file_path, "--file")
     if isinstance(wave, list):
         wave = {"steps": wave}
     if not isinstance(wave, dict):
-        raise click.BadParameter("must hold a mapping (steps, stop_when, ...) or a list of steps", param_hint="--file")
+        raise _input_error("--file", "must hold a mapping (steps, stop_when, ...) or a list of steps")
     wave = dict(wave)
     if stop_when:
         wave["stop_when"] = list(wave.get("stop_when") or []) + list(stop_when)

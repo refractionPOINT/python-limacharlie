@@ -209,7 +209,13 @@ _TEMPLATE_PERMISSION_HINT = (
 
 
 def _template_record_errors(fn: Any) -> Any:
-    """Say which permission a refused template-record operation needs."""
+    """Report a failed template-record operation as an :class:`InvestigationError`.
+
+    A refused permission also says which permission the operation needs. Any
+    other Hive or API failure keeps its message, HTTP status, response body (so
+    ``error_code`` still carries the backend's ``lc_error_code``) and exit code,
+    so callers handle one error type whatever went wrong.
+    """
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
@@ -217,12 +223,16 @@ def _template_record_errors(fn: Any) -> Any:
         except InvestigationError:
             raise
         except LimaCharlieError as exc:
-            if is_permission_denied(exc):
-                raise InvestigationError(
-                    exc.raw_message, status_code=403, response_body=getattr(exc, "response_body", None),
-                    suggestion=_TEMPLATE_PERMISSION_HINT, exit_code=exc.exit_code,
-                ) from exc
-            raise
+            denied = is_permission_denied(exc)
+            if not denied and not isinstance(exc, ApiError):
+                raise  # input errors and the like are not Hive answers
+            raise InvestigationError(
+                exc.raw_message,
+                status_code=403 if denied else exc.status_code,
+                response_body=getattr(exc, "response_body", None),
+                suggestion=_TEMPLATE_PERMISSION_HINT if denied else (exc.suggestion or ""),
+                exit_code=exc.exit_code,
+            ) from exc
     return wrapper
 
 
@@ -284,6 +294,51 @@ def _construct_core_int(loader: yaml.SafeLoader, node: yaml.Node) -> int:
 _TemplateLoader.add_constructor(_INT_TAG, _construct_core_int)
 
 
+def _load_yaml(source: str, allow_aliases: bool) -> Any:
+    """Parse YAML with the engine's YAML 1.2 scalar rules; raise ``yaml.YAMLError``."""
+    if not allow_aliases:
+        for event in yaml.parse(source, Loader=_TemplateLoader):
+            if isinstance(event, yaml.AliasEvent):
+                raise ValidationError(
+                    "YAML anchors and aliases are not supported in a template; write the value out"
+                )
+    return yaml.load(source, Loader=_TemplateLoader)  # noqa: S506 - SafeLoader subclass
+
+
+def parse_document(source: str, what: str = "the document") -> Any:
+    """Parse a YAML or JSON document into plain JSON-compatible values.
+
+    Scalars follow the same YAML 1.2 rules as a template: ``off``/``yes``/``no``
+    stay text and an unquoted date stays a string, so every value is sent to
+    the engine as it was written.
+
+    Args:
+        source: The YAML or JSON text.
+        what: What the text is, for error messages (for example ``"the wave file"``).
+
+    Returns:
+        Any: The parsed value.
+
+    Raises:
+        ValidationError: If the text is not YAML or JSON, or holds a value
+            JSON cannot carry (a binary or set tag, for example).
+    """
+    if not isinstance(source, str) or not source.strip():
+        raise ValidationError(f"{what} is empty")
+    try:
+        doc = _load_yaml(source, allow_aliases=True)
+    except yaml.YAMLError as exc:
+        try:
+            doc = json.loads(source)
+        except ValueError:
+            raise ValidationError(f"{what} is neither valid YAML nor JSON: {exc}") from exc
+    try:
+        json.dumps(doc)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{what} holds a value JSON cannot carry: {exc}") from exc
+    return doc
+
+
 def parse_template_source(source: str) -> dict[str, Any]:
     """Parse a template's YAML source into the mapping stored in the hive record.
 
@@ -300,12 +355,7 @@ def parse_template_source(source: str) -> dict[str, Any]:
     if not isinstance(source, str) or not source.strip():
         raise ValidationError("the template is empty")
     try:
-        for event in yaml.parse(source, Loader=_TemplateLoader):
-            if isinstance(event, yaml.AliasEvent):
-                raise ValidationError(
-                    "YAML anchors and aliases are not supported in a template; write the value out"
-                )
-        doc = yaml.load(source, Loader=_TemplateLoader)  # noqa: S506 - SafeLoader subclass
+        doc = _load_yaml(source, allow_aliases=False)
     except yaml.YAMLError as exc:
         raise ValidationError(f"the template is not valid YAML: {exc}") from exc
     if not isinstance(doc, dict):
