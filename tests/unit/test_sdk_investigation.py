@@ -532,10 +532,7 @@ class TestTemplateRecordPermissions:
         assert "investigation_plan" not in (ei.value.suggestion or "")
 
     def test_a_coded_hive_refusal_keeps_its_lc_error_code(self, inv, hive):
-        hive.get.side_effect = error_from_status_code(
-            400, {"error": "lc_error_code:API_KEY_NOT_ALLOWED - an API key cannot promote"})
-        record = HiveRecord(name="p", data={"status": "draft"}, etag="e1")
-        hive.get.side_effect = [record]
+        hive.get.side_effect = [HiveRecord(name="p", data={"status": "draft"}, etag="e1")]
         hive.set.side_effect = error_from_status_code(
             400, {"error": "lc_error_code:API_KEY_NOT_ALLOWED - an API key cannot promote"})
         with patch.object(Investigation, "validate_plan", return_value=VALID):
