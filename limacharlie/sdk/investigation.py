@@ -1,0 +1,1145 @@
+"""Investigation Engine SDK for LimaCharlie v2.
+
+Wraps the ``/investigate/{oid}/...`` REST routes served by the API gateway:
+the authoring kit, the typed operator and fact-pack catalogues, plan
+validation and dry runs on past alerts, investigation runs (start, read,
+list, events, cancel), waves, the approvals inbox and the autonomy switch.
+
+The feature is experimental and gated per deployment. Where it is off, every
+route is an unknown path (HTTP 404 with no engine error code); where the
+organisation has no engine, the gateway answers 503.
+:class:`InvestigationError` says which of those happened.
+
+Permissions (all of the listed ones are required):
+
+- reads (runs, templates, operators, packs, kit, policy, test results, the
+  approvals inbox): ``investigation.get`` + ``insight.evt.get``
+- writes (start a run, waves, cancel, test a plan, decide an action):
+  ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
+  the permission of the action's own class (for example ``sensor.task``)
+- pause / resume of automatic actions: ``org.conf.set``
+- the template records themselves (hive ``investigation_plan``):
+  ``investigation_plan.get`` / ``investigation_plan.set`` /
+  ``investigation_plan.del``. These are explicit grants, no default role has
+  them.
+
+Templates are plain Hive records. This module never writes an *active*
+template unless the caller passes ``status="active"`` explicitly (the call a
+person makes), never overwrites a record without ``overwrite=True`` and never
+replaces an active template with a draft. A draft runs only through a dry run
+(:meth:`Investigation.test_plan`) or a run started by a person, with response
+actions capped at ``suggest``.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+from typing import Any, Iterator, TYPE_CHECKING
+from urllib.parse import quote as _quote
+
+import yaml
+
+from ..errors import ApiError, LimaCharlieError, ValidationError
+from .hive import Hive, HiveRecord, is_record_not_found
+
+if TYPE_CHECKING:
+    from .organization import Organization
+
+
+PLAN_HIVE = "investigation_plan"
+STATUS_DRAFT = "draft"
+STATUS_ACTIVE = "active"
+
+#: Sections of the authoring kit the engine can return.
+KIT_SECTIONS = ("schema", "guide", "operators", "examples", "policy", "codes", "packs", "library")
+
+#: Decisions the gateway accepts on an action.
+ACTION_VERBS = ("approve", "deny", "revert", "extend", "confirm")
+
+#: Run states after which a run no longer changes.
+TERMINAL_RUN_STATES = ("completed", "cancelled", "failed", "budget_exhausted")
+
+#: Template (record) names this module will create.
+TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+# What the gateway accepts as a run, action or test id; anything else is
+# refused there. "." and ".." are refused as path traversal.
+_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+# Sent as the etag of a write that must create a record. It matches no stored
+# etag, so the hive refuses the write if the record exists by then.
+_CREATE_ONLY_ETAG = "create-only: the record must not exist"
+
+# The engine's long polls (run events, test results) wait at most this long.
+MAX_POLL_WAIT = 10
+MAX_EVENTS_LIMIT = 500
+
+# Seconds added to a call's own wait to form its HTTP timeout.
+_WAIT_MARGIN = 35
+
+
+class InvestigationError(ApiError):
+    """An Investigation Engine call failed.
+
+    Carries what the engine said, verbatim, next to the HTTP status: the
+    engine's ``error_code`` (``bad_request``, ``not_found``, ``conflict``,
+    ``too_many_runs``, ...) and the coded ``errors`` / ``warnings`` of a plan
+    or wave that was refused (each ``{code, path, message, suggestion?}``).
+
+    ``error_code`` (inherited) is the engine's code, or None when the answer
+    did not come from the engine itself (for example a gateway 404).
+
+    Attributes:
+        issues: The coded errors of a refused plan or wave.
+        warnings: The coded warnings that came with them.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None,
+        issues: list[dict[str, Any]] | None = None,
+        warnings: list[dict[str, Any]] | None = None,
+        response_body: Any = None,
+        suggestion: str | None = None,
+        exit_code: int = 1,
+    ) -> None:
+        self.issues = issues or []
+        self.warnings = warnings or []
+        super().__init__(message, status_code=status_code, response_body=response_body, suggestion=suggestion)
+        self.exit_code = exit_code
+
+    def to_dict(self) -> dict[str, Any]:
+        """Render the failure as a machine-readable document.
+
+        Returns:
+            dict: ``error`` (message), ``status`` (HTTP), ``error_code``, and
+                ``errors`` / ``warnings`` exactly as the engine sent them.
+        """
+        out: dict[str, Any] = {"error": self.raw_message, "status": self.status_code}
+        if self.error_code:
+            out["error_code"] = self.error_code
+        if self.issues:
+            out["errors"] = self.issues
+        if self.warnings:
+            out["warnings"] = self.warnings
+        if self.suggestion:
+            out["suggestion"] = self.suggestion
+        return out
+
+
+def _issue_line(issue: Any) -> str:
+    if not isinstance(issue, dict):
+        return str(issue)
+    line = f"[{issue.get('code', '?')}] {issue.get('path', '')}: {issue.get('message', '')}".replace(" : ", ": ")
+    if issue.get("suggestion"):
+        line += f" (did you mean {issue['suggestion']})"
+    return line
+
+
+_PERMISSION_HINT = (
+    "Reads need investigation.get + insight.evt.get, writes (start, wave, cancel, test, decide) need "
+    "investigation.set + insight.evt.get, pause/resume needs org.conf.set, and template records need "
+    "investigation_plan.get / investigation_plan.set. Deciding an action also needs the permission of its class."
+)
+
+_DISABLED_HINT = (
+    "The Investigation Engine is experimental and gated per deployment: this API does not serve /investigate "
+    "for this organization's region. Check you target the right environment, or ask for the feature to be enabled."
+)
+
+
+def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
+    """Turn a transport error into an :class:`InvestigationError` that says what to do."""
+    status = exc.status_code
+    if status is None or status == 401 or status < 400:
+        return exc
+    body = getattr(exc, "response_body", None)
+    message = ""
+    code: str | None = None
+    issues: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    if isinstance(body, dict):
+        message = str(body.get("error") or "")
+        code = body.get("error_code") if isinstance(body.get("error_code"), str) else None
+        issues = [i for i in (body.get("errors") or []) if i] if isinstance(body.get("errors"), list) else []
+        warnings = [w for w in (body.get("warnings") or []) if w] if isinstance(body.get("warnings"), list) else []
+    elif isinstance(body, str) and body.strip():
+        message = body.strip()
+    if not message:
+        message = exc.raw_message
+    lines = [_issue_line(i) for i in issues]
+    if lines and not any(line in message for line in lines):
+        message += "\n" + "\n".join(f"  {line}" for line in lines)
+
+    suggestion: str | None = None
+    if status == 404 and code is None:
+        suggestion = _DISABLED_HINT
+    elif status == 403 and code is None:
+        suggestion = _PERMISSION_HINT
+    elif status == 503 and code != "unavailable":
+        suggestion = "No engine serves this organization right now (feature off or the region is unavailable); retry later."
+    elif status == 429 and code == "too_many_runs":
+        suggestion = "The organization's concurrent run cap is reached; wait for a run to finish and retry."
+    elif status == 501:
+        suggestion = "This feature is not enabled in the engine."
+    elif status in (502, 504):
+        suggestion = "The engine did not answer in time. Reads can be retried; check a run's state before starting it again."
+    return InvestigationError(
+        message,
+        status_code=status,
+        issues=issues,
+        warnings=warnings,
+        response_body=body,
+        suggestion=suggestion,
+        exit_code=exc.exit_code,
+    )
+
+
+def _check_id(kind: str, value: str) -> str:
+    if not isinstance(value, str) or value in (".", "..") or not _ID_RE.match(value):
+        raise ValidationError(f"invalid {kind} {value!r}: use letters, digits and . _ : - (at most 128 characters)")
+    return value
+
+
+def _check_wait(wait: int) -> int:
+    if not isinstance(wait, int) or isinstance(wait, bool) or wait < 0 or wait > MAX_POLL_WAIT:
+        raise ValidationError(f"wait must be an integer between 0 and {MAX_POLL_WAIT} seconds")
+    return wait
+
+
+class _TemplateLoader(yaml.SafeLoader):
+    """YAML loader for template sources.
+
+    The engine reads templates with YAML 1.2 rules. PyYAML follows 1.1, which
+    would turn ``yes``/``no``/``on``/``off`` into booleans and an unquoted
+    date into a ``datetime``, so a template would be stored as something other
+    than what its author wrote. This loader keeps both as text and accepts
+    only ``true``/``false`` as booleans.
+    """
+
+
+_BOOL_TAG = "tag:yaml.org,2002:bool"
+_TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
+_TemplateLoader.yaml_implicit_resolvers = {
+    ch: [(tag, rx) for tag, rx in resolvers if tag not in (_BOOL_TAG, _TIMESTAMP_TAG)]
+    for ch, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+_TemplateLoader.add_implicit_resolver(
+    _BOOL_TAG, re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF"),
+)
+
+
+def parse_template_source(source: str) -> dict[str, Any]:
+    """Parse a template's YAML source into the mapping stored in the hive record.
+
+    Args:
+        source: The template YAML.
+
+    Returns:
+        dict: The template as plain JSON-compatible values.
+
+    Raises:
+        ValidationError: If the source is empty, not YAML, not a mapping, or
+            uses YAML anchors or aliases (a template has no use for them).
+    """
+    if not isinstance(source, str) or not source.strip():
+        raise ValidationError("the template is empty")
+    try:
+        for event in yaml.parse(source, Loader=_TemplateLoader):
+            if isinstance(event, yaml.AliasEvent):
+                raise ValidationError(
+                    "YAML anchors and aliases are not supported in a template; write the value out"
+                )
+        doc = yaml.load(source, Loader=_TemplateLoader)  # noqa: S506 - SafeLoader subclass
+    except yaml.YAMLError as exc:
+        raise ValidationError(f"the template is not valid YAML: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValidationError("the template must be a YAML mapping (description, applies_to, facts, ...)")
+    return doc
+
+
+def dump_template(data: dict[str, Any]) -> str:
+    """Render a template mapping as YAML, in the key order it was written.
+
+    Args:
+        data: The template mapping.
+
+    Returns:
+        str: YAML text the engine accepts.
+    """
+    return yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
+
+class Investigation:
+    """Investigation Engine client for LimaCharlie."""
+
+    def __init__(self, org: Organization) -> None:
+        self._org = org
+
+    @property
+    def oid(self) -> str:
+        """The organization ID every call is made for."""
+        return self._org.oid
+
+    # ------------------------------------------------------------------
+    # Low-level helpers
+    # ------------------------------------------------------------------
+
+    def _call(
+        self,
+        verb: str,
+        path: str,
+        *,
+        query: list[tuple[str, str]] | None = None,
+        body: dict[str, Any] | None = None,
+        write: bool = False,
+        timeout: int | None = None,
+    ) -> Any:
+        """Make one engine call, mapping failures to :class:`InvestigationError`.
+
+        A write is never replayed after a gateway timeout: the engine may
+        already have started the work.
+        """
+        kwargs: dict[str, Any] = {"query_params": query or None, "timeout": timeout}
+        if body is not None:
+            kwargs["raw_body"] = json.dumps(body).encode()
+            kwargs["content_type"] = "application/json"
+        if write:
+            kwargs["retry_gateway_timeout"] = False
+        try:
+            return self._org.client.request(verb, f"investigate/{self.oid}/{path}", **kwargs)
+        except LimaCharlieError as exc:
+            raise _wrap_error(exc) from exc
+
+    def _get(self, path: str, query: list[tuple[str, str]] | None = None, timeout: int | None = None) -> Any:
+        return self._call("GET", path, query=query, timeout=timeout)
+
+    @staticmethod
+    def _q(**params: Any) -> list[tuple[str, str]]:
+        """Build a query string list from the arguments that are set."""
+        out: list[tuple[str, str]] = []
+        for name, value in params.items():
+            if value is None or value == "":
+                continue
+            if isinstance(value, bool):
+                value = "true" if value else "false"
+            out.append((name.rstrip("_"), str(value)))
+        return out
+
+    # ------------------------------------------------------------------
+    # Reference data
+    # ------------------------------------------------------------------
+
+    def get_authoring_kit(self, sections: list[str] | None = None) -> dict[str, Any]:
+        """Fetch the authoring kit, whole or in sections.
+
+        The whole kit is large (tens of thousands of tokens); ask for the
+        sections you need.
+
+        Args:
+            sections: Any of :data:`KIT_SECTIONS`. None asks for the engine's
+                default (everything except ``library``).
+
+        Returns:
+            dict: The kit, with a ``size`` entry saying what was returned.
+
+        Raises:
+            ValidationError: If a section name is not one the engine knows.
+            InvestigationError: On any API failure.
+        """
+        if sections:
+            unknown = [s for s in sections if s not in KIT_SECTIONS]
+            if unknown:
+                raise ValidationError(f"unknown kit section(s) {', '.join(unknown)}; choose from {', '.join(KIT_SECTIONS)}")
+        query = self._q(sections=",".join(sections) if sections else None)
+        return self._get("authoring-kit", query)
+
+    def list_operators(self) -> dict[str, Any]:
+        """List the operator catalogue with typed arguments and outputs.
+
+        Returns:
+            dict: ``operators`` (per operator: class, args, output, summary,
+                availability for this org) and ``extension_requests``.
+        """
+        return self._get("operators")
+
+    def list_packs(self, name: str | None = None) -> dict[str, Any]:
+        """List the fact packs a plan or a wave can ``use``.
+
+        Args:
+            name: Return only this pack.
+
+        Returns:
+            dict: ``packs``, each with params, exports and cost class.
+        """
+        return self._get("packs", self._q(name=name))
+
+    def list_engine_templates(self) -> dict[str, Any]:
+        """List the templates the engine has loaded for this org.
+
+        Returns:
+            dict: ``templates`` with name, version, description, applies_to and status.
+        """
+        return self._get("templates")
+
+    def get_effective_policy(
+        self,
+        category: str | None = None,
+        priority: int | None = None,
+        severity: str | None = None,
+        target_tags: list[str] | None = None,
+        action_class: str | None = None,
+    ) -> dict[str, Any]:
+        """Explain the effective policy, optionally for a given alert shape.
+
+        Args:
+            category: Detection category to match run-scoped policy records.
+            priority: Detection priority.
+            severity: Detection severity.
+            target_tags: Tags of the target sensor.
+            action_class: Restrict the explanation to one action class.
+
+        Returns:
+            dict: The explained policy, including ``extension_requests``.
+        """
+        return self._get(
+            "policy/effective",
+            self._q(
+                category=category, priority=priority, severity=severity,
+                target_tags=",".join(target_tags) if target_tags else None, class_=action_class,
+            ),
+        )
+
+    def get_autonomy(self) -> dict[str, Any]:
+        """Read whether automatic actions are paused for the org.
+
+        Returns:
+            dict: The pause-switch state and who last flipped it.
+        """
+        return self._get("autonomy")
+
+    def set_autonomy(self, verb: str) -> dict[str, Any]:
+        """Pause or resume automatic actions for the org.
+
+        Args:
+            verb: ``pause`` or ``resume``.
+
+        Returns:
+            dict: The new switch state.
+
+        Raises:
+            ValidationError: If ``verb`` is neither.
+        """
+        if verb not in ("pause", "resume"):
+            raise ValidationError("verb must be pause or resume")
+        return self._call("POST", f"autonomy/{verb}", write=True)
+
+    # ------------------------------------------------------------------
+    # Plan validation and dry runs
+    # ------------------------------------------------------------------
+
+    def validate_plan(self, source: str) -> dict[str, Any]:
+        """Type-check a template without running anything.
+
+        Args:
+            source: The template YAML.
+
+        Returns:
+            dict: ``valid``, ``errors`` and ``warnings`` (each ``{code, path,
+                message, suggestion?}``), the worst-case cost and an ``estimate``.
+        """
+        return self._call("POST", "plans/validate", body={"yaml": source})
+
+    def test_plan(
+        self,
+        samples: list[dict[str, Any]],
+        *,
+        template: str | None = None,
+        inline: str | None = None,
+        overrides: dict[str, Any] | None = None,
+        strict: bool = False,
+        mode: str | None = None,
+        wait_seconds: int = 5,
+    ) -> dict[str, Any]:
+        """Start a dry run of a plan on real past alerts.
+
+        Nothing is written: no run, case, label or action. The test runs the
+        plan's read-only operators under the caller's own token.
+
+        Args:
+            samples: Each one of ``{detection_id}``, ``{case_id}``,
+                ``{detect_cat, last}`` or ``{inputs, expected}``; at most 25
+                after expansion.
+            template: A stored template (draft or active). Give this or ``inline``.
+            inline: Template YAML to test as a draft.
+            overrides: Tighten-only budget overrides.
+            strict: Treat any unknown as a failure of the plan.
+            mode: ``triage`` (default) or ``full``.
+            wait_seconds: Let the call wait this long for a fast test (0..10).
+
+        Returns:
+            dict: The test object: ``test_id``, ``state`` (running, done,
+                failed, invalid), ``validation``, ``results``, ``summary``,
+                ``next`` and ``done``.
+
+        Raises:
+            ValidationError: If not exactly one of ``template``/``inline`` is
+                given, or there are no samples.
+        """
+        if bool(template) == bool(inline):
+            raise ValidationError("give exactly one of a stored template or an inline template")
+        if not samples:
+            raise ValidationError("give at least one sample (detection, case, category or inputs)")
+        _check_wait(wait_seconds)
+        request: dict[str, Any] = {"samples": samples, "wait_seconds": wait_seconds}
+        if template:
+            request["template"] = template
+        else:
+            request["inline"] = inline
+        if overrides:
+            request["overrides"] = overrides
+        if strict:
+            request["strict"] = True
+        if mode:
+            request["mode"] = mode
+        return self._call(
+            "POST", "test-plan", body=request, write=True, timeout=wait_seconds + _WAIT_MARGIN,
+        )
+
+    def get_test_plan(self, test_id: str, after: int = 0, wait: int = 0) -> dict[str, Any]:
+        """Read a plan test, optionally waiting for more results.
+
+        Args:
+            test_id: The ``test_id`` of :meth:`test_plan`.
+            after: Number of results already seen.
+            wait: Seconds to wait (0..10) for another result or the end.
+
+        Returns:
+            dict: The same test object as :meth:`test_plan`.
+        """
+        _check_id("test id", test_id)
+        _check_wait(wait)
+        return self._get(
+            f"test-plan/{_quote(test_id, safe='')}", self._q(after=after, wait=wait), timeout=wait + _WAIT_MARGIN,
+        )
+
+    def wait_for_test(
+        self,
+        test: dict[str, Any],
+        timeout: float = 600,
+        wait: int = MAX_POLL_WAIT,
+        sleep: Any = time.sleep,
+    ) -> dict[str, Any]:
+        """Poll a plan test until it is over or the timeout elapses.
+
+        Args:
+            test: The object :meth:`test_plan` returned.
+            timeout: Give up after this many seconds and return the latest state.
+            wait: Seconds each poll may wait on the engine (0..10).
+            sleep: Pause between polls that return at once (injectable for tests).
+
+        Returns:
+            dict: The latest test object. ``done`` tells whether it finished.
+        """
+        deadline = time.monotonic() + timeout
+        while not test.get("done") and test.get("state") not in ("invalid", "failed", "done"):
+            if time.monotonic() >= deadline:
+                break
+            seen = test.get("samples_done") or 0
+            test = self.get_test_plan(test["test_id"], after=seen, wait=wait)
+            if wait == 0:
+                sleep(1)
+        return test
+
+    # ------------------------------------------------------------------
+    # Runs
+    # ------------------------------------------------------------------
+
+    def start_run(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Start an investigation run.
+
+        Args:
+            request: The run request: ``trigger``, ``plan`` (``template``,
+                ``inline`` or ``auto``), ``inputs``, ``urgency``, ``mode``,
+                ``case``, ``idempotency_key``, ``wait_seconds``, ...
+
+        Returns:
+            dict: ``run`` and ``joined`` (True when an open run of the same
+                key absorbed the request instead of a new one starting).
+        """
+        wait = request.get("wait_seconds") or 0
+        return self._call("POST", "runs", body=request, write=True, timeout=max(_WAIT_MARGIN, int(wait) + _WAIT_MARGIN))
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        """Read a run (state, phase, verdict, actions, usage).
+
+        Args:
+            run_id: The run id.
+
+        Returns:
+            dict: The run plus its ``critical_path``.
+        """
+        return self._get(f"runs/{_quote(_check_id('run id', run_id), safe='')}")
+
+    def list_runs(
+        self,
+        *,
+        state: str | None = None,
+        verdict: str | None = None,
+        template: str | None = None,
+        trigger: str | None = None,
+        entity: str | None = None,
+        started_by: str | None = None,
+        idempotency_key: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List one page of the org's runs, newest first.
+
+        Args:
+            state: Only runs in this state.
+            verdict: Only runs with this verdict.
+            template: Only runs of this template.
+            trigger: Only runs with this trigger source.
+            entity: Only runs about this entity.
+            started_by: Only runs started by this identity (``user:<uid>``).
+            idempotency_key: Only the run started with this key.
+            since: Only runs created at or after this RFC 3339 time.
+            until: Only runs created before this RFC 3339 time.
+            limit: Page size, 1..200 (engine default 50).
+            cursor: ``next_cursor`` of the previous page.
+
+        Returns:
+            dict: ``runs`` and ``next_cursor`` ("" on the last page).
+
+        Raises:
+            ValidationError: If ``limit`` is out of range.
+        """
+        if limit is not None and not 1 <= limit <= 200:
+            raise ValidationError("limit must be between 1 and 200")
+        return self._get(
+            "runs",
+            self._q(
+                state=state, verdict=verdict, template=template, trigger=trigger, entity=entity,
+                started_by=started_by, idempotency_key=idempotency_key, since=since, until=until,
+                limit=limit, cursor=cursor,
+            ),
+        )
+
+    def iter_runs(self, **filters: Any) -> Iterator[dict[str, Any]]:
+        """Walk every run matching the filters, following cursors.
+
+        Args:
+            **filters: The keyword arguments of :meth:`list_runs`, ``cursor`` included.
+
+        Yields:
+            dict: One run at a time.
+
+        Raises:
+            ApiError: If the engine returns a cursor that does not advance.
+        """
+        while True:
+            page = self.list_runs(**filters)
+            yield from page.get("runs") or []
+            nxt = page.get("next_cursor") or ""
+            if not nxt:
+                return
+            if nxt == filters.get("cursor"):
+                raise ApiError("Run listing did not advance: the engine returned the same cursor.")
+            filters["cursor"] = nxt
+
+    def get_run_steps(self, run_id: str, values: bool = False) -> dict[str, Any]:
+        """Read a run's step log, plan graph and belief curve.
+
+        Args:
+            run_id: The run id.
+            values: Include customer values (default: structure only).
+
+        Returns:
+            dict: ``steps``, ``critical_path``, ``edges``, ``usage``, ...
+        """
+        return self._get(
+            f"runs/{_quote(_check_id('run id', run_id), safe='')}/steps", self._q(values=True if values else None),
+        )
+
+    def get_run_case(self, run_id: str) -> dict[str, Any]:
+        """Read the case document a run wrote.
+
+        Args:
+            run_id: The run id.
+
+        Returns:
+            dict: The case view; a 404 ``not_found`` until the run has one.
+        """
+        return self._get(f"runs/{_quote(_check_id('run id', run_id), safe='')}/case")
+
+    def get_run_events(self, run_id: str, after: int = 0, wait: int = 0, limit: int | None = None) -> dict[str, Any]:
+        """Read a run's events after a sequence number (one long poll).
+
+        Args:
+            run_id: The run id.
+            after: Return events with a greater ``seq``.
+            wait: Seconds to wait (0..10) for the first new event.
+            limit: Events per page, 1..500.
+
+        Returns:
+            dict: ``events``, ``next`` (pass as ``after`` next time) and
+                ``done`` (the run is over and everything was returned).
+
+        Raises:
+            ValidationError: If an argument is out of range.
+        """
+        _check_wait(wait)
+        if after < 0:
+            raise ValidationError("after must be 0 or more")
+        if limit is not None and not 1 <= limit <= MAX_EVENTS_LIMIT:
+            raise ValidationError(f"limit must be between 1 and {MAX_EVENTS_LIMIT}")
+        return self._get(
+            f"runs/{_quote(_check_id('run id', run_id), safe='')}/events",
+            self._q(after=after, wait=wait, limit=limit),
+            timeout=wait + _WAIT_MARGIN,
+        )
+
+    def iter_run_events(
+        self,
+        run_id: str,
+        after: int = 0,
+        wait: int = MAX_POLL_WAIT,
+        limit: int | None = None,
+        timeout: float | None = None,
+        state: dict[str, Any] | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Follow a run's events until the run is over.
+
+        Args:
+            run_id: The run id.
+            after: Start after this sequence number.
+            wait: Seconds each poll waits for a new event (0..10).
+            limit: Events per poll, 1..500.
+            timeout: Stop after this many seconds (None: follow to the end).
+            state: Dict the generator fills with ``next`` (resume point),
+                ``done`` and ``timed_out`` so the caller can report how it ended.
+
+        Yields:
+            dict: Events in order, each ``{seq, at, type, data}``.
+        """
+        state = state if state is not None else {}
+        state.update(next=after, done=False, timed_out=False)
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            page = self.get_run_events(run_id, after=state["next"], wait=wait, limit=limit)
+            for event in page.get("events") or []:
+                yield event
+            state["next"] = page.get("next", state["next"])
+            if page.get("done"):
+                state["done"] = True
+                return
+            if deadline is not None and time.monotonic() >= deadline:
+                state["timed_out"] = True
+                return
+            if wait == 0:
+                time.sleep(1)
+
+    def cancel_run(self, run_id: str, revert_leases: bool = False) -> dict[str, Any]:
+        """Cancel a run.
+
+        Args:
+            run_id: The run id.
+            revert_leases: Also revert the leases of the run's active actions.
+
+        Returns:
+            dict: The cancelled run.
+        """
+        body = {"revert_leases": True} if revert_leases else {}
+        return self._call("POST", f"runs/{_quote(_check_id('run id', run_id), safe='')}/cancel", body=body, write=True)
+
+    # ------------------------------------------------------------------
+    # Waves
+    # ------------------------------------------------------------------
+
+    def run_wave(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Run a wave: a batch of operator and fact-pack questions in one call.
+
+        An invalid wave raises :class:`InvestigationError` whose ``issues``
+        carry the engine's coded errors.
+
+        Args:
+            request: ``steps`` (each with ``id`` and one of ``op`` or ``use``,
+                ``args``, ``select``, ``limit``), ``stop_when``,
+                ``deadline_ms``, ``inputs``, ``full``, ``validate_only``.
+
+        Returns:
+            dict: ``results``, ``stopped_by``, ``usage`` and ``compact``; with
+                ``validate_only``, the validation report.
+        """
+        if not isinstance(request.get("steps"), list) or not request["steps"]:
+            raise ValidationError("a wave needs a non-empty 'steps' list")
+        deadline = request.get("deadline_ms") or 30000
+        return self._call("POST", "waves", body=request, write=True, timeout=max(130, int(deadline / 1000) + _WAIT_MARGIN))
+
+    # ------------------------------------------------------------------
+    # Actions (the approvals inbox)
+    # ------------------------------------------------------------------
+
+    def list_actions(
+        self,
+        state: str | list[str] | None = None,
+        action_class: str | None = None,
+        run_id: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List the org's actions across all runs, what needs a person first.
+
+        Args:
+            state: One action state or several (``awaiting_approval``, ``proposed``, ...).
+            action_class: Only this action class.
+            run_id: Only the actions of this run.
+            limit: Page size, 1..200.
+            cursor: ``next_cursor`` of the previous page.
+
+        Returns:
+            dict: ``actions`` (each with a ``run`` summary) and ``next_cursor``.
+        """
+        if limit is not None and not 1 <= limit <= 200:
+            raise ValidationError("limit must be between 1 and 200")
+        if run_id:
+            _check_id("run id", run_id)
+        if isinstance(state, (list, tuple)):
+            state = ",".join(state)
+        return self._get("actions", self._q(state=state, class_=action_class, run_id=run_id, limit=limit, cursor=cursor))
+
+    def decide_action(
+        self, run_id: str, action_id: str, verb: str, note: str | None = None, seconds: int | None = None,
+    ) -> dict[str, Any]:
+        """Approve, deny, revert, extend or confirm an action.
+
+        The caller also needs the permission of the action's class.
+
+        Args:
+            run_id: The run the action belongs to.
+            action_id: The action id.
+            verb: One of :data:`ACTION_VERBS`.
+            note: A reason (deny, revert).
+            seconds: How long to extend a lease (extend).
+
+        Returns:
+            dict: The action after the decision.
+
+        Raises:
+            ValidationError: If the verb is unknown.
+        """
+        if verb not in ACTION_VERBS:
+            raise ValidationError(f"verb must be one of {', '.join(ACTION_VERBS)}")
+        body: dict[str, Any] = {}
+        if note:
+            body["note"] = note
+        if seconds is not None:
+            body["seconds"] = seconds
+        path = f"runs/{_quote(_check_id('run id', run_id), safe='')}/actions/{_quote(_check_id('action id', action_id), safe='')}/{verb}"
+        return self._call("POST", path, body=body, write=True)
+
+    # ------------------------------------------------------------------
+    # Templates (hive records)
+    # ------------------------------------------------------------------
+
+    def _plans(self) -> Hive:
+        return Hive(self._org, PLAN_HIVE)
+
+    def get_template(self, name: str) -> dict[str, Any]:
+        """Read a stored template.
+
+        Args:
+            name: The template (record) name.
+
+        Returns:
+            dict: ``name``, ``status``, ``yaml`` (the source), ``data`` (the
+                record), ``etag``, ``tags``, ``comment``, ``enabled`` and
+                modification info.
+
+        Raises:
+            ApiError: If the record does not exist or cannot be read.
+        """
+        return self._template_view(self._plans().get(name))
+
+    @staticmethod
+    def _template_view(record: HiveRecord) -> dict[str, Any]:
+        data = record.data or {}
+        return {
+            "name": record.name,
+            "status": data.get("status") or STATUS_DRAFT,
+            "version": data.get("version"),
+            "yaml": dump_template(data),
+            "data": data,
+            "etag": record.etag,
+            "tags": record.tags or [],
+            "comment": record.comment,
+            "enabled": record.enabled,
+            "last_author": record.last_author,
+            "last_modified": record.last_modified,
+        }
+
+    def save_template(
+        self,
+        name: str,
+        source: str,
+        *,
+        status: str | None = None,
+        overwrite: bool = False,
+        comment: str | None = None,
+        tags: list[str] | None = None,
+        ignore_source_status: bool = False,
+    ) -> dict[str, Any]:
+        """Validate a template and write it as an ``investigation_plan`` record.
+
+        The record is a DRAFT unless ``status="active"`` is passed. The
+        source may not say ``status: active`` by itself: activating is an
+        explicit act of a person, not something a template can smuggle in.
+        Nothing is written when validation reports an error, when the record
+        exists and ``overwrite`` is false, or when the record is active and
+        the new status is not (an active template is replaced only by an
+        explicit ``status="active"`` with ``overwrite=True``).
+
+        Args:
+            name: Record name: lowercase letters, digits, ``-`` and ``_``, at most 64.
+            source: The template YAML, without a ``name:`` key.
+            status: ``draft`` (default) or ``active``.
+            overwrite: Replace an existing draft.
+            comment: Stored as the record's comment (what it was tested on).
+            tags: Tags to add to the record (an existing record keeps its own).
+            ignore_source_status: Replace whatever ``status`` the source says
+                with ``status`` instead of refusing an ``active`` source. For
+                installing library templates, which are written as active.
+
+        Returns:
+            dict: ``saved`` (bool). When true: ``name``, ``status``, ``etag``,
+                ``warnings``. When false: ``reason`` and, for an invalid
+                template, the ``validation`` report.
+
+        Raises:
+            ValidationError: For a malformed name, status or source.
+            InvestigationError: On engine failures.
+            ApiError: On hive failures.
+        """
+        if not TEMPLATE_NAME_RE.match(name or ""):
+            raise ValidationError(
+                "name must be lowercase letters, digits, - and _, start with a letter or digit and be at most 64 characters"
+            )
+        explicit_active = status == STATUS_ACTIVE
+        if status not in (None, STATUS_DRAFT, STATUS_ACTIVE):
+            raise ValidationError("status must be draft or active")
+        data = parse_template_source(source)
+        if "name" in data:
+            raise ValidationError(
+                "the template has a `name:` key; the name is the record's name and is not part of the YAML"
+            )
+        written_status = data.get("status")
+        if written_status not in (None, STATUS_DRAFT, STATUS_ACTIVE):
+            raise ValidationError(f"the template sets status to {written_status!r}; use draft or active")
+        if written_status == STATUS_ACTIVE and not explicit_active and not ignore_source_status:
+            return {
+                "saved": False,
+                "reason": "the template sets status: active. A template cannot activate itself: leave status out "
+                          "(it is saved as a draft), or pass status=active explicitly as the person who reviewed it.",
+            }
+        final_status = STATUS_ACTIVE if explicit_active else STATUS_DRAFT
+        data["status"] = final_status
+
+        report = self.validate_plan(dump_template(data))
+        if report.get("valid") is not True or report.get("errors"):
+            return {
+                "saved": False,
+                "reason": "the template does not validate; fix every error and call again",
+                "validation": report,
+            }
+
+        hive = self._plans()
+        record = HiveRecord(name=name, data=data)
+        try:
+            existing = hive.get(name)
+        except ApiError as exc:
+            if not is_record_not_found(exc):
+                raise
+            existing = None
+        if existing is None:
+            record.etag = _CREATE_ONLY_ETAG
+        else:
+            stored = (existing.data or {}).get("status") or STATUS_DRAFT
+            if stored == STATUS_ACTIVE and final_status != STATUS_ACTIVE:
+                return {
+                    "saved": False,
+                    "reason": f"template {name!r} is active: a draft never replaces an active template. "
+                              "Save your version under a new name; a person decides whether it replaces the active one.",
+                }
+            if stored not in (STATUS_DRAFT, STATUS_ACTIVE):
+                return {"saved": False, "reason": f"record {name!r} has status {stored!r}, which is neither draft nor active: save under another name"}
+            if not overwrite:
+                return {
+                    "saved": False,
+                    "reason": f"a {stored} template named {name!r} already exists: pass overwrite to replace it, or save under another name",
+                }
+            record.etag = existing.etag
+        if tags or comment:
+            # Metadata replaces the stored metadata wholesale, and a block
+            # sent without `enabled` is stored as disabled: start from what is
+            # stored and add to it.
+            if existing is not None:
+                record.tags, record.comment, record.expiry = existing.tags, existing.comment, existing.expiry
+                record.ui_actions = existing.ui_actions
+            record.enabled = True if existing is None or existing.enabled is None else existing.enabled
+            if tags:
+                record.tags = list(dict.fromkeys((record.tags or []) + tags))
+            if comment:
+                record.comment = comment
+        hive.set(record)
+
+        # Say what is stored, not what was sent.
+        stored_record = hive.get(name)
+        stored_status = (stored_record.data or {}).get("status") or STATUS_DRAFT
+        if stored_status != final_status:
+            raise ApiError(
+                f"the record {name!r} was written but its status reads {stored_status!r}, not {final_status!r}: "
+                "have a person check it in the console"
+            )
+        return {
+            "saved": True,
+            "name": name,
+            "status": stored_status,
+            "etag": stored_record.etag,
+            "last_author": stored_record.last_author,
+            "warnings": report.get("warnings") or [],
+            "next_step": (
+                "A draft runs only through a test or a run a person starts, with actions capped at suggest. "
+                "A person reviews it and promotes it to active."
+                if stored_status == STATUS_DRAFT else "The template is active."
+            ),
+        }
+
+    def promote_template(self, name: str) -> dict[str, Any]:
+        """Make a stored draft template active.
+
+        This is the person's decision step. The stored template is validated
+        again first and nothing changes when it has errors. The write is
+        conditional on the etag that was read, so a concurrent edit is not
+        overwritten.
+
+        Args:
+            name: The template (record) name.
+
+        Returns:
+            dict: ``promoted`` (bool), ``name``, ``status`` and, when not
+                promoted, ``reason``/``validation``.
+        """
+        hive = self._plans()
+        record = hive.get(name)
+        data = dict(record.data or {})
+        if (data.get("status") or STATUS_DRAFT) == STATUS_ACTIVE:
+            return {"promoted": False, "name": name, "status": STATUS_ACTIVE, "reason": "the template is already active"}
+        data["status"] = STATUS_ACTIVE
+        report = self.validate_plan(dump_template(data))
+        if report.get("valid") is not True or report.get("errors"):
+            return {"promoted": False, "name": name, "status": STATUS_DRAFT,
+                    "reason": "the template does not validate", "validation": report}
+        hive.set(HiveRecord(name=name, data=data, etag=record.etag))
+        stored = hive.get(name)
+        return {
+            "promoted": (stored.data or {}).get("status") == STATUS_ACTIVE,
+            "name": name,
+            "status": (stored.data or {}).get("status"),
+            "etag": stored.etag,
+            "warnings": report.get("warnings") or [],
+        }
+
+    def delete_template(self, name: str) -> dict[str, Any]:
+        """Delete a stored template record.
+
+        Args:
+            name: The template (record) name.
+
+        Returns:
+            dict: The hive's answer.
+        """
+        return self._plans().delete(name)
+
+    def install_default_templates(
+        self,
+        names: list[str] | None = None,
+        *,
+        overwrite: bool = False,
+        status: str = STATUS_DRAFT,
+    ) -> dict[str, Any]:
+        """Write the engine's default template library to the org's records.
+
+        Reads the authoring kit's ``library`` section. An existing record is
+        skipped unless ``overwrite`` is set, and an active record is never
+        replaced by a draft. The result lists everything written and skipped,
+        with the installed and library versions so an update can be offered.
+
+        Args:
+            names: Install only these library templates (default: all).
+            overwrite: Replace existing drafts (and existing active records
+                only when ``status`` is ``active``).
+            status: ``draft`` (default) or ``active``. Library entries are
+                written with this status whatever they say themselves.
+
+        Returns:
+            dict: ``written``, ``skipped`` (each with a ``reason``) and
+                ``failed`` lists.
+
+        Raises:
+            ValidationError: If the engine returns no library, a requested
+                name is not in it, or ``status`` is invalid.
+        """
+        if status not in (STATUS_DRAFT, STATUS_ACTIVE):
+            raise ValidationError("status must be draft or active")
+        kit = self.get_authoring_kit(["library"])
+        library = kit.get("library")
+        if not isinstance(library, list):
+            raise ValidationError(
+                "the engine returned no `library` section: this engine version has no default template library yet"
+            )
+        by_name = {str(e.get("name")): e for e in library if isinstance(e, dict)}
+        if names:
+            missing = [n for n in names if n not in by_name]
+            if missing:
+                raise ValidationError(
+                    f"not in the default library: {', '.join(missing)}. Available: {', '.join(sorted(by_name)) or 'none'}"
+                )
+            selected = [by_name[n] for n in names]
+        else:
+            selected = [by_name[n] for n in sorted(by_name)]
+        result: dict[str, list[dict[str, Any]]] = {"written": [], "skipped": [], "failed": []}
+        for entry in selected:
+            name = str(entry.get("name"))
+            try:
+                outcome = self.save_template(
+                    name, entry.get("yaml") or "", status=status, overwrite=overwrite,
+                    comment=f"default library template v{entry.get('version', '?')}",
+                    ignore_source_status=True,
+                )
+            except LimaCharlieError as exc:
+                result["failed"].append({"name": name, "error": exc.raw_message})
+                continue
+            if outcome.get("saved"):
+                result["written"].append({"name": name, "status": outcome["status"], "version": entry.get("version")})
+                continue
+            item: dict[str, Any] = {"name": name, "reason": outcome.get("reason"), "library_version": entry.get("version")}
+            if "validation" in outcome:
+                result["failed"].append({"name": name, "error": outcome["reason"], "validation": outcome["validation"]})
+                continue
+            try:
+                installed = self.get_template(name)
+            except LimaCharlieError:
+                installed = None
+            if installed is not None:
+                item["installed_version"] = installed.get("version")
+                item["installed_status"] = installed.get("status")
+                item["update_available"] = installed.get("version") != entry.get("version")
+            result["skipped"].append(item)
+        return result
