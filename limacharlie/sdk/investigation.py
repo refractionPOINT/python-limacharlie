@@ -1078,7 +1078,12 @@ class Investigation:
             # A write the hive applied whose answer was lost, then replayed with
             # its now stale etag, fails although the record is saved.
             try:
-                landed = (hive.get(name).data or {}) == data
+                now = hive.get(name)
+                landed = (
+                    (now.data or {}) == data
+                    and (not comment or now.comment == record.comment)
+                    and (not tags or set(tags) <= set(now.tags or []))
+                )
             except LimaCharlieError:
                 landed = False
             if not landed:

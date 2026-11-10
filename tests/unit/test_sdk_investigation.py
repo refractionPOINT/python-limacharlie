@@ -499,6 +499,15 @@ class TestSaveTemplate:
         hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH"})
         assert inv.save_template("my-plan", SRC)["saved"] is True
 
+    def test_a_failed_overwrite_does_not_pass_as_saved_when_the_comment_was_lost(self, inv, mock_org, hive):
+        mock_org.client.request.return_value = VALID
+        data = {"description": "test plan", "facts": {"a": {"op": "entity.get", "args": {"entity_id": "$entity"}}}, "status": "draft"}
+        same = HiveRecord(name="my-plan", data=data, etag="e1", comment="old", tags=[], enabled=True)
+        hive.get.side_effect = [same, same]
+        hive.set.side_effect = error_from_status_code(500, "boom")
+        with pytest.raises(ApiError):
+            inv.save_template("my-plan", SRC, overwrite=True, comment="new: 9/10 agree")
+
     def test_a_write_that_failed_and_did_not_land_is_an_error(self, inv, mock_org, hive):
         mock_org.client.request.return_value = VALID
         hive.get.side_effect = [_not_found(), _not_found()]
