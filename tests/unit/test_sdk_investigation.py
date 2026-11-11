@@ -51,6 +51,16 @@ def _not_found():
 VALID = {"valid": True, "errors": [], "warnings": [{"code": "unused_fact", "path": "facts.x", "message": "m"}]}
 INVALID = {"valid": False, "errors": [{"code": "unknown_field", "path": "facts.a", "message": "m", "suggestion": "b"}], "warnings": []}
 
+SUMMARY = {
+    "true_positive": ["The message is a phish.", {"text": "The link {link.url} is known bad.", "when": "link.known_bad"}],
+    "false_positive": [{"text": "Long history.", "when": "history.days > 30"}],
+}
+SUMMARY_SRC = (
+    "description: test plan\nreport:\n  summary:\n    true_positive:\n      - The message is a phish.\n"
+    "      - text: The link {link.url} is known bad.\n        when: link.known_bad\n"
+    "    false_positive:\n      - text: Long history.\n        when: history.days > 30\n"
+)
+
 SRC = "description: test plan\nfacts:\n  a:\n    op: entity.get\n    args: {entity_id: $entity}\n"
 
 
@@ -356,6 +366,16 @@ class TestTemplateSource:
         text = dump_template({"zebra": 1, "alpha": 2})
         assert text.index("zebra") < text.index("alpha")
 
+    def test_report_summary_sentences_of_both_shapes_round_trip(self):
+        # Engine v0.1.4: a sentence is a string or {text, when}; the SDK treats the template as an opaque mapping.
+        data = {"report": {"summary": {
+            "true_positive": ["Plain: {a.b} seen.", {"text": "Only on a hit: {a.b}", "when": "a.b == true and not c.d"}],
+            "false_positive": [{"text": "Plain object", "when": ""}, "yes"],
+        }}}
+        text = dump_template(data)
+        assert parse_template_source(text) == data
+        assert parse_template_source(SUMMARY_SRC)["report"]["summary"] == SUMMARY
+
     @pytest.mark.parametrize("src,match", [
         ("", "empty"),
         ("- a\n- b\n", "mapping"),
@@ -520,6 +540,33 @@ class TestSaveTemplate:
         hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH"})
         with pytest.raises(ApiError):
             inv.save_template("my-plan", SRC)
+
+
+class TestSummarySentences:
+    def test_get_template_returns_both_shapes_in_the_record_and_the_yaml(self, inv, hive):
+        hive.get.return_value = HiveRecord(name="p", data={"description": "d", "report": {"summary": SUMMARY}}, etag="e")
+        view = inv.get_template("p")
+        assert view["data"]["report"]["summary"] == SUMMARY
+        assert parse_template_source(view["yaml"])["report"]["summary"] == SUMMARY
+
+    def test_save_validates_and_stores_the_sentences_unchanged(self, inv, mock_org, hive):
+        mock_org.client.request.return_value = VALID
+        hive.get.side_effect = [_not_found(), HiveRecord(name="p", data={"status": "draft"}, etag="e")]
+        assert inv.save_template("p", SUMMARY_SRC)["saved"] is True
+        sent = json.loads(mock_org.client.request.call_args.kwargs["raw_body"])["yaml"]
+        assert parse_template_source(sent)["report"]["summary"] == SUMMARY
+        assert hive.set.call_args.args[0].data["report"]["summary"] == SUMMARY
+
+    def test_install_defaults_writes_a_library_template_with_both_shapes(self, inv, mock_org, hive):
+        def request(verb, path, **kw):
+            if path.endswith("authoring-kit"):
+                return {"library": [{"name": "alpha", "version": 3, "status": "active", "yaml": SUMMARY_SRC}]}
+            return VALID
+        mock_org.client.request.side_effect = request
+        hive.get.side_effect = [_not_found(), HiveRecord(name="alpha", data={"status": "draft"}, etag="e")]
+        out = inv.install_default_templates()
+        assert [w["name"] for w in out["written"]] == ["alpha"]
+        assert hive.set.call_args.args[0].data["report"]["summary"] == SUMMARY
 
 
 class TestTemplateRecordPermissions:

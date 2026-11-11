@@ -59,6 +59,7 @@ Rules the CLI enforces:
 - A record is never overwritten without `--overwrite`, and a draft **never** replaces an active template (save under a new name; a person decides whether it replaces the active one).
 - A draft runs only through `templates test` or a run a person starts, with response actions capped at `suggest`. A run started by a D&R rule or a case never uses a draft.
 - Nothing is saved when validation reports an error.
+- The CLI never rewrites a template's content beyond `status`: a `report.summary` sentence can be a plain string or `{text, when}` (written only when the condition holds), and both are stored and printed as written.
 
 ## Reference data
 
