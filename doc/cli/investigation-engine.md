@@ -17,7 +17,7 @@ All the listed permissions are required.
 | Operation | Permissions |
 |---|---|
 | Reads: runs, templates, operators, packs, kit, policy, test results, the approvals inbox | `investigation.get` + `insight.evt.get` |
-| Writes: start a run, wave, cancel, test a template, decide an action | `investigation.set` + `insight.evt.get` |
+| Writes: start a run, wave, cancel, delete a run, test a template, decide an action | `investigation.set` + `insight.evt.get` |
 | Approve / deny an action | the writes above + the permission of the action's class (for example `sensor.task`, `mailsec.act`, `sensor.tag`) |
 | `policy pause` / `policy resume` | `org.conf.set` |
 | Template records (`investigation_plan` hive) | `investigation_plan.get`, `investigation_plan.set`, `investigation_plan.del` (explicit grants; no default role has them) |
@@ -135,9 +135,12 @@ limacharlie investigate runs events RUN_ID [--after SEQ] [--wait SECONDS] [--lim
 limacharlie investigate runs steps RUN_ID [--values]
 limacharlie investigate runs case RUN_ID
 limacharlie investigate runs cancel RUN_ID [--revert-leases]
+limacharlie investigate runs delete RUN_ID --confirm
 ```
 
 `--auto` sends no plan, which is how the engine is asked to pick the **active** template whose `applies_to` matches the trigger (a draft is never picked; the engine refuses `plan.auto` itself for a person's run). `applies_to` keys are `detect_cat`, `severity`, `tag` and `source`; the first three are matched against `--category`, `--severity` and `--tag` (a start from the CLI always has `source: api`), so pass the alert's attributes. When no template matches, the start is refused with the reason. `--category`, `--severity`, `--priority` and `--tag` also select the run-scoped policy records. `--urgency` defaults to a value derived from `--priority` (8+ critical, 6+ high, 3+ medium, else low) or `--severity`, and medium when neither is given. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`).
+
+`runs delete` requires explicit `--confirm` and returns the engine's deletion response. It needs `investigation.set` + `insight.evt.get`. Deletion requests are sent once and are not automatically replayed after a gateway timeout.
 
 `runs list` filters: `--state` (queued, running, decided, completed, cancelled, failed, budget_exhausted), `--verdict` (true_positive, false_positive, inconclusive, undecided), `--trigger` (the kind of trigger: detection, message, entity, case, question) and `--started-by` (an identity such as `user:UID` or `apikey:ID`, or a user's email or a key's name).
 

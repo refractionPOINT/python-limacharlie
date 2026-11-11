@@ -148,6 +148,33 @@ class TestRoutes:
             with pytest.raises(ValidationError):
                 inv.get_run(bad)
 
+    def test_delete_run_route_response_and_no_retry(self, inv, mock_org):
+        response = {"deleted": True}
+        mock_org.client.request.return_value = response
+        assert inv.delete_run("run:1.a-b") == response
+        mock_org.client.request.assert_called_once_with(
+            "DELETE", "investigate/oid-1/runs/run%3A1.a-b",
+            query_params=None, timeout=None, retry_gateway_timeout=False,
+        )
+
+    @pytest.mark.parametrize("run_id", ["..", ".", "a/b", "", "x" * 129])
+    def test_delete_run_rejects_invalid_ids_before_request(self, inv, mock_org, run_id):
+        with pytest.raises(ValidationError):
+            inv.delete_run(run_id)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("status, code", [(403, "forbidden"), (404, "not_found"), (409, "conflict"), (504, "timeout")])
+    def test_delete_run_preserves_errors_without_replay(self, inv, mock_org, status, code):
+        body = {"error": "deletion refused", "error_code": code}
+        mock_org.client.request.side_effect = error_from_status_code(status, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.delete_run("r1")
+        assert ei.value.status_code == status
+        assert ei.value.error_code == code
+        assert ei.value.to_dict()["error"] == "deletion refused"
+        assert mock_org.client.request.call_count == 1
+        assert _request_args(mock_org)[2]["retry_gateway_timeout"] is False
+
     def test_events_bounds_and_params(self, inv, mock_org):
         mock_org.client.request.return_value = {"events": [], "next": 4, "done": False}
         inv.get_run_events("r1", after=4, wait=10, limit=500)

@@ -427,6 +427,38 @@ class TestRuns:
         result = run(["investigate", "runs", "events", "r1", "--follow"], fmt="table")
         assert result.stdout.strip() == '1\t2026-11-10T00:00:00Z\tstep\t{"fact":"a"}'
 
+    def test_delete_requires_confirmation_before_constructing_sdk(self, sdk):
+        result = run(["investigate", "runs", "delete", "r1"])
+        assert result.exit_code == 2
+        assert "--confirm" in result.stderr
+        sdk.delete_run.assert_not_called()
+        from limacharlie.commands.investigate import Investigation
+        Investigation.assert_not_called()
+
+    def test_delete_passes_run_id_and_prints_response(self, sdk):
+        sdk.delete_run.return_value = {"deleted": True}
+        result = run(["investigate", "runs", "delete", "run:1", "--confirm"])
+        assert result.exit_code == 0, result.stderr
+        assert out_json(result) == {"deleted": True}
+        sdk.delete_run.assert_called_once_with("run:1")
+        sdk.cancel_run.assert_not_called()
+
+    def test_delete_error_uses_normal_engine_rendering(self, sdk):
+        err = issue_error()
+        sdk.delete_run.side_effect = err
+        result = run(["investigate", "runs", "delete", "r1", "--confirm"])
+        assert result.exit_code == err.exit_code
+        assert result.stdout == ""
+        assert json.loads(result.stderr)["error_code"] == err.error_code
+        sdk.delete_run.assert_called_once_with("r1")
+
+    def test_delete_is_discoverable_and_explained(self):
+        from limacharlie.discovery import PROFILES
+        assert "investigate runs delete" in PROFILES["investigation_engine"]["commands"]
+        result = CliRunner().invoke(cli, ["investigate", "runs", "delete", "--ai-help"])
+        assert result.exit_code == 0
+        assert "investigation.set" in result.output and "--confirm" in result.output
+
     def test_get_steps_case_cancel(self, sdk):
         sdk.get_run.return_value = {"run_id": "r1"}
         run(["investigate", "runs", "get", "r1"])

@@ -3,7 +3,7 @@
 Wraps the ``/investigate/{oid}/...`` REST routes served by the API gateway:
 the authoring kit, the typed operator and fact-pack catalogues, plan
 validation and dry runs on past alerts, investigation runs (start, read,
-list, events, cancel), waves, the approvals inbox and the autonomy switch.
+list, events, cancel, delete), waves, the approvals inbox and the autonomy switch.
 
 The feature is experimental and gated per deployment. Where it is off, every
 route is an unknown path (HTTP 404 with no engine error code); where the
@@ -14,7 +14,7 @@ Permissions (all of the listed ones are required):
 
 - reads (runs, templates, operators, packs, kit, policy, test results, the
   approvals inbox): ``investigation.get`` + ``insight.evt.get``
-- writes (start a run, waves, cancel, test a plan, decide an action):
+- writes (start a run, waves, cancel, delete, test a plan, decide an action):
   ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
   the permission of the action's own class (for example ``sensor.task``)
 - pause / resume of automatic actions: ``org.conf.set``
@@ -146,7 +146,7 @@ def _issue_line(issue: Any) -> str:
 
 
 _PERMISSION_HINT = (
-    "Reads need investigation.get + insight.evt.get, writes (start, wave, cancel, test, decide) need "
+    "Reads need investigation.get + insight.evt.get, writes (start, wave, cancel, delete, test, decide) need "
     "investigation.set + insight.evt.get, pause/resume needs org.conf.set, and template records need "
     "investigation_plan.get / investigation_plan.set. Deciding an action also needs the permission of its class."
 )
@@ -1179,6 +1179,21 @@ class Investigation:
         """
         body = {"revert_leases": True} if revert_leases else {}
         return self._call("POST", f"runs/{_quote(_check_id('run id', run_id), safe='')}/cancel", body=body, write=True)
+
+    def delete_run(self, run_id: str) -> dict[str, Any]:
+        """Delete a run (requires investigation.set and insight.evt.get).
+
+        Args:
+            run_id: The run id.
+
+        Returns:
+            dict: The engine's deletion response.
+
+        Raises:
+            ValidationError: If the run id is invalid.
+            InvestigationError: If the API refuses deletion or the request fails.
+        """
+        return self._call("DELETE", f"runs/{_quote(_check_id('run id', run_id), safe='')}", write=True)
 
     # ------------------------------------------------------------------
     # Waves

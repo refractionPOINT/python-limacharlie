@@ -66,7 +66,7 @@ AI agent workflow for a new template (a person promotes it at the end):
 Questions without a template: use `investigate packs` then `investigate wave`.
 
 Permissions: reads need investigation.get + insight.evt.get, writes (start,
-wave, test, cancel, decide) investigation.set + insight.evt.get, pause/resume
+wave, test, cancel, delete, decide) investigation.set + insight.evt.get, pause/resume
 org.conf.set, template records investigation_plan.get/.set/.del.
 """
 
@@ -293,6 +293,14 @@ Example:
   limacharlie investigate runs cancel <RUN_ID>
 """
 
+_EXPLAIN_RUNS_DELETE = """\
+Delete a run. Requires investigation.set + insight.evt.get and --confirm. The request is sent
+once; a gateway timeout is not automatically retried.
+
+Example:
+  limacharlie investigate runs delete <RUN_ID> --confirm
+"""
+
 _EXPLAIN_WAVE = """\
 Hand the engine a batch of questions at once and get compact, typed answers.
 The engine runs every ready step in parallel with YOUR token (no template, no
@@ -385,6 +393,7 @@ for _path, _text in {
     "investigate.runs.steps": _EXPLAIN_RUNS_STEPS,
     "investigate.runs.case": _EXPLAIN_RUNS_CASE,
     "investigate.runs.cancel": _EXPLAIN_RUNS_CANCEL,
+    "investigate.runs.delete": _EXPLAIN_RUNS_DELETE,
     "investigate.wave": _EXPLAIN_WAVE,
     "investigate.actions.list": _EXPLAIN_ACTIONS_LIST,
     "investigate.actions.approve": _EXPLAIN_ACTIONS_APPROVE,
@@ -876,7 +885,7 @@ def templates_install_defaults(ctx, names, overwrite, status) -> None:
 
 @group.group("runs")
 def runs_group() -> None:
-    """Investigation runs: start, get, list, events, steps, case, cancel."""
+    """Investigation runs: start, get, list, events, steps, case, cancel, delete."""
 
 
 @runs_group.command("start")
@@ -1063,6 +1072,20 @@ def runs_case(ctx, run_id) -> None:
 def runs_cancel(ctx, run_id, revert_leases) -> None:
     """Cancel a run."""
     command_output(ctx, _get_investigation(ctx).cancel_run(run_id, revert_leases=revert_leases))
+
+
+@runs_group.command("delete")
+@click.argument("run_id")
+@click.option("--confirm", is_flag=True, default=False, help="Confirm deletion (required).")
+@pass_context
+@_engine_errors
+def runs_delete(ctx, run_id, confirm) -> None:
+    """Delete a run (requires --confirm)."""
+    if not confirm:
+        raise click.UsageError("Destructive operation requires --confirm flag.")
+    result = _get_investigation(ctx).delete_run(run_id)
+    note(ctx, f"Run '{run_id}' deleted.")
+    command_output(ctx, result)
 
 
 # ---------------------------------------------------------------------------

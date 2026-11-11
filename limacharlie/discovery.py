@@ -223,7 +223,7 @@ PROFILES = {
             "investigate templates delete", "investigate templates install-defaults",
             "investigate runs start", "investigate runs get", "investigate runs list",
             "investigate runs events", "investigate runs steps", "investigate runs case",
-            "investigate runs cancel",
+            "investigate runs cancel", "investigate runs delete",
             "investigate wave",
             "investigate actions list", "investigate actions approve", "investigate actions deny",
             "investigate policy get", "investigate policy status",
