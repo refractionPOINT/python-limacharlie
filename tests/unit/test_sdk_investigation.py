@@ -390,6 +390,16 @@ class TestTemplateSource:
         else:
             assert isinstance(got, dict)
 
+    def test_the_typed_field_lists_cover_every_non_text_field_of_the_engine(self):
+        """A field the engine adds as a number or boolean must be added to the SDK's lists, or it would be stored as text."""
+        fields = json.loads((Path(__file__).parent / "fixtures" / "investigation_typed_fields.json").read_text())["fields"]
+        sdk_paths = {
+            "number": {".".join(p) for p in inv_mod._NUMBER_PATHS},
+            "bool": {".".join(p) for p in inv_mod._BOOL_PATHS},
+        }
+        assert {f["path"] for f in fields if f["kind"] == "number"} == sdk_paths["number"]
+        assert {f["path"] for f in fields if f["kind"] == "bool"} == sdk_paths["bool"]
+
     def test_text_fields_keep_the_authors_spelling(self):
         data = parse_template_source(
             "description: 1e3\nstatus: 012\napplies_to: {category: [on, 0o17, 2026-11-10]}\n"

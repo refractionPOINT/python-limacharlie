@@ -1,0 +1,33 @@
+{
+ "about": "Fields of a template the engine reads as a number or a boolean (every other scalar outside a fact's args is text), by YAML path; * is a list index or a map key. Generated from the engine's template types; do not edit by hand.",
+ "fields": [
+  {
+   "kind": "number",
+   "path": "evidence.*.weight"
+  },
+  {
+   "kind": "bool",
+   "path": "facts.*.case"
+  },
+  {
+   "kind": "bool",
+   "path": "facts.*.predict"
+  },
+  {
+   "kind": "number",
+   "path": "prior"
+  },
+  {
+   "kind": "number",
+   "path": "signals.*.benign_weight"
+  },
+  {
+   "kind": "number",
+   "path": "signals.*.malicious_weight"
+  },
+  {
+   "kind": "number",
+   "path": "version"
+  }
+ ]
+}
