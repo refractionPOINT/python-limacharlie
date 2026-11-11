@@ -24,6 +24,14 @@ All the listed permissions are required.
 
 Waves and template tests always execute with **your own token**, so the operators enforce your permissions. A run started with `runs start` executes as the identity the organization's `investigation_policy` names for its template: your token when the policy names none, otherwise the Hive secret the policy points to, in which case the operators enforce that secret's permissions and not yours. An active template can therefore reach data or take actions beyond your own permissions. Before you start one, check `limacharlie investigate policy get --template NAME`: its `identity` shows the default identity, the allowed ones and where they come from. A finished run's `identity` field (`kind` caller or secret) records which one it used. Runs started by a detection rule or a case never have a caller and always use the policy's secret identity.
 
+Live sensor metadata operators (`sensor.read.*`) need `sensor.task.read` (or the
+broader `sensor.task`) plus `output.set` on the execution identity. Explicitly grant
+`sensor.task.read` for an observe-only identity; no default or preset includes it.
+It authorizes only allowlisted metadata commands when the deployment enables
+`INVESTIGATION_ENGINE_ENABLED=true` or `1`. File contents, mutations and unknown
+commands are refused server-side; with the gate off it grants no tasking. Keep
+observe-only policies at `suggest`. Action permissions above remain unchanged.
+
 ## AI agent workflow
 
 Hand an agent this loop. It never activates anything on its own: a person does the last step.
