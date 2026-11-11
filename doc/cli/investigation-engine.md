@@ -22,7 +22,7 @@ All the listed permissions are required.
 | `policy pause` / `policy resume` | `org.conf.set` |
 | Template records (`investigation_plan` hive) | `investigation_plan.get`, `investigation_plan.set`, `investigation_plan.del` (explicit grants; no default role has them) |
 
-Runs, waves and tests execute with **your own token**, so the operators enforce your permissions.
+Waves and template tests always execute with **your own token**, so the operators enforce your permissions. A run started with `runs start` executes as the identity the organization's `investigation_policy` names for its template: your token when the policy names none, otherwise the Hive secret the policy points to, in which case the operators enforce that secret's permissions and not yours. An active template can therefore reach data or take actions beyond your own permissions. Before you start one, check `limacharlie investigate policy get --template NAME`: its `identity` shows the default identity, the allowed ones and where they come from. A finished run's `identity` field (`kind` caller or secret) records which one it used. Runs started by a detection rule or a case never have a caller and always use the policy's secret identity.
 
 ## AI agent workflow
 
@@ -195,7 +195,13 @@ In a structured output format (`--output json`, the default when piped) a failur
 
 Every other failure is written the same way: a Hive or API error carries its `message`, HTTP `status` and the backend's code as `error_code` (the `lc_error_code` of a Hive answer, for example a refused promote), and a refused input file (unreadable, not YAML/JSON, wrong shape) carries `errors: [{code: invalid_input, path: --file, message}]` and exits `4`.
 
-Wave files, sample files and templates are read with YAML 1.2 scalar rules, so `off`, `yes`, `no` and an unquoted date such as `2026-11-10` are sent as the text you wrote, not as a boolean or a date.
+Templates, wave files and sample files are read the way the engine's YAML library reads them, not with YAML 1.1 rules, so `off`, `yes`, `no` and an unquoted date such as `2026-11-10` are text, not a boolean or a date. What an unquoted scalar means depends on where it is:
+
+- In a template, under a fact's `args`, a number is read as the engine reads it: `012` is 10, `1_000` is 1000, `0o17` and `0x1F` are 15 and 31, `1e3` is the float 1000, `.inf` and `.nan` are floats (refused, see below), and an unquoted date or timestamp is stored as its UTC RFC 3339 text (`2026-11-10` becomes `2026-11-10T00:00:00Z`). Quote a value (`"012"`, `"1e3"`) to keep it as text.
+- Elsewhere in a template (`description`, `applies_to`, `inputs`, ...) a scalar is text exactly as written, except the numeric and boolean fields (`version`, `prior`, the weights, `predict`, `case` on a fact). Mapping keys are always text.
+- In a wave or samples file every unquoted scalar is read like an argument, except that a date stays the text you wrote.
+
+`templates get --yaml` quotes every string that would otherwise read back as something else, and `templates save` / `promote` validate exactly the text they store. A value JSON cannot carry (`.nan`, `.inf`, `NaN`, `Infinity`) is refused as `invalid_input` before anything is sent.
 
 ## SDK
 

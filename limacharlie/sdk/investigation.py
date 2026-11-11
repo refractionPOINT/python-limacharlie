@@ -33,6 +33,8 @@ actions capped at ``suggest``.
 
 from __future__ import annotations
 
+import base64
+import datetime
 import functools
 import json
 import re
@@ -248,69 +250,322 @@ def _check_wait(wait: int) -> int:
     return wait
 
 
-class _TemplateLoader(yaml.SafeLoader):
-    """YAML loader for template sources.
-
-    The engine reads templates with YAML 1.2 rules. PyYAML follows 1.1, which
-    would turn ``yes``/``no``/``on``/``off`` into booleans and an unquoted
-    date into a ``datetime``, so a template would be stored as something other
-    than what its author wrote. This loader keeps both as text and accepts
-    only ``true``/``false`` as booleans. Numbers follow the YAML 1.2 core
-    schema; one written the 1.1 way (``012``, ``1_000``, ``10:30``) stays text.
-    """
-
-
+_STR_TAG = "tag:yaml.org,2002:str"
 _BOOL_TAG = "tag:yaml.org,2002:bool"
 _INT_TAG = "tag:yaml.org,2002:int"
 _FLOAT_TAG = "tag:yaml.org,2002:float"
+_NULL_TAG = "tag:yaml.org,2002:null"
 _TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
-_TemplateLoader.yaml_implicit_resolvers = {
-    ch: [(tag, rx) for tag, rx in resolvers if tag not in (_BOOL_TAG, _INT_TAG, _FLOAT_TAG, _TIMESTAMP_TAG)]
-    for ch, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+_BINARY_TAG = "tag:yaml.org,2002:binary"
+_MERGE_TAG = "tag:yaml.org,2002:merge"
+# Tag of an unquoted, untagged scalar until its context says what it is.
+_PLAIN_TAG = "tag:limacharlie.io,2026:plain"
+
+_INT64_MIN, _INT64_MAX, _UINT64_MAX = -(1 << 63), (1 << 63) - 1, (1 << 64) - 1
+_YAML_STYLE_FLOAT_RE = re.compile(r"^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$")
+_DOT_FLOAT_RE = re.compile(r"^\.[0-9]+([eE][-+]?[0-9]+)?$")
+_TS_DATE = r"([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})"
+_TS_CLOCK = r"([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(?:\.([0-9]+))?"
+# The four layouts yaml.v3 tries, in the order it tries them.
+_TIMESTAMP_RES = (
+    re.compile(rf"^{_TS_DATE}[Tt]{_TS_CLOCK}(Z|[+-][0-9]{{2}}:[0-9]{{2}})$"),
+    re.compile(rf"^{_TS_DATE} {_TS_CLOCK}()$"),
+    re.compile(rf"^{_TS_DATE}()()()()()$"),
+)
+_RESOLVE_MAP: dict[str, tuple[str, Any]] = {}
+for _words, _tag, _val in (
+    (("true", "True", "TRUE"), _BOOL_TAG, True),
+    (("false", "False", "FALSE"), _BOOL_TAG, False),
+    (("", "~", "null", "Null", "NULL"), _NULL_TAG, None),
+    ((".nan", ".NaN", ".NAN"), _FLOAT_TAG, float("nan")),
+    ((".inf", ".Inf", ".INF", "+.inf", "+.Inf", "+.INF"), _FLOAT_TAG, float("inf")),
+    (("-.inf", "-.Inf", "-.INF"), _FLOAT_TAG, float("-inf")),
+):
+    for _w in _words:
+        _RESOLVE_MAP[_w] = (_tag, _val)
+_BOOL_WORDS_1_1 = {
+    "y": True, "Y": True, "yes": True, "Yes": True, "YES": True, "on": True, "On": True, "ON": True,
+    "n": False, "N": False, "no": False, "No": False, "NO": False, "off": False, "Off": False, "OFF": False,
 }
-# YAML 1.2 core schema. A number written with a leading zero, an underscore or
-# a colon (`012`, `1_000`, `10:30`) is text here, as the author wrote it,
-# rather than the number YAML 1.1 reads it as.
-_TemplateLoader.add_implicit_resolver(
-    _BOOL_TAG, re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF"),
-)
-_TemplateLoader.add_implicit_resolver(
-    _INT_TAG, re.compile(r"^(?:[-+]?(?:0|[1-9][0-9]*)|0o[0-7]+|0x[0-9a-fA-F]+)$"), list("-+0123456789"),
-)
-_TemplateLoader.add_implicit_resolver(
-    _FLOAT_TAG,
-    re.compile(r"^(?:[-+]?(?:[0-9]+\.[0-9]*|\.[0-9]+|[0-9]+(?=[eE]))(?:[eE][-+]?[0-9]+)?|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"),
-    list("-+0123456789."),
-)
 
 
-def _construct_core_int(loader: yaml.SafeLoader, node: yaml.Node) -> int:
-    value = str(loader.construct_scalar(node))
-    if value[:2] == "0o":
-        return int(value[2:], 8)
-    return int(value, 0) if value[:2] == "0x" else int(value)
+def _go_parse_uint(s: str) -> int | None:
+    """Go ``strconv.ParseUint(s, 0, 64)`` (without the underscore rules: callers strip them)."""
+    if not s:
+        return None
+    base = 10
+    if s[0] == "0":
+        if len(s) >= 3 and s[1] in "bB":
+            base, s = 2, s[2:]
+        elif len(s) >= 3 and s[1] in "oO":
+            base, s = 8, s[2:]
+        elif len(s) >= 3 and s[1] in "xX":
+            base, s = 16, s[2:]
+        else:
+            base, s = 8, s[1:]
+    n = 0
+    for ch in s:
+        d = "0123456789abcdef".find(ch.lower()) if ch.isascii() else -1
+        if d < 0 or d >= base:
+            return None
+        n = n * base + d
+        if n > _UINT64_MAX:
+            return None
+    return n
 
 
-_TemplateLoader.add_constructor(_INT_TAG, _construct_core_int)
+def _go_parse_int(s: str) -> int | None:
+    """Go ``strconv.ParseInt(s, 0, 64)``."""
+    neg = s[:1] == "-"
+    if s[:1] in ("+", "-"):
+        s = s[1:]
+    n = _go_parse_uint(s)
+    if n is None:
+        return None
+    n = -n if neg else n
+    return n if _INT64_MIN <= n <= _INT64_MAX else None
 
 
-def _load_yaml(source: str, allow_aliases: bool) -> Any:
-    """Parse YAML with the engine's YAML 1.2 scalar rules; raise ``yaml.YAMLError``."""
+def _go_float(s: str) -> float | None:
+    """The float for a decimal spelling Go's ParseFloat accepts; None when it overflows."""
+    value = float(s)
+    return None if value in (float("inf"), float("-inf")) else value
+
+
+def _parse_timestamp(s: str) -> str | None:
+    """A timestamp as yaml.v3 reads it, rendered as the UTC RFC 3339 text the engine would store.
+
+    Only the layouts yaml.v3 knows are timestamps: ``2006-1-2``,
+    ``2006-1-2T15:4:5.999Z07:00`` (a lower-case ``t`` too) and
+    ``2006-1-2 15:4:5.999`` with no zone. Anything Go's time parser would
+    reject (month 13, February 30th, hour 25) is text.
+    """
+    for rx in _TIMESTAMP_RES:
+        m = rx.match(s)
+        if m:
+            break
+    else:
+        return None
+    year, month, day = int(m[1]), int(m[2]), int(m[3])
+    hour, minute, second = (int(m[4]), int(m[5]), int(m[6])) if m[4] else (0, 0, 0)
+    shift = 400 if year < 400 else 0  # datetime has no year 0; the calendar repeats every 400 years
+    try:
+        local = datetime.datetime(year + shift, month, day, hour, minute, second)
+    except ValueError:
+        return None
+    zone = m[8] or "Z"
+    offset = 0
+    if zone != "Z":
+        if int(zone[1:3]) > 24 or int(zone[4:6]) > 59:
+            return None
+        offset = (int(zone[1:3]) * 60 + int(zone[4:6])) * (1 if zone[0] == "+" else -1)
+    try:
+        utc = local - datetime.timedelta(minutes=offset)
+    except OverflowError:
+        return None
+    frac = (m[7] or "")[:9].rstrip("0")
+    if utc.year - shift < 0:
+        return None
+    stamp = f"{utc.year - shift:04d}-{utc.month:02d}-{utc.day:02d}T{utc.hour:02d}:{utc.minute:02d}:{utc.second:02d}"
+    return stamp + (f".{frac}" if frac else "") + "Z"
+
+
+def _resolve_scalar(text: str, tag: str = "") -> tuple[str, Any]:
+    """Resolve a scalar the way the engine's YAML library (gopkg.in/yaml.v3) does.
+
+    This is a port of its ``resolve`` and is checked against the engine's own
+    parser by ``tests/unit/fixtures/investigation_scalars.json``. ``tag`` is
+    ``""`` for a plain scalar or an explicit ``!!int``-style tag. Returns
+    ``(tag, value)``; a timestamp is returned as its UTC RFC 3339 text, the
+    form the engine stores it in.
+
+    Raises:
+        ValueError: If an explicit tag does not fit the text.
+    """
+    kind, value = _natural_scalar(text, tag)
+    if tag in ("", _STR_TAG, _BINARY_TAG) or kind == tag:
+        return kind, value
+    if tag == _FLOAT_TAG and kind == _INT_TAG:
+        return _FLOAT_TAG, float(value)
+    raise ValueError(f"cannot decode {kind.rsplit(':', 1)[-1]} `{text}` as a {tag.rsplit(':', 1)[-1]}")
+
+
+def _natural_scalar(text: str, tag: str) -> tuple[str, Any]:
+    if tag in (_STR_TAG, _BINARY_TAG):
+        return _STR_TAG, text
+    first = text[:1]
+    if first == "":
+        hint = "N"
+    elif first in "+-":
+        hint = "S"
+    elif first in "0123456789":
+        hint = "D"
+    elif first in "yYnNtTfFoO~":
+        hint = "M"
+    elif first == ".":
+        hint = "."
+    else:
+        return _STR_TAG, text
+    if text in _RESOLVE_MAP:
+        return _RESOLVE_MAP[text]
+    if hint == ".":
+        if _DOT_FLOAT_RE.match(text):
+            f = _go_float(text)
+            if f is not None:
+                return _FLOAT_TAG, f
+    elif hint in ("D", "S"):
+        if tag in ("", _TIMESTAMP_TAG):
+            ts = _parse_timestamp(text)
+            if ts is not None:
+                return _TIMESTAMP_TAG, ts
+        plain = text.replace("_", "")
+        n = _go_parse_int(plain)
+        if n is None and plain[0] not in "+-":
+            n = _go_parse_uint(plain)
+        if n is not None:
+            return _INT_TAG, n
+        if _YAML_STYLE_FLOAT_RE.match(plain):
+            f = _go_float(plain)
+            if f is not None:
+                return _FLOAT_TAG, f
+    return _STR_TAG, text
+
+
+class _TemplateLoader(yaml.SafeLoader):
+    """YAML loader for template sources and other documents sent to the engine.
+
+    The engine reads YAML with gopkg.in/yaml.v3, not with PyYAML's YAML 1.1
+    rules, and what a scalar means depends on where it sits:
+
+    * Under a fact's ``args`` (and in any document that is not a template) an
+      unquoted scalar is resolved by yaml.v3's rules: ``yes``/``off`` are text,
+      ``012`` is 10, ``1_000`` is 1000, ``0o17`` is 15, ``1e3`` is a float, a
+      date is a timestamp (kept as its UTC RFC 3339 text, which is what the
+      stored record holds).
+    * Everywhere else the engine reads into text fields, so the author's spelling
+      is kept: ``description: 1e3`` stays ``"1e3"``. A few fields are numbers or
+      booleans (``version``, ``prior``, weights, ``predict``, ``case``) and
+      are read as such.
+
+    A quoted scalar is always text. A mapping key is always text.
+    """
+
+    def resolve(self, kind: Any, value: Any, implicit: Any) -> str:
+        if kind is yaml.ScalarNode and implicit[0]:
+            return _PLAIN_TAG
+        return super().resolve(kind, value, implicit)
+
+
+def _construct_resolved(tag: str) -> Any:
+    def construct(loader: yaml.SafeLoader, node: yaml.Node) -> Any:
+        text = str(loader.construct_scalar(node))
+        try:
+            return _resolve_scalar(text, tag)[1]
+        except ValueError as exc:
+            raise yaml.constructor.ConstructorError(None, None, str(exc), node.start_mark) from exc
+    return construct
+
+
+def _construct_binary(loader: yaml.SafeLoader, node: yaml.Node) -> str:
+    try:
+        return base64.b64decode(str(loader.construct_scalar(node)), validate=False).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise yaml.constructor.ConstructorError(None, None, f"cannot read !!binary as text: {exc}", node.start_mark) from exc
+
+
+for _t in (_BOOL_TAG, _INT_TAG, _FLOAT_TAG, _NULL_TAG, _TIMESTAMP_TAG):
+    _TemplateLoader.add_constructor(_t, _construct_resolved(_t))
+_TemplateLoader.add_constructor(_PLAIN_TAG, _construct_resolved(_STR_TAG))
+_TemplateLoader.add_constructor(_BINARY_TAG, _construct_binary)
+
+# Template fields the engine reads as numbers or booleans, by path ("*" is any
+# list index or map key). Every other scalar outside a fact's args is text.
+_NUMBER_PATHS = {
+    ("version",), ("prior",), ("evidence", "*", "weight"),
+    ("signals", "*", "malicious_weight"), ("signals", "*", "benign_weight"),
+}
+_BOOL_PATHS = {("facts", "*", "predict"), ("facts", "*", "case")}
+
+
+def _path_matches(path: tuple[str, ...], patterns: set[tuple[str, ...]]) -> bool:
+    return any(
+        len(p) == len(path) and all(a == "*" or a == b for a, b in zip(p, path)) for p in patterns
+    )
+
+
+def _retag(node: yaml.Node, path: tuple[str, ...], any_ctx: bool, seen: set[int], document: bool = False) -> None:
+    """Decide what each unquoted scalar of the document is, from where it sits.
+
+    ``document`` is a file the CLI turns into JSON itself (a wave, samples):
+    the engine never reads it as YAML, so a date keeps the author's spelling.
+    """
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    if isinstance(node, yaml.ScalarNode):
+        if node.tag != _PLAIN_TAG:
+            return
+        if any_ctx:
+            node.tag = _resolve_scalar(node.value)[0]
+            if document and node.tag == _TIMESTAMP_TAG:
+                node.tag = _STR_TAG
+        elif _path_matches(path, _NUMBER_PATHS):
+            tag = _resolve_scalar(node.value)[0]
+            node.tag = tag if tag in (_INT_TAG, _FLOAT_TAG) else _STR_TAG
+        elif _path_matches(path, _BOOL_PATHS):
+            if node.value in _BOOL_WORDS_1_1:
+                node.tag, node.value = _BOOL_TAG, "true" if _BOOL_WORDS_1_1[node.value] else "false"
+            else:
+                tag = _resolve_scalar(node.value)[0]
+                node.tag = tag if tag == _BOOL_TAG else _STR_TAG
+        else:
+            node.tag = _STR_TAG
+        return
+    if isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            _retag(item, path + ("*",), any_ctx, seen, document)
+        return
+    if isinstance(node, yaml.MappingNode):
+        for key, value in node.value:
+            if isinstance(key, yaml.ScalarNode) and key.tag == _PLAIN_TAG:
+                key.tag = _MERGE_TAG if key.value == "<<" else _STR_TAG
+            name = key.value if isinstance(key, yaml.ScalarNode) else "*"
+            child_any = any_ctx or (len(path) == 2 and path[0] == "facts" and name == "args")
+            _retag(value, path + (name,), child_any, seen, document)
+
+
+def _load_yaml(source: str, allow_aliases: bool, document: bool) -> Any:
+    """Parse YAML with the engine's scalar rules; raise ``yaml.YAMLError``."""
     if not allow_aliases:
         for event in yaml.parse(source, Loader=_TemplateLoader):
             if isinstance(event, yaml.AliasEvent):
                 raise ValidationError(
                     "YAML anchors and aliases are not supported in a template; write the value out"
                 )
-    return yaml.load(source, Loader=_TemplateLoader)  # noqa: S506 - SafeLoader subclass
+    loader = _TemplateLoader(source)
+    try:
+        node = loader.get_single_node()
+        if node is None:
+            return None
+        _retag(node, (), document, set(), document)
+        return loader.construct_document(node)
+    finally:
+        loader.dispose()
+
+
+def _check_json_carries(doc: Any, what: str) -> None:
+    try:
+        json.dumps(doc, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{what} holds a value JSON cannot carry: {exc}") from exc
 
 
 def parse_document(source: str, what: str = "the document") -> Any:
     """Parse a YAML or JSON document into plain JSON-compatible values.
 
-    Scalars follow the same YAML 1.2 rules as a template: ``off``/``yes``/``no``
-    stay text and an unquoted date stays a string, so every value is sent to
-    the engine as it was written.
+    Unquoted scalars are read the way the engine's YAML library reads a value
+    it holds as ``any``: ``off``/``yes``/``no`` stay text, ``012`` is 10,
+    ``1_000`` is 1000 and ``0o17`` is 15. A date stays the text it was written as.
 
     Args:
         source: The YAML or JSON text.
@@ -321,21 +576,18 @@ def parse_document(source: str, what: str = "the document") -> Any:
 
     Raises:
         ValidationError: If the text is not YAML or JSON, or holds a value
-            JSON cannot carry (a binary or set tag, for example).
+            JSON cannot carry (a set tag, ``.nan`` or ``.inf``, for example).
     """
     if not isinstance(source, str) or not source.strip():
         raise ValidationError(f"{what} is empty")
     try:
-        doc = _load_yaml(source, allow_aliases=True)
+        doc = _load_yaml(source, allow_aliases=True, document=True)
     except yaml.YAMLError as exc:
         try:
             doc = json.loads(source)
         except ValueError:
             raise ValidationError(f"{what} is neither valid YAML nor JSON: {exc}") from exc
-    try:
-        json.dumps(doc)
-    except (TypeError, ValueError) as exc:
-        raise ValidationError(f"{what} holds a value JSON cannot carry: {exc}") from exc
+    _check_json_carries(doc, what)
     return doc
 
 
@@ -349,22 +601,57 @@ def parse_template_source(source: str) -> dict[str, Any]:
         dict: The template as plain JSON-compatible values.
 
     Raises:
-        ValidationError: If the source is empty, not YAML, not a mapping, or
-            uses YAML anchors or aliases (a template has no use for them).
+        ValidationError: If the source is empty, not YAML, not a mapping,
+            uses YAML anchors or aliases (a template has no use for them) or
+            holds a value JSON cannot carry (``.nan``, ``.inf``).
     """
     if not isinstance(source, str) or not source.strip():
         raise ValidationError("the template is empty")
     try:
-        doc = _load_yaml(source, allow_aliases=False)
+        doc = _load_yaml(source, allow_aliases=False, document=False)
     except yaml.YAMLError as exc:
         raise ValidationError(f"the template is not valid YAML: {exc}") from exc
     if not isinstance(doc, dict):
         raise ValidationError("the template must be a YAML mapping (description, applies_to, facts, ...)")
+    _check_json_carries(doc, "the template")
     return doc
+
+
+# A string the engine's parser could read as something else when it is not
+# quoted: numbers (any base, with underscores, signs or exponents), dates,
+# ``.inf``/``.nan``, and the null, boolean and YAML 1.1 boolean words. A superset
+# of what yaml.v3 resolves: quoting a string that did not need it changes nothing.
+_NEEDS_QUOTES_RE = re.compile(
+    r"^(?:[-+]?\.?[0-9]\S*$|[-+]?\.(?:inf|nan)|(?:~|null|true|false|y|n|yes|no|on|off|<<)$)",
+    re.IGNORECASE,
+)
+
+
+class _TemplateDumper(yaml.SafeDumper):
+    """SafeDumper that quotes every string the engine could read as a non-string.
+
+    PyYAML quotes only what YAML 1.1 reads as a non-string. ``"1e3"`` and
+    ``"0o17"`` are text there but numbers to the engine, so they are quoted
+    here. Every other value is written as ``yaml.safe_dump`` writes it.
+    """
+
+    def ignore_aliases(self, data: Any) -> bool:
+        return True
+
+
+def _represent_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
+    quote = bool(_NEEDS_QUOTES_RE.match(data)) or _resolve_scalar(data)[0] != _STR_TAG
+    return dumper.represent_scalar(_STR_TAG, data, style='"' if quote else None)
+
+
+_TemplateDumper.add_representer(str, _represent_str)
 
 
 def dump_template(data: dict[str, Any]) -> str:
     """Render a template mapping as YAML, in the key order it was written.
+
+    Every string reads back as the same string in the engine, whatever it
+    looks like (``"1e3"``, ``"0o17"``, ``"on"``, ``"2026-11-10"`` are quoted).
 
     Args:
         data: The template mapping.
@@ -372,7 +659,29 @@ def dump_template(data: dict[str, Any]) -> str:
     Returns:
         str: YAML text the engine accepts.
     """
-    return yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    return yaml.dump(
+        data, Dumper=_TemplateDumper, sort_keys=False, default_flow_style=False, allow_unicode=True,
+    )
+
+
+def _rendered_template(name: str, data: dict[str, Any]) -> str:
+    """The YAML to validate for a template record, proven to be exactly that record.
+
+    Validation sees the rendered text, the hive keeps ``data``. If reading the
+    text back does not give ``data`` (a number in a text field, for example)
+    the engine would be validating a different template than the one stored.
+    """
+    text = dump_template(data)
+    try:
+        same = json.dumps(parse_template_source(text)) == json.dumps(data)
+    except ValidationError:
+        same = False
+    if not same:
+        raise ValidationError(
+            f"template {name!r} cannot be rendered as YAML that reads back identically (a number where the "
+            "engine reads text, or a value YAML cannot spell); fix the record before validating it"
+        )
+    return text
 
 
 class Investigation:
@@ -407,7 +716,10 @@ class Investigation:
         """
         kwargs: dict[str, Any] = {"query_params": query or None, "timeout": timeout}
         if body is not None:
-            kwargs["raw_body"] = json.dumps(body).encode()
+            try:
+                kwargs["raw_body"] = json.dumps(body, allow_nan=False).encode()
+            except ValueError as exc:
+                raise ValidationError(f"the request holds a value JSON cannot carry: {exc}") from exc
             kwargs["content_type"] = "application/json"
         if write:
             kwargs["retry_gateway_timeout"] = False
@@ -1084,7 +1396,7 @@ class Investigation:
         final_status = STATUS_ACTIVE if explicit_active else STATUS_DRAFT
         data["status"] = final_status
 
-        report = self.validate_plan(dump_template(data))
+        report = self.validate_plan(_rendered_template(name, data))
         if report.get("valid") is not True or report.get("errors"):
             return {
                 "saved": False,
@@ -1191,7 +1503,7 @@ class Investigation:
         if (data.get("status") or STATUS_DRAFT) == STATUS_ACTIVE:
             return {"promoted": False, "name": name, "status": STATUS_ACTIVE, "reason": "the template is already active"}
         data["status"] = STATUS_ACTIVE
-        report = self.validate_plan(dump_template(data))
+        report = self.validate_plan(_rendered_template(name, data))
         if report.get("valid") is not True or report.get("errors"):
             return {"promoted": False, "name": name, "status": STATUS_DRAFT,
                     "reason": "the template does not validate", "validation": report}

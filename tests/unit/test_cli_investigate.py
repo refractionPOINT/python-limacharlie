@@ -578,6 +578,23 @@ class TestYaml12Input:
         assert doc["errors"][0]["code"] == "invalid_input" and doc["errors"][0]["path"] == "--file"
         sdk.run_wave.assert_not_called()
 
+    def test_a_nan_in_a_wave_file_is_a_coded_json_error(self, sdk, tmp_path):
+        f = tmp_path / "wave.yaml"
+        f.write_text("inputs: {x: .nan}\nsteps: []\n")
+        result = run(["investigate", "wave", "--file", str(f)])
+        assert result.exit_code == 4
+        error = json.loads(result.stderr)["errors"][0]
+        assert error["code"] == "invalid_input" and error["path"] == "--file" and "JSON cannot carry" in error["message"]
+        sdk.run_wave.assert_not_called()
+
+    @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+    def test_a_nonfinite_number_in_inputs_json_is_a_coded_json_error(self, sdk, value):
+        result = run(["investigate", "runs", "start", "--template", "my-plan", "--detection-id", "d1", "--inputs-json", '{"x": %s}' % value])
+        assert result.exit_code == 4
+        error = json.loads(result.stderr)["errors"][0]
+        assert error["code"] == "invalid_input" and error["path"] == "--inputs-json"
+        sdk.start_run.assert_not_called()
+
     def test_a_wrong_shape_is_a_coded_json_error(self, sdk, tmp_path):
         f = tmp_path / "samples.yaml"
         f.write_text("just: a mapping\n")

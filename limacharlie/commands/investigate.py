@@ -466,7 +466,7 @@ def _input_error(hint: str, message: str) -> InvestigationError:
 
 
 def _load_document(path: str, hint: str) -> Any:
-    """Read a YAML or JSON file; scalars keep the meaning they have in YAML 1.2 (``off`` is text)."""
+    """Read a YAML or JSON file; unquoted scalars are read as the engine reads them (``off`` is text, ``012`` is 10)."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -499,12 +499,17 @@ def _parse_kv(pairs: tuple[str, ...], hint: str) -> dict[str, str]:
     return out
 
 
+def _reject_constant(name: str) -> Any:
+    """``json.loads`` hook: Python reads NaN and Infinity, but JSON (and the engine) has no such numbers."""
+    raise ValueError(f"{name} is not a JSON number")
+
+
 def _json_object(text: str | None, hint: str) -> dict[str, Any] | None:
     if text is None:
         return None
     try:
-        value = json.loads(text)
-    except json.JSONDecodeError as exc:
+        value = json.loads(text, parse_constant=_reject_constant)
+    except ValueError as exc:  # JSONDecodeError is one; so is a refused NaN/Infinity
         raise _input_error(hint, f"invalid JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise _input_error(hint, "must be a JSON object")

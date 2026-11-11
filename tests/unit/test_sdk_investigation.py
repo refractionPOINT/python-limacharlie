@@ -1,6 +1,7 @@
 """Tests for limacharlie.sdk.investigation (Investigation Engine)."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -347,20 +348,112 @@ class TestErrors:
 # Template source
 # ---------------------------------------------------------------------------
 
-class TestTemplateSource:
-    def test_yaml_1_1_surprises_stay_text(self):
-        data = parse_template_source("a: yes\nb: off\nc: 2026-11-10\nd: true\ne: [on]\nf: 10:30\ng: 012\nh: 1_000\n")
-        assert data == {"a": "yes", "b": "off", "c": "2026-11-10", "d": True, "e": ["on"],
-                        "f": "10:30", "g": "012", "h": "1_000"}
+_SCALARS = json.loads((Path(__file__).parent / "fixtures" / "investigation_scalars.json").read_text())["cases"]
+_PLAIN_SCALARS = [
+    c for c in _SCALARS
+    if c["kind"] != "error" and not c["kind"].startswith("other")
+    and c["src"] == c["src"].strip() and c["src"] and c["src"][0] not in "'\"!&*#" and " #" not in c["src"]
+]
 
-    def test_yaml_1_2_numbers_are_numbers(self):
-        data = parse_template_source("a: 12\nb: -3\nc: 1.5\nd: 1e3\ne: 0x1f\nf: 0o17\ng: 0\nh: .5\ni: null\n")
-        assert data == {"a": 12, "b": -3, "c": 1.5, "d": 1000.0, "e": 31, "f": 15, "g": 0, "h": 0.5, "i": None}
-        assert type(data["a"]) is int
+
+def _args_value(src: str) -> str:
+    return "facts:\n  x:\n    op: plan.pick\n    args:\n      value: " + src + "\n"
+
+
+class TestTemplateSource:
+    @pytest.mark.parametrize("case", _SCALARS, ids=[c["src"] or "<empty>" for c in _SCALARS])
+    def test_args_scalars_are_read_as_the_engine_reads_them(self, case):
+        """Every spelling gives what the engine's own parser gave it (fixture generated from that parser)."""
+        src, kind, want = case["src"], case["kind"], case.get("value", "")
+        text = _args_value(src)
+        if kind == "error":
+            with pytest.raises(ValidationError):
+                parse_template_source(text)
+            return
+        if kind == "float" and want in ("nan", "+inf", "-inf"):
+            with pytest.raises(ValidationError, match="JSON cannot carry"):
+                parse_template_source(text)
+            return
+        got = parse_template_source(text)["facts"]["x"]["args"]["value"]
+        if kind == "null":
+            assert got is None
+        elif kind == "bool":
+            assert got is (want == "true")
+        elif kind == "int":
+            assert type(got) is int and got == int(want)
+        elif kind == "float":
+            assert type(got) is float and got == float(want)
+        elif kind in ("string", "timestamp"):
+            assert type(got) is str and got == want
+        elif kind == "other:[]interface {}":
+            assert isinstance(got, list)
+        else:
+            assert isinstance(got, dict)
+
+    def test_text_fields_keep_the_authors_spelling(self):
+        data = parse_template_source(
+            "description: 1e3\nstatus: 012\napplies_to: {category: [on, 0o17, 2026-11-10]}\n"
+            "inputs: {a: yes, 1e3: ~}\n"
+        )
+        assert data == {
+            "description": "1e3", "status": "012",
+            "applies_to": {"category": ["on", "0o17", "2026-11-10"]},
+            "inputs": {"a": "yes", "1e3": "~"},
+        }
+
+    def test_numeric_and_boolean_fields_are_read_as_such(self):
+        data = parse_template_source(
+            "version: 3\nprior: .5\nevidence: [{when: x, weight: -1e0}]\n"
+            "signals: {s: {malicious_weight: 2, benign_weight: 0x10}}\n"
+            "facts: {a: {op: o, predict: yes, case: true}, b: {op: o, predict: off, case: False}}\n"
+        )
+        assert data["version"] == 3 and type(data["version"]) is int
+        assert data["prior"] == 0.5
+        assert data["evidence"] == [{"when": "x", "weight": -1.0}]
+        assert data["signals"]["s"] == {"malicious_weight": 2, "benign_weight": 16}
+        assert data["facts"]["a"]["predict"] is True and data["facts"]["a"]["case"] is True
+        assert data["facts"]["b"]["predict"] is False and data["facts"]["b"]["case"] is False
+
+    def test_report_case_is_text_while_a_fact_case_is_a_boolean(self):
+        data = parse_template_source("report: {case: create}\nfacts: {a: {op: o, case: true}}\n")
+        assert data["report"]["case"] == "create" and data["facts"]["a"]["case"] is True
+
+    def test_quoted_and_tagged_scalars(self):
+        data = parse_template_source(
+            _args_value('"1e3"') + "").copy()
+        assert data["facts"]["x"]["args"]["value"] == "1e3"
+        got = parse_template_source(
+            "facts:\n  x:\n    op: o\n    args: {a: !!str 12, b: !!int '0x1f', c: !!float 1, d: '~', e: !!binary aGk=}\n"
+        )["facts"]["x"]["args"]
+        assert got == {"a": "12", "b": 31, "c": 1.0, "d": "~", "e": "hi"}
+
+    def test_a_tag_that_does_not_fit_is_refused(self):
+        with pytest.raises(ValidationError, match="cannot decode"):
+            parse_template_source(_args_value("!!int abc"))
+
+    def test_nested_args_are_read_like_top_level_args(self):
+        got = parse_template_source(
+            "facts:\n  x:\n    op: o\n    args:\n      list: [012, 1_000, 1e3, off]\n      deep: {k: 0o17}\n"
+        )["facts"]["x"]["args"]
+        assert got == {"list": [10, 1000, 1000.0, "off"], "deep": {"k": 15}}
 
     def test_dump_round_trips_text_that_looks_like_something_else(self):
         data = {"a": "yes", "c": "2026-11-10", "n": "0308"}
         assert parse_template_source(dump_template(data)) == data
+
+    @pytest.mark.parametrize("case", _PLAIN_SCALARS, ids=[c["src"] or "<empty>" for c in _PLAIN_SCALARS])
+    def test_dump_quotes_every_string_the_engine_would_read_as_something_else(self, case):
+        """A string the engine reads as a non-string when bare must be written quoted."""
+        src = case["src"]
+        text = dump_template({"facts": {"x": {"op": "plan.pick", "args": {"value": src}}}})
+        assert parse_template_source(text)["facts"]["x"]["args"]["value"] == src
+        if case["kind"] != "string":
+            assert f"value: {src}\n" not in text, f"{src!r} would be read as {case['kind']}: {text}"
+
+    @pytest.mark.parametrize("src", ["1e3", "0o17", "1E+3", "1e-3", "0x1F", "012", "1_000", ".5", "5.", "+1", ".inf", "-.INF", ".nan", "~", "null", "True", "yes", "off", "2026-11-10", "10:30"])
+    def test_dump_of_quoted_numeric_strings_keeps_the_type(self, src):
+        data = {"description": src, "facts": {"x": {"op": "o", "args": {"v": src, "l": [src]}}}}
+        assert json.dumps(parse_template_source(dump_template(data))) == json.dumps(data)
 
     def test_dump_keeps_key_order(self):
         text = dump_template({"zebra": 1, "alpha": 2})
@@ -412,6 +505,25 @@ class TestSaveTemplate:
         inv.save_template("my-plan", SRC)
         sent = json.loads(mock_org.client.request.call_args.kwargs["raw_body"])["yaml"]
         assert parse_template_source(sent)["status"] == "draft"
+
+    def test_quoted_numeric_looking_strings_are_validated_as_stored(self, inv, mock_org, hive):
+        src = ('description: "1e3"\nfacts:\n  a:\n    op: plan.pick\n'
+               '    args: {value: "1e3", hex: "0o17", num: 1e3, octal: 012}\n')
+        mock_org.client.request.return_value = VALID
+        hive.get.side_effect = [_not_found(), self._stored("draft")]
+        inv.save_template("my-plan", src)
+        stored = hive.set.call_args.args[0].data
+        assert stored["description"] == "1e3"
+        assert stored["facts"]["a"]["args"] == {"value": "1e3", "hex": "0o17", "num": 1000.0, "octal": 10}
+        sent = json.loads(mock_org.client.request.call_args.kwargs["raw_body"])["yaml"]
+        assert json.dumps(parse_template_source(sent)) == json.dumps(stored)
+        assert '"1e3"' in sent and '"0o17"' in sent  # still strings when the engine reads the text it validated
+
+    def test_a_nan_in_the_source_is_refused_before_anything_is_sent(self, inv, mock_org, hive):
+        with pytest.raises(ValidationError, match="JSON cannot carry"):
+            inv.save_template("my-plan", "facts: {a: {op: plan.pick, args: {value: .nan}}}\n")
+        mock_org.client.request.assert_not_called()
+        hive.set.assert_not_called()
 
     def test_a_template_cannot_activate_itself(self, inv, mock_org, hive):
         out = inv.save_template("my-plan", SRC + "status: active\n")
@@ -609,6 +721,14 @@ class TestPromote:
         sent = parse_template_source(json.loads(mock_org.client.request.call_args.kwargs["raw_body"])["yaml"])
         assert sent["status"] == "active"  # what is validated is what is stored
 
+    def test_a_record_that_does_not_read_back_identically_is_not_validated_as_something_else(self, inv, mock_org, hive):
+        # A number where the engine reads text: the rendered YAML would read back as text, a different template.
+        hive.get.return_value = HiveRecord(name="p", data={"description": 5, "status": "draft"}, etag="e1")
+        with pytest.raises(ValidationError, match="reads back identically"):
+            inv.promote_template("p")
+        mock_org.client.request.assert_not_called()
+        hive.set.assert_not_called()
+
     def test_an_invalid_draft_stays_a_draft(self, inv, mock_org, hive):
         mock_org.client.request.return_value = INVALID
         hive.get.return_value = HiveRecord(name="p", data={"status": "draft"}, etag="e1")
@@ -693,8 +813,8 @@ class TestInstallDefaults:
 
 class TestParseDocument:
     def test_yaml_11_words_and_dates_are_sent_as_written(self):
-        doc = parse_document("a: off\nb: yes\nc: no\nd: 2026-11-10\ne: true\nf: 012\n")
-        assert doc == {"a": "off", "b": "yes", "c": "no", "d": "2026-11-10", "e": True, "f": "012"}
+        doc = parse_document("a: off\nb: yes\nc: no\nd: 2026-11-10\ne: true\nf: 012\ng: 1_000\nh: 1e3\n")
+        assert doc == {"a": "off", "b": "yes", "c": "no", "d": "2026-11-10", "e": True, "f": 10, "g": 1000, "h": 1000.0}
         json.dumps(doc)
 
     def test_json_is_accepted(self):
@@ -711,6 +831,16 @@ class TestParseDocument:
         with pytest.raises(ValidationError):
             parse_document("  \n")
 
-    def test_values_json_cannot_carry_are_refused(self):
+    @pytest.mark.parametrize("src", ["a: .nan\n", "a: [.inf]\n", "a: {b: -.inf}\n"])
+    def test_values_json_cannot_carry_are_refused(self, src):
+        with pytest.raises(ValidationError, match="JSON cannot carry"):
+            parse_document(src)
+
+    def test_a_nan_input_never_reaches_the_wire(self, inv, mock_org):
+        with pytest.raises(ValidationError, match="JSON cannot carry"):
+            inv._call("POST", "waves", body={"inputs": {"x": float("nan")}}, write=True)
+        mock_org.client.request.assert_not_called()
+
+    def test_a_set_tag_is_refused(self):
         with pytest.raises(ValidationError):
-            parse_document("a: !!binary aGk=\n")
+            parse_document("a: !!set {x}\n")
