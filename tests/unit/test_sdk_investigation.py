@@ -180,6 +180,13 @@ class TestRoutes:
             inv.delete_run("r1")
         assert ei.value.status_code == 404
         assert "does not serve run deletion" in ei.value.suggestion
+        # What the user sees carries the delete hint only, once.
+        assert str(ei.value).count("Suggestion:") == 1
+        assert "does not serve run deletion" in str(ei.value)
+        assert "experimental and gated" not in str(ei.value)
+        doc = ei.value.to_dict()
+        assert doc["error"] == "not found"
+        assert "does not serve run deletion" in doc["suggestion"]
 
     def test_delete_run_404_with_engine_code_keeps_the_engine_message(self, inv, mock_org):
         body = {"error": "no such run", "error_code": "not_found"}

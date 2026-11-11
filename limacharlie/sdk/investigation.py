@@ -1204,7 +1204,16 @@ class Investigation:
             if exc.status_code == 404 and not exc.error_code:
                 # Without an engine code the API did not serve the route at all: either the feature is
                 # off or this API deployment predates run deletion.
-                exc.suggestion = _DELETE_ROUTE_HINT
+                # Rebuilt, not patched: the message text embeds the suggestion it was built with.
+                raise InvestigationError(
+                    exc.raw_message,
+                    status_code=exc.status_code,
+                    issues=exc.issues,
+                    warnings=exc.warnings,
+                    response_body=exc.response_body,
+                    suggestion=_DELETE_ROUTE_HINT,
+                    exit_code=exc.exit_code,
+                ) from exc
             raise
 
     # ------------------------------------------------------------------
