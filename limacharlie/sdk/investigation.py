@@ -204,6 +204,11 @@ def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
     )
 
 
+_DELETE_ROUTE_HINT = (
+    "A 404 with no engine error code means this API deployment does not serve run deletion: the "
+    "Investigation Engine is not enabled for it, or it is a version that predates `runs delete`."
+)
+
 _TEMPLATE_PERMISSION_HINT = (
     "Template records are the hive 'investigation_plan': reading needs investigation_plan.get, writing "
     "investigation_plan.set, deleting investigation_plan.del. They are explicit grants that no default role has."
@@ -1193,7 +1198,14 @@ class Investigation:
             ValidationError: If the run id is invalid.
             InvestigationError: If the API refuses deletion or the request fails.
         """
-        return self._call("DELETE", f"runs/{_quote(_check_id('run id', run_id), safe='')}", write=True)
+        try:
+            return self._call("DELETE", f"runs/{_quote(_check_id('run id', run_id), safe='')}", write=True)
+        except InvestigationError as exc:
+            if exc.status_code == 404 and not exc.error_code:
+                # Without an engine code the API did not serve the route at all: either the feature is
+                # off or this API deployment predates run deletion.
+                exc.suggestion = _DELETE_ROUTE_HINT
+            raise
 
     # ------------------------------------------------------------------
     # Waves

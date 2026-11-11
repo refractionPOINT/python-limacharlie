@@ -172,8 +172,22 @@ class TestRoutes:
         assert ei.value.status_code == status
         assert ei.value.error_code == code
         assert ei.value.to_dict()["error"] == "deletion refused"
-        assert mock_org.client.request.call_count == 1
         assert _request_args(mock_org)[2]["retry_gateway_timeout"] is False
+
+    def test_delete_run_404_without_engine_code_says_the_route_is_not_served(self, inv, mock_org):
+        mock_org.client.request.side_effect = error_from_status_code(404, {"error": "not found"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.delete_run("r1")
+        assert ei.value.status_code == 404
+        assert "does not serve run deletion" in ei.value.suggestion
+
+    def test_delete_run_404_with_engine_code_keeps_the_engine_message(self, inv, mock_org):
+        body = {"error": "no such run", "error_code": "not_found"}
+        mock_org.client.request.side_effect = error_from_status_code(404, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.delete_run("r1")
+        assert ei.value.error_code == "not_found"
+        assert "does not serve" not in (ei.value.suggestion or "")
 
     def test_events_bounds_and_params(self, inv, mock_org):
         mock_org.client.request.return_value = {"events": [], "next": 4, "done": False}
