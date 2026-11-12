@@ -685,6 +685,19 @@ def templates_validate(ctx, file_path) -> None:
         ctx.exit(EXIT_REFUSED)
 
 
+def _step_diagnostics(steps):
+    return [
+        {k: step[k] for k in ("fact", "op", "status", "complete", "reason", "message", "counts", "judgement") if k in step}
+        for step in (steps or []) if isinstance(step, dict) and any(k in step for k in ("complete", "counts", "judgement"))
+    ]
+
+
+def _test_cost(value):
+    cost = value if isinstance(value, dict) else {}
+    usd = cost.get("llm_usd", 0)
+    return f"{usd} (unpriced)" if cost.get("llm_unpriced") else usd
+
+
 def _compact_test(test: dict[str, Any], include_steps: bool) -> dict[str, Any]:
     """Keep safe decision diagnostics even when full step timing is omitted."""
     if include_steps or not isinstance(test.get("results"), list):
@@ -698,10 +711,7 @@ def _compact_test(test: dict[str, Any], include_steps: bool) -> dict[str, Any]:
         r = dict(r)
         steps = r.pop("steps")
         r["problem_steps"] = [s for s in steps if isinstance(s, dict) and s.get("status") != "ok"]
-        r["step_diagnostics"] = [
-            {k: s[k] for k in ("fact", "op", "status", "complete", "reason", "message", "counts", "judgement") if k in s}
-            for s in steps if isinstance(s, dict) and any(k in s for k in ("complete", "counts", "judgement"))
-        ]
+        r["step_diagnostics"] = _step_diagnostics(steps)
         r["steps_total"] = len(steps)
         results.append(r)
     out["results"] = results
@@ -720,18 +730,15 @@ def _test_rows(test: dict[str, Any]) -> list[dict[str, Any]]:
             "state": r.get("state"),
             "verdict": verdict.get("label") if isinstance(verdict, dict) else verdict,
             "p": verdict.get("p") if isinstance(verdict, dict) else None,
-            "prior": verdict.get("prior") if isinstance(verdict, dict) else None,
-            "decided": verdict.get("decided") if isinstance(verdict, dict) else None,
-            "evidence": json.dumps(verdict.get("evidence") or [], separators=(",", ":")) if isinstance(verdict, dict) else None,
-            "llm_cost": "unpriced" if (r.get("cost") or {}).get("llm_unpriced") else (r.get("cost") or {}).get("llm_usd"),
-            "step_diagnostics": json.dumps([
-                {k: s[k] for k in ("fact", "status", "complete", "reason", "counts", "judgement") if k in s}
-                for s in r.get("steps") or [] if isinstance(s, dict)
-            ], separators=(",", ":")),
             "expected": (r.get("expected") or {}).get("label") if isinstance(r.get("expected"), dict) else None,
             "agreement": r.get("agreement"),
             "unknowns": len(r.get("unknowns") or []),
             "wall_ms": r.get("wall_ms"),
+            "prior": verdict.get("prior") if isinstance(verdict, dict) else None,
+            "decided": verdict.get("decided") if isinstance(verdict, dict) else None,
+            "evidence": json.dumps(verdict.get("evidence") or [], separators=(",", ":")) if isinstance(verdict, dict) else None,
+            "llm_cost": _test_cost(r.get("cost")),
+            "step_diagnostics": json.dumps(_step_diagnostics(r.get("steps")), separators=(",", ":")),
         })
     return rows
 
@@ -754,10 +761,10 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
     summary = test.get("summary")
     if isinstance(summary, dict):
         click.echo("summary: " + ", ".join(f"{k}={summary[k]}" for k in (
-            "samples", "ran", "finished_inconclusive", "errors", "decided", "undecided", "true_positive", "false_positive", "inconclusive",
+            "samples", "ran", "errors", "decided", "undecided", "true_positive", "false_positive", "inconclusive",
             "with_expected", "agree", "disagree", "agreement_rate") if k in summary))
-        if (summary.get("cost") or {}).get("llm_unpriced"):
-            click.echo("LLM cost: unpriced (USD is the priced subtotal)")
+        if isinstance(summary.get("cost"), dict):
+            click.echo(f"LLM cost: {_test_cost(summary['cost'])}")
         if summary.get("unknown_reasons"):
             click.echo(f"unknown reasons: {summary['unknown_reasons']}")
 
@@ -779,7 +786,7 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
               help="Seconds the starting call waits for a fast test.")
 @click.option("--timeout", type=click.FloatRange(min=0), default=600, show_default=True, help="Stop waiting for the test after this many seconds.")
 @click.option("--no-wait", is_flag=True, default=False, help="Print the test as started (its test_id) and return.")
-@click.option("--include-steps", is_flag=True, default=False, help="Keep every step of every sample (large). Default: only the steps that did not succeed.")
+@click.option("--include-steps", is_flag=True, default=False, help="Keep every step of every sample (large). Default: problem steps and safe completeness, count and judgement diagnostics.")
 @pass_context
 @_engine_errors
 def templates_test(ctx, name, file_path, test_id, detection_ids, case_ids, detect_cats, last, samples_json,

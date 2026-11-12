@@ -681,10 +681,27 @@ def test_safe_test_diagnostics_survive_compaction_and_tables():
     compact = _compact_test({"results": [sample]}, False)["results"][0]
     assert len(compact["step_diagnostics"]) == 3
     assert compact["step_diagnostics"][0]["counts"]["rows"] == 0
+    assert compact["step_diagnostics"][1]["complete"] is False
+    assert compact["step_diagnostics"][2]["judgement"]["label"] == "no"
+    assert json.loads(_test_rows({"results": [sample]})[0]["step_diagnostics"]) == compact["step_diagnostics"]
     assert "steps" not in compact
     assert len(sample["steps"]) == 3
     row = _test_rows({"results": [sample]})[0]
-    assert row["llm_cost"] == "unpriced"
+    assert row["llm_cost"] == "0 (unpriced)"
     assert row["prior"] == 0.3
     assert '"weight":-2' in row["evidence"]
     assert '"label":"no"' in row["step_diagnostics"]
+
+
+def test_test_cost_and_summary_output(capsys, monkeypatch):
+    from limacharlie.commands import investigate as mod
+    monkeypatch.setattr(mod, "_fmt", lambda ctx: "table")
+    monkeypatch.setattr(mod, "command_output", lambda *args: None)
+    mod._print_test(None, {"summary": {"inconclusive": 2, "cost": {"llm_usd": 0.25, "llm_unpriced": True}}}, False)
+    output = capsys.readouterr().out
+    assert "inconclusive=2" in output
+    assert "LLM cost: 0.25 (unpriced)" in output
+    for cost in ([], "invalid", 1, None):
+        assert mod._test_rows({"results": [{"cost": cost}]})[0]["llm_cost"] == 0
+        mod._print_test(None, {"summary": {"cost": cost}}, False)
+    assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
