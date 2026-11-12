@@ -666,3 +666,25 @@ class TestEveryFailureIsStructured:
         sdk.promote_template.side_effect = error_from_status_code(400, {"error": "lc_error_code:X - y"})
         result = run(["investigate", "templates", "promote", "my-plan", "--confirm"], fmt="table")
         assert result.exception is not None and not result.stderr.startswith("{")
+
+
+def test_safe_test_diagnostics_survive_compaction_and_tables():
+    from limacharlie.commands.investigate import _compact_test, _test_rows
+    sample = {"steps": [
+        {"fact": "zero", "status": "ok", "complete": True, "counts": {"rows": 0}},
+        {"fact": "positive", "status": "ok", "complete": False, "counts": {"rows": 2}},
+        {"fact": "judge", "status": "ok", "complete": True,
+         "judgement": {"label": "no", "confidence": 0.8, "model": "fixture"}},
+    ], "verdict": {"label": "inconclusive", "decided": True, "prior": 0.3, "p": 0.1,
+                     "evidence": [{"rule": "rule-1", "weight": -2, "facts": ["zero"]}]},
+       "cost": {"llm_usd": 0, "llm_unpriced": True}}
+    compact = _compact_test({"results": [sample]}, False)["results"][0]
+    assert len(compact["step_diagnostics"]) == 3
+    assert compact["step_diagnostics"][0]["counts"]["rows"] == 0
+    assert "steps" not in compact
+    assert len(sample["steps"]) == 3
+    row = _test_rows({"results": [sample]})[0]
+    assert row["llm_cost"] == "unpriced"
+    assert row["prior"] == 0.3
+    assert '"weight":-2' in row["evidence"]
+    assert '"label":"no"' in row["step_diagnostics"]

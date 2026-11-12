@@ -686,7 +686,7 @@ def templates_validate(ctx, file_path) -> None:
 
 
 def _compact_test(test: dict[str, Any], include_steps: bool) -> dict[str, Any]:
-    """Drop the steps that succeeded from every sample, keeping the ones that did not."""
+    """Keep safe decision diagnostics even when full step timing is omitted."""
     if include_steps or not isinstance(test.get("results"), list):
         return test
     out = dict(test)
@@ -698,6 +698,10 @@ def _compact_test(test: dict[str, Any], include_steps: bool) -> dict[str, Any]:
         r = dict(r)
         steps = r.pop("steps")
         r["problem_steps"] = [s for s in steps if isinstance(s, dict) and s.get("status") != "ok"]
+        r["step_diagnostics"] = [
+            {k: s[k] for k in ("fact", "op", "status", "complete", "reason", "message", "counts", "judgement") if k in s}
+            for s in steps if isinstance(s, dict) and any(k in s for k in ("complete", "counts", "judgement"))
+        ]
         r["steps_total"] = len(steps)
         results.append(r)
     out["results"] = results
@@ -716,6 +720,14 @@ def _test_rows(test: dict[str, Any]) -> list[dict[str, Any]]:
             "state": r.get("state"),
             "verdict": verdict.get("label") if isinstance(verdict, dict) else verdict,
             "p": verdict.get("p") if isinstance(verdict, dict) else None,
+            "prior": verdict.get("prior") if isinstance(verdict, dict) else None,
+            "decided": verdict.get("decided") if isinstance(verdict, dict) else None,
+            "evidence": json.dumps(verdict.get("evidence") or [], separators=(",", ":")) if isinstance(verdict, dict) else None,
+            "llm_cost": "unpriced" if (r.get("cost") or {}).get("llm_unpriced") else (r.get("cost") or {}).get("llm_usd"),
+            "step_diagnostics": json.dumps([
+                {k: s[k] for k in ("fact", "status", "complete", "reason", "counts", "judgement") if k in s}
+                for s in r.get("steps") or [] if isinstance(s, dict)
+            ], separators=(",", ":")),
             "expected": (r.get("expected") or {}).get("label") if isinstance(r.get("expected"), dict) else None,
             "agreement": r.get("agreement"),
             "unknowns": len(r.get("unknowns") or []),
@@ -742,8 +754,10 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
     summary = test.get("summary")
     if isinstance(summary, dict):
         click.echo("summary: " + ", ".join(f"{k}={summary[k]}" for k in (
-            "samples", "ran", "errors", "decided", "undecided", "true_positive", "false_positive", "inconclusive",
+            "samples", "ran", "finished_inconclusive", "errors", "decided", "undecided", "true_positive", "false_positive", "inconclusive",
             "with_expected", "agree", "disagree", "agreement_rate") if k in summary))
+        if (summary.get("cost") or {}).get("llm_unpriced"):
+            click.echo("LLM cost: unpriced (USD is the priced subtotal)")
         if summary.get("unknown_reasons"):
             click.echo(f"unknown reasons: {summary['unknown_reasons']}")
 
