@@ -1,0 +1,1116 @@
+{
+ "_source": "Recorded from the Investigation Engine operator catalogue and managed packs: operator names, argument names, top-level output fields; pack params and exports. Refresh when the engine's catalogue changes.",
+ "operators": [
+  {
+   "args": [
+    {
+     "name": "indicators",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "case.related",
+   "output": {
+    "properties": [
+     "cases",
+     "labeled_cases",
+     "labels",
+     "total_cases"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "detect_id",
+     "required": false
+    },
+    {
+     "name": "msg_uuid",
+     "required": false
+    },
+    {
+     "name": "cat",
+     "required": false
+    },
+    {
+     "name": "skip_if",
+     "required": false
+    },
+    {
+     "name": "window",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "detection.get",
+   "output": {
+    "properties": [
+     "atom",
+     "attack",
+     "cat",
+     "command_line",
+     "detect_id",
+     "event_type",
+     "file_path",
+     "found",
+     "gen_time",
+     "hash",
+     "hostname",
+     "mailbox",
+     "msg_uuid",
+     "parent_atom",
+     "pid",
+     "priority",
+     "sid",
+     "skipped",
+     "user_name"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "window",
+     "required": true
+    },
+    {
+     "name": "sids",
+     "required": false
+    },
+    {
+     "name": "cat",
+     "required": false
+    },
+    {
+     "name": "match",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "detection.list",
+   "output": {
+    "properties": [
+     "count",
+     "detections",
+     "ids"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "copies",
+     "required": true
+    },
+    {
+     "name": "domains",
+     "required": true
+    },
+    {
+     "name": "weak_domains",
+     "required": false
+    },
+    {
+     "name": "window",
+     "required": true
+    }
+   ],
+   "class": "scan",
+   "name": "endpoint.click_check",
+   "output": {
+    "properties": [
+     "all_known",
+     "any_clicked",
+     "any_possible",
+     "clicked",
+     "clicked_sids",
+     "count",
+     "domains",
+     "event",
+     "per_recipient",
+     "possible",
+     "unknown_count",
+     "weak_domains"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "entity_id",
+     "required": true
+    },
+    {
+     "name": "sources",
+     "required": false
+    },
+    {
+     "name": "window",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "entity.activity",
+   "output": {
+    "properties": [
+     "detection_count",
+     "detections",
+     "sources"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "entity_id",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "entity.get",
+   "output": {
+    "properties": [
+     "attrs",
+     "directory",
+     "display_name",
+     "emails",
+     "entity_id",
+     "kind",
+     "open_findings",
+     "owned_by",
+     "owns",
+     "sids"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "type",
+     "required": true
+    },
+    {
+     "name": "value",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "entity.resolve",
+   "output": {
+    "properties": [
+     "ambiguous",
+     "confidence",
+     "count",
+     "display_name",
+     "entity_id",
+     "kind",
+     "matches",
+     "resolved"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "entity_id",
+     "required": true
+    },
+    {
+     "name": "kind",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "entity.sightings",
+   "output": {
+    "properties": [
+     "best_effort",
+     "count",
+     "hostnames",
+     "ips",
+     "users"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "atom",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "event.children",
+   "output": {
+    "properties": [
+     "count",
+     "destinations",
+     "domains",
+     "events"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "atom",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "event.get",
+   "output": {
+    "properties": [
+     "atom",
+     "event",
+     "event_type",
+     "fields",
+     "hostname",
+     "parent",
+     "sid",
+     "ts"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "extension",
+     "required": true
+    },
+    {
+     "name": "action",
+     "required": true
+    },
+    {
+     "name": "data",
+     "required": false
+    }
+   ],
+   "class": "ext",
+   "name": "extension.request",
+   "output": {
+    "properties": []
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "domain",
+     "required": false
+    },
+    {
+     "name": "ip",
+     "required": false
+    },
+    {
+     "name": "file_hash",
+     "required": false
+    },
+    {
+     "name": "hash",
+     "required": false
+    },
+    {
+     "name": "file_path",
+     "required": false
+    },
+    {
+     "name": "user",
+     "required": false
+    }
+   ],
+   "class": "scan",
+   "name": "ioc.prevalence",
+   "output": {
+    "properties": [
+     "hosts_1d",
+     "hosts_30d",
+     "hosts_365d",
+     "hosts_7d",
+     "hosts_max",
+     "seen"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "name",
+     "required": true
+    },
+    {
+     "name": "keys",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "lookup.get",
+   "output": {
+    "properties": [
+     "all_found",
+     "count",
+     "found",
+     "missing",
+     "name",
+     "results"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "domain",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "mailsec.domain_profile",
+   "output": {
+    "properties": [
+     "distinct_recipients",
+     "domain",
+     "first_seen",
+     "first_seen_days_ago",
+     "flagged_180d",
+     "known",
+     "messages_30d"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "group_id",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "mailsec.group_recipients",
+   "output": {
+    "properties": [
+     "action_attrs",
+     "copies",
+     "count",
+     "recipients"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "links",
+     "required": true
+    },
+    {
+     "name": "sender_domain",
+     "required": false
+    },
+    {
+     "name": "reply_to_domain",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "mailsec.link_resolve",
+   "output": {
+    "properties": [
+     "count",
+     "derived",
+     "final_differs_from_shown",
+     "final_domain",
+     "final_domain_matches_shown",
+     "final_matches_shown",
+     "final_url",
+     "first_hop_domain",
+     "first_hop_matches_reply_to",
+     "first_hop_root",
+     "hops",
+     "lands_on_sender_domain",
+     "limitation",
+     "links",
+     "open_redirect",
+     "shown_domain",
+     "verified",
+     "via_redirect",
+     "via_tracker"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "msg_uuid",
+     "required": true
+    }
+   ],
+   "class": "index",
+   "name": "mailsec.message_get",
+   "output": {
+    "properties": [
+     "actions",
+     "campaign_id",
+     "decision",
+     "direction",
+     "fired_signals",
+     "group_id",
+     "links",
+     "lookalike",
+     "mailbox",
+     "msg_id",
+     "msg_uuid",
+     "provider",
+     "received",
+     "reply_to",
+     "reply_to_domain",
+     "reply_to_mismatch",
+     "reply_to_root",
+     "score",
+     "sender",
+     "sender_domain",
+     "sender_name",
+     "sender_sld",
+     "severity",
+     "signals",
+     "snapshot",
+     "state",
+     "subject",
+     "unranked_link_domains",
+     "verdict"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "mailbox",
+     "required": true
+    },
+    {
+     "name": "window",
+     "required": true
+    },
+    {
+     "name": "subject_contains",
+     "required": false
+    },
+    {
+     "name": "exclude_sender_domain",
+     "required": false
+    },
+    {
+     "name": "exclude_msg",
+     "required": false
+    },
+    {
+     "name": "before",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "mailsec.search_messages",
+   "output": {
+    "properties": [
+     "count",
+     "found",
+     "matches",
+     "minutes_before"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sender",
+     "required": true
+    },
+    {
+     "name": "domain",
+     "required": false
+    },
+    {
+     "name": "before",
+     "required": false
+    },
+    {
+     "name": "exclude_group",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "mailsec.sender_profile",
+   "output": {
+    "properties": [
+     "distinct_recipients",
+     "domain",
+     "domain_messages_30d",
+     "first_prior_days_ago",
+     "first_seen",
+     "first_seen_days_ago",
+     "flagged_180d",
+     "known",
+     "messages_30d",
+     "prior_messages_30d",
+     "sender"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "limit",
+     "required": false
+    },
+    {
+     "name": "online_only",
+     "required": false
+    },
+    {
+     "name": "selector",
+     "required": false
+    },
+    {
+     "name": "cursor",
+     "required": false
+    },
+    {
+     "name": "owners",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "org.roster",
+   "output": {
+    "properties": [
+     "machine_count",
+     "machines",
+     "more",
+     "next_cursor",
+     "offline_count",
+     "online_count",
+     "owner_lookup",
+     "people",
+     "people_count",
+     "unowned_count"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "candidates",
+     "required": true
+    },
+    {
+     "name": "optional",
+     "required": false
+    }
+   ],
+   "class": "index",
+   "name": "plan.pick",
+   "output": {
+    "properties": []
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "window",
+     "required": true
+    },
+    {
+     "name": "sids",
+     "required": false
+    },
+    {
+     "name": "selector",
+     "required": false
+    },
+    {
+     "name": "event_types",
+     "required": false
+    },
+    {
+     "name": "filter",
+     "required": false
+    },
+    {
+     "name": "params",
+     "required": false
+    },
+    {
+     "name": "dns_domain",
+     "required": false
+    },
+    {
+     "name": "before",
+     "required": false
+    }
+   ],
+   "class": "scan",
+   "name": "search.exists",
+   "output": {
+    "properties": [
+     "count",
+     "event",
+     "events_scanned",
+     "first",
+     "found",
+     "query"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "window",
+     "required": true
+    },
+    {
+     "name": "sids",
+     "required": false
+    },
+    {
+     "name": "selector",
+     "required": false
+    },
+    {
+     "name": "event_types",
+     "required": false
+    },
+    {
+     "name": "filter",
+     "required": false
+    },
+    {
+     "name": "params",
+     "required": false
+    },
+    {
+     "name": "dns_domain",
+     "required": false
+    },
+    {
+     "name": "before",
+     "required": false
+    },
+    {
+     "name": "limit",
+     "required": false
+    }
+   ],
+   "class": "scan",
+   "name": "search.rows",
+   "output": {
+    "properties": [
+     "count",
+     "events_scanned",
+     "found",
+     "query",
+     "rows",
+     "truncated"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "hash",
+     "required": false
+    },
+    {
+     "name": "contains",
+     "required": false
+    },
+    {
+     "name": "limit",
+     "required": false
+    }
+   ],
+   "class": "live",
+   "name": "sensor.read.autoruns",
+   "output": {
+    "properties": [
+     "autoruns",
+     "count",
+     "filtered",
+     "found",
+     "match_count",
+     "matches",
+     "sid",
+     "truncated"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "path",
+     "required": true
+    },
+    {
+     "name": "hash",
+     "required": false
+    }
+   ],
+   "class": "live",
+   "name": "sensor.read.file_hash",
+   "output": {
+    "properties": [
+     "cert_issuer",
+     "cert_subject",
+     "error_code",
+     "hash",
+     "hashed",
+     "matches",
+     "path",
+     "sid",
+     "signed",
+     "verified"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "pid",
+     "required": false
+    },
+    {
+     "name": "limit",
+     "required": false
+    }
+   ],
+   "class": "live",
+   "name": "sensor.read.netstat",
+   "output": {
+    "properties": [
+     "connections",
+     "count",
+     "public_remote_count",
+     "public_remote_ips",
+     "remote_ips",
+     "sid",
+     "truncated"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "pid",
+     "required": false
+    },
+    {
+     "name": "hash",
+     "required": false
+    },
+    {
+     "name": "contains",
+     "required": false
+    },
+    {
+     "name": "limit",
+     "required": false
+    }
+   ],
+   "class": "live",
+   "name": "sensor.read.processes",
+   "output": {
+    "properties": [
+     "count",
+     "filtered",
+     "found",
+     "match_count",
+     "matches",
+     "processes",
+     "sid",
+     "truncated"
+    ]
+   }
+  },
+  {
+   "args": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "hash",
+     "required": false
+    },
+    {
+     "name": "contains",
+     "required": false
+    },
+    {
+     "name": "limit",
+     "required": false
+    }
+   ],
+   "class": "live",
+   "name": "sensor.read.services",
+   "output": {
+    "properties": [
+     "count",
+     "filtered",
+     "found",
+     "match_count",
+     "matches",
+     "services",
+     "sid",
+     "truncated"
+    ]
+   }
+  }
+ ],
+ "packs": [
+  {
+   "exports": [
+    "found",
+    "cat",
+    "sid",
+    "hostname",
+    "event_type",
+    "atom",
+    "parent_atom",
+    "hash",
+    "file_path",
+    "command_line",
+    "user_name",
+    "gen_time",
+    "host_detection_count",
+    "same_rule_count"
+   ],
+   "name": "detection_context",
+   "params": [
+    {
+     "name": "detection_id",
+     "required": true
+    }
+   ]
+  },
+  {
+   "exports": [
+    "sensors_30d",
+    "sensors_365d",
+    "looked_up_7d",
+    "first_lookup",
+    "mail_known",
+    "mail_messages_30d",
+    "mail_flagged_180d",
+    "mail_first_seen"
+   ],
+   "name": "domain_reputation",
+   "params": [
+    {
+     "name": "domain",
+     "required": true
+    }
+   ]
+  },
+  {
+   "exports": [
+    "seen",
+    "hosts_1d",
+    "hosts_7d",
+    "hosts_30d",
+    "hosts_365d"
+   ],
+   "name": "hash_spread",
+   "params": [
+    {
+     "name": "hash",
+     "required": true
+    }
+   ]
+  },
+  {
+   "exports": [
+    "resolved",
+    "entity_id",
+    "hostname",
+    "kind",
+    "sids",
+    "open_findings",
+    "owner_id",
+    "owner_name"
+   ],
+   "name": "host_context",
+   "params": [
+    {
+     "name": "sid",
+     "required": true
+    }
+   ]
+  },
+  {
+   "exports": [
+    "sender",
+    "sender_domain",
+    "subject",
+    "received",
+    "state",
+    "verdict",
+    "fired_signals",
+    "decision",
+    "recipient_count",
+    "final_domain",
+    "open_redirect",
+    "via_tracker",
+    "any_clicked",
+    "clicked",
+    "per_recipient"
+   ],
+   "name": "message_outcome",
+   "params": [
+    {
+     "name": "msg_uuid",
+     "required": true
+    }
+   ]
+  },
+  {
+   "exports": [
+    "machine_count",
+    "online_count",
+    "offline_count",
+    "people_count",
+    "unowned_count",
+    "owner_lookup",
+    "more",
+    "next_cursor",
+    "machines",
+    "people"
+   ],
+   "name": "org_roster",
+   "params": [
+    {
+     "name": "limit",
+     "required": false
+    },
+    {
+     "name": "online_only",
+     "required": false
+    },
+    {
+     "name": "selector",
+     "required": false
+    },
+    {
+     "name": "cursor",
+     "required": false
+    }
+   ]
+  },
+  {
+   "exports": [
+    "event_type",
+    "hostname",
+    "fields",
+    "parent_atom",
+    "parent_type",
+    "parent_fields",
+    "child_count",
+    "children",
+    "domains",
+    "destinations"
+   ],
+   "name": "process_tree",
+   "params": [
+    {
+     "name": "sid",
+     "required": true
+    },
+    {
+     "name": "atom",
+     "required": true
+    }
+   ]
+  },
+  {
+   "exports": [
+    "known",
+    "messages_30d",
+    "prior_messages_30d",
+    "distinct_recipients",
+    "flagged_180d",
+    "first_seen",
+    "domain_messages_30d",
+    "domain_known",
+    "domain_flagged_180d"
+   ],
+   "name": "sender_reputation",
+   "params": [
+    {
+     "name": "sender",
+     "required": true
+    },
+    {
+     "name": "sender_domain",
+     "required": true
+    },
+    {
+     "name": "before",
+     "required": false
+    },
+    {
+     "name": "exclude_group",
+     "required": false
+    }
+   ]
+  },
+  {
+   "exports": [
+    "resolved",
+    "entity_id",
+    "display_name",
+    "department",
+    "job_title",
+    "account_status",
+    "mfa",
+    "laptop_name",
+    "laptop_sids",
+    "detection_count",
+    "detections",
+    "sources"
+   ],
+   "name": "user_activity",
+   "params": [
+    {
+     "name": "user",
+     "required": true
+    },
+    {
+     "name": "window",
+     "required": false
+    }
+   ]
+  }
+ ]
+}

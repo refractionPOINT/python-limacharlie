@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Investigation Engine — `limacharlie investigate` (experimental)
+
+- New `investigate` command group and `limacharlie.sdk.investigation.Investigation`
+  SDK class to build, test and tune Investigation Engine templates and to run
+  investigations, so a person or an AI agent can drive the whole loop from the
+  CLI: `kit` (authoring kit, fetched in sections), `operators`, `packs`,
+  `templates list|get|validate|test|save|promote|delete|install-defaults`,
+  `runs start|get|list|events|steps|case|cancel`, `wave`,
+  `actions list|approve|deny` and `policy get|status|pause|resume`. See
+  `doc/cli/investigation-engine.md`.
+- `templates save` always writes a DRAFT (a source that says `status: active`
+  is refused; only a person's explicit `--status active` activates), never
+  overwrites a record without `--overwrite`, and never replaces an active
+  template with a draft. `templates test` dry-runs a template on real past
+  detections or cases and prints per-sample verdicts and the agreement summary.
+- Engine failures keep the engine's coded issues (`code`, `path`, `message`,
+  `suggestion`) and error code verbatim, and say when the feature is not
+  enabled for the deployment or the permissions are missing.
+- `wave` and `templates test --samples-file` read YAML with 1.2 scalar rules (`off`/`yes`
+  stay text, an unquoted date stays a string) so values reach the engine as written;
+  unreadable or malformed input files and every Hive/API failure are reported as
+  structured JSON (with the backend's `error_code`) in a structured output format.
+- `templates install-defaults` reads the authoring kit's `library` section; it
+  needs an engine version that serves it.
+- The typed 401/403/404/422/429 errors raised for an HTTP error answer now carry
+  the parsed answer as `response_body`, as `ApiError` already did.
+- The `investigate` flags and help match the engine: `runs start --urgency` is
+  `low|medium|high|critical` (default derived from the alert, else medium);
+  `--auto` sends no plan (the engine refuses `plan.auto` for a person's run) so
+  the engine picks the active template by `applies_to`, with new `--category`,
+  `--severity`, `--priority` and `--tag` to say what the alert looks like;
+  `templates test --strict` refuses overrides that would loosen the policy;
+  `runs list --trigger` takes the trigger kind (detection, message, entity, case,
+  question) and `--verdict` also takes `undecided`; `policy get` takes `--template`.
+
 ### Sync — `sync push` no longer turns quoted strings into numbers
 
 - `sync push` (and `Configs.push` / `Configs.push_from_file`) stored some

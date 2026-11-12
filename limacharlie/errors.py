@@ -319,6 +319,11 @@ def size_limit_suggestion(status_code: int, body: Any) -> str | None:
 def error_from_status_code(status_code: int, body: Any = None) -> LimaCharlieError:
     """Create the appropriate exception from an HTTP status code.
 
+    Every returned exception carries the parsed answer as ``response_body``
+    (``ApiError`` always did; the typed 401/403/404/422/429 errors now do
+    too), so a caller that knows the route can read the API's own error code
+    and detail instead of parsing the message.
+
     Args:
         status_code: HTTP status code.
         body: Response body (str or dict).
@@ -328,34 +333,38 @@ def error_from_status_code(status_code: int, body: Any = None) -> LimaCharlieErr
     """
     body_str = str(body) if body else "No response body"
 
+    err: LimaCharlieError
     if status_code == 401:
-        return AuthenticationError(
+        err = AuthenticationError(
             f"Authentication failed: {body_str}",
             code=status_code,
         )
-    if status_code == 403:
-        return PermissionDeniedError(
+    elif status_code == 403:
+        err = PermissionDeniedError(
             f"Permission denied: {body_str}",
             code=status_code,
         )
-    if status_code == 404:
-        return NotFoundError(
+    elif status_code == 404:
+        err = NotFoundError(
             f"Resource not found: {body_str}",
             code=status_code,
         )
-    if status_code == 422:
-        return ValidationError(
+    elif status_code == 422:
+        err = ValidationError(
             f"Validation error: {body_str}",
             code=status_code,
         )
-    if status_code == 429:
-        return RateLimitError(
+    elif status_code == 429:
+        err = RateLimitError(
             f"Rate limit exceeded: {body_str}",
             code=status_code,
         )
-    return ApiError(
-        f"API error ({status_code}): {body_str}",
-        status_code=status_code,
-        response_body=body,
-        suggestion=size_limit_suggestion(status_code, body),
-    )
+    else:
+        return ApiError(
+            f"API error ({status_code}): {body_str}",
+            status_code=status_code,
+            response_body=body,
+            suggestion=size_limit_suggestion(status_code, body),
+        )
+    err.response_body = body
+    return err

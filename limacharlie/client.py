@@ -872,11 +872,13 @@ class Client:
                     self._debug(f"Rate limited, waiting {wait}s before retry...")
                     time.sleep(wait)
                     continue
-                raise RateLimitError(
+                rate_err = RateLimitError(
                     f"Rate limit exceeded: {data}",
                     retry_after=parse_retry_after(error_headers.get("retry-after")),
                     code=code,
                 )
+                rate_err.response_body = data
+                raise rate_err
 
             if code == HTTP_SERVICE_UNAVAILABLE:
                 if retry_service_unavailable and not has_unavailable_retried and retries < max_retries:

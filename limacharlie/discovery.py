@@ -213,6 +213,23 @@ PROFILES = {
             "artifact list", "artifact upload", "artifact download",
         ],
     },
+    "investigation_engine": {
+        "description": "Investigation Engine: build, test and tune investigation templates, run investigations and waves, approve actions",
+        "commands": [
+            "investigate kit", "investigate operators", "investigate packs",
+            "investigate templates list", "investigate templates get",
+            "investigate templates validate", "investigate templates test",
+            "investigate templates save", "investigate templates promote",
+            "investigate templates delete", "investigate templates install-defaults",
+            "investigate runs start", "investigate runs get", "investigate runs list",
+            "investigate runs events", "investigate runs steps", "investigate runs case",
+            "investigate runs cancel", "investigate runs delete",
+            "investigate wave",
+            "investigate actions list", "investigate actions approve", "investigate actions deny",
+            "investigate policy get", "investigate policy status",
+            "investigate policy pause", "investigate policy resume",
+        ],
+    },
     "cloud_security": {
         "description": "Cloud and Code Security: onboarding, posture, identity, findings, code-to-cloud risk, and remediation",
         "commands": [
