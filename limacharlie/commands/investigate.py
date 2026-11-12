@@ -693,9 +693,12 @@ def _step_diagnostics(steps):
 
 
 def _test_cost(value):
+    # A response without a cost object (an older service) has no known cost: show it blank, never as 0 (free).
     cost = value if isinstance(value, dict) else {}
-    usd = cost.get("llm_usd", 0)
-    return f"{usd} (unpriced)" if cost.get("llm_unpriced") else usd
+    usd = cost.get("llm_usd")
+    if cost.get("llm_unpriced"):
+        return f"{usd if usd is not None else 0} (unpriced)"
+    return usd
 
 
 def _compact_test(test: dict[str, Any], include_steps: bool) -> dict[str, Any]:
@@ -764,7 +767,8 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
             "samples", "ran", "errors", "decided", "undecided", "true_positive", "false_positive", "inconclusive",
             "with_expected", "agree", "disagree", "agreement_rate") if k in summary))
         if isinstance(summary.get("cost"), dict):
-            click.echo(f"LLM cost: {_test_cost(summary['cost'])}")
+            llm_cost = _test_cost(summary["cost"])
+            click.echo(f"LLM cost: {'unknown' if llm_cost is None else llm_cost}")
         if summary.get("unknown_reasons"):
             click.echo(f"unknown reasons: {summary['unknown_reasons']}")
 

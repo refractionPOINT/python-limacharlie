@@ -701,7 +701,11 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
     output = capsys.readouterr().out
     assert "inconclusive=2" in output
     assert "LLM cost: 0.25 (unpriced)" in output
+    mod._print_test(None, {"summary": {"cost": {}}}, False)
+    assert "LLM cost: unknown" in capsys.readouterr().out
     for cost in ([], "invalid", 1, None):
-        assert mod._test_rows({"results": [{"cost": cost}]})[0]["llm_cost"] == 0
+        assert mod._test_rows({"results": [{"cost": cost}]})[0]["llm_cost"] is None
         mod._print_test(None, {"summary": {"cost": cost}}, False)
+    assert mod._test_rows({"results": [{"cost": {"llm_usd": 0}}]})[0]["llm_cost"] == 0
+    assert mod._test_rows({"results": [{"cost": {"llm_unpriced": True}}]})[0]["llm_cost"] == "0 (unpriced)"
     assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
