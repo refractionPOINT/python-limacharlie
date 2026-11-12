@@ -110,7 +110,13 @@ Samples (at most 25 after expansion):
 | `--sample '{"inputs": {...}, "expected": "false_positive"}'` | free inputs with an optional expected label |
 | `--samples-file FILE` | a YAML/JSON list of sample objects |
 
-Use 5 to 10 samples and include known false **and** true positives. Each sample reports a verdict, the `expected` label when there is one, and an `agreement` of `agree`, `disagree`, `undecided` or `none`; `summary.agreement_rate` is the share that agreed. `unknowns` lists the facts that could not be resolved and why (the usual cause is a wrong field path or argument). Steps that succeeded are dropped from the output (`problem_steps` keeps the others); `--include-steps` keeps all.
+Use 5 to 10 samples and include known false **and** true positives. Each sample reports a verdict, the `expected` label when there is one, and an `agreement` of `agree`, `disagree`, `undecided` or `none`; `summary.agreement_rate` is the share that agreed. `unknowns` lists the facts that could not be resolved and why (the usual cause is a wrong field path or argument). Compact output keeps problem steps in `problem_steps` and safe step diagnostics in `step_diagnostics`:
+completeness, typed reasons, row/count summaries and judge label/confidence/model.
+Table and CSV rows also show prior/posterior, applied evidence and pricing status.
+`unpriced` means USD is only the priced subtotal; it does not mean the model was
+free. `inconclusive` counts finished inconclusive samples, separate from decided samples.
+`--include-steps` additionally retains the full step records and timing.
+
 
 The command waits for the test (`--timeout`, default 600 s). A test still running prints its `test_id`; continue with `--test-id`. `--no-wait` returns right after the start. In table output the per-sample verdicts and the agreement summary are printed as text.
 

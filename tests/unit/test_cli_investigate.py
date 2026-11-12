@@ -666,3 +666,46 @@ class TestEveryFailureIsStructured:
         sdk.promote_template.side_effect = error_from_status_code(400, {"error": "lc_error_code:X - y"})
         result = run(["investigate", "templates", "promote", "my-plan", "--confirm"], fmt="table")
         assert result.exception is not None and not result.stderr.startswith("{")
+
+
+def test_safe_test_diagnostics_survive_compaction_and_tables():
+    from limacharlie.commands.investigate import _compact_test, _test_rows
+    sample = {"steps": [
+        {"fact": "zero", "status": "ok", "complete": True, "counts": {"rows": 0}},
+        {"fact": "positive", "status": "ok", "complete": False, "counts": {"rows": 2}},
+        {"fact": "judge", "status": "ok", "complete": True,
+         "judgement": {"label": "no", "confidence": 0.8, "model": "fixture"}},
+    ], "verdict": {"label": "inconclusive", "decided": True, "prior": 0.3, "p": 0.1,
+                     "evidence": [{"rule": "rule-1", "weight": -2, "facts": ["zero"]}]},
+       "cost": {"llm_usd": 0, "llm_unpriced": True}}
+    compact = _compact_test({"results": [sample]}, False)["results"][0]
+    assert len(compact["step_diagnostics"]) == 3
+    assert compact["step_diagnostics"][0]["counts"]["rows"] == 0
+    assert compact["step_diagnostics"][1]["complete"] is False
+    assert compact["step_diagnostics"][2]["judgement"]["label"] == "no"
+    assert json.loads(_test_rows({"results": [sample]})[0]["step_diagnostics"]) == compact["step_diagnostics"]
+    assert "steps" not in compact
+    assert len(sample["steps"]) == 3
+    row = _test_rows({"results": [sample]})[0]
+    assert row["llm_cost"] == "0 (unpriced)"
+    assert row["prior"] == 0.3
+    assert '"weight":-2' in row["evidence"]
+    assert '"label":"no"' in row["step_diagnostics"]
+
+
+def test_test_cost_and_summary_output(capsys, monkeypatch):
+    from limacharlie.commands import investigate as mod
+    monkeypatch.setattr(mod, "_fmt", lambda ctx: "table")
+    monkeypatch.setattr(mod, "command_output", lambda *args: None)
+    mod._print_test(None, {"summary": {"inconclusive": 2, "cost": {"llm_usd": 0.25, "llm_unpriced": True}}}, False)
+    output = capsys.readouterr().out
+    assert "inconclusive=2" in output
+    assert "LLM cost: 0.25 (unpriced)" in output
+    mod._print_test(None, {"summary": {"cost": {}}}, False)
+    assert "LLM cost: unknown" in capsys.readouterr().out
+    for cost in ([], "invalid", 1, None):
+        assert mod._test_rows({"results": [{"cost": cost}]})[0]["llm_cost"] is None
+        mod._print_test(None, {"summary": {"cost": cost}}, False)
+    assert mod._test_rows({"results": [{"cost": {"llm_usd": 0}}]})[0]["llm_cost"] == 0
+    assert mod._test_rows({"results": [{"cost": {"llm_unpriced": True}}]})[0]["llm_cost"] == "0 (unpriced)"
+    assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
