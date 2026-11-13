@@ -345,6 +345,9 @@ _NOISY_SYSTEM_SUBTYPES: frozenset[str] = frozenset({
     "autoinit_error",
     "resuming_sdk_session",
     "model_set",
+    # effort_adjusted / effort_skipped stay visible: the runner changed
+    # or dropped the level the user asked for.
+    "effort_set",
     "max_turns_set",
     "max_budget_set",
     "task_budget_set",

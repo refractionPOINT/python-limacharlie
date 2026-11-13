@@ -259,6 +259,12 @@ def summarize_detection(ctx, detection_id) -> None:
 # start-session
 # ---------------------------------------------------------------------------
 
+_EFFORT_HELP = (
+    "Reasoning effort. Higher levels "
+    "think longer. They do better on hard investigations, but they are "
+    "slower and use more tokens on your AI provider's bill."
+)
+
 _EXPLAIN_START_SESSION = """\
 Start an AI session using an ai_agent Hive definition as a TEMPLATE.
 
@@ -302,6 +308,9 @@ Examples:
   # Cap budget and force a specific model on top of the template.
   limacharlie ai start-session --definition my-agent \\
     --model claude-sonnet-4-6 --max-budget-usd 2.50
+
+  # Think longer on a hard investigation (slower, more provider tokens).
+  limacharlie ai start-session --definition my-agent --effort high
 
   # Add an env var on top of the template.
   limacharlie ai start-session --definition my-agent \\
@@ -363,6 +372,9 @@ def _parse_env_kv(items: tuple[str, ...]) -> dict[str, str] | None:
 # Profile field overrides.
 @click.option("--model", default=None,
               help="Replace the Anthropic model (e.g. claude-sonnet-4-6).")
+@click.option("--effort", default=None,
+              type=click.Choice(AISDK.EFFORT_LEVELS),
+              help=_EFFORT_HELP + " Omit to keep the template's value.")
 @click.option("--max-turns", default=None, type=int,
               help="Replace the maximum number of agent turns.")
 @click.option("--max-budget-usd", default=None, type=float,
@@ -401,7 +413,7 @@ def _parse_env_kv(items: tuple[str, ...]) -> dict[str, str] | None:
               help="Replace lc_uid_secret. Literal UID or hive://secret/<name>.")
 @pass_context
 def start_session(ctx, definition, prompt, name, idempotent_key, data,
-                  model, max_turns, max_budget_usd, task_budget_tokens,
+                  model, effort, max_turns, max_budget_usd, task_budget_tokens,
                   ttl_seconds, one_shot, permission_mode,
                   allowed_tools, denied_tools, plugins, env_pairs,
                   anthropic_key, provider, credential_pairs,
@@ -422,6 +434,7 @@ def start_session(ctx, definition, prompt, name, idempotent_key, data,
         idempotent_key=idempotent_key,
         data=parsed_data,
         model=model,
+        effort=effort,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         task_budget_tokens=task_budget_tokens,
@@ -937,6 +950,12 @@ Example:
   limacharlie ai chat "what sensors do I have in the last 24h?"
   echo "summarise today's detections" | limacharlie ai chat
   limacharlie ai chat --model claude-sonnet-4-6 --max-budget-usd 1.00
+  limacharlie ai chat --effort high "investigate the last detection"
+
+--effort sets how long the model reasons before answering.  Higher
+levels do better on hard investigations, but they are slower and use
+more tokens on your AI provider's bill.  Omit it to let the model
+choose.
 """
 register_explain("ai.chat", _EXPLAIN_CHAT)
 
@@ -946,6 +965,9 @@ register_explain("ai.chat", _EXPLAIN_CHAT)
 @click.option("--name", default=None, help="Session name.")
 @click.option("--model", default=None,
               help="Anthropic model (e.g. claude-sonnet-4-6).")
+@click.option("--effort", default=None,
+              type=click.Choice(AISDK.EFFORT_LEVELS),
+              help=_EFFORT_HELP + " Omit to let the model choose.")
 @click.option("--max-turns", default=None, type=int,
               help="Maximum number of agent turns before auto-stop.")
 @click.option("--max-budget-usd", default=None, type=float,
@@ -966,7 +988,7 @@ register_explain("ai.chat", _EXPLAIN_CHAT)
 @click.option("--verbose", "-v", is_flag=True, default=False,
               help="Show plumbing system/status messages and full ISO timestamps.")
 @pass_context
-def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
+def chat(ctx, prompt, name, model, effort, max_turns, max_budget_usd,
          task_budget_tokens, permission_mode,
          allowed_tools, denied_tools, plugins, idempotent_key, verbose) -> None:
     from ._ai_attach import run_attach
@@ -1001,6 +1023,7 @@ def chat(ctx, prompt, name, model, max_turns, max_budget_usd,
         name=name,
         idempotent_key=idempotent_key,
         model=model,
+        effort=effort,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         task_budget_tokens=task_budget_tokens,
