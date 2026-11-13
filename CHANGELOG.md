@@ -17,6 +17,17 @@
 - The service accepts the field only while reasoning effort is enabled on it;
   otherwise it is ignored.
 
+### Search - the detection stream is named `detection`
+
+- The SDK docstrings and the `search run`, `search estimate` and
+  `search saved-create` help named the detection stream `detect`, which the
+  Search API rejects with HTTP 400. They now say `detection`, the name the
+  API accepts (with `event` and `audit`).
+- `Search.execute`, `Search.validate`, `Search.estimate` and
+  `search saved-create` send `detect` as `detection`, so scripts and saved
+  queries that used the documented name keep working. Outputs, Spout and
+  firehose still use `detect`, which is correct there.
+
 ### Client - compressed API responses
 
 - The SDK and CLI now ask the API for compressed responses
