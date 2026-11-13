@@ -373,9 +373,46 @@ _EXPLAIN_POLICY_RESUME = """\
 Resume automatic actions for the org. Needs org.conf.set.
 """
 
+_EXPLAIN_RUNS_LABEL = """\
+Submit an independent human assessment of the alert investigated by this run:
+benign, threat, disputed or unlabeled. The engine records provenance from your
+verified identity; an action approval alone is not an alert label. Use a positive
+source revision and increase it when correcting your assessment. Requires
+investigation.set + insight.evt.get. The write is sent once.
+
+Example:
+  limacharlie investigate runs label RUN_ID --assessment benign --revision 1
+"""
+
+_EXPLAIN_SCOREBOARD = """\
+Read per-product decision route track records and graduation state. Route
+versions isolate recipe/model changes; insufficient labels are not evidence
+of correctness. Read the engine's support, missing-cost and completeness
+fields before deciding whether a route is ready. Automatic response requires
+explicit route enablement and the action guard's independent safety checks.
+
+Example:
+  limacharlie investigate scoreboard --product mailsec
+"""
+
+_EXPLAIN_ROUTES = """\
+Enable, disable or configure a decision route returned by the scoreboard.
+Needs org.conf.set. Enablement is a person's explicit decision (--confirm);
+the engine refuses ineligible routes. It demotes a route after a wrong call.
+Configure the required agreements and the human-review sample fraction.
+Changes are sent once and never replayed after a gateway timeout.
+
+Examples:
+  limacharlie investigate routes enable ROUTE_ID --product mailsec --confirm
+  limacharlie investigate routes disable ROUTE_ID --product mailsec
+  limacharlie investigate routes configure ROUTE_ID --product mailsec --min-agreeing 200 --sample-rate 0.05
+"""
+
 _EXPLAIN_AUTOPILOT_STATUS = """\
-Read automatic investigation settings, day/month spent and reserved USD, and
-counters for seen, investigated, deduped, budget-skipped and failed alerts.
+Read automatic investigation settings, day/month charged, spent and reserved
+USD, budget_exhausted, and counters including queued and active work. Caps use
+charged_usd (conservative full run allowances, not refunded for late/unknown
+billing); spent_usd is the reported lower bound.
 Shadow mode investigates without response actions; automation_available says
 whether automatic response is available, independently of source enablement.
 
@@ -384,7 +421,7 @@ Example:
 """
 
 _EXPLAIN_AUTOPILOT_CONFIGURE = """\
-Configure automatic investigations with a JSON settings object (--settings),
+Replace the full automatic investigation configuration with JSON (--settings),
 a JSON file (--file), or stdin (--file -). Needs org.conf.set. Sources select
 an enabled flag, mode (start with shadow) and active template. Dollar caps and
 max_concurrent bound automatic work. The engine validates and stores settings;
@@ -407,6 +444,11 @@ Examples:
 
 for _path, _text in {
     "investigate": _EXPLAIN_GROUP,
+    "investigate.scoreboard": _EXPLAIN_SCOREBOARD,
+    "investigate.routes": _EXPLAIN_ROUTES,
+    "investigate.routes.enable": _EXPLAIN_ROUTES,
+    "investigate.routes.disable": _EXPLAIN_ROUTES,
+    "investigate.routes.configure": _EXPLAIN_ROUTES,
     "investigate.autopilot": _EXPLAIN_AUTOPILOT_STATUS,
     "investigate.autopilot.status": _EXPLAIN_AUTOPILOT_STATUS,
     "investigate.autopilot.configure": _EXPLAIN_AUTOPILOT_CONFIGURE,
@@ -424,6 +466,7 @@ for _path, _text in {
     "investigate.templates.install-defaults": _EXPLAIN_TEMPLATES_INSTALL,
     "investigate.runs.start": _EXPLAIN_RUNS_START,
     "investigate.runs.get": _EXPLAIN_RUNS_GET,
+    "investigate.runs.label": _EXPLAIN_RUNS_LABEL,
     "investigate.runs.list": _EXPLAIN_RUNS_LIST,
     "investigate.runs.events": _EXPLAIN_RUNS_EVENTS,
     "investigate.runs.steps": _EXPLAIN_RUNS_STEPS,
@@ -1316,7 +1359,7 @@ def autopilot_status(ctx) -> None:
 @pass_context
 @_engine_errors
 def autopilot_configure(ctx, settings, file_path) -> None:
-    """Configure automatic investigation sources and budgets (org.conf.set)."""
+    """Replace all automatic investigation settings (org.conf.set)."""
     if (settings is None) == (file_path is None):
         raise _input_error("--settings/--file", "provide exactly one of --settings JSON or --file PATH")
     hint = "--file" if file_path is not None else "--settings"
@@ -1326,7 +1369,7 @@ def autopilot_configure(ctx, settings, file_path) -> None:
 
 @autopilot_group.command("alerts")
 @click.option("--source", default=None, help="Only this product source, for example mailsec.")
-@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size (engine default 50).")
+@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size (engine default 100).")
 @click.option("--cursor", default=None, help="Continue from the next_cursor of the previous page.")
 @pass_context
 @_engine_errors
@@ -1334,3 +1377,71 @@ def autopilot_alerts(ctx, source, limit, cursor) -> None:
     """List alerts and their investigation run links, including skipped alerts."""
     page = _get_investigation(ctx).list_autopilot_alerts(source=source, limit=limit, cursor=cursor)
     _emit_page(ctx, "alerts", page.get("alerts") or [], page.get("next_cursor") or "", lambda alert: alert)
+
+
+# ---------------------------------------------------------------------------
+# scoreboard and route graduation
+# ---------------------------------------------------------------------------
+
+@group.command("scoreboard")
+@click.option("--product", default=None, help="Restrict track records to this product, for example mailsec.")
+@pass_context
+@_engine_errors
+def scoreboard_cmd(ctx, product) -> None:
+    """Show decision route track records and graduation state."""
+    command_output(ctx, _get_investigation(ctx).get_scoreboard(product=product))
+
+
+@group.group("routes")
+def routes_group() -> None:
+    """Explicit human enablement and configuration of decision routes."""
+
+
+@routes_group.command("enable")
+@click.argument("route_id")
+@click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
+@click.option("--confirm", is_flag=True, help="Confirm the human decision to enable automatic response for this route.")
+@pass_context
+@_engine_errors
+def routes_enable(ctx, route_id, product, confirm) -> None:
+    """Enable an eligible route (a person's decision; requires --confirm)."""
+    if not confirm:
+        raise click.UsageError("Route enablement requires a person's explicit --confirm flag.")
+    command_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "enable"))
+
+
+@routes_group.command("disable")
+@click.argument("route_id")
+@click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
+@pass_context
+@_engine_errors
+def routes_disable(ctx, route_id, product) -> None:
+    """Disable automatic response for this route."""
+    command_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "disable"))
+
+
+@routes_group.command("configure")
+@click.argument("route_id")
+@click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
+@click.option("--min-agreeing", type=click.IntRange(min=1), default=None, help="Required agreeing labels; the engine enforces its safety floor.")
+@click.option("--sample-rate", type=click.FloatRange(min=0, max=1), default=None, help="Fraction sent for independent human review, 0..1; the engine applies its policy floor and defaults.")
+@pass_context
+@_engine_errors
+def routes_configure(ctx, route_id, product, min_agreeing, sample_rate) -> None:
+    """Configure agreement requirements and independent human sampling."""
+    if min_agreeing is None and sample_rate is None:
+        raise _input_error("--min-agreeing/--sample-rate", "provide at least one route setting")
+    command_output(ctx, _get_investigation(ctx).decide_route(
+        route_id, product, "configure", min_agreeing=min_agreeing, sample_rate=sample_rate,
+    ))
+
+
+@runs_group.command("label")
+@click.argument("run_id")
+@click.option("--assessment", required=True, type=click.Choice(["benign", "threat", "disputed", "unlabeled"]), help="Independent human assessment of the alert; not an action approval.")
+@click.option("--revision", required=True, type=click.IntRange(1, (1 << 63) - 1), help="Positive source revision; increase it for a correction.")
+@pass_context
+@_engine_errors
+def runs_label(ctx, run_id, assessment, revision) -> None:
+    """Submit an independent alert label with authenticated provenance."""
+    command_output(ctx, _get_investigation(ctx).submit_run_label(run_id, assessment, revision))

@@ -713,9 +713,9 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
 
 class TestAutopilot:
     def test_status_keeps_spend_counters_and_automation_flag(self, sdk):
-        status = {"config": {"sources": {}}, "day": {"spent_usd": 1, "reserved_usd": 0.5},
-                  "month": {"spent_usd": 2, "reserved_usd": 0.5},
-                  "counters": {"seen": 3, "skipped_budget": 1}, "automation_available": False}
+        status = {"config": {"sources": {}}, "day": {"charged_usd": 2, "spent_usd": 1, "reserved_usd": 0.5},
+                  "month": {"charged_usd": 3, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
+                  "counters": {"seen": 3, "skipped_budget": 1, "queued": 1, "active": 1}, "automation_available": False}
         sdk.get_autopilot.return_value = status
         result = run(["investigate", "autopilot", "status"])
         assert result.exit_code == 0, result.stderr
@@ -762,3 +762,53 @@ class TestAutopilot:
         result = run(["investigate", "autopilot", "configure", "--settings", "{}"])
         assert result.exit_code != 0
         assert json.loads(result.stderr)["errors"][0]["code"] == "unknown_field"
+
+
+class TestScoreboard:
+    route_id = "a" * 64
+
+    def test_scoreboard_preserves_unpriced_and_incomplete_metadata(self, sdk):
+        result = {"routes": [{"route_id": self.route_id, "state": "shadow", "cost_usd": None}], "truncated": True}
+        sdk.get_scoreboard.return_value = result
+        response = run(["investigate", "scoreboard", "--product", "mailsec"])
+        assert response.exit_code == 0, response.stderr
+        assert out_json(response) == result
+        sdk.get_scoreboard.assert_called_once_with(product="mailsec")
+
+    def test_enabling_requires_explicit_confirm(self, sdk):
+        response = run(["investigate", "routes", "enable", self.route_id, "--product", "mailsec"])
+        assert response.exit_code != 0 and "--confirm" in response.stderr
+        sdk.decide_route.assert_not_called()
+        sdk.decide_route.return_value = {"route": {"state": "enabled"}}
+        response = run(["investigate", "routes", "enable", self.route_id, "--product", "mailsec", "--confirm"])
+        assert response.exit_code == 0, response.stderr
+        sdk.decide_route.assert_called_once_with(self.route_id, "mailsec", "enable")
+
+    def test_disable_and_configure(self, sdk):
+        sdk.decide_route.return_value = {"route": {"state": "shadow"}}
+        response = run(["investigate", "routes", "disable", self.route_id, "--product", "mailsec"])
+        assert response.exit_code == 0, response.stderr
+        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "disable")
+        response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", "--min-agreeing", "250", "--sample-rate", "0.1"])
+        assert response.exit_code == 0, response.stderr
+        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "configure", min_agreeing=250, sample_rate=0.1)
+
+    def test_configure_requires_setting_and_refuses_out_of_range_sample(self, sdk):
+        for options in ([], ["--sample-rate", "-0.1"], ["--sample-rate", "1.1"], ["--min-agreeing", "0"]):
+            response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", *options])
+            assert response.exit_code != 0
+        sdk.decide_route.assert_not_called()
+
+    def test_run_label_sends_independent_assessment_and_revision(self, sdk):
+        sdk.submit_run_label.return_value = {"outcome": {"assessment": "benign", "revision": 2}}
+        response = run(["investigate", "runs", "label", "run-1", "--assessment", "benign", "--revision", "2"])
+        assert response.exit_code == 0, response.stderr
+        sdk.submit_run_label.assert_called_once_with("run-1", "benign", 2)
+        assert out_json(response)["outcome"]["revision"] == 2
+
+    @pytest.mark.parametrize("options", [["--assessment", "false_positive", "--revision", "1"],
+                                         ["--assessment", "benign", "--revision", "0"],
+                                         ["--assessment", "benign"]])
+    def test_run_label_requires_valid_assessment_and_revision(self, sdk, options):
+        assert run(["investigate", "runs", "label", "run-1", *options]).exit_code != 0
+        sdk.submit_run_label.assert_not_called()

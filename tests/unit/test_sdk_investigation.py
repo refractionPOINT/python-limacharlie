@@ -906,8 +906,8 @@ class TestParseDocument:
 
 class TestAutopilot:
     def test_status_and_alert_page_are_preserved(self, inv, mock_org):
-        status = {"config": {"sources": {}}, "day": {"spent_usd": 1, "reserved_usd": 0.5},
-                  "month": {"spent_usd": 2, "reserved_usd": 0.5},
+        status = {"config": {"sources": {}}, "day": {"charged_usd": 2, "spent_usd": 1, "reserved_usd": 0.5},
+                  "month": {"charged_usd": 3, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
                   "counters": {"seen": 4, "skipped_budget": 1}, "automation_available": False}
         mock_org.client.request.return_value = status
         assert inv.get_autopilot() == status
@@ -945,4 +945,55 @@ class TestAutopilot:
     def test_invalid_limit_is_never_sent(self, inv, mock_org, limit):
         with pytest.raises(ValidationError):
             inv.list_autopilot_alerts(limit=limit)
+        mock_org.client.request.assert_not_called()
+
+
+class TestScoreboard:
+    route_id = "a" * 64
+
+    def test_scoreboard_keeps_engine_track_record_and_gaps(self, inv, mock_org):
+        response = {"routes": [{"route_id": self.route_id, "state": "eligible", "cost_usd": None,
+                                "agreeing": 200, "wrong": 0}], "truncated": True}
+        mock_org.client.request.return_value = response
+        assert inv.get_scoreboard(product="mailsec") == response
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("GET", "investigate/oid-1/scoreboard")
+        assert dict(kw["query_params"]) == {"product": "mailsec"}
+
+    @pytest.mark.parametrize("verb", ["enable", "disable", "configure"])
+    def test_route_decision_is_raw_json_without_timeout_retry(self, inv, mock_org, verb):
+        options = {"min_agreeing": 250, "sample_rate": 0.1} if verb == "configure" else {}
+        inv.decide_route(self.route_id, "mailsec", verb, **options)
+        method, path, kw = _request_args(mock_org)
+        assert (method, path) == ("POST", f"investigate/oid-1/routes/{self.route_id}/decision")
+        assert json.loads(kw["raw_body"]) == {"product": "mailsec", "verb": verb, **options}
+        assert kw["retry_gateway_timeout"] is False
+        mock_org.client.request.assert_called_once()
+
+    @pytest.mark.parametrize("options", [
+        {"route_id": "not-a-digest"}, {"route_id": "A" * 64}, {"product": ""}, {"verb": "approve"},
+        {"min_agreeing": 0}, {"min_agreeing": True}, {"min_agreeing": 1.5},
+        {"sample_rate": float("nan")}, {"sample_rate": 1.1}, {"sample_rate": True},
+    ])
+    def test_bad_route_decisions_do_not_reach_network(self, inv, mock_org, options):
+        args = {"route_id": self.route_id, "product": "mailsec", "verb": "configure", **options}
+        with pytest.raises(ValidationError):
+            inv.decide_route(**args)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("assessment", ["benign", "threat", "disputed", "unlabeled"])
+    def test_label_contains_only_assessment_and_revision(self, inv, mock_org, assessment):
+        mock_org.client.request.return_value = {"outcome": {"assessment": assessment, "revision": 2}}
+        assert inv.submit_run_label("run-1", assessment, 2)["outcome"]["assessment"] == assessment
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("POST", "investigate/oid-1/runs/run-1/labels")
+        assert json.loads(kw["raw_body"]) == {"assessment": assessment, "revision": 2}
+        assert kw["retry_gateway_timeout"] is False
+        mock_org.client.request.assert_called_once()
+
+    @pytest.mark.parametrize("assessment,revision", [("false_positive", 1), ("benign", 0), ("benign", True),
+                                                    ("benign", "2"), ("benign", 1.5), ("benign", 1 << 63)])
+    def test_invalid_labels_do_not_reach_network(self, inv, mock_org, assessment, revision):
+        with pytest.raises(ValidationError):
+            inv.submit_run_label("run-1", assessment, revision)
         mock_org.client.request.assert_not_called()

@@ -3,7 +3,7 @@
 Wraps the ``/investigate/{oid}/...`` REST routes served by the API gateway:
 the authoring kit, the typed operator and fact-pack catalogues, plan
 validation and dry runs on past alerts, investigation runs (start, read,
-list, events, cancel, delete), waves, the approvals inbox and the autonomy switch.
+list, events, cancel, delete), waves, the approvals inbox, Autopilot and the scoreboard.
 
 The feature is experimental and gated per deployment. Where it is off, every
 route is an unknown path (HTTP 404 with no engine error code); where the
@@ -17,7 +17,7 @@ Permissions (all of the listed ones are required):
 - writes (start a run, waves, cancel, delete, test a plan, decide an action):
   ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
   the permission of the action's own class (for example ``sensor.task``)
-- pause / resume of automatic actions: ``org.conf.set``
+- pause / resume, Autopilot configuration and route decisions: ``org.conf.set``
 - the template records themselves (hive ``investigation_plan``):
   ``investigation_plan.get`` / ``investigation_plan.set`` /
   ``investigation_plan.del``. These are explicit grants, no default role has
@@ -37,6 +37,7 @@ import base64
 import datetime
 import functools
 import json
+import math
 import re
 import time
 from typing import Any, Iterator, TYPE_CHECKING
@@ -835,12 +836,102 @@ class Investigation:
             ),
         )
 
+    def get_scoreboard(self, product: str | None = None) -> dict[str, Any]:
+        """Read versioned decision route track records and graduation state.
+
+        Args:
+            product: Restrict results to this product (for example ``mailsec``).
+
+        Returns:
+            dict: The engine scoreboard, preserving support, gaps, costs and route state.
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        return self._get("scoreboard", self._q(product=product))
+
+    def decide_route(
+        self, route_id: str, product: str, verb: str, *,
+        min_agreeing: int | None = None, sample_rate: float | None = None,
+    ) -> dict[str, Any]:
+        """Enable, disable or configure a decision route for this product.
+
+        Enablement is an explicit human decision requiring ``org.conf.set``.
+        The engine owns readiness checks, versioning and demotion. This write
+        is sent once, without replay after a gateway timeout.
+
+        Args:
+            route_id: The route ID returned by the scoreboard.
+            product: Product owning the route.
+            verb: ``enable``, ``disable`` or ``configure``.
+            min_agreeing: Required agreements for configure; the engine enforces its floor.
+            sample_rate: Human review sample fraction for configure, in [0, 1].
+                The engine applies its policy floor and defaults.
+
+        Returns:
+            dict: The engine's route decision response.
+
+        Raises:
+            ValidationError: If the route ID, product or verb is invalid.
+            InvestigationError: If the engine refuses or the API call fails.
+        """
+        route_id = _check_id("route id", route_id)
+        if len(route_id) != 64 or any(c not in "0123456789abcdef" for c in route_id):
+            raise ValidationError("route id must be a lowercase SHA-256 hex digest from the scoreboard")
+        if not isinstance(product, str) or not product.strip():
+            raise ValidationError("product must not be empty")
+        if verb not in ("enable", "disable", "configure"):
+            raise ValidationError("route verb must be enable, disable or configure")
+        if min_agreeing is not None and (type(min_agreeing) is not int or not 1 <= min_agreeing <= (1 << 63) - 1):
+            raise ValidationError("min_agreeing must be a positive int64")
+        if sample_rate is not None and (
+            type(sample_rate) not in (int, float) or not 0 <= sample_rate <= 1 or not math.isfinite(sample_rate)
+        ):
+            raise ValidationError("sample_rate must be a finite number between 0 and 1")
+        body: dict[str, Any] = {"product": product, "verb": verb}
+        if min_agreeing is not None:
+            body["min_agreeing"] = min_agreeing
+        if sample_rate is not None:
+            body["sample_rate"] = sample_rate
+        return self._call("POST", f"routes/{_quote(route_id, safe='')}/decision", body=body, write=True)
+
+    def submit_run_label(self, run_id: str, assessment: str, revision: int) -> dict[str, Any]:
+        """Record an independent human assessment of an investigated alert.
+
+        The server derives provenance from the verified caller and stored run;
+        callers cannot provide an actor or forge an outcome source. A corrected
+        assessment needs a newer source revision. Writes are sent once.
+
+        Args:
+            run_id: The run being assessed.
+            assessment: ``benign``, ``threat``, ``disputed`` or ``unlabeled``.
+            revision: Positive source revision (increase for corrections).
+
+        Returns:
+            dict: ``outcome``, with the engine-recorded label and provenance.
+
+        Raises:
+            ValidationError: If the run ID, assessment or revision is invalid.
+            InvestigationError: If the label is refused or the API call fails.
+        """
+        run_id = _check_id("run id", run_id)
+        if assessment not in ("benign", "threat", "disputed", "unlabeled"):
+            raise ValidationError("assessment must be benign, threat, disputed or unlabeled")
+        if type(revision) is not int or not 1 <= revision <= (1 << 63) - 1:
+            raise ValidationError("revision must be a positive int64")
+        return self._call(
+            "POST", f"runs/{_quote(run_id, safe='')}/labels",
+            body={"assessment": assessment, "revision": revision}, write=True,
+        )
+
     def get_autopilot(self) -> dict[str, Any]:
         """Read automatic investigation settings, budget usage and counters.
 
         Returns:
-            dict: ``config``, ``day`` and ``month`` spend/reservations,
-                ``counters`` and ``automation_available``. Shadow investigations
+            dict: ``config``, ``day`` and ``month`` charged/spent/reserved USD,
+                ``budget_exhausted``, ``counters`` and ``automation_available``.
+                Caps use conservative ``charged_usd`` allowances; ``spent_usd``
+                is a reported lower bound. Shadow investigations
                 do not authorize automatic response actions.
 
         Raises:
@@ -849,7 +940,7 @@ class Investigation:
         return self._get("autopilot")
 
     def set_autopilot(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Configure automatic investigation sources and budgets for the org.
+        """Replace automatic investigation sources and budgets for the org.
 
         Requires ``org.conf.set``. The engine validates settings and stores
         them durably; template and policy identities remain managed in Hive.
@@ -878,7 +969,7 @@ class Investigation:
 
         Args:
             source: Only alerts from this product source (for example ``mailsec``).
-            limit: Page size, 1..200 (engine default 50).
+            limit: Page size, 1..200 (engine default 100).
             cursor: ``next_cursor`` of the previous page.
 
         Returns:
