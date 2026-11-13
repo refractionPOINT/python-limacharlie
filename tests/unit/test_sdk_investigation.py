@@ -927,7 +927,7 @@ class TestAutopilot:
         config = {"sources": {"mailsec": {"enabled": True, "mode": "shadow", "template": "mailsec-generic-triage"}},
                   "daily_cap_micro_usd": 10000000, "monthly_cap_micro_usd": 100000000, "max_concurrent": 5, "run_cap_micro_usd": 500000}
         mock_org.client.request.return_value = {"config": config, "automation_available": False}
-        assert inv.set_autopilot(config)["config"] == config
+        assert inv.set_autopilot(config, etag="policy-v1")["config"] == config
         verb, path, kw = _request_args(mock_org)
         assert (verb, path) == ("PUT", "investigate/oid-1/autopilot")
         assert json.loads(kw["raw_body"]) == config
@@ -938,7 +938,7 @@ class TestAutopilot:
     @pytest.mark.parametrize("config", [None, [], "{}", {"run_cap_micro_usd": float("nan")}])
     def test_invalid_config_is_never_sent(self, inv, mock_org, config):
         with pytest.raises(ValidationError):
-            inv.set_autopilot(config)
+            inv.set_autopilot(config, etag="policy-v1")
         mock_org.client.request.assert_not_called()
 
     @pytest.mark.parametrize("limit", [0, 201, True, 1.5, "20"])
@@ -963,7 +963,7 @@ class TestScoreboard:
     @pytest.mark.parametrize("verb", ["enable", "disable", "configure"])
     def test_route_decision_is_raw_json_without_timeout_retry(self, inv, mock_org, verb):
         options = {"min_agreeing": 250, "spot_check_ppm": 100000} if verb == "configure" else {}
-        inv.decide_route(self.route_id, "mailsec", verb, **options)
+        inv.decide_route(self.route_id, "mailsec", verb, etag="policy-v1", **options)
         method, path, kw = _request_args(mock_org)
         assert (method, path) == ("POST", f"investigate/oid-1/routes/{self.route_id}/decision")
         assert json.loads(kw["raw_body"]) == {"product": "mailsec", "verb": verb, **options}
@@ -976,7 +976,7 @@ class TestScoreboard:
         {"spot_check_ppm": float("nan")}, {"spot_check_ppm": 1000001}, {"spot_check_ppm": True},
     ])
     def test_bad_route_decisions_do_not_reach_network(self, inv, mock_org, options):
-        args = {"route_id": self.route_id, "product": "mailsec", "verb": "configure", **options}
+        args = {"route_id": self.route_id, "product": "mailsec", "verb": "configure", **options, "etag": "policy-v1"}
         with pytest.raises(ValidationError):
             inv.decide_route(**args)
         mock_org.client.request.assert_not_called()
@@ -1047,19 +1047,19 @@ def test_autopilot_alerts_all_filters_and_metadata_preserved(inv, mock_org):
 @pytest.mark.parametrize("value", [1.0, 1e6, "1000000", None, True, 1 << 63])
 def test_autopilot_micros_must_be_integer(inv, mock_org, value):
     with pytest.raises(ValidationError):
-        inv.set_autopilot({"daily_cap_micro_usd": value})
+        inv.set_autopilot({"daily_cap_micro_usd": value}, etag="policy-v1")
     mock_org.client.request.assert_not_called()
 
 
 @pytest.mark.parametrize("key", ["daily_usd", "monthly_usd", "run_usd"])
 def test_autopilot_does_not_accept_old_floating_usd_keys(inv, mock_org, key):
     with pytest.raises(ValidationError):
-        inv.set_autopilot({key: 10})
+        inv.set_autopilot({key: 10}, etag="policy-v1")
     mock_org.client.request.assert_not_called()
 
 
 def test_route_all_integer_ppm_options_round_trip(inv, mock_org):
-    inv.decide_route("a" * 64, "mailsec", "configure", spot_check_ppm=50000, error_target_ppm=15000, blind_share_ppm=100000)
+    inv.decide_route("a" * 64, "mailsec", "configure", spot_check_ppm=50000, error_target_ppm=15000, blind_share_ppm=100000, etag="policy-v1")
     assert json.loads(_request_args(mock_org)[2]["raw_body"]) == {
         "product": "mailsec", "verb": "configure", "spot_check_ppm": 50000, "error_target_ppm": 15000, "blind_share_ppm": 100000,
     }
@@ -1069,13 +1069,13 @@ def test_route_all_integer_ppm_options_round_trip(inv, mock_org):
 @pytest.mark.parametrize("value", [1.0, True, "50000", -1, 1000001])
 def test_route_ppm_options_are_strict_integers(inv, mock_org, field, value):
     with pytest.raises(ValidationError):
-        inv.decide_route("a" * 64, "mailsec", "configure", **{field: value})
+        inv.decide_route("a" * 64, "mailsec", "configure", etag="policy-v1", **{field: value})
     mock_org.client.request.assert_not_called()
 
 
 def test_route_error_target_ppm_canonical_maximum(inv, mock_org):
     with pytest.raises(ValidationError):
-        inv.decide_route("a" * 64, "mailsec", "configure", error_target_ppm=100001)
+        inv.decide_route("a" * 64, "mailsec", "configure", error_target_ppm=100001, etag="policy-v1")
     mock_org.client.request.assert_not_called()
 
 
@@ -1095,7 +1095,7 @@ class TestSetupProgressErrors:
         before = deepcopy(body)
         mock_org.client.request.side_effect = error_from_status_code(400, body)
         with pytest.raises(InvestigationError) as caught:
-            inv.set_autopilot({})
+            inv.set_autopilot({}, etag="policy-v1")
         document = caught.value.to_dict()
         expected = [
             {"id": "recipe", "source": "mailsec", "status": "done"},
@@ -1126,3 +1126,71 @@ class TestSetupProgressErrors:
                                  response_body={"setup": {"steps": []}, "onboarding": []})
         assert exc.to_dict() == {"error": "setup failed", "status": 400,
                                  "setup": {"steps": []}, "onboarding": []}
+
+
+class TestPolicyPreconditions:
+    @staticmethod
+    def write(inv, operation, **conditions):
+        if operation == "autopilot":
+            return inv.set_autopilot({"sources": {}, "daily_cap_micro_usd": 10000000}, **conditions)
+        return inv.decide_route("a" * 64, "mailsec", operation, **conditions)
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    @pytest.mark.parametrize("etag", ["native-123", '"native-123"', "", '""'])
+    def test_exact_etag_preserved_outside_body_without_read(self, inv, mock_org, operation, etag):
+        mock_org.client.request.return_value = {"etag": "new-etag"}
+        assert self.write(inv, operation, etag=etag) == {"etag": "new-etag"}
+        mock_org.client.request.assert_called_once()
+        method, _, kw = _request_args(mock_org)
+        assert method in ("PUT", "POST")
+        assert kw["extra_headers"] == {"If-Match": etag}
+        assert kw["query_params"] is None
+        assert kw["retry_gateway_timeout"] is False
+        body = json.loads(kw["raw_body"])
+        assert "etag" not in body and "force" not in body
+        if operation == "autopilot":
+            assert body == {"sources": {}, "daily_cap_micro_usd": 10000000}
+        else:
+            assert body == {"product": "mailsec", "verb": operation}
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    def test_force_is_explicit_query_without_implicit_fetch(self, inv, mock_org, operation):
+        self.write(inv, operation, force=True)
+        mock_org.client.request.assert_called_once()
+        kw = _request_args(mock_org)[2]
+        assert kw["query_params"] == [("force", "true")]
+        assert "extra_headers" not in kw
+        assert "force" not in json.loads(kw["raw_body"])
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    @pytest.mark.parametrize("conditions", [
+        {}, {"force": False}, {"force": "true"}, {"force": 1}, {"force": None},
+        {"etag": "v1", "force": True}, {"etag": "", "force": True},
+        {"etag": 1}, {"etag": False}, {"etag": ["v1"]},
+        {"etag": 'W/"v1"'}, {"etag": '"W/v1"'}, {"etag": "*"},
+        {"etag": '"v1","v2"'}, {"etag": '""v1""'}, {"etag": '"v1'},
+        {"etag": "v1\n"}, {"etag": " v1"}, {"etag": "v\\1"}, {"etag": "v" * 1025},
+    ])
+    def test_absent_and_invalid_preconditions_never_call_api(self, inv, mock_org, operation, conditions):
+        with pytest.raises(ValidationError):
+            self.write(inv, operation, **conditions)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    @pytest.mark.parametrize("conditions", [{"etag": "stale"}, {"force": True}])
+    def test_stale_and_native_cas_conflicts_keep_409_without_retry(self, inv, mock_org, operation, conditions):
+        body = {"error": "policy changed; read etag or explicitly use force=true", "error_code": "policy_conflict"}
+        mock_org.client.request.side_effect = error_from_status_code(409, body)
+        with pytest.raises(InvestigationError) as caught:
+            self.write(inv, operation, **conditions)
+        assert caught.value.status_code == 409
+        assert caught.value.response_body == body
+        assert "etag" in str(caught.value) and "force=true" in str(caught.value)
+        mock_org.client.request.assert_called_once()
+
+    @pytest.mark.parametrize("etag", ["", "native-123"])
+    def test_status_and_scoreboard_expose_body_etag_without_conversion(self, inv, mock_org, etag):
+        response = {"etag": etag, "config": {}, "routes": [], "truncated": False}
+        mock_org.client.request.return_value = response
+        assert inv.get_autopilot()["etag"] == etag
+        assert inv.get_scoreboard()["etag"] == etag

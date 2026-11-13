@@ -189,8 +189,8 @@ an enabled source does not itself mean response automation is available.
 
 ```bash
 limacharlie investigate autopilot status [--source mailsec] [--period today|7d|30d] [--from ISO --to ISO]
-limacharlie investigate autopilot configure --file autopilot.json
-limacharlie investigate autopilot configure --settings '{"sources":{"mailsec":{"enabled":false}},"daily_cap_micro_usd":10000000,"monthly_cap_micro_usd":100000000,"max_concurrent":5,"run_cap_micro_usd":500000}'
+limacharlie investigate autopilot configure --etag ETAG --file autopilot.json
+limacharlie investigate autopilot configure --etag ETAG --settings '{"sources":{"mailsec":{"enabled":false}},"daily_cap_micro_usd":10000000,"monthly_cap_micro_usd":100000000,"max_concurrent":5,"run_cap_micro_usd":500000}'
 limacharlie investigate autopilot alerts [--source mailsec] [--state STATE] [--group-id ID] [--run-id ID] \
     [--from ISO] [--to ISO] [--limit N] [--cursor C]
 ```
@@ -223,6 +223,18 @@ A full configuration example for `autopilot.json`:
 
 Each configure call replaces the full configuration, including all sources and
 budget limits. Start from the current `status.config` and edit the full object.
+Read `status.etag` from that same response and pass `--etag VALUE`. An empty
+string explicitly asserts no default policy (`--etag ''`); raw native etags and
+one quoted HTTP wrapper are accepted and preserved. Alternatively choose
+`--force` explicitly, exclusive with `--etag`. The CLI and SDK never refresh
+etags or force automatically. A missing or stale precondition returns HTTP 409;
+read the current etag or deliberately choose force before retrying. Force skips
+only the client-view comparison: native Hive compare-and-swap still applies,
+and a concurrent native write can still return 409. Invalid or repeated HTTP
+preconditions, or `force=true` with `If-Match`, return 400. `force=false` with
+`If-Match` remains conditional. SDK writes accept `etag=...` or `force=True`;
+the HTTP API uses an `If-Match` header or explicit `?force=true`, outside the
+unchanged JSON configuration body.
 The engine replaces only `default.auto_investigation` in the Hive
 `investigation_policy` record with an etag check, preserving all other policy
 data and metadata. It reads configuration from Hive rather than persisting a
@@ -266,16 +278,24 @@ envelope; table/CSV/JSONL put the continuation cursor on stderr.
 
 ```bash
 limacharlie investigate scoreboard [--product mailsec]
-limacharlie investigate routes enable ROUTE_ID --product mailsec --confirm
-limacharlie investigate routes disable ROUTE_ID --product mailsec
-limacharlie investigate routes configure ROUTE_ID --product mailsec [--min-agreeing N] [--spot-check-ppm N] [--error-target-ppm N] [--blind-share-ppm N]
+limacharlie investigate routes enable ROUTE_ID --product mailsec --etag ETAG --confirm
+limacharlie investigate routes disable ROUTE_ID --product mailsec --etag ETAG
+limacharlie investigate routes configure ROUTE_ID --product mailsec --etag ETAG [--min-agreeing N] [--spot-check-ppm N] [--error-target-ppm N] [--blind-share-ppm N]
 limacharlie investigate runs label RUN_ID --assessment benign --revision 1
 ```
 
-`scoreboard` returns the engine's `routes` and `truncated` flag, preserving the
+`scoreboard` returns the engine's `etag`, `routes` and `truncated` flag, preserving the
 versioned track record, support, coverage, cost gaps and graduation state. Take
 the exact lowercase SHA-256 `ROUTE_ID` from that response. Recipe/model changes
 start a new track record. A lack of labels does not establish correctness.
+
+Use the scoreboard response's exact `etag` for **every** route decision,
+including disable and configure. Supply `--etag VALUE` or explicitly choose
+`--force` (exclusive), with the same absence, quoting, 409 conflict and native
+compare-and-swap behavior described above. An empty `etag` asserts no default
+policy. SDK `decide_route(..., etag=..., force=False)` carries `If-Match` outside
+the decision JSON; `force=True` uses `?force=true`. The response body `etag` is
+the SDK's source; the gateway also returns an HTTP `ETag` header on reads/writes.
 
 Route decisions require a verified human identity (`user:<uid>`) and
 `org.conf.set`. Enablement is a person's explicit choice
@@ -287,11 +307,12 @@ least one setting: a positive agreement count or an integer `--spot-check-ppm` r
 Decimal and exponent wire values are refused. The engine owns safety floors, default values and readiness; a CLI setting
 does not bypass them. A route can be demoted after a wrong call.
 
-`runs label` records an independent human assessment: `benign`, `threat`,
+`runs label` records an independent assessment: `benign`, `threat`,
 `disputed` or `unlabeled`. Use a positive source revision; increase it when
 correcting the assessment. The server supplies provenance from your verified
-human identity (`user:<uid>`) and the stored run. API-key identities cannot
-submit human assessments. Approving a suggested action alone is not an alert
+human identity (`user:<uid>`) or independent API-key integration identity and
+the stored run. Integration API keys can label; the engine's own investigation
+key is excluded from labeling its work. Approving a suggested action alone is not an alert
 label. Label writes require `investigation.set` + `insight.evt.get`. Route and
 label writes are sent once, without replay after a gateway timeout.
 

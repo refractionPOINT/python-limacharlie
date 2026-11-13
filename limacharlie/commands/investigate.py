@@ -65,10 +65,13 @@ AI agent workflow for a new template (a person promotes it at the end):
 
 Questions without a template: use `investigate packs` then `investigate wave`.
 
-Permissions: reads need investigation.get + insight.evt.get, writes (start,
-wave, test, cancel, delete, decide) investigation.set + insight.evt.get, pause/resume
-org.conf.set, autopilot configure investigation_policy.get/.set,
-template records investigation_plan.get/.set/.del.
+Permissions: reads need investigation.get + insight.evt.get; writes (start,
+wave, test, cancel, delete, decide action) need investigation.set + insight.evt.get.
+Routes enable|disable|configure need org.conf.set + verified human identity.
+Runs label needs investigation.set + insight.evt.get; independent API-key labels
+are valid integrations (the engine's own key is excluded). Pause/resume needs
+org.conf.set; autopilot configure adds investigation_policy.get/.set to normal
+read permissions. Template records need investigation_plan.get/.set/.del.
 """
 
 _EXPLAIN_KIT = """\
@@ -375,9 +378,10 @@ Resume automatic actions for the org. Needs org.conf.set.
 """
 
 _EXPLAIN_RUNS_LABEL = """\
-Submit an independent human assessment of the alert investigated by this run:
+Submit an independent human or integration assessment of this investigated alert:
 benign, threat, disputed or unlabeled. The engine records provenance from your
-verified human identity; an action approval alone is not an alert label. Use a positive
+verified identity; independent API-key labels are supported, but the engine's own
+key is excluded. An action approval alone is not an alert label. Use a positive
 source revision and increase it when correcting your assessment. Requires
 investigation.set + insight.evt.get. The write is sent once.
 
@@ -403,12 +407,18 @@ Needs a verified human identity and org.conf.set. Enablement is a person's
 explicit decision (--confirm);
 the engine refuses ineligible routes. It demotes a route after a wrong call.
 Configure the required agreements and the human-review sampling rate in integer parts per million.
+Read the scoreboard's etag first and supply --etag VALUE on every route write.
+An empty etag explicitly asserts no default policy; one quoted wrapper is accepted.
+Alternatively choose --force explicitly; it is exclusive with --etag and only
+bypasses the client-view check. Native Hive compare-and-swap still applies.
+Missing or stale preconditions return HTTP 409: read the current etag or deliberately
+choose --force. The CLI never fetches a new etag or forces automatically.
 Changes are sent once and never replayed after a gateway timeout.
 
 Examples:
-  limacharlie investigate routes enable ROUTE_ID --product mailsec --confirm
-  limacharlie investigate routes disable ROUTE_ID --product mailsec
-  limacharlie investigate routes configure ROUTE_ID --product mailsec --min-agreeing 200 --spot-check-ppm 50000
+  limacharlie investigate routes enable ROUTE_ID --product mailsec --etag ETAG --confirm
+  limacharlie investigate routes disable ROUTE_ID --product mailsec --etag ETAG
+  limacharlie investigate routes configure ROUTE_ID --product mailsec --etag ETAG --min-agreeing 200 --spot-check-ppm 50000
 """
 
 _EXPLAIN_AUTOPILOT_STATUS = """\
@@ -420,6 +430,7 @@ compatibility sum of spent_micro_usd and reserved_micro_usd. Money is integer
 micro-USD (1 USD = 1,000,000 micros); unknown values remain null.
 Shadow mode investigates without response actions; automation_available says
 whether automatic response is available, independently of source enablement.
+The response etag is the current Hive policy version; empty means no default policy.
 Filter with --source and --period today|7d|30d (default today), or supply
 both --from and --to ISO times spanning at most 90 days.
 
@@ -435,10 +446,15 @@ an enabled flag, mode (start with shadow) and active template. Integer micro-USD
 caps (daily_cap_micro_usd, monthly_cap_micro_usd, run_cap_micro_usd) and
 max_concurrent bound automatic work. The engine replaces only
 default.auto_investigation in the Hive policy record using its etag, preserving
-other policy data and metadata. Writes are sent once.
+other policy data and metadata. Read status.etag first, then supply --etag VALUE.
+An empty etag explicitly asserts no default policy; one quoted wrapper is accepted.
+Alternatively choose --force explicitly; it is exclusive with --etag and overrides
+only the client-view check. Native Hive compare-and-swap still applies. Missing or
+stale preconditions return HTTP 409: read the current etag or deliberately choose
+--force. The CLI never reads a new etag or forces automatically. Writes are sent once.
 
 Example:
-  limacharlie investigate autopilot configure --file autopilot.json
+  limacharlie investigate autopilot configure --etag ETAG --file autopilot.json
 """
 
 _EXPLAIN_AUTOPILOT_ALERTS = """\
@@ -1403,6 +1419,20 @@ def policy_resume(ctx) -> None:
     _engine_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
 
 
+def _policy_write_options(fn: Callable[..., Any]) -> Callable[..., Any]:
+    fn = click.option("--force", is_flag=True, default=False,
+                      help="Explicitly override the client-view etag check; native Hive CAS still applies.")(fn)
+    return click.option("--etag", default=None,
+                        help="Exact etag from status/scoreboard (empty explicitly means no default policy); exclusive with --force.")(fn)
+
+
+def _require_policy_view(etag: str | None, force: bool) -> None:
+    if etag is not None and force:
+        raise _input_error("--etag/--force", "provide --etag or --force, not both")
+    if etag is None and not force:
+        raise _input_error("--etag/--force", "read the current etag and provide --etag, or explicitly choose --force")
+
+
 # ---------------------------------------------------------------------------
 # autopilot
 # ---------------------------------------------------------------------------
@@ -1429,17 +1459,19 @@ def autopilot_status(ctx, source, period, from_time, to_time) -> None:
 
 
 @autopilot_group.command("configure")
+@_policy_write_options
 @click.option("--settings", default=None, help="JSON settings with sources and integer micro-USD caps; exclusive with --file.")
 @click.option("--file", "-f", "file_path", default=None, help="Read JSON settings from this file, or '-' for stdin; exclusive with --settings.")
 @pass_context
 @_engine_errors
-def autopilot_configure(ctx, settings, file_path) -> None:
+def autopilot_configure(ctx, settings, file_path, etag, force) -> None:
     """Replace the Hive auto-investigation settings (policy get/set)."""
     if (settings is None) == (file_path is None):
         raise _input_error("--settings/--file", "provide exactly one of --settings JSON or --file PATH")
     hint = "--file" if file_path is not None else "--settings"
     config = _json_object(_read_source(file_path) if file_path is not None else settings, hint)
-    _engine_output(ctx, _get_investigation(ctx).set_autopilot(config))
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).set_autopilot(config, etag=etag, force=force))
 
 
 @autopilot_group.command("alerts")
@@ -1488,29 +1520,34 @@ def routes_group() -> None:
 
 
 @routes_group.command("enable")
+@_policy_write_options
 @click.argument("route_id")
 @click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
 @click.option("--confirm", is_flag=True, help="Confirm the human decision to enable automatic response for this route.")
 @pass_context
 @_engine_errors
-def routes_enable(ctx, route_id, product, confirm) -> None:
+def routes_enable(ctx, route_id, product, confirm, etag, force) -> None:
     """Enable an eligible route (a person's decision; requires --confirm)."""
     if not confirm:
         raise click.UsageError("Route enablement requires a person's explicit --confirm flag.")
-    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "enable"))
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "enable", etag=etag, force=force))
 
 
 @routes_group.command("disable")
+@_policy_write_options
 @click.argument("route_id")
 @click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
 @pass_context
 @_engine_errors
-def routes_disable(ctx, route_id, product) -> None:
+def routes_disable(ctx, route_id, product, etag, force) -> None:
     """Disable automatic response for this route."""
-    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "disable"))
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "disable", etag=etag, force=force))
 
 
 @routes_group.command("configure")
+@_policy_write_options
 @click.argument("route_id")
 @click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
 @click.option("--min-agreeing", type=click.IntRange(min=1), default=None, help="Required agreeing labels; the engine enforces its safety floor.")
@@ -1519,7 +1556,7 @@ def routes_disable(ctx, route_id, product) -> None:
 @click.option("--blind-share-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer blind-review share in parts per million.")
 @pass_context
 @_engine_errors
-def routes_configure(ctx, route_id, product, min_agreeing, spot_check_ppm, error_target_ppm, blind_share_ppm) -> None:
+def routes_configure(ctx, route_id, product, min_agreeing, spot_check_ppm, error_target_ppm, blind_share_ppm, etag, force) -> None:
     """Configure agreement requirements and independent human sampling."""
     options = {name: value for name, value in {
         "min_agreeing": min_agreeing, "spot_check_ppm": spot_check_ppm,
@@ -1527,12 +1564,13 @@ def routes_configure(ctx, route_id, product, min_agreeing, spot_check_ppm, error
     }.items() if value is not None}
     if not options:
         raise _input_error("route settings", "provide at least one route setting")
-    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "configure", **options))
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "configure", etag=etag, force=force, **options))
 
 
 @runs_group.command("label")
 @click.argument("run_id")
-@click.option("--assessment", required=True, type=click.Choice(["benign", "threat", "disputed", "unlabeled"]), help="Independent human assessment of the alert; not an action approval.")
+@click.option("--assessment", required=True, type=click.Choice(["benign", "threat", "disputed", "unlabeled"]), help="Independent human or integration assessment; not an action approval.")
 @click.option("--revision", required=True, type=click.IntRange(1, (1 << 63) - 1), help="Positive source revision; increase it for a correction.")
 @pass_context
 @_engine_errors

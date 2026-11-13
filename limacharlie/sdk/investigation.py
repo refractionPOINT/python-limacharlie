@@ -87,6 +87,30 @@ MAX_EVENTS_LIMIT = 500
 _WAIT_MARGIN = 35
 
 
+def _policy_precondition(etag: str | None, force: bool) -> tuple[dict[str, str] | None, list[tuple[str, str]] | None]:
+    """Build explicit client-view conditions without reading or forcing implicitly."""
+    if type(force) is not bool:
+        raise ValidationError("force must be a boolean")
+    if etag is not None:
+        if not isinstance(etag, str):
+            raise ValidationError("etag must be a string (empty explicitly asserts no default policy)")
+        if force:
+            raise ValidationError("provide etag or force=True, not both")
+        raw = etag
+        if len(raw) > 1024 or raw.upper().startswith("W/"):
+            raise ValidationError("etag must be one strong native etag or one quoted wrapper")
+        if raw.startswith('"') or raw.endswith('"'):
+            if len(raw) < 2 or not (raw.startswith('"') and raw.endswith('"')):
+                raise ValidationError("etag has a malformed quoted wrapper")
+            raw = raw[1:-1]
+        if raw.upper().startswith("W/") or any(ord(char) < 0x21 or ord(char) > 0x7e or char in '\",*\\' for char in raw):
+            raise ValidationError("etag must be one strong value, without weak, wildcard or list values")
+        return {"If-Match": etag}, None
+    if force:
+        return None, [("force", "true")]
+    raise ValidationError("read the current etag and provide etag=..., or explicitly choose force=True")
+
+
 def _public_setup_steps(value: Any) -> list[dict[str, str]] | None:
     """Project typed public progress without exposing native API credentials."""
     if not isinstance(value, list):
@@ -746,6 +770,7 @@ class Investigation:
         body: dict[str, Any] | None = None,
         write: bool = False,
         timeout: int | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         """Make one engine call, mapping failures to :class:`InvestigationError`.
 
@@ -753,6 +778,8 @@ class Investigation:
         already have started the work.
         """
         kwargs: dict[str, Any] = {"query_params": query or None, "timeout": timeout}
+        if extra_headers is not None:
+            kwargs["extra_headers"] = extra_headers
         if body is not None:
             try:
                 kwargs["raw_body"] = json.dumps(body, allow_nan=False).encode()
@@ -889,6 +916,7 @@ class Investigation:
         self, route_id: str, product: str, verb: str, *,
         min_agreeing: int | None = None, spot_check_ppm: int | None = None,
         error_target_ppm: int | None = None, blind_share_ppm: int | None = None,
+        etag: str | None = None, force: bool = False,
     ) -> dict[str, Any]:
         """Enable, disable or configure a decision route for this product.
 
@@ -906,6 +934,10 @@ class Investigation:
                 0..1,000,000 (50,000 = 5%). The engine applies policy floors/defaults.
             error_target_ppm: Integer error target in parts per million, 0..100,000.
             blind_share_ppm: Integer blind-review share in parts per million, 0..1,000,000.
+            etag: Exact Hive etag from get_scoreboard; empty asserts absence.
+                One HTTP quoted wrapper is accepted and preserved.
+            force: Explicitly override the client-view check (exclusive with etag).
+                Native post-read compare-and-swap still applies.
 
         Returns:
             dict: The engine's route decision response.
@@ -932,14 +964,16 @@ class Investigation:
         if min_agreeing is not None:
             body["min_agreeing"] = min_agreeing
         body.update({name: value for name, value in rates.items() if value is not None})
-        return self._call("POST", f"routes/{_quote(route_id, safe='')}/decision", body=body, write=True)
+        headers, query = _policy_precondition(etag, force)
+        return self._call("POST", f"routes/{_quote(route_id, safe='')}/decision", body=body,
+                          query=query, extra_headers=headers, write=True)
 
     def submit_run_label(self, run_id: str, assessment: str, revision: int) -> dict[str, Any]:
-        """Record an independent human assessment of an investigated alert.
+        """Record an independent assessment of an investigated alert.
 
         The server derives provenance from the verified caller and stored run;
-        callers must have a verified human identity and cannot provide an
-        actor or forge an outcome source. A corrected
+        human and independent API-key integration callers cannot provide an
+        actor or forge an outcome source. The engine's own key cannot label its work. A corrected
         assessment needs a newer source revision. Writes are sent once.
 
         Args:
@@ -994,7 +1028,7 @@ class Investigation:
             raise ValidationError("from_ and to must be supplied together")
         return self._get("autopilot", self._q(source=source, period=period, from_=from_, to=to))
 
-    def set_autopilot(self, config: dict[str, Any]) -> dict[str, Any]:
+    def set_autopilot(self, config: dict[str, Any], *, etag: str | None = None, force: bool = False) -> dict[str, Any]:
         """Replace automatic investigation sources and budgets for the org.
 
         Requires ``investigation.get``, ``insight.evt.get``,
@@ -1008,6 +1042,10 @@ class Investigation:
                 ``monthly_cap_micro_usd``, ``max_concurrent`` and ``run_cap_micro_usd``.
                 All numeric settings are int64 JSON integers; floating USD
                 aliases and decimal/exponent wire values are not accepted.
+            etag: Exact Hive etag from get_autopilot; empty asserts absence.
+                One HTTP quoted wrapper is accepted and preserved.
+            force: Explicitly override the client-view check (exclusive with etag).
+                Native post-read compare-and-swap still applies.
 
         Returns:
             dict: The engine's configuration response.
@@ -1024,7 +1062,8 @@ class Investigation:
         for name in ("daily_cap_micro_usd", "monthly_cap_micro_usd", "run_cap_micro_usd", "max_concurrent"):
             if name in config and (type(config[name]) is not int or not -(1 << 63) <= config[name] < (1 << 63)):
                 raise ValidationError(f"{name} must be an int64 JSON integer")
-        return self._call("PUT", "autopilot", body=config, write=True)
+        headers, query = _policy_precondition(etag, force)
+        return self._call("PUT", "autopilot", body=config, query=query, extra_headers=headers, write=True)
 
     def list_autopilot_alerts(
         self, *, source: str | None = None, state: str | None = None,

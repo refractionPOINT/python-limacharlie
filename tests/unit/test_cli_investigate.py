@@ -729,17 +729,17 @@ class TestAutopilot:
         f.write_text(json.dumps(config))
         for args, stdin in [(["--settings", json.dumps(config)], None), (["--file", str(f)], None),
                             (["--file", "-"], json.dumps(config))]:
-            result = run(["investigate", "autopilot", "configure", *args], input=stdin)
+            result = run(["investigate", "autopilot", "configure", "--etag", "policy-v1", *args], input=stdin)
             assert result.exit_code == 0, result.stderr
             assert out_json(result)["config"] == config
-            sdk.set_autopilot.assert_called_with(config)
+            sdk.set_autopilot.assert_called_with(config, etag="policy-v1", force=False)
         assert sdk.set_autopilot.call_count == 3
 
     @pytest.mark.parametrize("args", [[], ["--settings", "{}", "--file", "unused"],
                                       ["--settings", "[]"], ["--settings", "null"],
                                       ["--settings", "{broken"], ["--settings", '{"run_cap_micro_usd":NaN}']])
     def test_bad_settings_are_refused_before_sdk(self, sdk, args):
-        result = run(["investigate", "autopilot", "configure", *args])
+        result = run(["investigate", "autopilot", "configure", "--etag", "policy-v1", *args])
         assert result.exit_code == 4
         assert json.loads(result.stderr)["errors"][0]["code"] == "invalid_input"
         sdk.set_autopilot.assert_not_called()
@@ -759,7 +759,7 @@ class TestAutopilot:
 
     def test_engine_refusal_keeps_structured_diagnostics(self, sdk):
         sdk.set_autopilot.side_effect = issue_error()
-        result = run(["investigate", "autopilot", "configure", "--settings", "{}"])
+        result = run(["investigate", "autopilot", "configure", "--etag", "policy-v1", "--settings", "{}"])
         assert result.exit_code != 0
         assert json.loads(result.stderr)["errors"][0]["code"] == "unknown_field"
 
@@ -780,22 +780,22 @@ class TestScoreboard:
         assert response.exit_code != 0 and "--confirm" in response.stderr
         sdk.decide_route.assert_not_called()
         sdk.decide_route.return_value = {"route": {"state": "enabled"}}
-        response = run(["investigate", "routes", "enable", self.route_id, "--product", "mailsec", "--confirm"])
+        response = run(["investigate", "routes", "enable", self.route_id, "--product", "mailsec", "--confirm", "--etag", "policy-v1"])
         assert response.exit_code == 0, response.stderr
-        sdk.decide_route.assert_called_once_with(self.route_id, "mailsec", "enable")
+        sdk.decide_route.assert_called_once_with(self.route_id, "mailsec", "enable", etag="policy-v1", force=False)
 
     def test_disable_and_configure(self, sdk):
         sdk.decide_route.return_value = {"route": {"state": "shadow"}}
-        response = run(["investigate", "routes", "disable", self.route_id, "--product", "mailsec"])
+        response = run(["investigate", "routes", "disable", self.route_id, "--product", "mailsec", "--etag", "policy-v1"])
         assert response.exit_code == 0, response.stderr
-        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "disable")
-        response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", "--min-agreeing", "250", "--spot-check-ppm", "100000"])
+        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "disable", etag="policy-v1", force=False)
+        response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", "--etag", "policy-v1", "--min-agreeing", "250", "--spot-check-ppm", "100000"])
         assert response.exit_code == 0, response.stderr
-        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "configure", min_agreeing=250, spot_check_ppm=100000)
+        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "configure", min_agreeing=250, spot_check_ppm=100000, etag="policy-v1", force=False)
 
     def test_configure_requires_setting_and_refuses_out_of_range_sample(self, sdk):
         for options in ([], ["--spot-check-ppm", "-1"], ["--spot-check-ppm", "1000001"], ["--min-agreeing", "0"]):
-            response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", *options])
+            response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", "--etag", "policy-v1", *options])
             assert response.exit_code != 0
         sdk.decide_route.assert_not_called()
 
@@ -861,17 +861,17 @@ def test_autopilot_settings_refuse_noninteger_micro_usd_before_write(token):
             patch("limacharlie.commands.investigate.Organization") as org:
         org.return_value.client = client.return_value
         org.return_value.oid = "fictional-org"
-        result = run(["investigate", "autopilot", "configure", "--settings", '{"daily_cap_micro_usd":' + token + '}'])
+        result = run(["investigate", "autopilot", "configure", "--etag", "policy-v1", "--settings", '{"daily_cap_micro_usd":' + token + '}'])
         assert result.exit_code != 0
         client.return_value.request.assert_not_called()
 
 
 def test_route_configure_all_integer_ppm_options(sdk):
     sdk.decide_route.return_value = {"route": {}}
-    result = run(["investigate", "routes", "configure", "a" * 64, "--product", "mailsec",
+    result = run(["investigate", "routes", "configure", "a" * 64, "--product", "mailsec", "--etag", "policy-v1",
                   "--spot-check-ppm", "50000", "--error-target-ppm", "15000", "--blind-share-ppm", "100000"])
     assert result.exit_code == 0, result.stderr
-    sdk.decide_route.assert_called_once_with("a" * 64, "mailsec", "configure", spot_check_ppm=50000, error_target_ppm=15000, blind_share_ppm=100000)
+    sdk.decide_route.assert_called_once_with("a" * 64, "mailsec", "configure", spot_check_ppm=50000, error_target_ppm=15000, blind_share_ppm=100000, etag="policy-v1", force=False)
 
 
 def test_human_engine_formatting_is_exact_and_never_mutates_wire_data():
@@ -912,7 +912,7 @@ def test_human_alert_values_and_raw_structured_values(sdk):
 
 
 def test_error_target_ppm_cli_uses_canonical_maximum(sdk):
-    result = run(["investigate", "routes", "configure", "a" * 64, "--product", "mailsec", "--error-target-ppm", "100001"])
+    result = run(["investigate", "routes", "configure", "a" * 64, "--product", "mailsec", "--etag", "policy-v1", "--error-target-ppm", "100001"])
     assert result.exit_code != 0
     sdk.decide_route.assert_not_called()
 
@@ -930,7 +930,7 @@ def test_autopilot_partial_failure_progress_in_structured_stderr(sdk, fmt):
             "setup": {"steps": rows, "credentials": secret}, "onboarding": rows, "token": secret}
     before = deepcopy(body)
     sdk.set_autopilot.side_effect = InvestigationError("setup failed", status_code=400, response_body=body, suggestion="")
-    result = run(["investigate", "autopilot", "configure", "--settings", "{}"], fmt=fmt)
+    result = run(["investigate", "autopilot", "configure", "--etag", "policy-v1", "--settings", "{}"], fmt=fmt)
     assert result.exit_code != 0 and not result.stdout
     document = yaml.safe_load(result.stderr) if fmt == "yaml" else json.loads(result.stderr)
     expected = [{"id": "recipe", "source": "mailsec", "status": "done"},
@@ -945,6 +945,83 @@ def test_autopilot_partial_failure_progress_in_structured_stderr(sdk, fmt):
 @pytest.mark.parametrize("body", [{}, {"setup": {"steps": "hidden"}, "onboarding": {"token": "hidden"}}])
 def test_autopilot_failure_without_typed_progress_keeps_legacy_cli_shape(sdk, body):
     sdk.set_autopilot.side_effect = InvestigationError("setup failed", status_code=400, response_body=body, suggestion="")
-    result = run(["investigate", "autopilot", "configure", "--settings", "{}"])
+    result = run(["investigate", "autopilot", "configure", "--etag", "policy-v1", "--settings", "{}"])
     assert result.exit_code != 0
     assert json.loads(result.stderr) == {"error": "setup failed", "status": 400}
+
+
+class TestPolicyPreconditions:
+    @staticmethod
+    def command(operation):
+        if operation == "autopilot":
+            return ["investigate", "autopilot", "configure", "--settings", "{}"]
+        command = ["investigate", "routes", operation, "a" * 64, "--product", "mailsec"]
+        return command + ({"enable": ["--confirm"], "disable": [], "configure": ["--min-agreeing", "250"]}[operation])
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    @pytest.mark.parametrize("etag", ["", '""', "native-123", '"native-123"'])
+    def test_explicit_view_preserves_empty_and_quoted_etag(self, sdk, operation, etag):
+        sdk.set_autopilot.return_value = sdk.decide_route.return_value = {"etag": "next"}
+        result = run(self.command(operation) + ["--etag", etag])
+        assert result.exit_code == 0, result.stderr
+        assert out_json(result)["etag"] == "next"
+        write = sdk.set_autopilot if operation == "autopilot" else sdk.decide_route
+        assert write.call_count == 1
+        assert write.call_args.kwargs["etag"] == etag
+        assert write.call_args.kwargs["force"] is False
+        sdk.get_autopilot.assert_not_called()
+        sdk.get_scoreboard.assert_not_called()
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    def test_explicit_force_is_forwarded_without_fetch(self, sdk, operation):
+        sdk.set_autopilot.return_value = sdk.decide_route.return_value = {}
+        result = run(self.command(operation) + ["--force"])
+        assert result.exit_code == 0, result.stderr
+        write = sdk.set_autopilot if operation == "autopilot" else sdk.decide_route
+        assert write.call_args.kwargs["etag"] is None
+        assert write.call_args.kwargs["force"] is True
+        sdk.get_autopilot.assert_not_called()
+        sdk.get_scoreboard.assert_not_called()
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    @pytest.mark.parametrize("flags", [[], ["--force", "--etag", ""], ["--force", "--etag", "v1"]])
+    def test_missing_or_competing_view_never_calls_sdk(self, sdk, operation, flags):
+        result = run(self.command(operation) + flags)
+        assert result.exit_code != 0
+        assert "--etag" in result.stderr and "--force" in result.stderr
+        sdk.set_autopilot.assert_not_called()
+        sdk.decide_route.assert_not_called()
+        sdk.get_autopilot.assert_not_called()
+        sdk.get_scoreboard.assert_not_called()
+
+    @pytest.mark.parametrize("operation", ["autopilot", "enable", "disable", "configure"])
+    @pytest.mark.parametrize("flags", [["--etag", "stale"], ["--force"]])
+    def test_stale_or_native_cas_conflict_is_visible_and_not_retried(self, sdk, operation, flags):
+        write = sdk.set_autopilot if operation == "autopilot" else sdk.decide_route
+        write.side_effect = InvestigationError("policy changed; read etag or explicitly use force=true", status_code=409,
+                                              response_body={"error_code": "policy_conflict"}, suggestion="")
+        result = run(self.command(operation) + flags)
+        assert result.exit_code != 0
+        assert json.loads(result.stderr)["status"] == 409
+        assert "etag" in result.stderr and "force=true" in result.stderr
+        assert write.call_count == 1
+        sdk.get_autopilot.assert_not_called()
+        sdk.get_scoreboard.assert_not_called()
+
+    def test_enable_still_needs_confirmation_even_with_force(self, sdk):
+        result = run(["investigate", "routes", "enable", "a" * 64, "--product", "mailsec", "--force"])
+        assert result.exit_code != 0 and "--confirm" in result.stderr
+        sdk.decide_route.assert_not_called()
+
+    def test_explain_names_permissions_and_explicit_concurrency_workflow(self):
+        explanation = CliRunner().invoke(cli, ["investigate", "--ai-help"])
+        assert explanation.exit_code == 0, explanation.output
+        for text in ("org.conf.set", "verified human identity", "investigation.set", "insight.evt.get", "API-key labels"):
+            assert text in explanation.output
+        for command in (["investigate", "autopilot", "configure"], ["investigate", "routes", "configure"]):
+            help_text = CliRunner().invoke(cli, command + ["--help"])
+            assert help_text.exit_code == 0
+            assert "--etag" in help_text.output and "--force" in help_text.output
+            explanation = CliRunner().invoke(cli, command + ["--ai-help"])
+            assert explanation.exit_code == 0, explanation.output
+            assert "409" in explanation.output and "--etag" in explanation.output and "--force" in explanation.output
