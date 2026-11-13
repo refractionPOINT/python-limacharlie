@@ -34,7 +34,9 @@ Errors (:class:`limacharlie.errors.ResponseDecodeError`):
   checksum, or trailing bytes that are not another compressed member or
   frame. A partially decoded body is never returned. This includes a
   connection that closes early: urllib's sized reads return a short body
-  silently in that case, and the stream's own end marker is what catches it.
+  silently in that case, so a cut inside a member or frame is caught by the
+  stream's own end marker, and a cut exactly between members or frames by
+  the response's unmet ``Content-Length``.
 
 Transport errors raised while reading (a timeout, a reset connection, a
 chunked body cut mid-chunk) are not decode errors and pass through unchanged,
@@ -271,4 +273,14 @@ def read_body(fp: Any, codings: list[str]) -> DecodedBody:
             f"{counter.count} compressed bytes: {exc}",
             encoding=label,
         ) from exc
+    # A connection that closes early exactly at a gzip member or zstd frame
+    # boundary looks like a clean end to the decoder. http.client still holds
+    # the Content-Length shortfall; an uncompressed read raises IncompleteRead.
+    remaining = getattr(fp, "length", None)
+    if isinstance(remaining, int) and remaining > 0:
+        raise ResponseDecodeError(
+            f"The {label} response body ended {remaining} bytes short of its "
+            f"Content-Length after {counter.count} compressed bytes.",
+            encoding=label,
+        )
     return DecodedBody(out.getvalue(), counter.count, label)

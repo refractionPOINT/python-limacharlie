@@ -597,6 +597,14 @@ class TestZstd:
             make_client().request("GET", "x")
         assert exc.value.encoding == "zstd"
 
+    def test_connection_closed_between_frames_raises(self, server):
+        first = zstd_compress(PAYLOAD_BYTES[:1000])
+        second = zstd_compress(PAYLOAD_BYTES[1000:])
+        server.route = fixed(first, encoding="zstd", content_length=len(first) + len(second))
+        with pytest.raises(ResponseDecodeError) as exc:
+            make_client().request("GET", "x", raw_response=True)
+        assert f"{len(second)} bytes short of its Content-Length" in exc.value.raw_message
+
     def test_connection_closed_mid_frame_is_reported_as_truncated(self, server):
         body = zstd_compress(PAYLOAD_BYTES)[:-30]
         server.route = fixed(body, encoding="zstd", content_length=len(body) * 2)
@@ -698,6 +706,24 @@ class TestBrokenStreams:
         with pytest.raises(ResponseDecodeError) as exc:
             make_client().request("GET", "x")
         assert "ended before" in exc.value.raw_message
+
+    def test_connection_closed_between_gzip_members_raises(self, server):
+        """A cut exactly at a member boundary decodes cleanly; Content-Length catches it."""
+        half = len(PAYLOAD_BYTES) // 2
+        first, second = gzip.compress(PAYLOAD_BYTES[:half]), gzip.compress(PAYLOAD_BYTES[half:])
+        server.route = fixed(first, encoding="gzip", content_length=len(first) + len(second))
+        with pytest.raises(ResponseDecodeError) as exc:
+            make_client().request("GET", "x", raw_response=True)
+        assert f"{len(second)} bytes short of its Content-Length" in exc.value.raw_message
+
+    def test_connection_closed_between_gzip_members_on_an_error_response(self, server):
+        half = len(PAYLOAD_BYTES) // 2
+        first, second = gzip.compress(PAYLOAD_BYTES[:half]), gzip.compress(PAYLOAD_BYTES[half:])
+        server.route = fixed(first, status=502, encoding="gzip", content_length=len(first) + len(second))
+        with pytest.raises(ApiError) as exc:
+            make_client().request("GET", "x", retry_gateway_timeout=False)
+        assert exc.value.status_code == 502
+        assert "short of its Content-Length" in str(exc.value)
 
     def test_connection_closed_mid_chunk_keeps_its_transport_error(self, server):
         import http.client
