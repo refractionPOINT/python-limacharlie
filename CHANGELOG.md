@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### AI Sessions — reasoning effort
+
+- `ai start-session` and `ai chat` take `--effort` (`low`, `medium`, `high`,
+  `xhigh` or `max`) to set how long the model reasons. Higher levels do better
+  on hard investigations, but they are slower and use more tokens on your AI
+  provider's bill. Leaving it out sends nothing, so the model's own default
+  applies as before.
+- The SDK takes the same `effort` keyword on `AI.start_session` (in the
+  session profile) and `AI.create_user_session`. An empty value sends nothing.
+- `ai chat` and `ai session attach` hide the runner's `effort_set` notice like
+  `model_set`, and show `effort_adjusted` and `effort_skipped`, which say when
+  the runner changed or dropped the requested level for the model in use.
+- The service accepts the field only while reasoning effort is enabled on it;
+  otherwise it is ignored.
+
 ### Sync — `sync push` no longer turns quoted strings into numbers
 
 - `sync push` (and `Configs.push` / `Configs.push_from_file`) stored some
