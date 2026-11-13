@@ -67,7 +67,8 @@ Questions without a template: use `investigate packs` then `investigate wave`.
 
 Permissions: reads need investigation.get + insight.evt.get, writes (start,
 wave, test, cancel, delete, decide) investigation.set + insight.evt.get, pause/resume
-org.conf.set (also autopilot configure), template records investigation_plan.get/.set/.del.
+org.conf.set, autopilot configure investigation_policy.get/.set,
+template records investigation_plan.get/.set/.del.
 """
 
 _EXPLAIN_KIT = """\
@@ -385,7 +386,8 @@ Example:
 """
 
 _EXPLAIN_SCOREBOARD = """\
-Read per-product decision route track records and graduation state. Route
+Read per-product decision route track records and graduation state. Requires
+opinion-audit rights (investigation_policy.set) as well as normal read access. Route
 versions isolate recipe/model changes; insufficient labels are not evidence
 of correctness. Read the engine's support, missing-cost and completeness
 fields before deciding whether a route is ready. Automatic response requires
@@ -412,10 +414,13 @@ Examples:
 _EXPLAIN_AUTOPILOT_STATUS = """\
 Read automatic investigation settings, day/month charged, spent and reserved
 USD, budget_exhausted, and counters including queued and active work. Caps use
-charged_usd (conservative full run allowances, not refunded for late/unknown
-billing); spent_usd is the reported lower bound.
+spent_usd plus reserved_usd. Admission reserves the run maximum; settlement
+records actual cost and releases the difference. charged_usd is the
+compatibility sum of spent_usd and reserved_usd.
 Shadow mode investigates without response actions; automation_available says
 whether automatic response is available, independently of source enablement.
+Filter with --source and --period today|7d|30d (default today), or supply
+both --from and --to ISO times spanning at most 90 days.
 
 Example:
   limacharlie investigate autopilot status
@@ -423,10 +428,12 @@ Example:
 
 _EXPLAIN_AUTOPILOT_CONFIGURE = """\
 Replace the full automatic investigation configuration with JSON (--settings),
-a JSON file (--file), or stdin (--file -). Needs org.conf.set. Sources select
+a JSON file (--file), or stdin (--file -). Needs investigation_policy.get and
+investigation_policy.set, plus investigation.get and insight.evt.get. Sources select
 an enabled flag, mode (start with shadow) and active template. Dollar caps and
-max_concurrent bound automatic work. The engine validates and stores settings;
-this does not write Hive policy or template records. Writes are sent once.
+max_concurrent bound automatic work. The engine replaces only
+default.auto_investigation in the Hive policy record using its etag, preserving
+other policy data and metadata. Writes are sent once.
 
 Example:
   limacharlie investigate autopilot configure --file autopilot.json
@@ -434,9 +441,12 @@ Example:
 
 _EXPLAIN_AUTOPILOT_ALERTS = """\
 List automatic investigation alerts with their source, group_id, run_id,
-state, reason and created time. Skipped alerts can have no run. Use run_id
+state, reason and created time, plus total/truncated pagination metadata.
+Skipped alerts can have no run. Use run_id
 with `investigate runs get`; for mailsec, group_id identifies the mail group.
---source filters at the engine. Continue a page with its next_cursor.
+--source, --state, --group-id, --run-id and --from/--to filter at the engine.
+Continue with the signed next_cursor and identical filters. Unsupported
+engine_call, match and q searches are refused rather than silently ignored.
 
 Examples:
   limacharlie investigate autopilot alerts --source mailsec --limit 20
@@ -478,6 +488,7 @@ for _path, _text in {
     "investigate.actions.list": _EXPLAIN_ACTIONS_LIST,
     "investigate.actions.approve": _EXPLAIN_ACTIONS_APPROVE,
     "investigate.actions.deny": _EXPLAIN_ACTIONS_DENY,
+    "investigate.actions.revert": """Undo an action. Omit --was-engine-wrong, or use --preference-only, to undo without creating an alert label. Explicit --was-engine-wrong is a human inverse assessment; the engine supplies provenance and enforces permissions.""",
     "investigate.policy.get": _EXPLAIN_POLICY_GET,
     "investigate.policy.status": _EXPLAIN_POLICY_STATUS,
     "investigate.policy.pause": _EXPLAIN_POLICY_PAUSE,
@@ -1287,6 +1298,20 @@ def actions_deny(ctx, run_id, action_id, reason) -> None:
     command_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "deny", note=reason))
 
 
+@actions_group.command("revert")
+@click.argument("run_id")
+@click.argument("action_id")
+@click.option("--note", "reason", default=None, help="Why the action is being undone.")
+@click.option("--was-engine-wrong/--preference-only", default=None, help="Explicit human assessment that the engine was wrong; preference-only (or omission) creates no label.")
+@pass_context
+@_engine_errors
+def actions_revert(ctx, run_id, action_id, reason, was_engine_wrong) -> None:
+    """Undo an action, optionally recording an explicit human correction."""
+    command_output(ctx, _get_investigation(ctx).decide_action(
+        run_id, action_id, "revert", note=reason, was_engine_wrong=was_engine_wrong,
+    ))
+
+
 # ---------------------------------------------------------------------------
 # policy
 # ---------------------------------------------------------------------------
@@ -1347,11 +1372,19 @@ def autopilot_group() -> None:
 
 
 @autopilot_group.command("status")
+@click.option("--source", default=None, help="Inspect this product source.")
+@click.option("--period", type=click.Choice(["today", "7d", "30d"]), default=None, help="Reporting period (engine default today).")
+@click.option("--from", "from_time", default=None, help="Explicit ISO start time; requires --to, maximum span 90 days.")
+@click.option("--to", "to_time", default=None, help="Explicit ISO end time; requires --from.")
 @pass_context
 @_engine_errors
-def autopilot_status(ctx) -> None:
+def autopilot_status(ctx, source, period, from_time, to_time) -> None:
     """Show automatic investigation configuration, spend and counters."""
-    command_output(ctx, _get_investigation(ctx).get_autopilot())
+    if (from_time is None) != (to_time is None):
+        raise _input_error("--from/--to", "provide both explicit time bounds")
+    command_output(ctx, _get_investigation(ctx).get_autopilot(
+        source=source, period=period, from_=from_time, to=to_time,
+    ))
 
 
 @autopilot_group.command("configure")
@@ -1360,7 +1393,7 @@ def autopilot_status(ctx) -> None:
 @pass_context
 @_engine_errors
 def autopilot_configure(ctx, settings, file_path) -> None:
-    """Replace all automatic investigation settings (org.conf.set)."""
+    """Replace the Hive auto-investigation settings (policy get/set)."""
     if (settings is None) == (file_path is None):
         raise _input_error("--settings/--file", "provide exactly one of --settings JSON or --file PATH")
     hint = "--file" if file_path is not None else "--settings"
@@ -1370,14 +1403,29 @@ def autopilot_configure(ctx, settings, file_path) -> None:
 
 @autopilot_group.command("alerts")
 @click.option("--source", default=None, help="Only this product source, for example mailsec.")
-@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size (engine default 100).")
+@click.option("--state", default=None, help="Only alerts in this state.")
+@click.option("--group-id", default=None, help="Only alerts for this source group.")
+@click.option("--run-id", default=None, help="Only alerts linked to this investigation run.")
+@click.option("--from", "from_time", default=None, help="ISO lower time bound.")
+@click.option("--to", "to_time", default=None, help="ISO upper time bound.")
+@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size (engine default 50).")
 @click.option("--cursor", default=None, help="Continue from the next_cursor of the previous page.")
 @pass_context
 @_engine_errors
-def autopilot_alerts(ctx, source, limit, cursor) -> None:
+def autopilot_alerts(ctx, source, state, group_id, run_id, from_time, to_time, limit, cursor) -> None:
     """List alerts and their investigation run links, including skipped alerts."""
-    page = _get_investigation(ctx).list_autopilot_alerts(source=source, limit=limit, cursor=cursor)
+    page = _get_investigation(ctx).list_autopilot_alerts(
+        source=source, state=state, group_id=group_id, run_id=run_id,
+        from_=from_time, to=to_time, limit=limit, cursor=cursor,
+    )
+    if _fmt(ctx) in ("json", "yaml", "toon"):
+        command_output(ctx, page)
+        return
     _emit_page(ctx, "alerts", page.get("alerts") or [], page.get("next_cursor") or "", lambda alert: alert)
+    if "total" in page:
+        note(ctx, f"total: {page['total']}")
+    if page.get("truncated"):
+        note(ctx, "truncated: true")
 
 
 # ---------------------------------------------------------------------------

@@ -906,8 +906,8 @@ class TestParseDocument:
 
 class TestAutopilot:
     def test_status_and_alert_page_are_preserved(self, inv, mock_org):
-        status = {"config": {"sources": {}}, "day": {"charged_usd": 2, "spent_usd": 1, "reserved_usd": 0.5},
-                  "month": {"charged_usd": 3, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
+        status = {"config": {"sources": {}}, "day": {"charged_usd": 1.5, "spent_usd": 1, "reserved_usd": 0.5},
+                  "month": {"charged_usd": 2.5, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
                   "counters": {"seen": 4, "skipped_budget": 1}, "automation_available": False}
         mock_org.client.request.return_value = status
         assert inv.get_autopilot() == status
@@ -997,3 +997,48 @@ class TestScoreboard:
         with pytest.raises(ValidationError):
             inv.submit_run_label("run-1", assessment, revision)
         mock_org.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("answer", [None, False, True])
+def test_action_revert_preserves_optional_human_correction(inv, mock_org, answer):
+    inv.decide_action("r1", "a1", "revert", was_engine_wrong=answer)
+    _, _, kwargs = _request_args(mock_org)
+    assert json.loads(kwargs["raw_body"]) == ({} if answer is None else {"was_engine_wrong": answer})
+    assert kwargs["retry_gateway_timeout"] is False
+
+
+@pytest.mark.parametrize("verb,answer", [("approve", True), ("deny", False), ("revert", "true"), ("revert", 1)])
+def test_human_correction_is_boolean_and_revert_only(inv, mock_org, verb, answer):
+    with pytest.raises(ValidationError):
+        inv.decide_action("r1", "a1", verb, was_engine_wrong=answer)
+    mock_org.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("period", ["today", "7d", "30d"])
+def test_autopilot_status_server_window(inv, mock_org, period):
+    inv.get_autopilot(source="mailsec", period=period)
+    _, _, kw = _request_args(mock_org)
+    assert dict(kw["query_params"]) == {"source": "mailsec", "period": period}
+
+
+def test_autopilot_status_explicit_bounds(inv, mock_org):
+    inv.get_autopilot(from_="2026-11-01T00:00:00Z", to="2026-11-08T00:00:00Z")
+    assert dict(_request_args(mock_org)[2]["query_params"]) == {"from": "2026-11-01T00:00:00Z", "to": "2026-11-08T00:00:00Z"}
+
+
+@pytest.mark.parametrize("args", [{"period": "week"}, {"from_": "2026-11-01T00:00:00Z"}, {"to": "2026-11-08T00:00:00Z"}])
+def test_autopilot_status_invalid_window_not_sent(inv, mock_org, args):
+    with pytest.raises(ValidationError):
+        inv.get_autopilot(**args)
+    mock_org.client.request.assert_not_called()
+
+
+def test_autopilot_alerts_all_filters_and_metadata_preserved(inv, mock_org):
+    page = {"alerts": [], "total": 40, "truncated": True, "next_cursor": "signed+bound"}
+    mock_org.client.request.return_value = page
+    assert inv.list_autopilot_alerts(source="mailsec", state="completed", group_id="g1", run_id="r1",
+                                     from_="2026-11-01T00:00:00Z", to="2026-11-08T00:00:00Z", limit=50, cursor="signed+bound") == page
+    assert dict(_request_args(mock_org)[2]["query_params"]) == {
+        "source": "mailsec", "state": "completed", "group_id": "g1", "run_id": "r1",
+        "from": "2026-11-01T00:00:00Z", "to": "2026-11-08T00:00:00Z", "limit": "50", "cursor": "signed+bound",
+    }

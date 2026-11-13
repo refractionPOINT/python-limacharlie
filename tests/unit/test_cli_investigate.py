@@ -713,8 +713,8 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
 
 class TestAutopilot:
     def test_status_keeps_spend_counters_and_automation_flag(self, sdk):
-        status = {"config": {"sources": {}}, "day": {"charged_usd": 2, "spent_usd": 1, "reserved_usd": 0.5},
-                  "month": {"charged_usd": 3, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
+        status = {"config": {"sources": {}}, "day": {"charged_usd": 1.5, "spent_usd": 1, "reserved_usd": 0.5},
+                  "month": {"charged_usd": 2.5, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
                   "counters": {"seen": 3, "skipped_budget": 1, "queued": 1, "active": 1}, "automation_available": False}
         sdk.get_autopilot.return_value = status
         result = run(["investigate", "autopilot", "status"])
@@ -750,7 +750,7 @@ class TestAutopilot:
         sdk.list_autopilot_alerts.return_value = {"alerts": alerts, "next_cursor": "next+cursor"}
         result = run(["investigate", "autopilot", "alerts", "--source", "mailsec", "--limit", "20", "--cursor", "previous"])
         assert result.exit_code == 0, result.stderr
-        sdk.list_autopilot_alerts.assert_called_once_with(source="mailsec", limit=20, cursor="previous")
+        sdk.list_autopilot_alerts.assert_called_once_with(source="mailsec", state=None, group_id=None, run_id=None, from_=None, to=None, limit=20, cursor="previous")
         assert out_json(result) == {"alerts": alerts, "next_cursor": "next+cursor"}
         table = run(["investigate", "autopilot", "alerts"], fmt="table")
         assert table.exit_code == 0, table.stderr
@@ -812,3 +812,42 @@ class TestScoreboard:
     def test_run_label_requires_valid_assessment_and_revision(self, sdk, options):
         assert run(["investigate", "runs", "label", "run-1", *options]).exit_code != 0
         sdk.submit_run_label.assert_not_called()
+
+
+@pytest.mark.parametrize("options,answer", [([], None), (["--preference-only"], False), (["--was-engine-wrong"], True)])
+def test_revert_does_not_infer_a_wrong_engine_label(sdk, options, answer):
+    sdk.decide_action.return_value = {"state": "reverted"}
+    result = run(["investigate", "actions", "revert", "r1", "a1", *options])
+    assert result.exit_code == 0, result.stderr
+    sdk.decide_action.assert_called_once_with("r1", "a1", "revert", note=None, was_engine_wrong=answer)
+
+
+def test_autopilot_status_filters_and_full_overview_survive(sdk):
+    response = {"sources_available": ["mailsec"], "sources": {"mailsec": {"seen": 40}},
+                "alerts_by_day": [{"day": "2026-11-01", "count": 40}], "alerts_per_day": 40,
+                "overview": {"total": 40}, "period": {"from": "2026-11-01T00:00:00Z", "to": "2026-11-08T00:00:00Z"}}
+    sdk.get_autopilot.return_value = response
+    result = run(["investigate", "autopilot", "status", "--source", "mailsec", "--period", "7d"])
+    assert result.exit_code == 0, result.stderr
+    assert out_json(result) == response
+    sdk.get_autopilot.assert_called_once_with(source="mailsec", period="7d", from_=None, to=None)
+
+
+def test_autopilot_status_requires_both_explicit_bounds(sdk):
+    result = run(["investigate", "autopilot", "status", "--from", "2026-11-01T00:00:00Z"])
+    assert result.exit_code == 4
+    sdk.get_autopilot.assert_not_called()
+
+
+def test_autopilot_alert_page_preserves_total_truncated_and_filters(sdk):
+    page = {"alerts": [{"id": "a1", "run_id": "r1"}], "total": 250, "next_cursor": "signed+bound", "truncated": True}
+    sdk.list_autopilot_alerts.return_value = page
+    result = run(["investigate", "autopilot", "alerts", "--source", "mailsec", "--state", "completed",
+                  "--group-id", "g1", "--run-id", "r1", "--from", "2026-11-01T00:00:00Z",
+                  "--to", "2026-11-08T00:00:00Z", "--limit", "50", "--cursor", "signed+bound"])
+    assert result.exit_code == 0, result.stderr
+    assert out_json(result) == page
+    sdk.list_autopilot_alerts.assert_called_once_with(source="mailsec", state="completed", group_id="g1", run_id="r1",
+                                                      from_="2026-11-01T00:00:00Z", to="2026-11-08T00:00:00Z", limit=50, cursor="signed+bound")
+    table = run(["investigate", "autopilot", "alerts"], fmt="table")
+    assert "total: 250" in table.stderr and "truncated: true" in table.stderr

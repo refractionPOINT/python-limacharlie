@@ -188,10 +188,11 @@ response actions. `status` preserves the engine's `automation_available` flag;
 an enabled source does not itself mean response automation is available.
 
 ```bash
-limacharlie investigate autopilot status
+limacharlie investigate autopilot status [--source mailsec] [--period today|7d|30d] [--from ISO --to ISO]
 limacharlie investigate autopilot configure --file autopilot.json
 limacharlie investigate autopilot configure --settings '{"sources":{"mailsec":{"enabled":false}},"daily_usd":10,"monthly_usd":100,"max_concurrent":5,"run_usd":0.5}'
-limacharlie investigate autopilot alerts [--source mailsec] [--limit N] [--cursor C]
+limacharlie investigate autopilot alerts [--source mailsec] [--state STATE] [--group-id ID] [--run-id ID] \
+    [--from ISO] [--to ISO] [--limit N] [--cursor C]
 ```
 
 Supply exactly one of `--settings` (a JSON object) or `--file` (JSON, `-` for stdin).
@@ -215,23 +216,43 @@ A full configuration example for `autopilot.json`:
 
 Each configure call replaces the full configuration, including all sources and
 budget limits. Start from the current `status.config` and edit the full object.
-The engine validates and durably stores settings. Policy identities and active
-templates are still managed through Hive; configuring Autopilot does not create
-or promote them. `configure` needs `org.conf.set`, and is sent once without
-replay after a gateway timeout. Reads need `investigation.get` + `insight.evt.get`.
+The engine replaces only `default.auto_investigation` in the Hive
+`investigation_policy` record with an etag check, preserving all other policy
+data and metadata. It reads configuration from Hive rather than persisting a
+second runtime copy. `configure` requires `investigation.get`, `insight.evt.get`,
+`investigation_policy.get` and `investigation_policy.set`. It is sent once without
+replay after a gateway timeout. Reads require `investigation.get` + `insight.evt.get`;
+source data APIs enforce source-specific access as well.
+
+Onboarding uses native APIs for the steps actually needed: template access/promotion
+(`investigation_plan.get/set`), identity secret access (`secret.get/set`) and API-key
+management (`apikey.ctrl`). A verified human identity is required for promotion.
+These setup permissions are checked by each native call; they are not all required
+just to disable Autopilot or edit existing settings.
+
+Status defaults to `--period today`; `7d` and `30d` are also supported. Use
+`--source` for one product, or explicit `--from` and `--to` ISO bounds together
+(maximum 90 days). The response also preserves `sources_available`, per-source
+period counters, `alerts_by_day`, `alerts_per_day`, period limits/bounds and
+`overview`.
 
 Status includes `config`, `day` and `month` (`period`, `charged_usd`, `spent_usd`,
 `reserved_usd`), `budget_exhausted`, `counters` (`seen`, `investigated`, `deduped`,
 `skipped_budget`, `failed`, `queued`, `active`) and `automation_available`.
-**Caps use `charged_usd`**, conservative full run allowances that are not refunded
-because billing can arrive late or remain unknown. `spent_usd` is the reported
-lower bound, not the remaining-budget calculation. Reservations are separate.
+Admission reserves the maximum run cost against the cap. Settlement records
+actual cost in `spent_usd` and releases the unused reservation. Budget usage is
+`spent_usd + reserved_usd`; `charged_usd` remains as a compatibility field derived
+from that sum, rather than a permanent charge of the full run allowance.
 
 Alerts preserve `id`, `source`, `group_id`, `run_id`, `state`, `reason`, `created`
-and `next_cursor`. A skipped alert can have no run. Use a `run_id` with
+and page metadata `total`, `next_cursor`, `truncated`. A skipped alert can have no run. Use a `run_id` with
 `limacharlie investigate runs get RUN_ID`; a mailsec `group_id` identifies its
-source mail group. The list is filtered by the engine and returns one page
-(default 100, maximum 200 alerts); continue using `--cursor`. Structured output keeps the page
+source mail group. The engine filters by source, state, group ID, run ID and ISO time bounds and
+orders newest created first, then ID/source. The signed opaque cursor is bound
+to the organization and filters; keep filters unchanged on continuation. The
+`engine_call`, `match` and `q` search fields are explicitly unsupported (HTTP 400),
+until authorized underlying data is available. The list returns one page
+(default 50, maximum 200 alerts); continue using `--cursor`. Structured output keeps the page
 envelope; table/CSV/JSONL put the continuation cursor on stderr.
 
 ## Scoreboard and route graduation
@@ -271,6 +292,7 @@ label writes are sent once, without replay after a gateway timeout.
 limacharlie investigate actions list [--state awaiting_approval,proposed] [--class C] [--run-id ID] [--limit N] [--cursor C | --all]
 limacharlie investigate actions approve RUN_ID ACTION_ID
 limacharlie investigate actions deny RUN_ID ACTION_ID [--note TEXT]
+limacharlie investigate actions revert RUN_ID ACTION_ID [--note TEXT] [--was-engine-wrong | --preference-only]
 limacharlie investigate policy get [--category C] [--priority N] [--severity S] [--target-tag T]... [--class C] [--template NAME]
 limacharlie investigate policy status
 limacharlie investigate policy pause
@@ -278,6 +300,18 @@ limacharlie investigate policy resume
 ```
 
 `actions list` is the approvals inbox across all runs; what needs a person comes first. `policy pause` stops automatic actions for the whole org (the kill switch) and needs `org.conf.set`.
+
+`actions revert` undoes the action. Omitting `--was-engine-wrong`, or explicitly
+passing `--preference-only`, is an undo preference and creates no alert label.
+Use `--was-engine-wrong` only for an independent human correction: the engine
+records an inverse assessment with verified provenance. The optional JSON field
+is forwarded only for a revert decision, never for other action verbs.
+
+Blind opinions remain hidden unless the verified caller has opinion-audit rights
+(`investigation_policy.set`) or has explicitly labeled that run under the engine's
+same-user visibility rules. Scoreboard aggregates require audit rights, since a
+small route cohort can reveal individual opinions. API inputs cannot grant audit
+rights; the gateway derives them from verified permissions.
 
 ## Errors
 

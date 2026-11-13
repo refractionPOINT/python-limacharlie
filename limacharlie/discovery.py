@@ -225,7 +225,7 @@ PROFILES = {
             "investigate runs events", "investigate runs steps", "investigate runs case",
             "investigate runs cancel", "investigate runs delete", "investigate runs label",
             "investigate wave",
-            "investigate actions list", "investigate actions approve", "investigate actions deny",
+            "investigate actions list", "investigate actions approve", "investigate actions deny", "investigate actions revert",
             "investigate policy get", "investigate policy status",
             "investigate policy pause", "investigate policy resume",
             "investigate autopilot status", "investigate autopilot configure",

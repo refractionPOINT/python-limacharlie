@@ -17,7 +17,9 @@ Permissions (all of the listed ones are required):
 - writes (start a run, waves, cancel, delete, test a plan, decide an action):
   ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
   the permission of the action's own class (for example ``sensor.task``)
-- pause / resume, Autopilot configuration and route decisions: ``org.conf.set``
+- pause / resume and route decisions: ``org.conf.set``
+- Autopilot configuration: ``investigation.get`` + ``insight.evt.get`` +
+  ``investigation_policy.get`` + ``investigation_policy.set``
 - the template records themselves (hive ``investigation_plan``):
   ``investigation_plan.get`` / ``investigation_plan.set`` /
   ``investigation_plan.del``. These are explicit grants, no default role has
@@ -149,7 +151,8 @@ def _issue_line(issue: Any) -> str:
 _PERMISSION_HINT = (
     "Reads need investigation.get + insight.evt.get, writes (start, wave, cancel, delete, test, decide) need "
     "investigation.set + insight.evt.get, pause/resume needs org.conf.set, and template records need "
-    "investigation_plan.get / investigation_plan.set. Deciding an action also needs the permission of its class."
+    "investigation_plan.get / investigation_plan.set. Autopilot configuration also needs investigation_policy.get/set; "
+    "scoreboard and blind-opinion audit require investigation_policy.set. Deciding an action also needs the permission of its class."
 )
 
 _DISABLED_HINT = (
@@ -839,6 +842,9 @@ class Investigation:
     def get_scoreboard(self, product: str | None = None) -> dict[str, Any]:
         """Read versioned decision route track records and graduation state.
 
+        Requires opinion-audit rights (``investigation_policy.set``) in addition
+        to the normal investigation read permissions.
+
         Args:
             product: Restrict results to this product (for example ``mailsec``).
 
@@ -926,26 +932,42 @@ class Investigation:
             body={"assessment": assessment, "revision": revision}, write=True,
         )
 
-    def get_autopilot(self) -> dict[str, Any]:
+    def get_autopilot(
+        self, *, source: str | None = None, period: str | None = None,
+        from_: str | None = None, to: str | None = None,
+    ) -> dict[str, Any]:
         """Read automatic investigation settings, budget usage and counters.
+
+        Args:
+            source: Product source to inspect.
+            period: ``today`` (default), ``7d`` or ``30d``.
+            from_: Explicit ISO start time; supply with to, spanning at most 90 days.
+            to: Explicit ISO end time; supply with from_.
 
         Returns:
             dict: ``config``, ``day`` and ``month`` charged/spent/reserved USD,
                 ``budget_exhausted``, ``counters`` and ``automation_available``.
-                Caps use conservative ``charged_usd`` allowances; ``spent_usd``
-                is a reported lower bound. Shadow investigations
+                Admission reserves the run maximum; settlement records actual cost
+                and releases the unused reservation. Compatibility ``charged_usd``
+                is ``spent_usd + reserved_usd``. Shadow investigations
                 do not authorize automatic response actions.
 
         Raises:
             InvestigationError: On any API failure.
         """
-        return self._get("autopilot")
+        if period is not None and period not in ("today", "7d", "30d"):
+            raise ValidationError("period must be today, 7d or 30d")
+        if (from_ is None) != (to is None):
+            raise ValidationError("from_ and to must be supplied together")
+        return self._get("autopilot", self._q(source=source, period=period, from_=from_, to=to))
 
     def set_autopilot(self, config: dict[str, Any]) -> dict[str, Any]:
         """Replace automatic investigation sources and budgets for the org.
 
-        Requires ``org.conf.set``. The engine validates settings and stores
-        them durably; template and policy identities remain managed in Hive.
+        Requires ``investigation.get``, ``insight.evt.get``,
+        ``investigation_policy.get`` and ``investigation_policy.set``.
+        The engine replaces only ``default.auto_investigation`` in the Hive
+        policy record, preserving other data and metadata with an etag check.
         This write is sent once, without replay after a gateway timeout.
 
         Args:
@@ -964,19 +986,27 @@ class Investigation:
         return self._call("PUT", "autopilot", body=config, write=True)
 
     def list_autopilot_alerts(
-        self, *, source: str | None = None, limit: int | None = None,
-        cursor: str | None = None,
+        self, *, source: str | None = None, state: str | None = None,
+        group_id: str | None = None, run_id: str | None = None,
+        from_: str | None = None, to: str | None = None,
+        limit: int | None = None, cursor: str | None = None,
     ) -> dict[str, Any]:
         """List one page of alerts and their automatic investigation run links.
 
         Args:
             source: Only alerts from this product source (for example ``mailsec``).
-            limit: Page size, 1..200 (engine default 100).
+            state: Only alerts in this state.
+            group_id: Only alerts for this source group.
+            run_id: Only alerts linked to this investigation run.
+            from_: ISO lower time bound.
+            to: ISO upper time bound.
+            limit: Page size, 1..200 (engine default 50).
             cursor: ``next_cursor`` of the previous page.
 
         Returns:
             dict: ``alerts`` (id, source, group_id, run_id, state, reason,
-                created) and ``next_cursor``. A skipped alert may have no run.
+                created), ``total``, ``next_cursor`` and ``truncated``. Cursors are
+                bound to the organization and filters. A skipped alert may have no run.
 
         Raises:
             ValidationError: If limit is out of range or is not an integer.
@@ -984,7 +1014,10 @@ class Investigation:
         """
         if limit is not None and (type(limit) is not int or not 1 <= limit <= 200):
             raise ValidationError("limit must be an integer between 1 and 200")
-        return self._get("autopilot/alerts", self._q(source=source, limit=limit, cursor=cursor))
+        return self._get("autopilot/alerts", self._q(
+            source=source, state=state, group_id=group_id, run_id=run_id,
+            from_=from_, to=to, limit=limit, cursor=cursor,
+        ))
 
     def get_autonomy(self) -> dict[str, Any]:
         """Read whether automatic actions are paused for the org.
@@ -1447,6 +1480,7 @@ class Investigation:
 
     def decide_action(
         self, run_id: str, action_id: str, verb: str, note: str | None = None, seconds: int | None = None,
+        *, was_engine_wrong: bool | None = None,
     ) -> dict[str, Any]:
         """Approve, deny, revert, extend or confirm an action.
 
@@ -1458,6 +1492,8 @@ class Investigation:
             verb: One of :data:`ACTION_VERBS`.
             note: A reason (deny, revert).
             seconds: How long to extend a lease (extend).
+            was_engine_wrong: Revert only: True explicitly records an independent
+                inverse assessment. False or None means preference, not a label.
 
         Returns:
             dict: The action after the decision.
@@ -1467,7 +1503,11 @@ class Investigation:
         """
         if verb not in ACTION_VERBS:
             raise ValidationError(f"verb must be one of {', '.join(ACTION_VERBS)}")
+        if was_engine_wrong is not None and (verb != "revert" or type(was_engine_wrong) is not bool):
+            raise ValidationError("was_engine_wrong must be a boolean on revert only")
         body: dict[str, Any] = {}
+        if was_engine_wrong is not None:
+            body["was_engine_wrong"] = was_engine_wrong
         if note:
             body["note"] = note
         if seconds is not None:
