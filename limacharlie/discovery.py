@@ -228,6 +228,8 @@ PROFILES = {
             "investigate actions list", "investigate actions approve", "investigate actions deny",
             "investigate policy get", "investigate policy status",
             "investigate policy pause", "investigate policy resume",
+            "investigate autopilot status", "investigate autopilot configure",
+            "investigate autopilot alerts",
         ],
     },
     "cloud_security": {

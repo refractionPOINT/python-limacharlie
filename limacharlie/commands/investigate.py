@@ -67,7 +67,7 @@ Questions without a template: use `investigate packs` then `investigate wave`.
 
 Permissions: reads need investigation.get + insight.evt.get, writes (start,
 wave, test, cancel, delete, decide) investigation.set + insight.evt.get, pause/resume
-org.conf.set, template records investigation_plan.get/.set/.del.
+org.conf.set (also autopilot configure), template records investigation_plan.get/.set/.del.
 """
 
 _EXPLAIN_KIT = """\
@@ -373,8 +373,44 @@ _EXPLAIN_POLICY_RESUME = """\
 Resume automatic actions for the org. Needs org.conf.set.
 """
 
+_EXPLAIN_AUTOPILOT_STATUS = """\
+Read automatic investigation settings, day/month spent and reserved USD, and
+counters for seen, investigated, deduped, budget-skipped and failed alerts.
+Shadow mode investigates without response actions; automation_available says
+whether automatic response is available, independently of source enablement.
+
+Example:
+  limacharlie investigate autopilot status
+"""
+
+_EXPLAIN_AUTOPILOT_CONFIGURE = """\
+Configure automatic investigations with a JSON settings object (--settings),
+a JSON file (--file), or stdin (--file -). Needs org.conf.set. Sources select
+an enabled flag, mode (start with shadow) and active template. Dollar caps and
+max_concurrent bound automatic work. The engine validates and stores settings;
+this does not write Hive policy or template records. Writes are sent once.
+
+Example:
+  limacharlie investigate autopilot configure --file autopilot.json
+"""
+
+_EXPLAIN_AUTOPILOT_ALERTS = """\
+List automatic investigation alerts with their source, group_id, run_id,
+state, reason and created time. Skipped alerts can have no run. Use run_id
+with `investigate runs get`; for mailsec, group_id identifies the mail group.
+--source filters at the engine. Continue a page with its next_cursor.
+
+Examples:
+  limacharlie investigate autopilot alerts --source mailsec --limit 20
+  limacharlie investigate runs get <RUN_ID>
+"""
+
 for _path, _text in {
     "investigate": _EXPLAIN_GROUP,
+    "investigate.autopilot": _EXPLAIN_AUTOPILOT_STATUS,
+    "investigate.autopilot.status": _EXPLAIN_AUTOPILOT_STATUS,
+    "investigate.autopilot.configure": _EXPLAIN_AUTOPILOT_CONFIGURE,
+    "investigate.autopilot.alerts": _EXPLAIN_AUTOPILOT_ALERTS,
     "investigate.kit": _EXPLAIN_KIT,
     "investigate.operators": _EXPLAIN_OPERATORS,
     "investigate.packs": _EXPLAIN_PACKS,
@@ -1255,3 +1291,46 @@ def policy_pause(ctx) -> None:
 def policy_resume(ctx) -> None:
     """Resume automatic actions for the org."""
     command_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
+
+
+# ---------------------------------------------------------------------------
+# autopilot
+# ---------------------------------------------------------------------------
+
+@group.group("autopilot")
+def autopilot_group() -> None:
+    """Automatic investigations: settings, budgets and alert-to-run links."""
+
+
+@autopilot_group.command("status")
+@pass_context
+@_engine_errors
+def autopilot_status(ctx) -> None:
+    """Show automatic investigation configuration, spend and counters."""
+    command_output(ctx, _get_investigation(ctx).get_autopilot())
+
+
+@autopilot_group.command("configure")
+@click.option("--settings", default=None, help="JSON configuration object (sources and budget limits); exclusive with --file.")
+@click.option("--file", "-f", "file_path", default=None, help="Read JSON settings from this file, or '-' for stdin; exclusive with --settings.")
+@pass_context
+@_engine_errors
+def autopilot_configure(ctx, settings, file_path) -> None:
+    """Configure automatic investigation sources and budgets (org.conf.set)."""
+    if (settings is None) == (file_path is None):
+        raise _input_error("--settings/--file", "provide exactly one of --settings JSON or --file PATH")
+    hint = "--file" if file_path is not None else "--settings"
+    config = _json_object(_read_source(file_path) if file_path is not None else settings, hint)
+    command_output(ctx, _get_investigation(ctx).set_autopilot(config))
+
+
+@autopilot_group.command("alerts")
+@click.option("--source", default=None, help="Only this product source, for example mailsec.")
+@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size (engine default 50).")
+@click.option("--cursor", default=None, help="Continue from the next_cursor of the previous page.")
+@pass_context
+@_engine_errors
+def autopilot_alerts(ctx, source, limit, cursor) -> None:
+    """List alerts and their investigation run links, including skipped alerts."""
+    page = _get_investigation(ctx).list_autopilot_alerts(source=source, limit=limit, cursor=cursor)
+    _emit_page(ctx, "alerts", page.get("alerts") or [], page.get("next_cursor") or "", lambda alert: alert)

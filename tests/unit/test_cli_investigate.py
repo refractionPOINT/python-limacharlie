@@ -44,7 +44,7 @@ class TestHelp:
     def test_group_and_nested_help(self):
         runner = CliRunner()
         out = runner.invoke(cli, ["investigate", "--help"]).output
-        for name in ("kit", "operators", "packs", "templates", "runs", "wave", "actions", "policy"):
+        for name in ("kit", "operators", "packs", "templates", "runs", "wave", "actions", "policy", "autopilot"):
             assert name in out
         out = runner.invoke(cli, ["investigate", "templates", "--help"]).output
         for name in ("list", "get", "validate", "test", "save", "promote", "delete", "install-defaults"):
@@ -709,3 +709,56 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
     assert mod._test_rows({"results": [{"cost": {"llm_usd": 0}}]})[0]["llm_cost"] == 0
     assert mod._test_rows({"results": [{"cost": {"llm_unpriced": True}}]})[0]["llm_cost"] == "0 (unpriced)"
     assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
+
+
+class TestAutopilot:
+    def test_status_keeps_spend_counters_and_automation_flag(self, sdk):
+        status = {"config": {"sources": {}}, "day": {"spent_usd": 1, "reserved_usd": 0.5},
+                  "month": {"spent_usd": 2, "reserved_usd": 0.5},
+                  "counters": {"seen": 3, "skipped_budget": 1}, "automation_available": False}
+        sdk.get_autopilot.return_value = status
+        result = run(["investigate", "autopilot", "status"])
+        assert result.exit_code == 0, result.stderr
+        assert out_json(result) == status
+
+    def test_configure_from_settings_file_and_stdin(self, sdk, tmp_path):
+        config = {"sources": {"mailsec": {"enabled": True, "mode": "shadow", "template": "mailsec-generic-triage"}},
+                  "daily_usd": 10, "monthly_usd": 100, "max_concurrent": 5, "run_usd": 0.5}
+        sdk.set_autopilot.return_value = {"config": config, "automation_available": False}
+        f = tmp_path / "autopilot.json"
+        f.write_text(json.dumps(config))
+        for args, stdin in [(["--settings", json.dumps(config)], None), (["--file", str(f)], None),
+                            (["--file", "-"], json.dumps(config))]:
+            result = run(["investigate", "autopilot", "configure", *args], input=stdin)
+            assert result.exit_code == 0, result.stderr
+            assert out_json(result)["config"] == config
+            sdk.set_autopilot.assert_called_with(config)
+        assert sdk.set_autopilot.call_count == 3
+
+    @pytest.mark.parametrize("args", [[], ["--settings", "{}", "--file", "unused"],
+                                      ["--settings", "[]"], ["--settings", "null"],
+                                      ["--settings", "{broken"], ["--settings", '{"run_usd":NaN}']])
+    def test_bad_settings_are_refused_before_sdk(self, sdk, args):
+        result = run(["investigate", "autopilot", "configure", *args])
+        assert result.exit_code == 4
+        assert json.loads(result.stderr)["errors"][0]["code"] == "invalid_input"
+        sdk.set_autopilot.assert_not_called()
+
+    def test_alert_links_and_cursor_survive_output(self, sdk):
+        alerts = [{"id": "a1", "source": "mailsec", "group_id": "g1", "run_id": "r1", "state": "investigated", "reason": "", "created": "2026-11-13T12:00:00Z"},
+                  {"id": "a2", "source": "mailsec", "group_id": "g2", "run_id": "", "state": "skipped_budget", "reason": "daily budget"}]
+        sdk.list_autopilot_alerts.return_value = {"alerts": alerts, "next_cursor": "next+cursor"}
+        result = run(["investigate", "autopilot", "alerts", "--source", "mailsec", "--limit", "20", "--cursor", "previous"])
+        assert result.exit_code == 0, result.stderr
+        sdk.list_autopilot_alerts.assert_called_once_with(source="mailsec", limit=20, cursor="previous")
+        assert out_json(result) == {"alerts": alerts, "next_cursor": "next+cursor"}
+        table = run(["investigate", "autopilot", "alerts"], fmt="table")
+        assert table.exit_code == 0, table.stderr
+        assert "g1" in table.stdout and "r1" in table.stdout and "skipped_budget" in table.stdout
+        assert "next+cursor" in table.stderr
+
+    def test_engine_refusal_keeps_structured_diagnostics(self, sdk):
+        sdk.set_autopilot.side_effect = issue_error()
+        result = run(["investigate", "autopilot", "configure", "--settings", "{}"])
+        assert result.exit_code != 0
+        assert json.loads(result.stderr)["errors"][0]["code"] == "unknown_field"

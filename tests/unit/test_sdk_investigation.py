@@ -902,3 +902,47 @@ class TestParseDocument:
     def test_a_set_tag_is_refused(self):
         with pytest.raises(ValidationError):
             parse_document("a: !!set {x}\n")
+
+
+class TestAutopilot:
+    def test_status_and_alert_page_are_preserved(self, inv, mock_org):
+        status = {"config": {"sources": {}}, "day": {"spent_usd": 1, "reserved_usd": 0.5},
+                  "month": {"spent_usd": 2, "reserved_usd": 0.5},
+                  "counters": {"seen": 4, "skipped_budget": 1}, "automation_available": False}
+        mock_org.client.request.return_value = status
+        assert inv.get_autopilot() == status
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("GET", "investigate/oid-1/autopilot")
+        assert kw["query_params"] is None
+        page = {"alerts": [{"id": "a1", "source": "mailsec", "group_id": "g1", "run_id": "r1", "state": "investigated"},
+                           {"id": "a2", "run_id": "", "state": "skipped_budget", "reason": "daily budget"}],
+                "next_cursor": "opaque+cursor"}
+        mock_org.client.request.return_value = page
+        assert inv.list_autopilot_alerts(source="mailsec", limit=20, cursor="opaque+cursor") == page
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("GET", "investigate/oid-1/autopilot/alerts")
+        assert dict(kw["query_params"]) == {"source": "mailsec", "limit": "20", "cursor": "opaque+cursor"}
+
+    def test_configure_sends_raw_json_once(self, inv, mock_org):
+        config = {"sources": {"mailsec": {"enabled": True, "mode": "shadow", "template": "mailsec-generic-triage"}},
+                  "daily_usd": 10, "monthly_usd": 100, "max_concurrent": 5, "run_usd": 0.5}
+        mock_org.client.request.return_value = {"config": config, "automation_available": False}
+        assert inv.set_autopilot(config)["config"] == config
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("PUT", "investigate/oid-1/autopilot")
+        assert json.loads(kw["raw_body"]) == config
+        assert kw["content_type"] == "application/json"
+        assert kw["retry_gateway_timeout"] is False
+        mock_org.client.request.assert_called_once()
+
+    @pytest.mark.parametrize("config", [None, [], "{}", {"run_usd": float("nan")}])
+    def test_invalid_config_is_never_sent(self, inv, mock_org, config):
+        with pytest.raises(ValidationError):
+            inv.set_autopilot(config)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("limit", [0, 201, True, 1.5, "20"])
+    def test_invalid_limit_is_never_sent(self, inv, mock_org, limit):
+        with pytest.raises(ValidationError):
+            inv.list_autopilot_alerts(limit=limit)
+        mock_org.client.request.assert_not_called()

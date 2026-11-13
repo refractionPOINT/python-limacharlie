@@ -835,6 +835,64 @@ class Investigation:
             ),
         )
 
+    def get_autopilot(self) -> dict[str, Any]:
+        """Read automatic investigation settings, budget usage and counters.
+
+        Returns:
+            dict: ``config``, ``day`` and ``month`` spend/reservations,
+                ``counters`` and ``automation_available``. Shadow investigations
+                do not authorize automatic response actions.
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        return self._get("autopilot")
+
+    def set_autopilot(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Configure automatic investigation sources and budgets for the org.
+
+        Requires ``org.conf.set``. The engine validates settings and stores
+        them durably; template and policy identities remain managed in Hive.
+        This write is sent once, without replay after a gateway timeout.
+
+        Args:
+            config: JSON settings with ``sources`` and the ``daily_usd``,
+                ``monthly_usd``, ``max_concurrent`` and ``run_usd`` limits.
+
+        Returns:
+            dict: The engine's configuration response.
+
+        Raises:
+            ValidationError: If config is not an object or contains non-JSON values.
+            InvestigationError: If settings are refused or the API call fails.
+        """
+        if not isinstance(config, dict):
+            raise ValidationError("autopilot config must be a JSON object")
+        return self._call("PUT", "autopilot", body=config, write=True)
+
+    def list_autopilot_alerts(
+        self, *, source: str | None = None, limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List one page of alerts and their automatic investigation run links.
+
+        Args:
+            source: Only alerts from this product source (for example ``mailsec``).
+            limit: Page size, 1..200 (engine default 50).
+            cursor: ``next_cursor`` of the previous page.
+
+        Returns:
+            dict: ``alerts`` (id, source, group_id, run_id, state, reason,
+                created) and ``next_cursor``. A skipped alert may have no run.
+
+        Raises:
+            ValidationError: If limit is out of range or is not an integer.
+            InvestigationError: On any API failure.
+        """
+        if limit is not None and (type(limit) is not int or not 1 <= limit <= 200):
+            raise ValidationError("limit must be an integer between 1 and 200")
+        return self._get("autopilot/alerts", self._q(source=source, limit=limit, cursor=cursor))
+
     def get_autonomy(self) -> dict[str, Any]:
         """Read whether automatic actions are paused for the org.
 

@@ -180,6 +180,55 @@ A step has an `id` and exactly one of `op` (an operator) or `use` (a fact pack).
 
 An invalid wave prints `{"valid": false, "errors": [...], "warnings": [...]}` with the engine's coded errors on **stdout** and exits `4`; `--validate-only` checks without running anything.
 
+## Autopilot
+
+Autopilot automatically investigates product alerts within org budget caps. Start
+with shadow mode: investigation enablement is separate from permission to take
+response actions. `status` preserves the engine's `automation_available` flag;
+an enabled source does not itself mean response automation is available.
+
+```bash
+limacharlie investigate autopilot status
+limacharlie investigate autopilot configure --file autopilot.json
+limacharlie investigate autopilot configure --settings '{"sources":{"mailsec":{"enabled":false}}}'
+limacharlie investigate autopilot alerts [--source mailsec] [--limit N] [--cursor C]
+```
+
+Supply exactly one of `--settings` (a JSON object) or `--file` (JSON, `-` for stdin).
+A full configuration example for `autopilot.json`:
+
+```json
+{
+  "sources": {
+    "mailsec": {
+      "enabled": true,
+      "mode": "shadow",
+      "template": "mailsec-generic-triage"
+    }
+  },
+  "daily_usd": 10,
+  "monthly_usd": 100,
+  "max_concurrent": 5,
+  "run_usd": 0.5
+}
+```
+
+The engine validates and durably stores settings. Policy identities and active
+templates are still managed through Hive; configuring Autopilot does not create
+or promote them. `configure` needs `org.conf.set`, and is sent once without
+replay after a gateway timeout. Reads need `investigation.get` + `insight.evt.get`.
+
+Status includes `config`, `day` and `month` (`period`, `spent_usd`, `reserved_usd`),
+`counters` (`seen`, `investigated`, `deduped`, `skipped_budget`, `failed`) and
+`automation_available`. Reserved spend is shown separately from settled spend.
+
+Alerts preserve `id`, `source`, `group_id`, `run_id`, `state`, `reason`, `created`
+and `next_cursor`. A skipped alert can have no run. Use a `run_id` with
+`limacharlie investigate runs get RUN_ID`; a mailsec `group_id` identifies its
+source mail group. The list is filtered by the engine and returns one page
+(1..200 alerts); continue using `--cursor`. Structured output keeps the page
+envelope; table/CSV/JSONL put the continuation cursor on stderr.
+
 ## Approvals and policy
 
 ```bash
