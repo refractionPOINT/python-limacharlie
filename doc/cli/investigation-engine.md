@@ -249,7 +249,8 @@ versioned track record, support, coverage, cost gaps and graduation state. Take
 the exact lowercase SHA-256 `ROUTE_ID` from that response. Recipe/model changes
 start a new track record. A lack of labels does not establish correctness.
 
-Route decisions require `org.conf.set`. Enablement is a person's explicit choice
+Route decisions require a verified human identity (`user:<uid>`) and
+`org.conf.set`. Enablement is a person's explicit choice
 and requires `--confirm`; the engine still checks route eligibility and action
 safety. Disable stops response automation for the route. Configure requires at
 least one setting: a positive agreement count or a finite sample fraction in
@@ -259,7 +260,8 @@ does not bypass them. A route can be demoted after a wrong call.
 `runs label` records an independent human assessment: `benign`, `threat`,
 `disputed` or `unlabeled`. Use a positive source revision; increase it when
 correcting the assessment. The server supplies provenance from your verified
-identity and the stored run. Approving a suggested action alone is not an alert
+human identity (`user:<uid>`) and the stored run. API-key identities cannot
+submit human assessments. Approving a suggested action alone is not an alert
 label. Label writes require `investigation.set` + `insight.evt.get`. Route and
 label writes are sent once, without replay after a gateway timeout.
 

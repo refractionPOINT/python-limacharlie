@@ -376,7 +376,7 @@ Resume automatic actions for the org. Needs org.conf.set.
 _EXPLAIN_RUNS_LABEL = """\
 Submit an independent human assessment of the alert investigated by this run:
 benign, threat, disputed or unlabeled. The engine records provenance from your
-verified identity; an action approval alone is not an alert label. Use a positive
+verified human identity; an action approval alone is not an alert label. Use a positive
 source revision and increase it when correcting your assessment. Requires
 investigation.set + insight.evt.get. The write is sent once.
 
@@ -397,7 +397,8 @@ Example:
 
 _EXPLAIN_ROUTES = """\
 Enable, disable or configure a decision route returned by the scoreboard.
-Needs org.conf.set. Enablement is a person's explicit decision (--confirm);
+Needs a verified human identity and org.conf.set. Enablement is a person's
+explicit decision (--confirm);
 the engine refuses ineligible routes. It demotes a route after a wrong call.
 Configure the required agreements and the human-review sample fraction.
 Changes are sent once and never replayed after a gateway timeout.

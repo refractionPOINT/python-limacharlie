@@ -856,7 +856,8 @@ class Investigation:
     ) -> dict[str, Any]:
         """Enable, disable or configure a decision route for this product.
 
-        Enablement is an explicit human decision requiring ``org.conf.set``.
+        Route writes require a verified human identity and ``org.conf.set``;
+        enablement is an explicit human decision.
         The engine owns readiness checks, versioning and demotion. This write
         is sent once, without replay after a gateway timeout.
 
@@ -899,7 +900,8 @@ class Investigation:
         """Record an independent human assessment of an investigated alert.
 
         The server derives provenance from the verified caller and stored run;
-        callers cannot provide an actor or forge an outcome source. A corrected
+        callers must have a verified human identity and cannot provide an
+        actor or forge an outcome source. A corrected
         assessment needs a newer source revision. Writes are sent once.
 
         Args:
