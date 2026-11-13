@@ -17,7 +17,9 @@ the tests check both what the client asked for and how it read what came back:
   ResponseDecodeError instead of returning a partial body, while transport
   failures (timeouts, short reads) keep their own exception types;
 - decoding a large body does not hold more memory than reading it
-  uncompressed.
+  uncompressed;
+- the decoded-size limit stops high-ratio streams with bounded memory, and
+  its environment and constructor overrides.
 
 Every test runs once per Zstandard decoder situation the SDK can find itself
 in (the ``zstd_backend`` fixture): the standard library's ``compression.zstd``
@@ -860,6 +862,181 @@ class TestLargeBodies:
         assert server.seen[1].accept_encoding == hc.ACCEPT_ENCODING
         # Measured equal to within a few KiB on Python 3.10-3.14 (~50 MiB each).
         assert compressed_peak <= identity_peak + 1024 * 1024, (identity_peak, compressed_peak)
+
+
+# ---------------------------------------------------------------------------
+# Decoded-size limit
+# ---------------------------------------------------------------------------
+
+
+MIB = 1024 * 1024
+
+
+def _zeros(total: int, step: int = MIB):
+    for start in range(0, total, step):
+        yield b"\0" * min(step, total - start)
+
+
+def gzip_bomb(total: int) -> bytes:
+    """gzip of *total* zero bytes, built without holding them all."""
+    import zlib
+
+    c = zlib.compressobj(9, zlib.DEFLATED, 31)
+    return b"".join(c.compress(chunk) for chunk in _zeros(total)) + c.flush()
+
+
+def zstd_bomb(total: int) -> bytes:
+    """One zstd frame of *total* zero bytes, built without holding them all."""
+    if _stdlib_zstd is not None:
+        c = _stdlib_zstd.ZstdCompressor()
+        return b"".join(c.compress(chunk) for chunk in _zeros(total)) + c.flush()
+    zc = _zstandard.ZstdCompressor().compressobj()
+    return b"".join(zc.compress(chunk) for chunk in _zeros(total)) + zc.flush()
+
+
+def _bomb(coding: str, total: int) -> bytes:
+    if coding == "zstd":
+        if not CAN_COMPRESS_ZSTD:
+            pytest.skip("no zstd compressor for the test server")
+        if not zstd_decodable():
+            pytest.skip("no zstd decoder in this situation")
+        return zstd_bomb(total)
+    return gzip_bomb(total)
+
+
+class TestDecodedSizeLimit:
+    def test_default_is_one_gib(self):
+        assert hc.DEFAULT_MAX_DECODED_BYTES == 1024 ** 3
+        assert hc.max_decoded_bytes_from_env() == 1024 ** 3
+
+    @pytest.mark.parametrize("coding", ["gzip", "zstd"])
+    def test_bomb_stops_at_the_limit_with_bounded_memory(self, server, monkeypatch, coding):
+        """64 MiB of zeros, a few KiB on the wire, against a 1 MiB limit."""
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", str(MIB))
+        body = _bomb(coding, 64 * MIB)
+        assert len(body) < 256 * 1024
+        reply = Reply(200, body, [("Content-Encoding", coding)])
+        server.route = lambda seen: reply
+        client = make_client()
+        tracemalloc.start()
+        try:
+            with pytest.raises(ResponseDecodeError) as exc:
+                client.request("GET", "x", raw_response=True)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        assert peak < 8 * MIB, peak
+        msg = exc.value.raw_message
+        assert f"decodes to more than {MIB} bytes" in msg
+        assert "LC_MAX_DECODED_RESPONSE_BYTES" in msg
+        assert exc.value.encoding == coding
+        assert "LC_MAX_DECODED_RESPONSE_BYTES" in exc.value.suggestion
+
+    def test_stacked_codings_limit_every_layer(self, server, monkeypatch):
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", str(MIB))
+        body = gzip.compress(gzip_bomb(64 * MIB))
+        reply = Reply(200, body, [("Content-Encoding", "gzip, gzip")])
+        server.route = lambda seen: reply
+        client = make_client()
+        tracemalloc.start()
+        try:
+            with pytest.raises(ResponseDecodeError):
+                client.request("GET", "x", raw_response=True)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        assert peak < 8 * MIB, peak
+
+    @pytest.mark.parametrize("coding", ["gzip", "zstd"])
+    def test_body_exactly_at_the_limit_succeeds_and_one_more_byte_fails(self, server, monkeypatch, coding):
+        limit = 300_000
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", str(limit))
+        compress = zstd_compress if coding == "zstd" else gzip.compress
+        _bomb(coding, 1)  # skips the zstd arm where it cannot run
+        at_limit = b"a" * limit
+        server.route = fixed(compress(at_limit), encoding=coding)
+        assert make_client().request("GET", "x", raw_response=True) == at_limit.decode()
+        server.route = fixed(compress(at_limit + b"a"), encoding=coding)
+        with pytest.raises(ResponseDecodeError):
+            make_client().request("GET", "x", raw_response=True)
+
+    def test_identity_body_is_never_limited(self, server, monkeypatch):
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", "1000")
+        body = b"b" * 50_000
+        server.route = fixed(body)
+        assert make_client().request("GET", "x", raw_response=True) == body.decode()
+
+    def test_env_can_raise_the_limit(self, server, monkeypatch):
+        monkeypatch.setattr(hc, "DEFAULT_MAX_DECODED_BYTES", MIB)
+        body = gzip_bomb(4 * MIB)
+        server.route = fixed(body, encoding="gzip")
+        with pytest.raises(ResponseDecodeError):
+            make_client().request("GET", "x", raw_response=True)
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", str(8 * MIB))
+        assert len(make_client().request("GET", "x", raw_response=True)) == 4 * MIB
+
+    @pytest.mark.parametrize("value", ["0", "-1", " -4096 "])
+    def test_env_zero_or_negative_removes_the_limit(self, server, monkeypatch, value):
+        monkeypatch.setattr(hc, "DEFAULT_MAX_DECODED_BYTES", MIB)
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", value)
+        server.route = fixed(gzip_bomb(4 * MIB), encoding="gzip")
+        assert len(make_client().request("GET", "x", raw_response=True)) == 4 * MIB
+
+    @pytest.mark.parametrize("value", ["lots", "1.5e9", "1GB", "0x10"])
+    def test_env_invalid_value_warns_and_keeps_the_default(self, server, monkeypatch, value):
+        monkeypatch.setattr(hc, "DEFAULT_MAX_DECODED_BYTES", MIB)
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", value)
+        server.route = fixed(gzip_bomb(4 * MIB), encoding="gzip")
+        with pytest.warns(UserWarning, match="LC_MAX_DECODED_RESPONSE_BYTES"):
+            client = make_client()
+        with pytest.raises(ResponseDecodeError) as exc:
+            client.request("GET", "x", raw_response=True)
+        assert f"more than {MIB} bytes" in exc.value.raw_message
+
+    def test_env_empty_keeps_the_default(self, server, monkeypatch):
+        monkeypatch.setattr(hc, "DEFAULT_MAX_DECODED_BYTES", MIB)
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", "  ")
+        server.route = fixed(gzip_bomb(4 * MIB), encoding="gzip")
+        with pytest.raises(ResponseDecodeError):
+            make_client().request("GET", "x", raw_response=True)
+
+    @pytest.mark.parametrize("kwarg,ok", [(8 * MIB, True), (MIB, False), (0, True), (-1, True)])
+    def test_constructor_argument_overrides_env(self, server, monkeypatch, kwarg, ok):
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", str(2 * MIB))
+        server.route = fixed(gzip_bomb(4 * MIB), encoding="gzip")
+        client = make_client(max_decoded_response_bytes=kwarg)
+        if ok:
+            assert len(client.request("GET", "x", raw_response=True)) == 4 * MIB
+        else:
+            with pytest.raises(ResponseDecodeError):
+                client.request("GET", "x", raw_response=True)
+
+    def test_oversized_error_body_keeps_the_status(self, server, monkeypatch):
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", str(MIB))
+        server.route = fixed(gzip_bomb(16 * MIB), status=400, encoding="gzip")
+        with pytest.raises(ApiError) as exc:
+            make_client().request("GET", "x")
+        assert not isinstance(exc.value, ResponseDecodeError)
+        assert exc.value.status_code == 400
+        assert "decodes to more than" in str(exc.value)
+
+    def test_search_page_over_the_limit_surfaces_as_search_error(self, server, monkeypatch):
+        monkeypatch.setenv("LC_MAX_DECODED_RESPONSE_BYTES", str(MIB))
+        _search_routes(server, [search_rows(10)])
+        inner = server.route
+        bomb = gzip_bomb(32 * MIB)
+
+        def route(seen: Seen) -> Reply:
+            if seen.method == "GET" and "/search/q-1" in seen.path:
+                return Reply(200, bomb, [("Content-Encoding", "gzip")])
+            return inner(seen)
+
+        server.route = route
+        org = Organization(make_client())
+        with pytest.raises(SearchError) as exc:
+            list(Search(org).execute("-1h | * | *", 1_700_000_000, 1_700_003_600))
+        assert isinstance(exc.value.__cause__, ResponseDecodeError)
+        assert "LC_MAX_DECODED_RESPONSE_BYTES" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------

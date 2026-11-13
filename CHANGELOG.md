@@ -32,6 +32,12 @@
   partial body.
 - Turn it off with `Client(compressed_responses=False)` or the
   `LC_NO_RESPONSE_COMPRESSION=1` environment variable.
+- A compressed response may decode to at most 1 GiB, far above the largest
+  API responses. The limit is enforced while decoding, so a response with an
+  extreme compression ratio raises `ResponseDecodeError` instead of filling
+  memory. Change it with `LC_MAX_DECODED_RESPONSE_BYTES=<bytes>` or
+  `Client(max_decoded_response_bytes=...)`; 0 or a negative value removes it.
+  Uncompressed responses are not limited.
 
 ### Sync — `sync push` no longer turns quoted strings into numbers
 

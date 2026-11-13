@@ -38,6 +38,12 @@ Errors (:class:`limacharlie.errors.ResponseDecodeError`):
   stream's own end marker, and a cut exactly between members or frames by
   the response's unmet ``Content-Length``.
 
+- A body that decodes to more than the decoded-size limit (default
+  :data:`DEFAULT_MAX_DECODED_BYTES`, 1 GiB). The limit is enforced while
+  decoding, so a stream with an extreme compression ratio is stopped after
+  at most the limit plus one step of output, never inflated in full. Bodies
+  that arrive uncompressed are not limited, exactly as before.
+
 Transport errors raised while reading (a timeout, a reset connection, a
 chunked body cut mid-chunk) are not decode errors and pass through unchanged,
 exactly as they do for an uncompressed read.
@@ -53,7 +59,9 @@ from __future__ import annotations
 
 import gzip
 import io
+import os
 import shutil
+import warnings
 import zlib
 from typing import IO, Any, Callable, Iterable, NamedTuple
 
@@ -62,21 +70,84 @@ from .errors import ResponseDecodeError
 # Read and decode in steps of this many bytes.
 _DECODE_CHUNK = 256 * 1024
 
-# Compressed bytes fed to the zstandard package's decoder per step. Its
-# decompressobj has no output limit, so this bounds the decoded bytes one
-# step can produce for any realistic ratio.
+# Compressed bytes fed to the zstandard package's decoder per step, at most.
 _ZSTANDARD_INPUT_CHUNK = 64 * 1024
+
+# Upper bound on the decoded bytes one compressed zstd byte can produce. The
+# densest zstd input is an RLE block: a 3-byte header plus 1 byte that
+# expands to a full 128 KiB block, 32,768x; 65,536 leaves headroom. The
+# zstandard package's decompressobj has no output limit, so its input is fed
+# in pieces small enough that one piece cannot overshoot the decoded-size
+# limit by more than about 1 MiB.
+_ZSTD_MAX_EXPANSION = 1 << 16
+_ZSTANDARD_MIN_INPUT = 16
+
+#: Default limit on a compressed response's decoded size, in bytes (1 GiB).
+#: The largest responses that pass through this decoder are search result
+#: pages, which decode to at most a few hundred megabytes; everything else
+#: (listings, CSV exports, single records) is smaller or paged, and bulk
+#: downloads use signed URLs that are never decoded here. 1 GiB leaves a wide
+#: margin above all of them while stopping a stream with an extreme
+#: compression ratio, a few kilobytes on the wire, from exhausting memory.
+DEFAULT_MAX_DECODED_BYTES = 1024 ** 3
+
+#: Environment variable that overrides :data:`DEFAULT_MAX_DECODED_BYTES`.
+ENV_MAX_DECODED_BYTES = "LC_MAX_DECODED_RESPONSE_BYTES"
 
 _TRUNCATED = "Compressed file ended before the end-of-stream marker was reached"
 
 
-def _gzip_reader(fp: IO[bytes]) -> IO[bytes]:
+def max_decoded_bytes_from_env() -> int | None:
+    """Return the decoded-size limit from ``LC_MAX_DECODED_RESPONSE_BYTES``.
+
+    Unset or empty gives :data:`DEFAULT_MAX_DECODED_BYTES`. An integer number
+    of bytes sets the limit; 0 or a negative number removes it (``None``).
+    Any other value warns and keeps the default, so a typo never removes
+    the protection or stops the CLI from starting.
+    """
+    raw = os.environ.get(ENV_MAX_DECODED_BYTES, "").strip()
+    if not raw:
+        return DEFAULT_MAX_DECODED_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        warnings.warn(
+            f"{ENV_MAX_DECODED_BYTES}={raw!r} is not an integer number of bytes; "
+            f"using the default limit of {DEFAULT_MAX_DECODED_BYTES} bytes.",
+            stacklevel=2,
+        )
+        return DEFAULT_MAX_DECODED_BYTES
+    return value if value > 0 else None
+
+
+class _DecodedTooLarge(Exception):
+    """Raised inside the decoder chain when the decoded-size limit is exceeded."""
+
+
+class _LimitedReader:
+    """Read-only file wrapper that fails once more than *limit* bytes are read."""
+
+    def __init__(self, fp: IO[bytes], limit: int) -> None:
+        self._fp = fp
+        self._limit = limit
+        self.total = 0
+
+    def read(self, size: int = -1) -> bytes:
+        data = self._fp.read(size)
+        self.total += len(data)
+        if self.total > self._limit:
+            raise _DecodedTooLarge()
+        return data
+
+
+def _gzip_reader(fp: IO[bytes], limit: int | None) -> IO[bytes]:
     # GzipFile handles multi-member streams and trailing zero padding, verifies
     # each member's CRC-32 and length, and raises EOFError on a truncated one.
+    # read(n) returns at most n bytes, so the limit is enforced by the caller.
     return gzip.GzipFile(fileobj=fp, mode="rb")
 
 
-_DECODERS: dict[str, Callable[[IO[bytes]], IO[bytes]]] = {
+_DECODERS: dict[str, Callable[[IO[bytes], int | None], IO[bytes]]] = {
     "gzip": _gzip_reader,
     "x-gzip": _gzip_reader,
 }
@@ -93,9 +164,10 @@ except ImportError:
 
 if _stdlib_zstd is not None:
 
-    def _stdlib_zstd_reader(fp: IO[bytes]) -> IO[bytes]:
+    def _stdlib_zstd_reader(fp: IO[bytes], limit: int | None) -> IO[bytes]:
         # ZstdFile reads across frames, skips skippable frames and raises
-        # EOFError on a truncated frame.
+        # EOFError on a truncated frame. read(n) returns at most n bytes, so
+        # the limit is enforced by the caller.
         return _stdlib_zstd.ZstdFile(fp, mode="rb")
 
     _DECODERS["zstd"] = _stdlib_zstd_reader
@@ -122,20 +194,39 @@ else:
             ``unused_data``, and raises EOFError when the input ends inside a
             frame. Corrupt input and trailing garbage raise
             ``zstandard.ZstdError`` from the decoder itself.
+
+            ``decompressobj`` returns all the output of the input it is given,
+            so with a *limit* the input is fed in pieces of at most
+            (limit - decoded so far) / _ZSTD_MAX_EXPANSION bytes: one piece
+            cannot inflate past the limit by more than about 1 MiB.
             """
 
-            def __init__(self, fp: IO[bytes]) -> None:
+            def __init__(self, fp: IO[bytes], limit: int | None) -> None:
                 self._fp = fp
+                self._limit = limit
+                self._produced = 0
+                self._input = b""
+                self._pos = 0
                 self._dctx = _zstandard.ZstdDecompressor()
                 self._obj = self._dctx.decompressobj()
                 self._in_frame = False
                 self._pending = bytearray()
                 self._done = False
 
+            def _piece_size(self) -> int:
+                if self._limit is None:
+                    return _ZSTANDARD_INPUT_CHUNK
+                room = (self._limit - self._produced) // _ZSTD_MAX_EXPANSION
+                return max(_ZSTANDARD_MIN_INPUT, min(_ZSTANDARD_INPUT_CHUNK, room))
+
             def _feed(self, data: bytes) -> None:
                 while data:
                     self._in_frame = True
-                    self._pending += self._obj.decompress(data)
+                    out = self._obj.decompress(data)
+                    self._produced += len(out)
+                    if self._limit is not None and self._produced > self._limit:
+                        raise _DecodedTooLarge()
+                    self._pending += out
                     if not self._obj.eof:
                         return
                     data = self._obj.unused_data
@@ -144,13 +235,18 @@ else:
 
             def read(self, size: int = -1) -> bytes:
                 while not self._done and (size < 0 or len(self._pending) < size):
-                    data = self._fp.read(_ZSTANDARD_INPUT_CHUNK)
-                    if not data:
+                    if self._pos >= len(self._input):
+                        self._input = self._fp.read(_ZSTANDARD_INPUT_CHUNK)
+                        self._pos = 0
+                    if not self._input:
                         if self._in_frame:
                             raise EOFError(_TRUNCATED)
                         self._done = True
                         break
-                    self._feed(data)
+                    end = self._pos + self._piece_size()
+                    piece = self._input[self._pos:end] if self._pos or end < len(self._input) else self._input
+                    self._pos = end
+                    self._feed(piece)
                 if size < 0 or size >= len(self._pending):
                     out = bytes(self._pending)
                     self._pending.clear()
@@ -230,7 +326,8 @@ def content_codings(header_items: Iterable[tuple[str, str]]) -> list[str]:
     return codings
 
 
-def read_body(fp: Any, codings: list[str]) -> DecodedBody:
+def read_body(fp: Any, codings: list[str],
+              max_decoded: int | None = DEFAULT_MAX_DECODED_BYTES) -> DecodedBody:
     """Read the whole body from *fp* and remove *codings* from it.
 
     Args:
@@ -238,13 +335,15 @@ def read_body(fp: Any, codings: list[str]) -> DecodedBody:
             ``http.client.HTTPResponse`` or a ``urllib.error.HTTPError``.
         codings: The response's content codings in the order they were
             applied, as :func:`content_codings` returns them.
+        max_decoded: Most bytes any decoding step may produce, or None for
+            no limit. Applies only when there is a coding to remove.
 
     Returns:
         The decoded body, with the wire size when a coding was removed.
 
     Raises:
-        ResponseDecodeError: A coding is not supported, or the stream is
-            truncated or corrupt.
+        ResponseDecodeError: A coding is not supported, the stream is
+            truncated or corrupt, or it decodes to more than *max_decoded*.
     """
     if not codings:
         return DecodedBody(fp.read(), None, "")
@@ -263,10 +362,26 @@ def read_body(fp: Any, codings: list[str]) -> DecodedBody:
         return DecodedBody(b"", 0, label)
     reader: IO[bytes] = counter  # type: ignore[assignment]
     for coding in reversed(codings):
-        reader = _DECODERS[coding](reader)
+        reader = _DECODERS[coding](reader, max_decoded)
+        if max_decoded is not None:
+            # Every layer is limited, so an inner layer of stacked codings
+            # cannot inflate unchecked either.
+            reader = _LimitedReader(reader, max_decoded)  # type: ignore[assignment]
     out = io.BytesIO()
     try:
         shutil.copyfileobj(reader, out, _DECODE_CHUNK)
+    except _DecodedTooLarge:
+        raise ResponseDecodeError(
+            f"The {label} response body decodes to more than {max_decoded} bytes "
+            f"(stopped after {counter.count} compressed bytes), the limit set by "
+            f"{ENV_MAX_DECODED_BYTES} (default {DEFAULT_MAX_DECODED_BYTES}).",
+            encoding=label,
+            suggestion=(
+                f"If the response is legitimate, raise the limit with "
+                f"{ENV_MAX_DECODED_BYTES}=<bytes> (0 removes it) or "
+                f"Client(max_decoded_response_bytes=...)."
+            ),
+        ) from None
     except _DECODE_ERRORS as exc:
         raise ResponseDecodeError(
             f"Failed to decode the {label} response body after "

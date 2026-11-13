@@ -121,6 +121,15 @@ LC_NO_RESPONSE_COMPRESSION=1 limacharlie search run --query "..." --start ... --
 
 A caller that sets its own `Accept-Encoding` in `extra_headers` keeps it. Downloads from signed URLs (artifacts, payloads, exports, installers) are fetched as raw bytes, unchanged.
 
+### Decoded-size limit
+
+A compressed response may decode to at most 1 GiB (1073741824 bytes). The largest API responses, search result pages, decode to a few hundred megabytes at most, so the limit only stops a response with an extreme compression ratio, which would otherwise expand a few kilobytes on the wire into gigabytes of memory. The limit is checked while decoding, so such a response raises `ResponseDecodeError` after at most the limit plus one decode step, never a partial body. Uncompressed responses are not limited.
+
+| Setting | Effect |
+|---|---|
+| `LC_MAX_DECODED_RESPONSE_BYTES=<bytes>` | Sets the limit, in bytes, for the SDK and the CLI. `0` or a negative number removes it. A value that is not an integer emits a warning and keeps the default. |
+| `Client(max_decoded_response_bytes=<bytes>)` | Same, for one client; overrides the environment variable. |
+
 ## Detailed Guides
 
 | Guide | Topics |

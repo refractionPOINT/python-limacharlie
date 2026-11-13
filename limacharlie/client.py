@@ -171,9 +171,11 @@ class Client:
         explicit params > env vars > config file
     """
 
-    # Whether requests carry Accept-Encoding. Set per instance by __init__;
-    # this class default covers instances built without it (Client.__new__).
+    # Whether requests carry Accept-Encoding, and the most bytes a compressed
+    # response may decode to (None: no limit). Set per instance by __init__;
+    # these class defaults cover instances built without it (Client.__new__).
     _compressed_responses: bool = True
+    _max_decoded_bytes: int | None = _http_compression.DEFAULT_MAX_DECODED_BYTES
 
     def __init__(
         self,
@@ -191,6 +193,7 @@ class Client:
         debug_curl: bool = False,
         debug_verbose: bool = True,
         compressed_responses: bool | None = None,
+        max_decoded_response_bytes: int | None = None,
     ) -> None:
         """Initialize the client.
 
@@ -224,6 +227,12 @@ class Client:
                 the wire change. ``None`` (default) turns it on unless the
                 ``LC_NO_RESPONSE_COMPRESSION`` environment variable is set.
                 A compressed response is decoded even when this is off.
+            max_decoded_response_bytes: The most bytes a compressed response
+                may decode to; a larger one raises ResponseDecodeError instead
+                of being inflated in memory. ``None`` (default) reads the
+                ``LC_MAX_DECODED_RESPONSE_BYTES`` environment variable, or
+                uses 1 GiB. 0 or a negative number removes the limit.
+                Uncompressed responses are never limited.
         """
         creds = resolve_credentials(
             oid=oid,
@@ -279,6 +288,10 @@ class Client:
         if compressed_responses is None:
             compressed_responses = not _response_compression_disabled_by_env()
         self._compressed_responses = bool(compressed_responses)
+        if max_decoded_response_bytes is None:
+            self._max_decoded_bytes = _http_compression.max_decoded_bytes_from_env()
+        else:
+            self._max_decoded_bytes = max_decoded_response_bytes if max_decoded_response_bytes > 0 else None
 
     @property
     def oid(self) -> str | None:
@@ -310,7 +323,9 @@ class Client:
             ResponseDecodeError: The body is in an unsupported coding, or its
                 compressed stream is truncated or corrupt.
         """
-        decoded = _http_compression.read_body(fp, _http_compression.content_codings(resp_headers))
+        decoded = _http_compression.read_body(
+            fp, _http_compression.content_codings(resp_headers), self._max_decoded_bytes,
+        )
         if decoded.wire_bytes is not None and self._debug_fn is not None and not self._debug_curl_only:
             self._debug(
                 f"Response body: {decoded.wire_bytes} bytes {decoded.encoding} "
