@@ -438,9 +438,14 @@ Choose exactly one bounded selection:
 `--run-id` disambiguates exactly one explicit ID. Duplicate IDs, overlapping
 modes, unknown fields, absent answers, invalid types and oversized batches
 are refused. `--preference-only` records no truth. `--was-engine-wrong` is a
-human-only strong override: the engine journals the independent correction
-**before** undo effects to survive crashes. A failed undo can therefore still
-have `label_recorded:true` and demote a route.
+human-only answer: after native permission and metadata checks, the engine stores
+it **before** effects as a durable weak pending fact for crash recovery and to
+withhold the gate. This pending answer is not an assessment. A qualified
+`human_override` requires confirmed actual owned undo: native `Reverted` with
+an empty `RevertNote`; idempotent replay of actual success can also qualify.
+Failed or noop undo has `label_recorded:false`. Failed undo remains pending and
+retryable until an actual retry succeeds; known noops settle diagnostically.
+Only confirmed actual undo can create the strong label.
 
 Every undo returns the complete envelope: `results`, `next_cursor`,
 `truncated`, `selected`, and `as_of`. Each result contains `id`, `run_id`,

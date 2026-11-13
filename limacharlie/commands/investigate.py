@@ -489,9 +489,12 @@ IDs must be retried explicitly; next_cursor selects later actions. Inspect every
 status/error_code/retryable/label_recorded; partial failures produce a nonzero exit.
 Undo needs investigation.set + insight.evt.get and native action permissions from
 verified claims. Shared close bulk conservatively needs mailsec.set. Wrong=true
-is human-only: after authorization it journals the correction BEFORE effects;
-even failed undo can record the label and demote a route. Preference creates no
-truth. No retries; gateway 120s/SDK 130s, idempotent already_undone results.
+is human-only: after authorization it stores a durable weak pending answer BEFORE
+effects for crash recovery and gate withholding. A strong human_override requires
+confirmed actual owned undo (native Reverted, empty RevertNote), including an
+idempotent actual-success replay. Failed/noop undo has label_recorded=false:
+failures stay pending/retryable until actual retry; known noops are diagnostic.
+Preference creates no truth. No retries; gateway 120s/SDK 130s, idempotent already_undone results.
 
 Examples:
   limacharlie investigate autopilot actions list --product mailsec --state active,confirmed
@@ -1604,7 +1607,7 @@ def automatic_actions_get(ctx, action_id, run_id):
 @click.option("--product", default=None, help="Optional selector product.")
 @click.option("--from", "from_time", default=None, help="Required selector inclusive RFC3339 lower bound.")
 @click.option("--to", "to_time", default=None, help="Optional exclusive upper bound; cursor freezes its first value.")
-@click.option("--was-engine-wrong/--preference-only", default=None, help="Required for IDs/selector. Wrong is human-only and journals a correction before undo; preference records no truth.")
+@click.option("--was-engine-wrong/--preference-only", default=None, help="Required for IDs/selector. Wrong is human-only: the answer is durable before effects, but a strong label requires confirmed actual undo; preference records no truth.")
 @click.option("--limit", type=click.IntRange(1, 100), default=None, help="Selector page size, engine default 50.")
 @click.option("--cursor", default=None, help="Select the next page; retry failed current-page IDs explicitly.")
 @pass_context

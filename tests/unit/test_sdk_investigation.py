@@ -1229,8 +1229,8 @@ class TestAutomaticActionSurfaces:
     def test_undo_modes_send_once_without_mutation_and_keep_partial_results(self, inv, mock_org, options):
         from copy import deepcopy
         before = deepcopy(options)
-        page = {"results": [{"id": "a1", "status": "failed", "retryable": True, "label_recorded": True, "error_code": "unavailable"},
-                            {"id": "a2", "status": "already_undone", "retryable": False, "label_recorded": False}],
+        page = {"results": [{"id": "a1", "state": "failed", "status": "failed", "retryable": True, "label_recorded": False, "error_code": "unavailable"},
+                            {"id": "a2", "state": "reverted", "status": "already_undone", "retryable": False, "label_recorded": True}],
                 "selected": 2, "next_cursor": "later", "truncated": True, "as_of": "2026-11-13T12:00:00Z"}
         mock_org.client.request.return_value = page
         assert inv.undo_automatic_actions(**options) is page

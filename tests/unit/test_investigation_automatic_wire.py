@@ -17,7 +17,7 @@ def automatic_api(monkeypatch):
     import limacharlie.commands.investigate as command_mod
     from limacharlie.sdk.investigation import Investigation
 
-    state = SimpleNamespace(calls=[], revealed=False, error=None)
+    state = SimpleNamespace(calls=[], revealed=False, error=None, fail_active=True)
     metadata = {"id": "a1", "run_id": "r1", "product": "mailsec", "route_id": "a" * 64, "class": "close",
                 "state": "confirmed", "created": "2026-11-13T00:00:00Z", "automatic": True,
                 "held_for_spot_check": False, "targets_count": 1, "explanation": "automatic benign close"}
@@ -47,9 +47,15 @@ def automatic_api(monkeypatch):
                     rows = [{"id": "a1", "was_engine_wrong": body["was_engine_wrong"]}]
                 else:
                     rows = body.get("items") or [{"id": value, "was_engine_wrong": body["was_engine_wrong"]} for value in body["ids"]]
-                results = [{"id": row["id"], "run_id": row.get("run_id", "r1"), "state": "failed" if row["id"] == "fail" else "reverted",
-                            "status": "failed" if row["id"] == "fail" else "undone", "retryable": row["id"] == "fail",
-                            "label_recorded": row["was_engine_wrong"]} for row in rows]
+                results = []
+                for row in rows:
+                    failed = row["id"] == "fail" and state.fail_active
+                    noop = row["id"] == "noop"
+                    results.append({"id": row["id"], "run_id": row.get("run_id", "r1"),
+                                    "state": "failed" if failed else "confirmed" if noop else "reverted",
+                                    "status": "failed" if failed else "skipped" if noop else "undone",
+                                    "retryable": failed,
+                                    "label_recorded": row["was_engine_wrong"] and not (failed or noop)})
                 answer = {"results": results, "next_cursor": "opaque+next" if "selector" in body and not body.get("cursor") else "",
                           "truncated": "selector" in body and not body.get("cursor"), "selected": len(results), "as_of": "2026-11-13T12:00:00Z"}
             elif url.path.endswith("/actions"):
@@ -105,7 +111,8 @@ def test_each_undo_mode_preserves_real_json_and_no_auto_paging(automatic_api, mo
     inv = automatic_api.inv
     if mode == "ids":
         page = inv.undo_automatic_actions(["a1", "fail"], was_engine_wrong=True)
-        assert page["results"][1]["status"] == "failed" and page["results"][1]["label_recorded"] is True
+        assert page["results"][1]["status"] == "failed" and page["results"][1]["label_recorded"] is False
+        assert page["results"][0]["status"] == "undone" and page["results"][0]["label_recorded"] is True
     elif mode == "items":
         page = inv.undo_automatic_actions(items=[{"id": "a1", "run_id": "r1", "was_engine_wrong": False}])
         assert automatic_api.calls[-1][3] == {"items": [{"id": "a1", "run_id": "r1", "was_engine_wrong": False}]}
@@ -137,7 +144,8 @@ def test_cli_partial_result_and_explicit_reveal_over_http(automatic_api):
     from limacharlie.cli import cli
     runner = CliRunner(mix_stderr=False)
     result = runner.invoke(cli, ["--output", "json", "investigate", "autopilot", "actions", "undo", "a1", "fail", "--was-engine-wrong"])
-    assert result.exit_code != 0 and json.loads(result.stdout)["results"][1]["label_recorded"] is True
+    assert result.exit_code != 0 and json.loads(result.stdout)["results"][1]["label_recorded"] is False
+    assert json.loads(result.stdout)["results"][0]["status"] == "undone" and json.loads(result.stdout)["results"][0]["label_recorded"] is True
     assert len(automatic_api.calls) == 1
     result = runner.invoke(cli, ["--output", "json", "investigate", "runs", "decision", "r1"])
     assert json.loads(result.stdout)["visible_reason"] == "hidden" and not automatic_api.revealed
@@ -145,3 +153,16 @@ def test_cli_partial_result_and_explicit_reveal_over_http(automatic_api):
     assert result.exit_code == 0, result.stderr
     assert json.loads(result.stdout)["visible_reason"] == "revealed" and json.loads(result.stdout)["counted"] is False
     assert automatic_api.calls[-1][3] == {}
+
+
+def test_failed_and_noop_answers_have_no_strong_label_until_actual_retry(automatic_api):
+    page = automatic_api.inv.undo_automatic_actions(["fail", "noop"], was_engine_wrong=True)
+    assert [(row["status"], row["retryable"], row["label_recorded"]) for row in page["results"]] == [
+        ("failed", True, False), ("skipped", False, False),
+    ]
+    assert len(automatic_api.calls) == 1
+    # An explicit retry now reports an actual owned undo from the native side.
+    automatic_api.fail_active = False
+    page = automatic_api.inv.undo_automatic_actions(["fail"], was_engine_wrong=True)
+    assert page["results"][0]["state"] == "reverted" and page["results"][0]["status"] == "undone"
+    assert page["results"][0]["label_recorded"] is True and len(automatic_api.calls) == 2

@@ -1075,8 +1075,8 @@ class TestAutomaticActionCommands:
         sdk.undo_automatic_action.assert_not_called()
 
     def test_partial_undo_keeps_each_failure_and_nonzero_exit(self, sdk):
-        page = {"results": [{"id": "a1", "status": "failed", "error_code": "unavailable", "retryable": True, "label_recorded": True},
-                            {"id": "a2", "status": "undone", "label_recorded": False}], "next_cursor": "later", "selected": 2, "truncated": True}
+        page = {"results": [{"id": "a1", "state": "failed", "status": "failed", "error_code": "unavailable", "retryable": True, "label_recorded": False},
+                            {"id": "a2", "state": "reverted", "status": "undone", "label_recorded": True}], "next_cursor": "later", "selected": 2, "truncated": True}
         sdk.undo_automatic_actions.return_value = page
         result = run(["investigate", "autopilot", "actions", "undo", "a1", "a2", "--was-engine-wrong"])
         assert result.exit_code != 0 and out_json(result) == page
@@ -1096,7 +1096,9 @@ class TestAutomaticActionCommands:
             assert command in PROFILES["investigation_engine"]["commands"]
             help_result = CliRunner().invoke(cli, command.split() + ["--ai-help"])
             assert help_result.exit_code == 0, help_result.output
-        assert "BEFORE" in CliRunner().invoke(cli, ["investigate", "autopilot", "actions", "undo", "--ai-help"]).output
+        explanation = CliRunner().invoke(cli, ["investigate", "autopilot", "actions", "undo", "--ai-help"]).output
+        for text in ("durable weak pending answer BEFORE", "confirmed actual owned undo", "Failed/noop undo has label_recorded=false"):
+            assert text in explanation
 
 
 def test_automatic_undo_items_refuse_repeated_answer_fields(sdk):

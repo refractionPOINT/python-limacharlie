@@ -1659,8 +1659,11 @@ class Investigation:
         answers and optional run_id, or an auditor-only selector (route_id/from
         required, product/to optional). ids/selector require an explicit boolean
         was_engine_wrong. False is preference without truth. True is human-only:
-        after native authorization the engine journals the correction BEFORE undo
-        effects, so even failed undo may have label_recorded=True and demote a route.
+        after native authorization the engine durably stores the answer as a weak
+        pending fact BEFORE effects. A qualified human_override requires actual
+        owned undo: native Reverted with an empty RevertNote (or idempotent actual
+        success replay). Failed/noop undo has label_recorded=False. Failures stay
+        pending/retryable until actual retry succeeds; known noops are diagnostic.
         Read each result's status/error_code/retryable/label_recorded. Failed or
         unattempted current-page IDs need explicit retries; next_cursor selects
         subsequent actions, not retries. No automatic replay; native undo is
@@ -1673,8 +1676,9 @@ class Investigation:
                               was_engine_wrong: bool) -> dict[str, Any]:
         """Undo one action with the same full result envelope and 130s budget.
 
-        was_engine_wrong is required; see undo_automatic_actions for correction
-        journaling and partial failure semantics. No implicit retry occurs.
+        was_engine_wrong is required; see undo_automatic_actions for durable
+        answer storage, confirmed actual undo and partial failure semantics.
+        No implicit retry occurs.
         """
         action_id = _check_id("action id", action_id)
         item = {"id": action_id, "was_engine_wrong": was_engine_wrong}
