@@ -915,3 +915,36 @@ def test_error_target_ppm_cli_uses_canonical_maximum(sdk):
     result = run(["investigate", "routes", "configure", "a" * 64, "--product", "mailsec", "--error-target-ppm", "100001"])
     assert result.exit_code != 0
     sdk.decide_route.assert_not_called()
+
+
+@pytest.mark.parametrize("fmt", ["json", "jsonl", "yaml"])
+def test_autopilot_partial_failure_progress_in_structured_stderr(sdk, fmt):
+    from copy import deepcopy
+    import yaml
+    secret = "fictional-setup-token-must-not-leak"
+    rows = [{"id": "recipe", "source": "mailsec", "status": "done", "token": secret},
+            {"id": "identity", "source": "mailsec", "status": "failed", "error_code": "permission_denied",
+             "reason": "grant secret.set and retry", "details": {"token": secret}},
+            {"id": "enable", "status": "skipped", "reason": {"token": secret}}]
+    body = {"error": "setup failed", "error_code": "setup_failed:identity",
+            "setup": {"steps": rows, "credentials": secret}, "onboarding": rows, "token": secret}
+    before = deepcopy(body)
+    sdk.set_autopilot.side_effect = InvestigationError("setup failed", status_code=400, response_body=body, suggestion="")
+    result = run(["investigate", "autopilot", "configure", "--settings", "{}"], fmt=fmt)
+    assert result.exit_code != 0 and not result.stdout
+    document = yaml.safe_load(result.stderr) if fmt == "yaml" else json.loads(result.stderr)
+    expected = [{"id": "recipe", "source": "mailsec", "status": "done"},
+                {"id": "identity", "source": "mailsec", "status": "failed", "error_code": "permission_denied", "reason": "grant secret.set and retry"},
+                {"id": "enable", "status": "skipped"}]
+    assert document["setup"] == {"steps": expected}
+    assert document["onboarding"] == expected
+    assert document["error_code"] == "setup_failed:identity" and document["status"] == 400
+    assert secret not in result.stderr and body == before
+
+
+@pytest.mark.parametrize("body", [{}, {"setup": {"steps": "hidden"}, "onboarding": {"token": "hidden"}}])
+def test_autopilot_failure_without_typed_progress_keeps_legacy_cli_shape(sdk, body):
+    sdk.set_autopilot.side_effect = InvestigationError("setup failed", status_code=400, response_body=body, suggestion="")
+    result = run(["investigate", "autopilot", "configure", "--settings", "{}"])
+    assert result.exit_code != 0
+    assert json.loads(result.stderr) == {"error": "setup failed", "status": 400}

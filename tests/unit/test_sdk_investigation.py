@@ -1077,3 +1077,52 @@ def test_route_error_target_ppm_canonical_maximum(inv, mock_org):
     with pytest.raises(ValidationError):
         inv.decide_route("a" * 64, "mailsec", "configure", error_target_ppm=100001)
     mock_org.client.request.assert_not_called()
+
+
+class TestSetupProgressErrors:
+    def test_partial_progress_is_safe_and_response_is_not_mutated(self, inv, mock_org):
+        from copy import deepcopy
+        secret = "fictional-credential-must-not-leak"
+        rows = [
+            {"id": "recipe", "source": "mailsec", "status": "done", "jwt": secret},
+            {"id": "identity", "source": "mailsec", "status": "failed", "error_code": "permission_denied",
+             "reason": "grant secret.set and retry", "credentials": {"token": secret}},
+            {"id": "enable", "status": "skipped", "reason": {"token": secret}},
+            {"id": 123, "status": "failed", "reason": secret}, secret,
+        ]
+        body = {"error": "setup failed", "error_code": "setup_failed:identity", "setup": {"steps": rows, "token": secret},
+                "onboarding": rows, "token": secret, "native_response": {"secret": secret}}
+        before = deepcopy(body)
+        mock_org.client.request.side_effect = error_from_status_code(400, body)
+        with pytest.raises(InvestigationError) as caught:
+            inv.set_autopilot({})
+        document = caught.value.to_dict()
+        expected = [
+            {"id": "recipe", "source": "mailsec", "status": "done"},
+            {"id": "identity", "source": "mailsec", "status": "failed", "error_code": "permission_denied", "reason": "grant secret.set and retry"},
+            {"id": "enable", "status": "skipped"},
+        ]
+        assert document["status"] == 400 and document["error_code"] == "setup_failed:identity"
+        assert document["setup"] == {"steps": expected}
+        assert document["onboarding"] == expected
+        assert secret not in json.dumps(document) and "native_response" not in document
+        assert body == before and caught.value.response_body == before
+        document["setup"]["steps"][0]["status"] = "changed"
+        document["onboarding"].append({"id": "changed", "status": "done"})
+        assert body == before and caught.value.response_body == before
+
+    @pytest.mark.parametrize("progress", [
+        {}, {"setup": None, "onboarding": None},
+        {"setup": {"token": "hidden"}, "onboarding": "hidden"},
+        {"setup": {"steps": "hidden"}, "onboarding": {"token": "hidden"}},
+        {"setup": {"steps": [123, {"id": "identity", "status": False}]}, "onboarding": ["hidden"]},
+    ])
+    def test_absent_or_malformed_progress_keeps_old_error_shape(self, progress):
+        exc = InvestigationError("setup failed", status_code=400, response_body=progress, suggestion="")
+        assert exc.to_dict() == {"error": "setup failed", "status": 400}
+
+    def test_explicit_empty_progress_remains_visible(self):
+        exc = InvestigationError("setup failed", status_code=400, suggestion="",
+                                 response_body={"setup": {"steps": []}, "onboarding": []})
+        assert exc.to_dict() == {"error": "setup failed", "status": 400,
+                                 "setup": {"steps": []}, "onboarding": []}

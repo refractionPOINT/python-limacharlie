@@ -87,6 +87,26 @@ MAX_EVENTS_LIMIT = 500
 _WAIT_MARGIN = 35
 
 
+def _public_setup_steps(value: Any) -> list[dict[str, str]] | None:
+    """Project typed public progress without exposing native API credentials."""
+    if not isinstance(value, list):
+        return None
+    steps: list[dict[str, str]] = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        if not isinstance(row.get("id"), str) or not row["id"] or not isinstance(row.get("status"), str) or not row["status"]:
+            continue
+        step = {"id": row["id"], "status": row["status"]}
+        for name in ("source", "error_code", "reason"):
+            if isinstance(row.get(name), str):
+                step[name] = row[name]
+        steps.append(step)
+    # An explicitly empty typed list is valid; malformed nonempty data must
+    # not create new empty progress fields in an otherwise legacy error.
+    return steps if steps or not value else None
+
+
 class InvestigationError(ApiError):
     """An Investigation Engine call failed.
 
@@ -124,7 +144,8 @@ class InvestigationError(ApiError):
 
         Returns:
             dict: ``error`` (message), ``status`` (HTTP), ``error_code``, and
-                ``errors`` / ``warnings`` exactly as the engine sent them.
+                ``errors`` / ``warnings`` exactly as the engine sent them,
+                plus allowlisted typed ``setup.steps`` / ``onboarding`` progress.
         """
         out: dict[str, Any] = {"error": self.raw_message, "status": self.status_code}
         if self.error_code:
@@ -135,6 +156,15 @@ class InvestigationError(ApiError):
             out["warnings"] = self.warnings
         if self.suggestion:
             out["suggestion"] = self.suggestion
+        if isinstance(self.response_body, dict):
+            setup = self.response_body.get("setup")
+            if isinstance(setup, dict):
+                steps = _public_setup_steps(setup.get("steps"))
+                if steps is not None:
+                    out["setup"] = {"steps": steps}
+            steps = _public_setup_steps(self.response_body.get("onboarding"))
+            if steps is not None:
+                out["onboarding"] = steps
         return out
 
 
