@@ -1071,3 +1071,9 @@ def test_route_ppm_options_are_strict_integers(inv, mock_org, field, value):
     with pytest.raises(ValidationError):
         inv.decide_route("a" * 64, "mailsec", "configure", **{field: value})
     mock_org.client.request.assert_not_called()
+
+
+def test_route_error_target_ppm_canonical_maximum(inv, mock_org):
+    with pytest.raises(ValidationError):
+        inv.decide_route("a" * 64, "mailsec", "configure", error_target_ppm=100001)
+    mock_org.client.request.assert_not_called()

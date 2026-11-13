@@ -872,3 +872,46 @@ def test_route_configure_all_integer_ppm_options(sdk):
                   "--spot-check-ppm", "50000", "--error-target-ppm", "15000", "--blind-share-ppm", "100000"])
     assert result.exit_code == 0, result.stderr
     sdk.decide_route.assert_called_once_with("a" * 64, "mailsec", "configure", spot_check_ppm=50000, error_target_ppm=15000, blind_share_ppm=100000)
+
+
+def test_human_engine_formatting_is_exact_and_never_mutates_wire_data():
+    from copy import deepcopy
+    from limacharlie.commands.investigate import _human_engine_values
+    raw = {"daily_cap_micro_usd": 10000000, "spent_micro_usd": 1, "unknown_micro_usd": None,
+           "nested": [{"spot_check_ppm": 50000, "error_target_ppm": 15000, "blind_share_ppm": 1}]}
+    before = deepcopy(raw)
+    human = _human_engine_values(raw)
+    assert human == {"daily_cap_micro_usd": "$10.00", "spent_micro_usd": "$0.000001", "unknown_micro_usd": "unknown",
+                     "nested": [{"spot_check_ppm": "5%", "error_target_ppm": "1.5%", "blind_share_ppm": "0.0001%"}]}
+    assert raw == before
+
+
+@pytest.mark.parametrize("fmt", ["table", "csv"])
+def test_autopilot_human_status_money_and_ppm(sdk, fmt):
+    sdk.get_autopilot.return_value = {"daily_cap_micro_usd": 10000000, "spent_micro_usd": 1,
+                                     "unknown_micro_usd": None, "error_target_ppm": 15000}
+    result = run(["investigate", "autopilot", "status"], fmt=fmt)
+    assert result.exit_code == 0, result.stderr
+    assert "$10.00" in result.stdout and "$0.000001" in result.stdout
+    assert "unknown" in result.stdout and "1.5%" in result.stdout
+
+
+def test_human_alert_values_and_raw_structured_values(sdk):
+    page = {"alerts": [{"id": "a1", "spent_micro_usd": 50000, "spot_check_ppm": 50000}],
+            "total": 1, "next_cursor": "", "truncated": False}
+    sdk.list_autopilot_alerts.return_value = page
+    human = run(["investigate", "autopilot", "alerts"], fmt="table")
+    assert human.exit_code == 0, human.stderr
+    assert "$0.05" in human.stdout and "5%" in human.stdout
+    structured = run(["investigate", "autopilot", "alerts"], fmt="json")
+    assert out_json(structured) == page
+    sdk.get_autopilot.return_value = {"spent_micro_usd": 1, "unknown_micro_usd": None, "spot_check_ppm": 1}
+    for fmt in ("json", "jsonl"):
+        result = run(["investigate", "autopilot", "status"], fmt=fmt)
+        assert json.loads(result.stdout) == sdk.get_autopilot.return_value
+
+
+def test_error_target_ppm_cli_uses_canonical_maximum(sdk):
+    result = run(["investigate", "routes", "configure", "a" * 64, "--product", "mailsec", "--error-target-ppm", "100001"])
+    assert result.exit_code != 0
+    sdk.decide_route.assert_not_called()

@@ -519,6 +519,45 @@ def _fmt(ctx: click.Context) -> str:
     return ctx.obj.output_format or detect_output_format()
 
 
+def _human_engine_values(value: Any) -> Any:
+    """Format integer monetary/rate fields for people, without mutating SDK data."""
+    def amount(micros: Any) -> Any:
+        if micros is None:
+            return "unknown"
+        if type(micros) is not int:
+            return micros
+        whole, fraction = divmod(abs(micros), 1_000_000)
+        digits = f"{fraction:06d}".rstrip("0").ljust(2, "0")
+        return f"{'-' if micros < 0 else ''}${whole:,}.{digits}"
+
+    def percent(ppm: Any) -> Any:
+        if ppm is None:
+            return "unknown"
+        if type(ppm) is not int:
+            return ppm
+        whole, fraction = divmod(abs(ppm), 10_000)
+        digits = f"{fraction:04d}".rstrip("0")
+        return f"{'-' if ppm < 0 else ''}{whole}{'.' + digits if digits else ''}%"
+
+    if isinstance(value, dict):
+        return {
+            key: (amount(item) if isinstance(key, str) and key.endswith("_micro_usd") else
+                  percent(item) if isinstance(key, str) and key.endswith("_ppm") else
+                  _human_engine_values(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_human_engine_values(item) for item in value]
+    return value
+
+
+def _engine_output(ctx: click.Context, data: Any, **kwargs: Any) -> None:
+    # JSONL is structured too: keep integer wire values/nulls unchanged there.
+    if _fmt(ctx) in ("table", "csv"):
+        data = _human_engine_values(data)
+    command_output(ctx, data, **kwargs)
+
+
 def _error_document(exc: LimaCharlieError) -> dict[str, Any]:
     """The machine-readable form of any SDK failure.
 
@@ -631,9 +670,9 @@ def _emit_page(ctx: click.Context, key: str, items: list[Any], next_cursor: str,
     """
     fmt = _fmt(ctx)
     if fmt in ("json", "yaml", "toon"):
-        command_output(ctx, {key: items, "next_cursor": next_cursor or ""})
+        _engine_output(ctx, {key: items, "next_cursor": next_cursor or ""})
         return
-    command_output(ctx, [project(i) for i in items] if fmt in ("table", "csv") else items)
+    _engine_output(ctx, [project(i) for i in items] if fmt in ("table", "csv") else items)
     if next_cursor:
         note(ctx, f"next_cursor: {next_cursor}")
 
@@ -679,7 +718,7 @@ def group() -> None:
 @_engine_errors
 def kit_cmd(ctx, sections) -> None:
     """Fetch the authoring kit: schema, guide, operators, examples, policy, codes, packs, library."""
-    command_output(ctx, _get_investigation(ctx).get_authoring_kit(list(sections) or None))
+    _engine_output(ctx, _get_investigation(ctx).get_authoring_kit(list(sections) or None))
 
 
 @group.command("operators")
@@ -699,7 +738,7 @@ def operators_cmd(ctx, match, names, brief) -> None:
         rows = [o for o in rows if any(needle in str(o.get(k, "")).lower() for k in ("name", "class", "description"))]
     if brief:
         rows = [{k: o.get(k) for k in ("name", "class", "description", "available", "why")} for o in rows]
-    command_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"operators": rows, "extension_requests": data.get("extension_requests", [])})
+    _engine_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"operators": rows, "extension_requests": data.get("extension_requests", [])})
 
 
 @group.command("packs")
@@ -721,7 +760,7 @@ def packs_cmd(ctx, name, brief) -> None:
             }
             for p in packs
         ]
-    command_output(ctx, packs if _fmt(ctx) in ("table", "csv", "jsonl") else {"packs": packs})
+    _engine_output(ctx, packs if _fmt(ctx) in ("table", "csv", "jsonl") else {"packs": packs})
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +782,7 @@ def templates_list(ctx, status) -> None:
     rows = [t for t in data.get("templates") or [] if isinstance(t, dict)]
     if status:
         rows = [t for t in rows if (t.get("status") or "draft") == status]
-    command_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"templates": rows})
+    _engine_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"templates": rows})
 
 
 @templates_group.command("get")
@@ -757,7 +796,7 @@ def templates_get(ctx, name, yaml_only) -> None:
     if yaml_only:
         click.echo(view["yaml"], nl=False)
         return
-    command_output(ctx, view)
+    _engine_output(ctx, view)
 
 
 def _file_option(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -773,7 +812,7 @@ def templates_validate(ctx, file_path) -> None:
     if not file_path:
         raise click.UsageError("--file is required.")
     report = _get_investigation(ctx).validate_plan(_read_source(file_path))
-    command_output(ctx, report)
+    _engine_output(ctx, report)
     if report.get("valid") is not True or report.get("errors"):
         ctx.exit(EXIT_REFUSED)
 
@@ -841,7 +880,7 @@ def _test_rows(test: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -> None:
     if _fmt(ctx) not in ("table", "csv"):
-        command_output(ctx, _compact_test(test, include_steps))
+        _engine_output(ctx, _compact_test(test, include_steps))
         return
     header = f"test {test.get('test_id')}: {test.get('state')}"
     if "samples_done" in test:
@@ -853,7 +892,7 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
                        + (f" (did you mean {issue['suggestion']})" if issue.get("suggestion") else ""))
     rows = _test_rows(test)
     if rows:
-        command_output(ctx, rows)
+        _engine_output(ctx, rows)
     summary = test.get("summary")
     if isinstance(summary, dict):
         click.echo("summary: " + ", ".join(f"{k}={summary[k]}" for k in (
@@ -948,7 +987,7 @@ def templates_save(ctx, name, file_path, status, overwrite, comment, tags) -> No
     result = _get_investigation(ctx).save_template(
         name, _read_source(file_path), status=status, overwrite=overwrite, comment=comment, tags=list(tags) or None,
     )
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if not result.get("saved"):
         ctx.exit(EXIT_REFUSED)
 
@@ -963,7 +1002,7 @@ def templates_promote(ctx, name, confirm) -> None:
     if not confirm:
         raise click.UsageError("Promoting a template makes it runnable on its own and requires --confirm.")
     result = _get_investigation(ctx).promote_template(name)
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if not result.get("promoted"):
         ctx.exit(EXIT_REFUSED)
 
@@ -979,7 +1018,7 @@ def templates_delete(ctx, name, confirm) -> None:
         raise click.UsageError("Destructive operation requires --confirm flag.")
     result = _get_investigation(ctx).delete_template(name)
     note(ctx, f"Template '{name}' deleted.")
-    command_output(ctx, result)
+    _engine_output(ctx, result)
 
 
 @templates_group.command("install-defaults")
@@ -992,7 +1031,7 @@ def templates_delete(ctx, name, confirm) -> None:
 def templates_install_defaults(ctx, names, overwrite, status) -> None:
     """Write the engine's default template library to this org (never overwrites silently)."""
     result = _get_investigation(ctx).install_default_templates(list(names) or None, overwrite=overwrite, status=status)
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if result["failed"]:
         ctx.exit(1)
 
@@ -1069,7 +1108,7 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
         if not ctx.obj.quiet:
             click.echo(json.dumps(answer, separators=(",", ":"), default=str))
     else:
-        command_output(ctx, answer)
+        _engine_output(ctx, answer)
     if follow:
         run_id = (answer.get("run") or {}).get("run_id")
         if run_id:
@@ -1082,7 +1121,7 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
 @_engine_errors
 def runs_get(ctx, run_id) -> None:
     """Read a run: state, phase, verdict, actions and usage."""
-    command_output(ctx, _get_investigation(ctx).get_run(run_id))
+    _engine_output(ctx, _get_investigation(ctx).get_run(run_id))
 
 
 @runs_group.command("list")
@@ -1160,7 +1199,7 @@ def runs_events(ctx, run_id, after, wait, limit, follow, timeout) -> None:
             click.echo(_event_line(event))
         note(ctx, f"next: {page.get('next')}  done: {page.get('done')}")
         return
-    command_output(ctx, page)
+    _engine_output(ctx, page)
 
 
 @runs_group.command("steps")
@@ -1170,7 +1209,7 @@ def runs_events(ctx, run_id, after, wait, limit, follow, timeout) -> None:
 @_engine_errors
 def runs_steps(ctx, run_id, values) -> None:
     """Read a run's step log, plan graph, usage and belief curve."""
-    command_output(ctx, _get_investigation(ctx).get_run_steps(run_id, values=values))
+    _engine_output(ctx, _get_investigation(ctx).get_run_steps(run_id, values=values))
 
 
 @runs_group.command("case")
@@ -1179,7 +1218,7 @@ def runs_steps(ctx, run_id, values) -> None:
 @_engine_errors
 def runs_case(ctx, run_id) -> None:
     """Read the case document a run wrote."""
-    command_output(ctx, _get_investigation(ctx).get_run_case(run_id))
+    _engine_output(ctx, _get_investigation(ctx).get_run_case(run_id))
 
 
 @runs_group.command("cancel")
@@ -1189,7 +1228,7 @@ def runs_case(ctx, run_id) -> None:
 @_engine_errors
 def runs_cancel(ctx, run_id, revert_leases) -> None:
     """Cancel a run."""
-    command_output(ctx, _get_investigation(ctx).cancel_run(run_id, revert_leases=revert_leases))
+    _engine_output(ctx, _get_investigation(ctx).cancel_run(run_id, revert_leases=revert_leases))
 
 
 @runs_group.command("delete")
@@ -1203,7 +1242,7 @@ def runs_delete(ctx, run_id, confirm) -> None:
         raise click.UsageError("Destructive operation requires --confirm flag.")
     result = _get_investigation(ctx).delete_run(run_id)
     note(ctx, f"Run '{run_id}' deleted.")
-    command_output(ctx, result)
+    _engine_output(ctx, result)
 
 
 # ---------------------------------------------------------------------------
@@ -1243,9 +1282,9 @@ def wave_cmd(ctx, file_path, stop_when, deadline_ms, inputs, full, validate_only
         if not exc.issues:
             raise
         # A refused wave is a result: its coded errors are what the caller needs, on stdout.
-        command_output(ctx, {"valid": False, "error": exc.raw_message.split("\n")[0], "errors": exc.issues, "warnings": exc.warnings})
+        _engine_output(ctx, {"valid": False, "error": exc.raw_message.split("\n")[0], "errors": exc.issues, "warnings": exc.warnings})
         ctx.exit(EXIT_REFUSED)
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if validate_only and result.get("valid") is False:
         ctx.exit(EXIT_REFUSED)
 
@@ -1286,7 +1325,7 @@ def actions_list(ctx, state, action_class, run_id, limit, cursor, fetch_all) -> 
 @_engine_errors
 def actions_approve(ctx, run_id, action_id) -> None:
     """Approve an action (also needs the permission of the action's class)."""
-    command_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "approve"))
+    _engine_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "approve"))
 
 
 @actions_group.command("deny")
@@ -1297,7 +1336,7 @@ def actions_approve(ctx, run_id, action_id) -> None:
 @_engine_errors
 def actions_deny(ctx, run_id, action_id, reason) -> None:
     """Deny an action."""
-    command_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "deny", note=reason))
+    _engine_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "deny", note=reason))
 
 
 @actions_group.command("revert")
@@ -1309,7 +1348,7 @@ def actions_deny(ctx, run_id, action_id, reason) -> None:
 @_engine_errors
 def actions_revert(ctx, run_id, action_id, reason, was_engine_wrong) -> None:
     """Undo an action, optionally recording an explicit human correction."""
-    command_output(ctx, _get_investigation(ctx).decide_action(
+    _engine_output(ctx, _get_investigation(ctx).decide_action(
         run_id, action_id, "revert", note=reason, was_engine_wrong=was_engine_wrong,
     ))
 
@@ -1334,7 +1373,7 @@ def policy_group() -> None:
 @_engine_errors
 def policy_get(ctx, category, priority, severity, target_tags, action_class, template) -> None:
     """Explain the effective policy."""
-    command_output(ctx, _get_investigation(ctx).get_effective_policy(
+    _engine_output(ctx, _get_investigation(ctx).get_effective_policy(
         category=category, priority=priority, severity=severity,
         target_tags=list(target_tags) or None, action_class=action_class, template=template,
     ))
@@ -1345,7 +1384,7 @@ def policy_get(ctx, category, priority, severity, target_tags, action_class, tem
 @_engine_errors
 def policy_status(ctx) -> None:
     """Show whether automatic actions are paused."""
-    command_output(ctx, _get_investigation(ctx).get_autonomy())
+    _engine_output(ctx, _get_investigation(ctx).get_autonomy())
 
 
 @policy_group.command("pause")
@@ -1353,7 +1392,7 @@ def policy_status(ctx) -> None:
 @_engine_errors
 def policy_pause(ctx) -> None:
     """Pause automatic actions for the org."""
-    command_output(ctx, _get_investigation(ctx).set_autonomy("pause"))
+    _engine_output(ctx, _get_investigation(ctx).set_autonomy("pause"))
 
 
 @policy_group.command("resume")
@@ -1361,7 +1400,7 @@ def policy_pause(ctx) -> None:
 @_engine_errors
 def policy_resume(ctx) -> None:
     """Resume automatic actions for the org."""
-    command_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
+    _engine_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
 
 
 # ---------------------------------------------------------------------------
@@ -1384,7 +1423,7 @@ def autopilot_status(ctx, source, period, from_time, to_time) -> None:
     """Show automatic investigation configuration, spend and counters."""
     if (from_time is None) != (to_time is None):
         raise _input_error("--from/--to", "provide both explicit time bounds")
-    command_output(ctx, _get_investigation(ctx).get_autopilot(
+    _engine_output(ctx, _get_investigation(ctx).get_autopilot(
         source=source, period=period, from_=from_time, to=to_time,
     ))
 
@@ -1400,7 +1439,7 @@ def autopilot_configure(ctx, settings, file_path) -> None:
         raise _input_error("--settings/--file", "provide exactly one of --settings JSON or --file PATH")
     hint = "--file" if file_path is not None else "--settings"
     config = _json_object(_read_source(file_path) if file_path is not None else settings, hint)
-    command_output(ctx, _get_investigation(ctx).set_autopilot(config))
+    _engine_output(ctx, _get_investigation(ctx).set_autopilot(config))
 
 
 @autopilot_group.command("alerts")
@@ -1421,7 +1460,7 @@ def autopilot_alerts(ctx, source, state, group_id, run_id, from_time, to_time, l
         from_=from_time, to=to_time, limit=limit, cursor=cursor,
     )
     if _fmt(ctx) in ("json", "yaml", "toon"):
-        command_output(ctx, page)
+        _engine_output(ctx, page)
         return
     _emit_page(ctx, "alerts", page.get("alerts") or [], page.get("next_cursor") or "", lambda alert: alert)
     if "total" in page:
@@ -1440,7 +1479,7 @@ def autopilot_alerts(ctx, source, state, group_id, run_id, from_time, to_time, l
 @_engine_errors
 def scoreboard_cmd(ctx, product) -> None:
     """Show decision route track records and graduation state."""
-    command_output(ctx, _get_investigation(ctx).get_scoreboard(product=product))
+    _engine_output(ctx, _get_investigation(ctx).get_scoreboard(product=product))
 
 
 @group.group("routes")
@@ -1458,7 +1497,7 @@ def routes_enable(ctx, route_id, product, confirm) -> None:
     """Enable an eligible route (a person's decision; requires --confirm)."""
     if not confirm:
         raise click.UsageError("Route enablement requires a person's explicit --confirm flag.")
-    command_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "enable"))
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "enable"))
 
 
 @routes_group.command("disable")
@@ -1468,7 +1507,7 @@ def routes_enable(ctx, route_id, product, confirm) -> None:
 @_engine_errors
 def routes_disable(ctx, route_id, product) -> None:
     """Disable automatic response for this route."""
-    command_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "disable"))
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "disable"))
 
 
 @routes_group.command("configure")
@@ -1476,7 +1515,7 @@ def routes_disable(ctx, route_id, product) -> None:
 @click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
 @click.option("--min-agreeing", type=click.IntRange(min=1), default=None, help="Required agreeing labels; the engine enforces its safety floor.")
 @click.option("--spot-check-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer review sampling rate in parts per million (50000 = 5%); engine policy floors/defaults apply.")
-@click.option("--error-target-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer error target in parts per million; the engine enforces its safety requirements.")
+@click.option("--error-target-ppm", type=click.IntRange(0, 100000), default=None, help="Integer error target in parts per million, 0..100000; engine route limits may be stricter.")
 @click.option("--blind-share-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer blind-review share in parts per million.")
 @pass_context
 @_engine_errors
@@ -1488,7 +1527,7 @@ def routes_configure(ctx, route_id, product, min_agreeing, spot_check_ppm, error
     }.items() if value is not None}
     if not options:
         raise _input_error("route settings", "provide at least one route setting")
-    command_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "configure", **options))
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "configure", **options))
 
 
 @runs_group.command("label")
@@ -1499,4 +1538,4 @@ def routes_configure(ctx, route_id, product, min_agreeing, spot_check_ppm, error
 @_engine_errors
 def runs_label(ctx, run_id, assessment, revision) -> None:
     """Submit an independent alert label with authenticated provenance."""
-    command_output(ctx, _get_investigation(ctx).submit_run_label(run_id, assessment, revision))
+    _engine_output(ctx, _get_investigation(ctx).submit_run_label(run_id, assessment, revision))

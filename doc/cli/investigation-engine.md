@@ -200,7 +200,9 @@ All money is int64 micro-USD: 1 USD = 1,000,000 micros. Defaults are 10,000,000
 daily, 100,000,000 monthly and 500,000 per run ($10, $100 and $0.50). Unknown
 reported money remains null. Settings must use JSON integer tokens: floats,
 quoted numbers, decimal/exponent notation and old floating-USD keys are refused.
-The CLI does not silently convert old wire fields.
+The CLI does not silently convert old wire fields. Table/CSV output displays
+monetary fields as USD strings and PPM fields as percentages using exact integer
+arithmetic. JSON/YAML/TOON/JSONL and SDK results retain raw integer fields and nulls.
 A full configuration example for `autopilot.json`:
 
 ```json
@@ -280,8 +282,8 @@ Route decisions require a verified human identity (`user:<uid>`) and
 and requires `--confirm`; the engine still checks route eligibility and action
 safety. Disable stops response automation for the route. Configure requires at
 least one setting: a positive agreement count or an integer `--spot-check-ppm` rate in
-0..1,000,000 (50,000 = 5%). `--error-target-ppm` and `--blind-share-ppm` use
-the same integer range. The engine enforces route-specific safety bounds.
+0..1,000,000 (50,000 = 5%). `--blind-share-ppm` uses the same range; `--error-target-ppm` is bounded to
+0..100,000. The engine enforces route-specific safety bounds.
 Decimal and exponent wire values are refused. The engine owns safety floors, default values and readiness; a CLI setting
 does not bypass them. A route can be demoted after a wrong call.
 

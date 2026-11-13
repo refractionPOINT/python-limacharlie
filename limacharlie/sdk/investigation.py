@@ -874,7 +874,7 @@ class Investigation:
             min_agreeing: Required agreements for configure; the engine enforces its floor.
             spot_check_ppm: Integer human-review sampling rate in parts per million,
                 0..1,000,000 (50,000 = 5%). The engine applies policy floors/defaults.
-            error_target_ppm: Integer error target in parts per million, 0..1,000,000.
+            error_target_ppm: Integer error target in parts per million, 0..100,000.
             blind_share_ppm: Integer blind-review share in parts per million, 0..1,000,000.
 
         Returns:
@@ -895,8 +895,9 @@ class Investigation:
             raise ValidationError("min_agreeing must be a positive int64")
         rates = {"spot_check_ppm": spot_check_ppm, "error_target_ppm": error_target_ppm, "blind_share_ppm": blind_share_ppm}
         for name, value in rates.items():
-            if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
-                raise ValidationError(f"{name} must be an integer between 0 and 1000000")
+            maximum = 100_000 if name == "error_target_ppm" else 1_000_000
+            if value is not None and (type(value) is not int or not 0 <= value <= maximum):
+                raise ValidationError(f"{name} must be an integer between 0 and {maximum}")
         body: dict[str, Any] = {"product": product, "verb": verb}
         if min_agreeing is not None:
             body["min_agreeing"] = min_agreeing
