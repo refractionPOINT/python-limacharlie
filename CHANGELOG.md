@@ -17,6 +17,39 @@
 - The service accepts the field only while reasoning effort is enabled on it;
   otherwise it is ignored.
 
+### Search - the detection stream is named `detection`
+
+- The SDK docstrings and the `search run`, `search estimate` and
+  `search saved-create` help named the detection stream `detect`, which the
+  Search API rejects with HTTP 400. They now say `detection`, the name the
+  API accepts (with `event` and `audit`).
+- `Search.execute`, `Search.validate`, `Search.estimate` and
+  `search saved-create` send `detect` as `detection`, so scripts and saved
+  queries that used the documented name keep working. Outputs, Spout and
+  firehose still use `detect`, which is correct there.
+
+### Client - compressed API responses
+
+- The SDK and CLI now ask the API for compressed responses
+  (`Accept-Encoding`) and decode them transparently, so large responses such
+  as search result pages transfer several times faster. Return values,
+  parsed JSON and error messages are unchanged.
+- zstd is requested when a decoder is available: the standard library on
+  Python 3.14+, or the optional `zstandard` package
+  (`pip install 'limacharlie[zstd]'`) on earlier versions. Otherwise gzip,
+  from the standard library, is requested. No new required dependency.
+- A truncated or corrupt compressed response raises the new
+  `ResponseDecodeError` (a subclass of `ApiError`) instead of returning a
+  partial body.
+- Turn it off with `Client(compressed_responses=False)` or the
+  `LC_NO_RESPONSE_COMPRESSION=1` environment variable.
+- A compressed response may decode to at most 1 GiB, far above the largest
+  API responses. The limit is enforced while decoding, so a response with an
+  extreme compression ratio raises `ResponseDecodeError` instead of filling
+  memory. Change it with `LC_MAX_DECODED_RESPONSE_BYTES=<bytes>` or
+  `Client(max_decoded_response_bytes=...)`; 0 or a negative value removes it.
+  Uncompressed responses are not limited.
+
 ### Sync — `sync push` no longer turns quoted strings into numbers
 
 - `sync push` (and `Configs.push` / `Configs.push_from_file`) stored some

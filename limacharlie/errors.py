@@ -132,6 +132,26 @@ class ApiError(LimaCharlieError):
         return {}
 
 
+class ResponseDecodeError(ApiError):
+    """Raised when a compressed response body cannot be decoded.
+
+    The response named a content coding the client cannot decode, or its
+    compressed stream was truncated or corrupt. ``encoding`` is the
+    ``Content-Encoding`` value involved. A partially decoded body is never
+    returned in place of this error.
+    """
+
+    def __init__(self, message: str, encoding: str = "", suggestion: str | None = None) -> None:
+        self.encoding = encoding
+        if suggestion is None:
+            suggestion = (
+                "Retry the request. If it keeps failing, request uncompressed "
+                "responses with LC_NO_RESPONSE_COMPRESSION=1 (or "
+                "Client(compressed_responses=False)) and report the problem."
+            )
+        super().__init__(message, suggestion=suggestion)
+
+
 class SearchError(LimaCharlieError):
     """Raised when a search query fails.
 

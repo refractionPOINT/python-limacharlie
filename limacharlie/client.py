@@ -27,12 +27,14 @@ from urllib.parse import urlencode
 from urllib.request import Request as URLRequest
 from urllib.request import urlopen
 
+from . import _http_compression
 from .config import resolve_credentials
 from .errors import (
     ApiError,
     AuthenticationError,
     LimaCharlieError,
     RateLimitError,
+    ResponseDecodeError,
     error_from_status_code,
 )
 from .user_agent_utils import build_user_agent
@@ -110,6 +112,22 @@ def parse_retry_after(value: str | None, now: float | None = None) -> int | None
 # on the Client (or --debug-full on the CLI) to disable truncation.
 DEBUG_RESPONSE_BODY_LIMIT = 2048
 
+# Set to a non-empty value other than 0/false/no/off to stop the client from
+# asking for compressed responses. See Client(compressed_responses=...).
+ENV_NO_RESPONSE_COMPRESSION = "LC_NO_RESPONSE_COMPRESSION"
+
+
+def _response_compression_disabled_by_env() -> bool:
+    """Return True when ``LC_NO_RESPONSE_COMPRESSION`` turns compression off.
+
+    Any non-empty value turns it off except ``0``, ``false``, ``no`` and
+    ``off`` (case-insensitive), which read as "not set" so that
+    ``LC_NO_RESPONSE_COMPRESSION=0`` does what it says.
+    """
+    value = os.environ.get(ENV_NO_RESPONSE_COMPRESSION, "").strip().lower()
+    return value not in ("", "0", "false", "no", "off")
+
+
 # Headers whose values are masked in debug output to avoid leaking secrets.
 _SENSITIVE_HEADERS = frozenset({"authorization", "x-api-key", "cookie", "set-cookie"})
 
@@ -146,9 +164,18 @@ class Client:
         with Client(oid="...", api_key="...") as client:
             data = client.request("GET", "sensors")
 
+    Responses are requested compressed and decoded transparently; see the
+    ``compressed_responses`` argument.
+
     Credential resolution order:
         explicit params > env vars > config file
     """
+
+    # Whether requests carry Accept-Encoding, and the most bytes a compressed
+    # response may decode to (None: no limit). Set per instance by __init__;
+    # these class defaults cover instances built without it (Client.__new__).
+    _compressed_responses: bool = True
+    _max_decoded_bytes: int | None = _http_compression.DEFAULT_MAX_DECODED_BYTES
 
     def __init__(
         self,
@@ -165,6 +192,8 @@ class Client:
         debug_full_response: bool = False,
         debug_curl: bool = False,
         debug_verbose: bool = True,
+        compressed_responses: bool | None = None,
+        max_decoded_response_bytes: int | None = None,
     ) -> None:
         """Initialize the client.
 
@@ -190,6 +219,20 @@ class Client:
             debug_verbose: When True (default), print verbose request/response
                 details. Set to False when only curl output is desired
                 (--debug-curl without --debug).
+            compressed_responses: Ask the server for compressed response
+                bodies (``Accept-Encoding: zstd, gzip`` when a Zstandard
+                decoder is importable, else ``gzip``) and decode them
+                transparently.
+                Return values are identical either way; only the bytes on
+                the wire change. ``None`` (default) turns it on unless the
+                ``LC_NO_RESPONSE_COMPRESSION`` environment variable is set.
+                A compressed response is decoded even when this is off.
+            max_decoded_response_bytes: The most bytes a compressed response
+                may decode to; a larger one raises ResponseDecodeError instead
+                of being inflated in memory. ``None`` (default) reads the
+                ``LC_MAX_DECODED_RESPONSE_BYTES`` environment variable, or
+                uses 1 GiB. 0 or a negative number removes the limit.
+                Uncompressed responses are never limited.
         """
         creds = resolve_credentials(
             oid=oid,
@@ -242,6 +285,13 @@ class Client:
         self._timeout = timeout
         self._ssl_context = _create_ssl_context()
         self._user_agent = _build_user_agent()
+        if compressed_responses is None:
+            compressed_responses = not _response_compression_disabled_by_env()
+        self._compressed_responses = bool(compressed_responses)
+        if max_decoded_response_bytes is None:
+            self._max_decoded_bytes = _http_compression.max_decoded_bytes_from_env()
+        else:
+            self._max_decoded_bytes = max_decoded_response_bytes if max_decoded_response_bytes > 0 else None
 
     @property
     def oid(self) -> str | None:
@@ -265,6 +315,48 @@ class Client:
 
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
             self._debug_fn(f"{ts}: {msg}")
+
+    def _read_body(self, fp: Any, resp_headers: list[tuple[str, str]]) -> bytes:
+        """Read a response body, removing the content coding it arrived in.
+
+        Raises:
+            ResponseDecodeError: The body is in an unsupported coding, or its
+                compressed stream is truncated or corrupt.
+        """
+        decoded = _http_compression.read_body(
+            fp, _http_compression.content_codings(resp_headers), self._max_decoded_bytes,
+        )
+        if decoded.wire_bytes is not None and self._debug_fn is not None and not self._debug_curl_only:
+            self._debug(
+                f"Response body: {decoded.wire_bytes} bytes {decoded.encoding} "
+                f"on the wire, {len(decoded.body)} bytes decoded"
+            )
+        return decoded.body
+
+    def _read_error_body(self, e: HTTPError, resp_headers: list[tuple[str, str]] | None = None) -> bytes:
+        """Read an HTTP error response's body, decoded like a success body.
+
+        A body that fails to decode is replaced by a short description of the
+        failure, so the status code still reaches the caller's error handling
+        (auth refresh, rate-limit backoff, the error message) instead of being
+        masked by a decode error.
+        """
+        if resp_headers is None:
+            resp_headers = list(e.headers.items()) if getattr(e, "headers", None) is not None else []
+        try:
+            return self._read_body(e, resp_headers)
+        except ResponseDecodeError as exc:
+            self._debug(f"Error response body not decodable: {exc.raw_message}")
+            return f"<undecodable {exc.encoding} error response body: {exc.raw_message}>".encode()
+
+    def _add_accept_encoding(self, request: URLRequest) -> None:
+        """Ask for a compressed response unless turned off or set by the caller.
+
+        The value names only codings this process can decode: ``zstd, gzip``
+        with a Zstandard decoder available, else ``gzip``.
+        """
+        if self._compressed_responses and not request.has_header("Accept-encoding"):
+            request.add_header("Accept-Encoding", _http_compression.ACCEPT_ENCODING)
 
     @staticmethod
     def _mask_headers(headers: dict[str, str] | list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -637,6 +729,7 @@ class Client:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             request.get_method = lambda: "POST"
+            self._add_accept_encoding(request)
 
             if self._ssl_context is not None:
                 u = urlopen(request, context=self._ssl_context)
@@ -644,13 +737,14 @@ class Client:
                 u = urlopen(request)
 
             try:
-                data = json.loads(u.read().decode())
+                resp_headers = u.getheaders() if hasattr(u, "getheaders") else []
+                data = json.loads(self._read_body(u, resp_headers).decode())
                 return data["jwt"]
             finally:
                 u.close()
         except HTTPError as e:
             code = e.code
-            error_body = e.read().decode() if hasattr(e, "read") else str(e)
+            error_body = self._read_error_body(e).decode() if hasattr(e, "read") else str(e)
             raise AuthenticationError(
                 f"Failed to get JWT: {error_body}",
                 code=code,
@@ -702,6 +796,7 @@ class Client:
         request = URLRequest(full_url, body, headers=headers)
         request.get_method = lambda: verb
         request.add_header("User-Agent", self._user_agent)
+        self._add_accept_encoding(request)
         if content_type is not None:
             request.add_header("Content-Type", content_type)
 
@@ -721,8 +816,9 @@ class Client:
 
             data = None
             data_str = ""
+            resp_headers = u.getheaders() if hasattr(u, "getheaders") else []
             try:
-                data = u.read()
+                data = self._read_body(u, resp_headers)
                 data_str = data.decode() if data else ""
                 if raw_response:
                     resp = data_str
@@ -732,7 +828,6 @@ class Client:
                 resp = {}
             finally:
                 # Check rate limit headers
-                resp_headers = u.getheaders() if hasattr(u, "getheaders") else []
                 quota_limit = None
                 quota_period = None
                 for h_name, h_val in resp_headers:
@@ -750,13 +845,13 @@ class Client:
             return (HTTP_OK, resp)
 
         except HTTPError as e:
-            error_body = e.read()
+            resp_headers = list(e.headers.items()) if getattr(e, "headers", None) is not None else []
+            error_body = self._read_error_body(e, resp_headers)
             error_str = error_body.decode() if error_body else ""
             try:
                 resp = json.loads(error_str)
             except Exception:
                 resp = error_str
-            resp_headers = list(e.headers.items()) if getattr(e, "headers", None) is not None else []
             if response_headers is not None:
                 for h_name, h_val in resp_headers:
                     response_headers[h_name.lower()] = h_val

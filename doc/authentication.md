@@ -114,6 +114,8 @@ export LC_API_URL=http://127.0.0.1:9090
 export LC_JWT_URL=http://127.0.0.1:8135
 ```
 
+API responses are requested compressed; set `LC_NO_RESPONSE_COMPRESSION=1` to ask for uncompressed ones, for example when inspecting traffic with a proxy. See [Compressed Responses](sdk/README.md#compressed-responses).
+
 ## Credentials File
 
 Credentials are stored in `~/.limacharlie.d/config.yaml` (YAML, mode 0600):

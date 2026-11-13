@@ -48,6 +48,12 @@ dependencies = [
 toon = [
     "toon_format>=0.9.0b1,<1.0",
 ]
+# Zstandard-compressed API responses on Python 3.10-3.13. Python 3.14+ decodes
+# them with the standard library and needs nothing extra; without either, the
+# SDK asks for gzip only.
+zstd = [
+    "zstandard>=0.25.0; python_version < '3.14'",
+]
 dev = [
     # pytest 9.x carries the CVE-2025-71176 fix and requires Python >= 3.10,
     # which matches our minimum supported version.
@@ -59,6 +65,8 @@ dev = [
     # Keep the optional TOON output path under test. Self-referencing the extra
     # rather than repeating its requirement keeps one version range to bump.
     "limacharlie[toon]",
+    # Keep the optional zstd response decoder under test on every version.
+    "limacharlie[zstd]",
 ]
 
 [project.scripts]
