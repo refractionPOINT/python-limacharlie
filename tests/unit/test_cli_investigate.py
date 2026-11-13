@@ -1025,3 +1025,81 @@ class TestPolicyPreconditions:
             explanation = CliRunner().invoke(cli, command + ["--ai-help"])
             assert explanation.exit_code == 0, explanation.output
             assert "409" in explanation.output and "--etag" in explanation.output and "--force" in explanation.output
+
+
+class TestAutomaticActionCommands:
+    def test_list_preserves_complete_page_and_filters(self, sdk):
+        page = {"actions": [{"id": "a1", "class": "close", "state": "confirmed"}], "next_cursor": "signed+next",
+                "total": 9007199254740993, "totals": {"confirmed": 9007199254740993}, "truncated": True, "as_of": "2026-11-13T12:00:00Z"}
+        sdk.list_automatic_actions.return_value = page
+        result = run(["investigate", "autopilot", "actions", "list", "--product", "mailsec", "--route-id", "a" * 64,
+            "--action-type", "close", "--state", "active,confirmed", "--held-for-spot-check", "--limit", "200", "--cursor", "signed+cursor"])
+        assert result.exit_code == 0, result.stderr
+        assert out_json(result) == page
+        sdk.list_automatic_actions.assert_called_once_with(product="mailsec", route_id="a" * 64, action_type="close", state="active,confirmed",
+            from_=None, to=None, held_for_spot_check=True, limit=200, cursor="signed+cursor")
+        result = run(["investigate", "autopilot", "actions", "list"], fmt="csv")
+        assert "next_cursor: signed+next" in result.stderr and "total: 9007199254740993" in result.stderr
+        assert "as_of:" in result.stderr and "totals:" in result.stderr and "truncated: true" in result.stderr
+
+    def test_single_and_bulk_explicit_preference_and_wrong_answers(self, sdk):
+        sdk.undo_automatic_action.return_value = sdk.undo_automatic_actions.return_value = {"results": [{"id": "a1", "status": "undone", "label_recorded": False}], "selected": 1}
+        result = run(["investigate", "autopilot", "actions", "undo", "a1", "--run-id", "run-1", "--preference-only"])
+        assert result.exit_code == 0, result.stderr
+        sdk.undo_automatic_action.assert_called_once_with("a1", run_id="run-1", was_engine_wrong=False)
+        result = run(["investigate", "autopilot", "actions", "undo", "a1", "a2", "--was-engine-wrong"])
+        assert result.exit_code == 0, result.stderr
+        sdk.undo_automatic_actions.assert_called_with(["a1", "a2"], items=None, selector=None, was_engine_wrong=True, limit=None, cursor=None)
+
+    def test_selector_and_items_file_preserve_cursor_and_individual_answers(self, sdk, tmp_path):
+        sdk.undo_automatic_actions.return_value = {"results": [], "next_cursor": "next", "selected": 0, "truncated": True}
+        result = run(["investigate", "autopilot", "actions", "undo", "--route-id", "a" * 64, "--from", "2026-11-01T00:00:00Z",
+            "--preference-only", "--limit", "100", "--cursor", "opaque+cursor"])
+        assert result.exit_code == 0, result.stderr
+        sdk.undo_automatic_actions.assert_called_with(None, items=None, selector={"route_id": "a" * 64, "from": "2026-11-01T00:00:00Z"},
+            was_engine_wrong=False, limit=100, cursor="opaque+cursor")
+        rows = [{"id": "a1", "run_id": "r1", "was_engine_wrong": True}, {"id": "a2", "was_engine_wrong": False}]
+        path = tmp_path / "items.json"
+        path.write_text(json.dumps(rows))
+        for args, stdin in [(["--items", json.dumps(rows)], None), (["--items-file", str(path)], None), (["--items-file", "-"], json.dumps(rows))]:
+            result = run(["investigate", "autopilot", "actions", "undo", *args], input=stdin)
+            assert result.exit_code == 0, result.stderr
+            sdk.undo_automatic_actions.assert_called_with(None, items=rows, selector=None, was_engine_wrong=None, limit=None, cursor=None)
+
+    @pytest.mark.parametrize("flags", [[], ["a1"], ["a1", "--preference-only", "--limit", "1"], ["a1", "a2", "--run-id", "r1", "--preference-only"],
+        ["--route-id", "a" * 64, "--preference-only"], ["a1", "--items", "[]", "--preference-only"], ["--items", "[]", "--was-engine-wrong"], ["--items", "{}"]])
+    def test_ambiguous_or_missing_choices_are_rejected_before_sdk(self, sdk, flags):
+        result = run(["investigate", "autopilot", "actions", "undo", *flags])
+        assert result.exit_code != 0
+        sdk.undo_automatic_actions.assert_not_called()
+        sdk.undo_automatic_action.assert_not_called()
+
+    def test_partial_undo_keeps_each_failure_and_nonzero_exit(self, sdk):
+        page = {"results": [{"id": "a1", "status": "failed", "error_code": "unavailable", "retryable": True, "label_recorded": True},
+                            {"id": "a2", "status": "undone", "label_recorded": False}], "next_cursor": "later", "selected": 2, "truncated": True}
+        sdk.undo_automatic_actions.return_value = page
+        result = run(["investigate", "autopilot", "actions", "undo", "a1", "a2", "--was-engine-wrong"])
+        assert result.exit_code != 0 and out_json(result) == page
+        assert not result.stderr
+        sdk.undo_automatic_actions.assert_called_once()
+
+    def test_decision_reveal_and_discovery(self, sdk):
+        response = {"visible": False, "visible_reason": "hidden", "counted": True, "run": {"run_id": "r1"}}
+        sdk.get_run_decision.return_value = response
+        assert out_json(run(["investigate", "runs", "decision", "r1"])) == response
+        sdk.get_run_decision.assert_called_once_with("r1")
+        sdk.reveal_run_opinion.return_value = {**response, "visible": True, "visible_reason": "revealed", "counted": False}
+        assert out_json(run(["investigate", "runs", "reveal", "r1"]))["counted"] is False
+        sdk.reveal_run_opinion.assert_called_once_with("r1")
+        from limacharlie.discovery import PROFILES
+        for command in ("investigate autopilot actions list", "investigate autopilot actions get", "investigate autopilot actions undo", "investigate runs decision", "investigate runs reveal"):
+            assert command in PROFILES["investigation_engine"]["commands"]
+            help_result = CliRunner().invoke(cli, command.split() + ["--ai-help"])
+            assert help_result.exit_code == 0, help_result.output
+        assert "BEFORE" in CliRunner().invoke(cli, ["investigate", "autopilot", "actions", "undo", "--ai-help"]).output
+
+
+def test_automatic_undo_items_refuse_repeated_answer_fields(sdk):
+    result = run(["investigate", "autopilot", "actions", "undo", "--items", '[{"id":"a1","was_engine_wrong":false,"was_engine_wrong":true}]'])
+    assert result.exit_code != 0 and "repeated field" in result.stderr
+    sdk.undo_automatic_actions.assert_not_called()

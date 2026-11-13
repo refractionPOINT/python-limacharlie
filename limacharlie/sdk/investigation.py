@@ -87,6 +87,97 @@ MAX_EVENTS_LIMIT = 500
 _WAIT_MARGIN = 35
 
 
+AUTOMATIC_ACTION_STATES = (
+    "awaiting_approval", "proposed", "uncertain", "executing", "reverting",
+    "active", "confirmed", "reverted", "failed", "denied", "expired",
+)
+
+
+def _automatic_route_id(value: Any) -> None:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValidationError("route_id must be a lowercase SHA-256 digest")
+
+
+def _automatic_time_bounds(from_: str | None, to: str | None) -> None:
+    parsed = []
+    for name, value in (("from", from_), ("to", to)):
+        if value is None:
+            parsed.append(None)
+            continue
+        if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)", value) is None:
+            raise ValidationError(f"{name} must be RFC3339")
+        try:
+            # Keep nanosecond ordering while supporting Python 3.10's narrower
+            # fromisoformat fractional parser. The engine uses nanosecond time.
+            fraction = re.search(r"\.(\d+)", value)
+            nanos = fraction.group(1)[:9].ljust(9, "0") if fraction else "000000000"
+            whole = re.sub(r"\.\d+", "", value).replace("Z", "+00:00")
+            parsed.append((datetime.datetime.fromisoformat(whole), nanos))
+        except ValueError as exc:
+            raise ValidationError(f"{name} must be RFC3339") from exc
+    if all(value is not None for value in parsed) and parsed[0] >= parsed[1]:
+        raise ValidationError("from must precede to")
+
+
+def _automatic_undo_document(ids, items, selector, was_engine_wrong, limit, cursor) -> dict[str, Any]:
+    if sum(value is not None for value in (ids, items, selector)) != 1:
+        raise ValidationError("provide exactly one of ids, items or selector")
+    if selector is None and (limit is not None or cursor is not None):
+        raise ValidationError("limit and cursor are selector-only")
+    body: dict[str, Any] = {}
+    if items is not None:
+        if was_engine_wrong is not None:
+            raise ValidationError("items supply their own was_engine_wrong")
+        if not isinstance(items, list) or not 1 <= len(items) <= 100:
+            raise ValidationError("items must contain 1..100 actions")
+        seen = set()
+        rows = []
+        for item in items:
+            if not isinstance(item, dict) or set(item) - {"id", "run_id", "was_engine_wrong"}:
+                raise ValidationError("items contain unknown fields or malformed objects")
+            action_id = _check_id("action id", item.get("id"))
+            if action_id in seen:
+                raise ValidationError("action IDs must be unique")
+            seen.add(action_id)
+            if type(item.get("was_engine_wrong")) is not bool:
+                raise ValidationError("every item requires boolean was_engine_wrong")
+            if "run_id" in item:
+                _check_id("run id", item["run_id"])
+            rows.append(dict(item))
+        body["items"] = rows
+        return body
+    if type(was_engine_wrong) is not bool:
+        raise ValidationError("was_engine_wrong must be an explicit boolean")
+    body["was_engine_wrong"] = was_engine_wrong
+    if ids is not None:
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 100:
+            raise ValidationError("ids must contain 1..100 action IDs")
+        checked = [_check_id("action id", value) for value in ids]
+        if len(set(checked)) != len(checked):
+            raise ValidationError("action IDs must be unique")
+        body["ids"] = checked
+        return body
+    if not isinstance(selector, dict) or set(selector) - {"route_id", "product", "from", "to"}:
+        raise ValidationError("selector must contain only route_id, product, from and to")
+    _automatic_route_id(selector.get("route_id"))
+    if "from" not in selector or selector["from"] is None:
+        raise ValidationError("selector.from is required")
+    for name in ("product", "to"):
+        if name in selector and (not isinstance(selector[name], str) or not selector[name]):
+            raise ValidationError(f"selector.{name} must be a nonempty string")
+    _automatic_time_bounds(selector["from"], selector.get("to"))
+    body["selector"] = dict(selector)
+    if limit is not None:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValidationError("limit must be an integer between 1 and 100")
+        body["limit"] = limit
+    if cursor is not None:
+        if not isinstance(cursor, str) or not cursor:
+            raise ValidationError("cursor must be a nonempty string")
+        body["cursor"] = cursor
+    return body
+
+
 def _policy_precondition(etag: str | None, force: bool) -> tuple[dict[str, str] | None, list[tuple[str, str]] | None]:
     """Build explicit client-view conditions without reading or forcing implicitly."""
     if type(force) is not bool:
@@ -1507,6 +1598,110 @@ class Investigation:
     # ------------------------------------------------------------------
     # Actions (the approvals inbox)
     # ------------------------------------------------------------------
+
+    def list_automatic_actions(
+        self, *, product: str | None = None, route_id: str | None = None,
+        action_type: str | None = None, state: str | list[str] | None = None,
+        from_: str | None = None, to: str | None = None,
+        held_for_spot_check: bool | None = None, limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one metadata-only automatic action page (opinion auditors only).
+
+        Held spot checks are excluded by default; True includes them alongside
+        automatic actions. Native states may be a CSV string or a list. Time
+        bounds are RFC3339, inclusive from and exclusive to. The engine returns
+        actions, next_cursor, truncated, total, totals and as_of unchanged.
+        """
+        if limit is not None and (type(limit) is not int or not 1 <= limit <= 200):
+            raise ValidationError("limit must be an integer between 1 and 200")
+        if held_for_spot_check is not None and type(held_for_spot_check) is not bool:
+            raise ValidationError("held_for_spot_check must be a boolean")
+        if route_id is not None:
+            _automatic_route_id(route_id)
+        if isinstance(state, (list, tuple)):
+            if any(not isinstance(value, str) for value in state):
+                raise ValidationError("state must contain native action state strings")
+            state = ",".join(state)
+        if state is not None:
+            if not isinstance(state, str):
+                raise ValidationError("state must be native action states")
+            values = state.split(",")
+            if len(values) != len(set(values)) or any(value not in AUTOMATIC_ACTION_STATES for value in values):
+                raise ValidationError("state must contain unique native action states")
+        _automatic_time_bounds(from_, to)
+        for name, value in (("product", product), ("action_type", action_type), ("cursor", cursor)):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValidationError(f"{name} must be a nonempty string")
+        return self._get("autopilot/actions", self._q(product=product, route_id=route_id,
+            action_type=action_type, state=state, from_=from_, to=to,
+            held_for_spot_check=held_for_spot_check, limit=limit, cursor=cursor))
+
+    def get_automatic_action(self, action_id: str, *, run_id: str | None = None) -> dict[str, Any]:
+        """Read safe action metadata under per-run blind guards; ambiguity is 409.
+
+        No targets, attributes or evidence are returned. class and close_product
+        are server-derived native authorization metadata, never caller authority.
+        """
+        action_id = _check_id("action id", action_id)
+        if run_id is not None:
+            _check_id("run id", run_id)
+        return self._get(f"autopilot/actions/{_quote(action_id, safe='')}", self._q(run_id=run_id))
+
+    def undo_automatic_actions(
+        self, ids: list[str] | None = None, *, items: list[dict[str, Any]] | None = None,
+        selector: dict[str, Any] | None = None, was_engine_wrong: bool | None = None,
+        limit: int | None = None, cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Undo one bounded page, preserving every per-item status and continuation.
+
+        Choose exactly one of ids (1..100), items with individual explicit boolean
+        answers and optional run_id, or an auditor-only selector (route_id/from
+        required, product/to optional). ids/selector require an explicit boolean
+        was_engine_wrong. False is preference without truth. True is human-only:
+        after native authorization the engine journals the correction BEFORE undo
+        effects, so even failed undo may have label_recorded=True and demote a route.
+        Read each result's status/error_code/retryable/label_recorded. Failed or
+        unattempted current-page IDs need explicit retries; next_cursor selects
+        subsequent actions, not retries. No automatic replay; native undo is
+        idempotent. The selector cursor freezes the first upper time bound.
+        """
+        body = _automatic_undo_document(ids, items, selector, was_engine_wrong, limit, cursor)
+        return self._call("POST", "autopilot/actions/undo", body=body, write=True, timeout=130)
+
+    def undo_automatic_action(self, action_id: str, *, run_id: str | None = None,
+                              was_engine_wrong: bool) -> dict[str, Any]:
+        """Undo one action with the same full result envelope and 130s budget.
+
+        was_engine_wrong is required; see undo_automatic_actions for correction
+        journaling and partial failure semantics. No implicit retry occurs.
+        """
+        action_id = _check_id("action id", action_id)
+        item = {"id": action_id, "was_engine_wrong": was_engine_wrong}
+        if run_id is not None:
+            item["run_id"] = run_id
+        _automatic_undo_document(None, [item], None, None, None, None)
+        body = {key: value for key, value in item.items() if key != "id"}
+        return self._call("POST", f"autopilot/actions/{_quote(action_id, safe='')}/undo", body=body, write=True, timeout=130)
+
+    def get_run_decision(self, run_id: str) -> dict[str, Any]:
+        """Read the typed decision projection with per-run blind visibility.
+
+        visible, visible_reason, counted and run are returned unchanged. This
+        read does not reveal a hidden opinion or change reviewer qualification.
+        """
+        run_id = _check_id("run id", run_id)
+        return self._get(f"autopilot/alerts/{_quote(run_id, safe='')}/decision")
+
+    def reveal_run_opinion(self, run_id: str) -> dict[str, Any]:
+        """Explicitly peek at a blind opinion (human-only, audited, single attempt).
+
+        This principal's later answers for this alert become diagnostic; other
+        reviewers can still qualify. Requires investigation.set + insight.evt.get.
+        The server returns visible/visible_reason/counted and the typed run view.
+        """
+        run_id = _check_id("run id", run_id)
+        return self._call("POST", f"autopilot/alerts/{_quote(run_id, safe='')}/reveal", body={}, write=True)
 
     def list_actions(
         self,

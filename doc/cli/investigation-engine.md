@@ -388,3 +388,83 @@ result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samp
 
 - [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
 - [Detection & Response](detection-response.md) - D&R rules that start runs
+
+## Automatic action log, undo, and blind decisions
+
+```bash
+limacharlie investigate autopilot actions list --product mailsec --state active,confirmed
+limacharlie investigate autopilot actions get ACTION_ID [--run-id RUN_ID]
+limacharlie investigate autopilot actions undo ACTION_ID --run-id RUN_ID --preference-only
+limacharlie investigate autopilot actions undo ACTION_ID OTHER_ID --was-engine-wrong
+limacharlie investigate autopilot actions undo --items-file items.json
+limacharlie investigate autopilot actions undo --route-id ROUTE_ID --from 2026-11-01T00:00:00Z --preference-only
+limacharlie investigate runs decision RUN_ID
+limacharlie investigate runs reveal RUN_ID
+```
+
+The global action log requires `investigation.get` + `insight.evt.get` and
+opinion-audit permission `investigation_policy.set`. Filters are `--product`,
+`--route-id`, `--action-type`, `--state` (unique CSV native states), inclusive
+RFC3339 `--from`, exclusive `--to`, `--limit` (default 50/max 200) and `--cursor`.
+Held spot checks are excluded by default; `--held-for-spot-check` includes both
+held and automatic actions. Native states are awaiting_approval, proposed,
+uncertain, executing, reverting, active, confirmed, reverted, failed, denied,
+and expired. Confirmed close actions are included. Empty/unknown/duplicate
+state components and repeated HTTP filters are rejected.
+
+The response contains `actions`, `next_cursor`, `truncated`, int64 `total`,
+per-native-state `totals`, and RFC3339 `as_of`. Each action is safe metadata:
+`id`, `run_id`, `product`, `route_id`, `class`, native `state`, `created`,
+`automatic`, `held_for_spot_check`, `targets_count`, `explanation`, and optional
+`undone_by`, `undone_at`, `undo_reason`. It contains no raw target, attributes
+or evidence. Individual lookup needs only the baseline read permissions and
+per-run blind visibility; org-wide ambiguous IDs return 409. Its `class` and
+`close_product` are immutable server-derived authorization metadata.
+
+Undo requires `investigation.set` + `insight.evt.get` and each action's native
+revert permission. The gateway computes `allowed_revert_classes` solely from
+verified claims; callers cannot supply provenance or capabilities. Shared
+close bulk authorization conservatively requires `mailsec.set`. The engine
+checks native metadata and permissions before journaling any wrong answer.
+
+Choose exactly one bounded selection:
+
+- 1..100 explicit IDs plus `--was-engine-wrong` or `--preference-only`.
+- `--items JSON`, `--items-file PATH`, or `--items-file -` for an array of
+  `{id,run_id?,was_engine_wrong:boolean}`. Each item supplies its own answer.
+- Auditor-only `--route-id` + required `--from`, optional `--product`/`--to`,
+  an explicit answer, and optional `--limit` (default 50/max 100)/`--cursor`.
+
+`--run-id` disambiguates exactly one explicit ID. Duplicate IDs, overlapping
+modes, unknown fields, absent answers, invalid types and oversized batches
+are refused. `--preference-only` records no truth. `--was-engine-wrong` is a
+human-only strong override: the engine journals the independent correction
+**before** undo effects to survive crashes. A failed undo can therefore still
+have `label_recorded:true` and demote a route.
+
+Every undo returns the complete envelope: `results`, `next_cursor`,
+`truncated`, `selected`, and `as_of`. Each result contains `id`, `run_id`,
+native `state`, `status` (undone/already_undone/failed/skipped), optional
+`error_code`, `retryable`, and `label_recorded`. Per-item errors do not abort
+other items. Inspect all results; partial failure makes the CLI exit nonzero
+while retaining the result document on stdout. Table/CSV/JSONL show rows with
+continuation and count metadata on stderr. Structured formats preserve the
+engine envelope and exact integer values; the CLI invents no coverage fields.
+
+The selector cursor freezes the first upper bound. Continue with `next_cursor`
+and the same selector without supplying a new `as_of`. It covers actions not
+yet selected; failed or unattempted **current-page IDs need explicit retries**.
+There is no automatic pagination or mutation replay. Both single and bulk undo
+use the same result envelope, a 120s gateway budget and 130s SDK timeout; native
+undo is idempotent. SDK methods are `list_automatic_actions`,
+`get_automatic_action`, `undo_automatic_actions`, and `undo_automatic_action`.
+
+`runs decision` / SDK `get_run_decision` returns `visible`, `visible_reason`,
+`counted` and the existing typed `run` projection without peeking. Reasons are
+`auditor`, `after_your_call`, `revealed`, `hidden`, or `not_blind`. Reads retain
+the baseline read permissions and per-run visibility guards. `runs reveal` /
+SDK `reveal_run_opinion` is an explicit, audited, human-only peek requiring
+`investigation.set` + `insight.evt.get`; it sends exactly `{}` once. Later
+answers by that principal for that alert become diagnostic; other reviewers
+can still qualify. The gateway asserts verified identity, actor and boolean
+opinion-auditor context on every new RPC and sends no JWT.

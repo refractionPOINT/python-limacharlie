@@ -71,7 +71,8 @@ Routes enable|disable|configure need org.conf.set + verified human identity.
 Runs label needs investigation.set + insight.evt.get; independent API-key labels
 are valid integrations (the engine's own key is excluded). Pause/resume needs
 org.conf.set; autopilot configure adds investigation_policy.get/.set to normal
-read permissions. Template records need investigation_plan.get/.set/.del.
+read permissions. Automatic action log and selector undo add investigation_policy.set;
+undo and human-only reveal need investigation.set + insight.evt.get. Template records need investigation_plan.get/.set/.del.
 """
 
 _EXPLAIN_KIT = """\
@@ -471,8 +472,52 @@ Examples:
   limacharlie investigate runs get <RUN_ID>
 """
 
+_EXPLAIN_AUTOMATIC_ACTIONS = """\
+List safe automatic-action metadata with autopilot actions list (auditor permission
+investigation_policy.set plus investigation.get + insight.evt.get). Held spot checks
+are excluded unless --held-for-spot-check includes them. Native states are CSV,
+--from inclusive/--to exclusive RFC3339. The server supplies total/totals/as_of and
+opaque next_cursor; no targets, attributes or evidence are exposed. actions get ID
+supports --run-id for ambiguity; per-run blind visibility remains enforced.
+
+Undo uses autopilot actions undo: explicit IDs, --items JSON/--items-file PATH
+(array of id, optional run_id, required boolean was_engine_wrong), or an auditor-only
+--route-id + --from selector. IDs/selector require --was-engine-wrong or
+--preference-only. All modes are exclusive and bounded to 100 actions. Selector
+--limit defaults50/max 100; next_cursor freezes its upper bound. Failed current-page
+IDs must be retried explicitly; next_cursor selects later actions. Inspect every
+status/error_code/retryable/label_recorded; partial failures produce a nonzero exit.
+Undo needs investigation.set + insight.evt.get and native action permissions from
+verified claims. Shared close bulk conservatively needs mailsec.set. Wrong=true
+is human-only: after authorization it journals the correction BEFORE effects;
+even failed undo can record the label and demote a route. Preference creates no
+truth. No retries; gateway 120s/SDK 130s, idempotent already_undone results.
+
+Examples:
+  limacharlie investigate autopilot actions list --product mailsec --state active,confirmed
+  limacharlie investigate autopilot actions undo ACTION_ID --run-id RUN_ID --preference-only
+  limacharlie investigate autopilot actions undo --route-id ROUTE_ID --from 2026-11-01T00:00:00Z --was-engine-wrong
+"""
+
+_EXPLAIN_DECISION = """\
+Read the typed decision with runs decision RUN_ID without revealing a hidden opinion.
+The response preserves visible, visible_reason, counted and run. Reads require
+investigation.get + insight.evt.get and per-run blind guards.
+
+runs reveal RUN_ID explicitly peeks (human only), requiring investigation.set +
+insight.evt.get. Reveal is audited for this principal and alert: later answers
+become diagnostic; other reviewers can still qualify. The request is empty {} and
+sent once. visible_reason is auditor, after_your_call, revealed, hidden or not_blind.
+"""
+
 for _path, _text in {
     "investigate": _EXPLAIN_GROUP,
+    "investigate.autopilot.actions": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.autopilot.actions.list": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.autopilot.actions.get": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.autopilot.actions.undo": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.runs.decision": _EXPLAIN_DECISION,
+    "investigate.runs.reveal": _EXPLAIN_DECISION,
     "investigate.scoreboard": _EXPLAIN_SCOREBOARD,
     "investigate.routes": _EXPLAIN_ROUTES,
     "investigate.routes.enable": _EXPLAIN_ROUTES,
@@ -1499,6 +1544,134 @@ def autopilot_alerts(ctx, source, state, group_id, run_id, from_time, to_time, l
         note(ctx, f"total: {page['total']}")
     if page.get("truncated"):
         note(ctx, "truncated: true")
+
+
+# ---------------------------------------------------------------------------
+# automatic action log, undo, and decisions
+# ---------------------------------------------------------------------------
+
+@autopilot_group.group("actions")
+def automatic_actions_group() -> None:
+    """Automatic action metadata and bounded undo with per-item outcomes."""
+
+
+def _emit_automatic_page(ctx, page, key):
+    if _fmt(ctx) in ("json", "yaml", "toon"):
+        _engine_output(ctx, page)
+        return
+    _engine_output(ctx, page.get(key) or [])
+    for name in ("next_cursor", "truncated", "total", "totals", "selected", "as_of"):
+        if name in page:
+            note(ctx, f"{name}: {json.dumps(page[name]) if isinstance(page[name], (dict, bool)) else page[name]}")
+
+
+@automatic_actions_group.command("list")
+@click.option("--product", default=None)
+@click.option("--route-id", default=None, help="Exact route SHA-256 digest.")
+@click.option("--action-type", default=None, help="Native action class.")
+@click.option("--state", default=None, help="Unique comma-separated native action states.")
+@click.option("--from", "from_time", default=None, help="Inclusive RFC3339 lower bound.")
+@click.option("--to", "to_time", default=None, help="Exclusive RFC3339 upper bound.")
+@click.option("--held-for-spot-check/--exclude-held", default=None, help="Include held spot checks alongside automatic actions; excluded by default.")
+@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size, engine default 50.")
+@click.option("--cursor", default=None, help="Opaque next_cursor from the previous page.")
+@pass_context
+@_engine_errors
+def automatic_actions_list(ctx, product, route_id, action_type, state, from_time, to_time, held_for_spot_check, limit, cursor):
+    """Read safe action metadata (opinion auditor required); no targets/evidence."""
+    page = _get_investigation(ctx).list_automatic_actions(product=product, route_id=route_id,
+        action_type=action_type, state=state, from_=from_time, to=to_time,
+        held_for_spot_check=held_for_spot_check, limit=limit, cursor=cursor)
+    _emit_automatic_page(ctx, page, "actions")
+
+
+@automatic_actions_group.command("get")
+@click.argument("action_id")
+@click.option("--run-id", default=None, help="Disambiguate the action within this run.")
+@pass_context
+@_engine_errors
+def automatic_actions_get(ctx, action_id, run_id):
+    """Get safe metadata under per-run blind guards; ambiguous IDs return 409."""
+    _engine_output(ctx, _get_investigation(ctx).get_automatic_action(action_id, run_id=run_id))
+
+
+@automatic_actions_group.command("undo")
+@click.argument("ids", nargs=-1)
+@click.option("--run-id", default=None, help="Disambiguate one explicit ID; cannot be used with a batch or selector.")
+@click.option("--items", default=None, help="JSON array of {id,run_id?,was_engine_wrong:boolean}; exclusive with IDs/selector.")
+@click.option("--items-file", default=None, help="Read the items JSON array from a file, or '-' for stdin.")
+@click.option("--route-id", default=None, help="Auditor-only selector: exact route digest; requires --from.")
+@click.option("--product", default=None, help="Optional selector product.")
+@click.option("--from", "from_time", default=None, help="Required selector inclusive RFC3339 lower bound.")
+@click.option("--to", "to_time", default=None, help="Optional exclusive upper bound; cursor freezes its first value.")
+@click.option("--was-engine-wrong/--preference-only", default=None, help="Required for IDs/selector. Wrong is human-only and journals a correction before undo; preference records no truth.")
+@click.option("--limit", type=click.IntRange(1, 100), default=None, help="Selector page size, engine default 50.")
+@click.option("--cursor", default=None, help="Select the next page; retry failed current-page IDs explicitly.")
+@pass_context
+@_engine_errors
+def automatic_actions_undo(ctx, ids, run_id, items, items_file, route_id, product, from_time, to_time, was_engine_wrong, limit, cursor):
+    """Undo at most 100 actions once; inspect each status and label_recorded."""
+    if items is not None and items_file is not None:
+        raise _input_error("items", "provide --items or --items-file, not both")
+    def unique_fields(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError(f"repeated field {key}")
+            obj[key] = value
+        return obj
+    rows = None
+    if items is not None or items_file is not None:
+        try:
+            rows = json.loads(_read_source(items_file) if items_file is not None else items, parse_constant=_reject_constant, object_pairs_hook=unique_fields)
+        except ValueError as exc:
+            raise _input_error("items", f"invalid JSON: {exc}") from exc
+        if not isinstance(rows, list):
+            raise _input_error("items", "must be a JSON array")
+    has_selector = any(value is not None for value in (route_id, product, from_time, to_time))
+    if sum((bool(ids), rows is not None, has_selector)) != 1:
+        raise _input_error("selection", "provide exactly one of explicit IDs, items or a route/time selector")
+    if rows is not None and was_engine_wrong is not None:
+        raise _input_error("was_engine_wrong", "items must supply their own answers")
+    if rows is None and was_engine_wrong is None:
+        raise _input_error("was_engine_wrong", "choose --was-engine-wrong or --preference-only explicitly")
+    if has_selector and (route_id is None or from_time is None):
+        raise _input_error("selector", "--route-id and --from are required")
+    if not has_selector and (limit is not None or cursor is not None):
+        raise _input_error("pagination", "--limit and --cursor are selector-only")
+    if run_id is not None and (len(ids) != 1 or rows is not None or has_selector):
+        raise _input_error("--run-id", "requires exactly one explicit ID")
+    inv = _get_investigation(ctx)
+    if len(ids) == 1:
+        page = inv.undo_automatic_action(ids[0], run_id=run_id, was_engine_wrong=was_engine_wrong)
+    else:
+        selector = None
+        if has_selector:
+            selector = {"route_id": route_id, "from": from_time}
+            selector.update({name: value for name, value in (("product", product), ("to", to_time)) if value is not None})
+        page = inv.undo_automatic_actions(list(ids) if ids else None, items=rows, selector=selector,
+            was_engine_wrong=was_engine_wrong, limit=limit, cursor=cursor)
+    _emit_automatic_page(ctx, page, "results")
+    if any(result.get("status") in ("failed", "skipped") for result in page.get("results", [])):
+        ctx.exit(EXIT_REFUSED)
+
+
+@runs_group.command("decision")
+@click.argument("run_id")
+@pass_context
+@_engine_errors
+def runs_decision(ctx, run_id):
+    """Read the typed decision if visible; this does not peek or change qualification."""
+    _engine_output(ctx, _get_investigation(ctx).get_run_decision(run_id))
+
+
+@runs_group.command("reveal")
+@click.argument("run_id")
+@pass_context
+@_engine_errors
+def runs_reveal(ctx, run_id):
+    """Explicit audited human peek: later answers for this alert become diagnostic."""
+    _engine_output(ctx, _get_investigation(ctx).reveal_run_opinion(run_id))
 
 
 # ---------------------------------------------------------------------------

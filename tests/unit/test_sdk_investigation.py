@@ -1194,3 +1194,96 @@ class TestPolicyPreconditions:
         mock_org.client.request.return_value = response
         assert inv.get_autopilot()["etag"] == etag
         assert inv.get_scoreboard()["etag"] == etag
+
+
+class TestAutomaticActionSurfaces:
+    def test_filters_and_complete_metadata_are_preserved(self, inv, mock_org):
+        page = {"actions": [{"id": "a1", "class": "close", "state": "confirmed", "targets_count": 2}],
+                "next_cursor": "signed+next", "truncated": True, "total": 9007199254740993,
+                "totals": {"confirmed": 9007199254740993}, "as_of": "2026-11-13T12:00:00Z"}
+        mock_org.client.request.return_value = page
+        assert inv.list_automatic_actions(product="mailsec", route_id="a" * 64, action_type="close", state=["active", "confirmed"],
+            from_="2026-11-01T00:00:00Z", to="2026-11-02T00:00:00Z", held_for_spot_check=True, limit=200, cursor="signed+cursor") is page
+        method, path, kw = _request_args(mock_org)
+        assert (method, path) == ("GET", "investigate/oid-1/autopilot/actions")
+        assert dict(kw["query_params"]) == {"product": "mailsec", "route_id": "a" * 64, "action_type": "close", "state": "active,confirmed",
+            "from": "2026-11-01T00:00:00Z", "to": "2026-11-02T00:00:00Z", "held_for_spot_check": "true", "limit": "200", "cursor": "signed+cursor"}
+        inv.list_automatic_actions(held_for_spot_check=False)
+        assert dict(_request_args(mock_org)[2]["query_params"]) == {"held_for_spot_check": "false"}
+        inv.list_automatic_actions()
+        assert _request_args(mock_org)[2]["query_params"] is None
+
+    @pytest.mark.parametrize("options", [{"state": "active,"}, {"state": "active,active"}, {"state": "unknown"}, {"state": []},
+        {"held_for_spot_check": 1}, {"held_for_spot_check": "true"}, {"limit": True}, {"limit": 1.0}, {"limit": 201},
+        {"route_id": "A" * 64}, {"from_": "yesterday"}, {"from_": "2026-11-02T00:00:00Z", "to": "2026-11-01T00:00:00Z"}])
+    def test_bad_filters_never_send(self, inv, mock_org, options):
+        with pytest.raises(ValidationError):
+            inv.list_automatic_actions(**options)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("options", [
+        {"ids": ["a1", "a2"], "was_engine_wrong": False},
+        {"items": [{"id": "a1", "run_id": "run-1", "was_engine_wrong": True}, {"id": "a2", "was_engine_wrong": False}]},
+        {"selector": {"route_id": "a" * 64, "product": "mailsec", "from": "2026-11-01T00:00:00Z"}, "was_engine_wrong": True, "limit": 100, "cursor": "opaque+next"},
+    ])
+    def test_undo_modes_send_once_without_mutation_and_keep_partial_results(self, inv, mock_org, options):
+        from copy import deepcopy
+        before = deepcopy(options)
+        page = {"results": [{"id": "a1", "status": "failed", "retryable": True, "label_recorded": True, "error_code": "unavailable"},
+                            {"id": "a2", "status": "already_undone", "retryable": False, "label_recorded": False}],
+                "selected": 2, "next_cursor": "later", "truncated": True, "as_of": "2026-11-13T12:00:00Z"}
+        mock_org.client.request.return_value = page
+        assert inv.undo_automatic_actions(**options) is page
+        method, path, kw = _request_args(mock_org)
+        assert (method, path) == ("POST", "investigate/oid-1/autopilot/actions/undo")
+        assert json.loads(kw["raw_body"]) == options
+        assert options == before
+        assert kw["timeout"] == 130 and kw["retry_gateway_timeout"] is False
+        assert "allowed_revert_classes" not in json.loads(kw["raw_body"])
+        mock_org.client.request.assert_called_once()
+
+    @pytest.mark.parametrize("options", [ {}, {"ids": []}, {"ids": ["a1"]}, {"ids": ["a1"], "was_engine_wrong": "false"},
+        {"ids": ["a1", "a1"], "was_engine_wrong": False}, {"ids": ["a"] * 101, "was_engine_wrong": False},
+        {"ids": [".."], "was_engine_wrong": False}, {"ids": ["a1"], "items": [], "was_engine_wrong": False},
+        {"ids": ["a1"], "was_engine_wrong": False, "limit": 1},
+        {"items": [{"id": "a1"}]}, {"items": [{"id": "a1", "was_engine_wrong": False, "actor": "forged"}]},
+        {"items": [{"id": "a1", "was_engine_wrong": False}], "was_engine_wrong": False},
+        {"selector": {"route_id": "a" * 64}, "was_engine_wrong": False},
+        {"selector": {"route_id": "a" * 64, "from": "2026-11-01T00:00:00Z", "allowed_revert_classes": ["close"]}, "was_engine_wrong": False},
+        {"selector": {"route_id": "a" * 64, "from": "2026-11-01T00:00:00Z"}, "was_engine_wrong": False, "limit": 1.0},
+    ])
+    def test_invalid_undo_never_sends(self, inv, mock_org, options):
+        with pytest.raises(ValidationError):
+            inv.undo_automatic_actions(**options)
+        mock_org.client.request.assert_not_called()
+
+    def test_single_metadata_decision_and_explicit_empty_reveal(self, inv, mock_org):
+        inv.get_automatic_action("a1", run_id="run-1")
+        assert _request_args(mock_org)[:2] == ("GET", "investigate/oid-1/autopilot/actions/a1")
+        assert dict(_request_args(mock_org)[2]["query_params"]) == {"run_id": "run-1"}
+        inv.undo_automatic_action("a1", run_id="run-1", was_engine_wrong=False)
+        _, path, kw = _request_args(mock_org)
+        assert path == "investigate/oid-1/autopilot/actions/a1/undo"
+        assert json.loads(kw["raw_body"]) == {"run_id": "run-1", "was_engine_wrong": False}
+        assert kw["timeout"] == 130 and not kw["retry_gateway_timeout"]
+        inv.get_run_decision("run-1")
+        assert _request_args(mock_org)[:2] == ("GET", "investigate/oid-1/autopilot/alerts/run-1/decision")
+        inv.reveal_run_opinion("run-1")
+        assert _request_args(mock_org)[:2] == ("POST", "investigate/oid-1/autopilot/alerts/run-1/reveal")
+        assert json.loads(_request_args(mock_org)[2]["raw_body"]) == {}
+        assert not _request_args(mock_org)[2]["retry_gateway_timeout"]
+
+    @pytest.mark.parametrize("status", [403, 409, 504])
+    def test_native_guard_and_timeout_are_preserved_without_retry(self, inv, mock_org, status):
+        mock_org.client.request.side_effect = error_from_status_code(status, {"error": "guarded", "error_code": "guarded"})
+        with pytest.raises(InvestigationError) as caught:
+            inv.undo_automatic_actions(["a1"], was_engine_wrong=False)
+        assert caught.value.status_code == status
+        mock_org.client.request.assert_called_once()
+
+
+def test_automatic_action_time_bounds_preserve_nanosecond_order(inv, mock_org):
+    inv.list_automatic_actions(from_="2026-11-01T00:00:00.123456780Z", to="2026-11-01T00:00:00.123456789Z")
+    assert dict(_request_args(mock_org)[2]["query_params"])["to"] == "2026-11-01T00:00:00.123456789Z"
+    with pytest.raises(ValidationError):
+        inv.list_automatic_actions(from_="2026-11-01T00:00:00.123456789Z", to="2026-11-01T00:00:00.123456780Z")

@@ -230,6 +230,8 @@ PROFILES = {
             "investigate policy pause", "investigate policy resume",
             "investigate autopilot status", "investigate autopilot configure",
             "investigate autopilot alerts", "investigate scoreboard",
+            "investigate autopilot actions list", "investigate autopilot actions get", "investigate autopilot actions undo",
+            "investigate runs decision", "investigate runs reveal",
             "investigate routes enable", "investigate routes disable", "investigate routes configure",
         ],
     },
