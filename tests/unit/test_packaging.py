@@ -116,6 +116,25 @@ class TestPyprojectToml:
             f"limacharlie[toon], got {dev_deps}"
         )
 
+    def test_zstandard_is_optional_and_under_test(self):
+        """zstandard is an optional zstd response decoder, never a hard dependency.
+
+        The SDK asks for gzip (standard library) when no zstd decoder is
+        importable, so installing it must stay a choice. The dev extra pulls it
+        in so CI exercises that decoder on every Python version.
+        """
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        deps = data["project"].get("dependencies", [])
+        assert not [d for d in deps if _dep_name(d) == "zstandard"]
+        extras = data["project"].get("optional-dependencies", {})
+        assert [d for d in extras.get("zstd", []) if _dep_name(d) == "zstandard"]
+        assert [
+            d for d in extras.get("dev", [])
+            if _dep_name(d) == "zstandard"
+            or (_dep_name(d) == "limacharlie" and "zstd" in _dep_extras(d))
+        ]
+
     def test_classifiers_present(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)

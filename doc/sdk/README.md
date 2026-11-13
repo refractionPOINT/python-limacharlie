@@ -97,6 +97,30 @@ status, data = client.raw_request("GET", f"orgs/{client.oid}",
                                   extra_headers={"X-Custom": "value"})
 ```
 
+## Compressed Responses
+
+The client asks the API for compressed responses and decodes them before returning, so return values are the same as for an uncompressed response. Large responses, such as search result pages, transfer several times faster.
+
+| Python | Decoder available | `Accept-Encoding` sent |
+|---|---|---|
+| 3.14+ | standard library `compression.zstd` | `zstd, gzip` |
+| 3.10-3.13 with `zstandard` installed (`pip install 'limacharlie[zstd]'`) | `zstandard` package | `zstd, gzip` |
+| 3.10-3.13 without it | standard library `gzip` | `gzip` |
+
+A response is decoded according to its `Content-Encoding` header (`zstd`, `gzip`, `x-gzip` or none). A response that cannot be decoded (a truncated or corrupt stream, or an encoding the client did not ask for) raises `limacharlie.errors.ResponseDecodeError`, a subclass of `ApiError`; a partial body is never returned. An error response (4xx/5xx) whose body cannot be decoded still raises the exception for its status code.
+
+To ask for uncompressed responses, pass `compressed_responses=False` or set the `LC_NO_RESPONSE_COMPRESSION` environment variable (which also covers the CLI):
+
+```python
+client = Client(oid="your-org-id", api_key="your-api-key", compressed_responses=False)
+```
+
+```bash
+LC_NO_RESPONSE_COMPRESSION=1 limacharlie search run --query "..." --start ... --end ...
+```
+
+A caller that sets its own `Accept-Encoding` in `extra_headers` keeps it. Downloads from signed URLs (artifacts, payloads, exports, installers) are fetched as raw bytes, unchanged.
+
 ## Detailed Guides
 
 | Guide | Topics |
