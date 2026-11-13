@@ -809,7 +809,14 @@ class TestLargeBodies:
         the same floor; decoding may add only its stream state and one chunk.
         """
         body = json.dumps({"rows": search_rows(40_000)}).encode()  # ~25 MB
-        server.route = lambda seen: negotiate(seen, body)
+        # tracemalloc traces every thread, the server's included, so both
+        # replies are built before tracing starts: inside the traced window
+        # the server thread only sends bytes that already exist.
+        compressed_reply = negotiate(Seen("GET", "/", {"accept-encoding": hc.ACCEPT_ENCODING}, b""), body)
+        identity_reply = negotiate(Seen("GET", "/", {}, b""), body)
+        assert compressed_reply.headers[-1][0] == "Content-Encoding"
+        server.route = lambda seen: (compressed_reply if seen.accept_encoding == hc.ACCEPT_ENCODING
+                                     else identity_reply)
 
         def peak(compressed: bool) -> int:
             c = make_client(compressed_responses=compressed)
