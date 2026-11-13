@@ -906,8 +906,8 @@ class TestParseDocument:
 
 class TestAutopilot:
     def test_status_and_alert_page_are_preserved(self, inv, mock_org):
-        status = {"config": {"sources": {}}, "day": {"charged_usd": 1.5, "spent_usd": 1, "reserved_usd": 0.5},
-                  "month": {"charged_usd": 2.5, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
+        status = {"config": {"sources": {}}, "day": {"charged_micro_usd": 1500000, "spent_micro_usd": 1000000, "reserved_micro_usd": 500000},
+                  "month": {"charged_micro_usd": 2500000, "spent_micro_usd": 2000000, "reserved_micro_usd": 500000}, "budget_exhausted": False,
                   "counters": {"seen": 4, "skipped_budget": 1}, "automation_available": False}
         mock_org.client.request.return_value = status
         assert inv.get_autopilot() == status
@@ -925,7 +925,7 @@ class TestAutopilot:
 
     def test_configure_sends_raw_json_once(self, inv, mock_org):
         config = {"sources": {"mailsec": {"enabled": True, "mode": "shadow", "template": "mailsec-generic-triage"}},
-                  "daily_usd": 10, "monthly_usd": 100, "max_concurrent": 5, "run_usd": 0.5}
+                  "daily_cap_micro_usd": 10000000, "monthly_cap_micro_usd": 100000000, "max_concurrent": 5, "run_cap_micro_usd": 500000}
         mock_org.client.request.return_value = {"config": config, "automation_available": False}
         assert inv.set_autopilot(config)["config"] == config
         verb, path, kw = _request_args(mock_org)
@@ -935,7 +935,7 @@ class TestAutopilot:
         assert kw["retry_gateway_timeout"] is False
         mock_org.client.request.assert_called_once()
 
-    @pytest.mark.parametrize("config", [None, [], "{}", {"run_usd": float("nan")}])
+    @pytest.mark.parametrize("config", [None, [], "{}", {"run_cap_micro_usd": float("nan")}])
     def test_invalid_config_is_never_sent(self, inv, mock_org, config):
         with pytest.raises(ValidationError):
             inv.set_autopilot(config)
@@ -952,7 +952,7 @@ class TestScoreboard:
     route_id = "a" * 64
 
     def test_scoreboard_keeps_engine_track_record_and_gaps(self, inv, mock_org):
-        response = {"routes": [{"route_id": self.route_id, "state": "eligible", "cost_usd": None,
+        response = {"routes": [{"route_id": self.route_id, "state": "eligible", "cost_micro_usd": None,
                                 "agreeing": 200, "wrong": 0}], "truncated": True}
         mock_org.client.request.return_value = response
         assert inv.get_scoreboard(product="mailsec") == response
@@ -962,7 +962,7 @@ class TestScoreboard:
 
     @pytest.mark.parametrize("verb", ["enable", "disable", "configure"])
     def test_route_decision_is_raw_json_without_timeout_retry(self, inv, mock_org, verb):
-        options = {"min_agreeing": 250, "sample_rate": 0.1} if verb == "configure" else {}
+        options = {"min_agreeing": 250, "spot_check_ppm": 100000} if verb == "configure" else {}
         inv.decide_route(self.route_id, "mailsec", verb, **options)
         method, path, kw = _request_args(mock_org)
         assert (method, path) == ("POST", f"investigate/oid-1/routes/{self.route_id}/decision")
@@ -973,7 +973,7 @@ class TestScoreboard:
     @pytest.mark.parametrize("options", [
         {"route_id": "not-a-digest"}, {"route_id": "A" * 64}, {"product": ""}, {"verb": "approve"},
         {"min_agreeing": 0}, {"min_agreeing": True}, {"min_agreeing": 1.5},
-        {"sample_rate": float("nan")}, {"sample_rate": 1.1}, {"sample_rate": True},
+        {"spot_check_ppm": float("nan")}, {"spot_check_ppm": 1000001}, {"spot_check_ppm": True},
     ])
     def test_bad_route_decisions_do_not_reach_network(self, inv, mock_org, options):
         args = {"route_id": self.route_id, "product": "mailsec", "verb": "configure", **options}
@@ -1042,3 +1042,32 @@ def test_autopilot_alerts_all_filters_and_metadata_preserved(inv, mock_org):
         "source": "mailsec", "state": "completed", "group_id": "g1", "run_id": "r1",
         "from": "2026-11-01T00:00:00Z", "to": "2026-11-08T00:00:00Z", "limit": "50", "cursor": "signed+bound",
     }
+
+
+@pytest.mark.parametrize("value", [1.0, 1e6, "1000000", None, True, 1 << 63])
+def test_autopilot_micros_must_be_integer(inv, mock_org, value):
+    with pytest.raises(ValidationError):
+        inv.set_autopilot({"daily_cap_micro_usd": value})
+    mock_org.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("key", ["daily_usd", "monthly_usd", "run_usd"])
+def test_autopilot_does_not_accept_old_floating_usd_keys(inv, mock_org, key):
+    with pytest.raises(ValidationError):
+        inv.set_autopilot({key: 10})
+    mock_org.client.request.assert_not_called()
+
+
+def test_route_all_integer_ppm_options_round_trip(inv, mock_org):
+    inv.decide_route("a" * 64, "mailsec", "configure", spot_check_ppm=50000, error_target_ppm=15000, blind_share_ppm=100000)
+    assert json.loads(_request_args(mock_org)[2]["raw_body"]) == {
+        "product": "mailsec", "verb": "configure", "spot_check_ppm": 50000, "error_target_ppm": 15000, "blind_share_ppm": 100000,
+    }
+
+
+@pytest.mark.parametrize("field", ["spot_check_ppm", "error_target_ppm", "blind_share_ppm"])
+@pytest.mark.parametrize("value", [1.0, True, "50000", -1, 1000001])
+def test_route_ppm_options_are_strict_integers(inv, mock_org, field, value):
+    with pytest.raises(ValidationError):
+        inv.decide_route("a" * 64, "mailsec", "configure", **{field: value})
+    mock_org.client.request.assert_not_called()

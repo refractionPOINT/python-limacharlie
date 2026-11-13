@@ -402,21 +402,22 @@ Enable, disable or configure a decision route returned by the scoreboard.
 Needs a verified human identity and org.conf.set. Enablement is a person's
 explicit decision (--confirm);
 the engine refuses ineligible routes. It demotes a route after a wrong call.
-Configure the required agreements and the human-review sample fraction.
+Configure the required agreements and the human-review sampling rate in integer parts per million.
 Changes are sent once and never replayed after a gateway timeout.
 
 Examples:
   limacharlie investigate routes enable ROUTE_ID --product mailsec --confirm
   limacharlie investigate routes disable ROUTE_ID --product mailsec
-  limacharlie investigate routes configure ROUTE_ID --product mailsec --min-agreeing 200 --sample-rate 0.05
+  limacharlie investigate routes configure ROUTE_ID --product mailsec --min-agreeing 200 --spot-check-ppm 50000
 """
 
 _EXPLAIN_AUTOPILOT_STATUS = """\
 Read automatic investigation settings, day/month charged, spent and reserved
-USD, budget_exhausted, and counters including queued and active work. Caps use
-spent_usd plus reserved_usd. Admission reserves the run maximum; settlement
-records actual cost and releases the difference. charged_usd is the
-compatibility sum of spent_usd and reserved_usd.
+micro-USD, budget_exhausted, and counters including queued and active work. Caps use
+spent_micro_usd plus reserved_micro_usd. Admission reserves the run maximum; settlement
+records actual cost and releases the difference. charged_micro_usd is the
+compatibility sum of spent_micro_usd and reserved_micro_usd. Money is integer
+micro-USD (1 USD = 1,000,000 micros); unknown values remain null.
 Shadow mode investigates without response actions; automation_available says
 whether automatic response is available, independently of source enablement.
 Filter with --source and --period today|7d|30d (default today), or supply
@@ -430,7 +431,8 @@ _EXPLAIN_AUTOPILOT_CONFIGURE = """\
 Replace the full automatic investigation configuration with JSON (--settings),
 a JSON file (--file), or stdin (--file -). Needs investigation_policy.get and
 investigation_policy.set, plus investigation.get and insight.evt.get. Sources select
-an enabled flag, mode (start with shadow) and active template. Dollar caps and
+an enabled flag, mode (start with shadow) and active template. Integer micro-USD
+caps (daily_cap_micro_usd, monthly_cap_micro_usd, run_cap_micro_usd) and
 max_concurrent bound automatic work. The engine replaces only
 default.auto_investigation in the Hive policy record using its etag, preserving
 other policy data and metadata. Writes are sent once.
@@ -1388,7 +1390,7 @@ def autopilot_status(ctx, source, period, from_time, to_time) -> None:
 
 
 @autopilot_group.command("configure")
-@click.option("--settings", default=None, help="JSON configuration object (sources and budget limits); exclusive with --file.")
+@click.option("--settings", default=None, help="JSON settings with sources and integer micro-USD caps; exclusive with --file.")
 @click.option("--file", "-f", "file_path", default=None, help="Read JSON settings from this file, or '-' for stdin; exclusive with --settings.")
 @pass_context
 @_engine_errors
@@ -1473,16 +1475,20 @@ def routes_disable(ctx, route_id, product) -> None:
 @click.argument("route_id")
 @click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
 @click.option("--min-agreeing", type=click.IntRange(min=1), default=None, help="Required agreeing labels; the engine enforces its safety floor.")
-@click.option("--sample-rate", type=click.FloatRange(min=0, max=1), default=None, help="Fraction sent for independent human review, 0..1; the engine applies its policy floor and defaults.")
+@click.option("--spot-check-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer review sampling rate in parts per million (50000 = 5%); engine policy floors/defaults apply.")
+@click.option("--error-target-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer error target in parts per million; the engine enforces its safety requirements.")
+@click.option("--blind-share-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer blind-review share in parts per million.")
 @pass_context
 @_engine_errors
-def routes_configure(ctx, route_id, product, min_agreeing, sample_rate) -> None:
+def routes_configure(ctx, route_id, product, min_agreeing, spot_check_ppm, error_target_ppm, blind_share_ppm) -> None:
     """Configure agreement requirements and independent human sampling."""
-    if min_agreeing is None and sample_rate is None:
-        raise _input_error("--min-agreeing/--sample-rate", "provide at least one route setting")
-    command_output(ctx, _get_investigation(ctx).decide_route(
-        route_id, product, "configure", min_agreeing=min_agreeing, sample_rate=sample_rate,
-    ))
+    options = {name: value for name, value in {
+        "min_agreeing": min_agreeing, "spot_check_ppm": spot_check_ppm,
+        "error_target_ppm": error_target_ppm, "blind_share_ppm": blind_share_ppm,
+    }.items() if value is not None}
+    if not options:
+        raise _input_error("route settings", "provide at least one route setting")
+    command_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "configure", **options))
 
 
 @runs_group.command("label")

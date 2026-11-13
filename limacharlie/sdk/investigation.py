@@ -39,7 +39,6 @@ import base64
 import datetime
 import functools
 import json
-import math
 import re
 import time
 from typing import Any, Iterator, TYPE_CHECKING
@@ -858,7 +857,8 @@ class Investigation:
 
     def decide_route(
         self, route_id: str, product: str, verb: str, *,
-        min_agreeing: int | None = None, sample_rate: float | None = None,
+        min_agreeing: int | None = None, spot_check_ppm: int | None = None,
+        error_target_ppm: int | None = None, blind_share_ppm: int | None = None,
     ) -> dict[str, Any]:
         """Enable, disable or configure a decision route for this product.
 
@@ -872,8 +872,10 @@ class Investigation:
             product: Product owning the route.
             verb: ``enable``, ``disable`` or ``configure``.
             min_agreeing: Required agreements for configure; the engine enforces its floor.
-            sample_rate: Human review sample fraction for configure, in [0, 1].
-                The engine applies its policy floor and defaults.
+            spot_check_ppm: Integer human-review sampling rate in parts per million,
+                0..1,000,000 (50,000 = 5%). The engine applies policy floors/defaults.
+            error_target_ppm: Integer error target in parts per million, 0..1,000,000.
+            blind_share_ppm: Integer blind-review share in parts per million, 0..1,000,000.
 
         Returns:
             dict: The engine's route decision response.
@@ -891,15 +893,14 @@ class Investigation:
             raise ValidationError("route verb must be enable, disable or configure")
         if min_agreeing is not None and (type(min_agreeing) is not int or not 1 <= min_agreeing <= (1 << 63) - 1):
             raise ValidationError("min_agreeing must be a positive int64")
-        if sample_rate is not None and (
-            type(sample_rate) not in (int, float) or not 0 <= sample_rate <= 1 or not math.isfinite(sample_rate)
-        ):
-            raise ValidationError("sample_rate must be a finite number between 0 and 1")
+        rates = {"spot_check_ppm": spot_check_ppm, "error_target_ppm": error_target_ppm, "blind_share_ppm": blind_share_ppm}
+        for name, value in rates.items():
+            if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
+                raise ValidationError(f"{name} must be an integer between 0 and 1000000")
         body: dict[str, Any] = {"product": product, "verb": verb}
         if min_agreeing is not None:
             body["min_agreeing"] = min_agreeing
-        if sample_rate is not None:
-            body["sample_rate"] = sample_rate
+        body.update({name: value for name, value in rates.items() if value is not None})
         return self._call("POST", f"routes/{_quote(route_id, safe='')}/decision", body=body, write=True)
 
     def submit_run_label(self, run_id: str, assessment: str, revision: int) -> dict[str, Any]:
@@ -945,11 +946,12 @@ class Investigation:
             to: Explicit ISO end time; supply with from_.
 
         Returns:
-            dict: ``config``, ``day`` and ``month`` charged/spent/reserved USD,
+            dict: ``config``, ``day`` and ``month`` charged/spent/reserved micro-USD,
                 ``budget_exhausted``, ``counters`` and ``automation_available``.
                 Admission reserves the run maximum; settlement records actual cost
-                and releases the unused reservation. Compatibility ``charged_usd``
-                is ``spent_usd + reserved_usd``. Shadow investigations
+                and releases the unused reservation. Compatibility ``charged_micro_usd``
+                is ``spent_micro_usd + reserved_micro_usd``. Money is integer
+                micro-USD (1 USD = 1,000,000 micros); unknown values remain null. Shadow investigations
                 do not authorize automatic response actions.
 
         Raises:
@@ -971,8 +973,10 @@ class Investigation:
         This write is sent once, without replay after a gateway timeout.
 
         Args:
-            config: JSON settings with ``sources`` and the ``daily_usd``,
-                ``monthly_usd``, ``max_concurrent`` and ``run_usd`` limits.
+            config: JSON settings with ``sources``, ``daily_cap_micro_usd``,
+                ``monthly_cap_micro_usd``, ``max_concurrent`` and ``run_cap_micro_usd``.
+                All numeric settings are int64 JSON integers; floating USD
+                aliases and decimal/exponent wire values are not accepted.
 
         Returns:
             dict: The engine's configuration response.
@@ -983,6 +987,12 @@ class Investigation:
         """
         if not isinstance(config, dict):
             raise ValidationError("autopilot config must be a JSON object")
+        obsolete = {"daily_usd", "monthly_usd", "run_usd"}.intersection(config)
+        if obsolete:
+            raise ValidationError("use daily_cap_micro_usd, monthly_cap_micro_usd and run_cap_micro_usd integer settings")
+        for name in ("daily_cap_micro_usd", "monthly_cap_micro_usd", "run_cap_micro_usd", "max_concurrent"):
+            if name in config and (type(config[name]) is not int or not -(1 << 63) <= config[name] < (1 << 63)):
+                raise ValidationError(f"{name} must be an int64 JSON integer")
         return self._call("PUT", "autopilot", body=config, write=True)
 
     def list_autopilot_alerts(

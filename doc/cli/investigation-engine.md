@@ -190,12 +190,17 @@ an enabled source does not itself mean response automation is available.
 ```bash
 limacharlie investigate autopilot status [--source mailsec] [--period today|7d|30d] [--from ISO --to ISO]
 limacharlie investigate autopilot configure --file autopilot.json
-limacharlie investigate autopilot configure --settings '{"sources":{"mailsec":{"enabled":false}},"daily_usd":10,"monthly_usd":100,"max_concurrent":5,"run_usd":0.5}'
+limacharlie investigate autopilot configure --settings '{"sources":{"mailsec":{"enabled":false}},"daily_cap_micro_usd":10000000,"monthly_cap_micro_usd":100000000,"max_concurrent":5,"run_cap_micro_usd":500000}'
 limacharlie investigate autopilot alerts [--source mailsec] [--state STATE] [--group-id ID] [--run-id ID] \
     [--from ISO] [--to ISO] [--limit N] [--cursor C]
 ```
 
 Supply exactly one of `--settings` (a JSON object) or `--file` (JSON, `-` for stdin).
+All money is int64 micro-USD: 1 USD = 1,000,000 micros. Defaults are 10,000,000
+daily, 100,000,000 monthly and 500,000 per run ($10, $100 and $0.50). Unknown
+reported money remains null. Settings must use JSON integer tokens: floats,
+quoted numbers, decimal/exponent notation and old floating-USD keys are refused.
+The CLI does not silently convert old wire fields.
 A full configuration example for `autopilot.json`:
 
 ```json
@@ -207,10 +212,10 @@ A full configuration example for `autopilot.json`:
       "template": "mailsec-generic-triage"
     }
   },
-  "daily_usd": 10,
-  "monthly_usd": 100,
+  "daily_cap_micro_usd": 10000000,
+  "monthly_cap_micro_usd": 100000000,
   "max_concurrent": 5,
-  "run_usd": 0.5
+  "run_cap_micro_usd": 500000
 }
 ```
 
@@ -236,12 +241,12 @@ Status defaults to `--period today`; `7d` and `30d` are also supported. Use
 period counters, `alerts_by_day`, `alerts_per_day`, period limits/bounds and
 `overview`.
 
-Status includes `config`, `day` and `month` (`period`, `charged_usd`, `spent_usd`,
-`reserved_usd`), `budget_exhausted`, `counters` (`seen`, `investigated`, `deduped`,
+Status includes `config`, `day` and `month` (`period`, `charged_micro_usd`, `spent_micro_usd`,
+`reserved_micro_usd`), `budget_exhausted`, `counters` (`seen`, `investigated`, `deduped`,
 `skipped_budget`, `failed`, `queued`, `active`) and `automation_available`.
 Admission reserves the maximum run cost against the cap. Settlement records
-actual cost in `spent_usd` and releases the unused reservation. Budget usage is
-`spent_usd + reserved_usd`; `charged_usd` remains as a compatibility field derived
+actual cost in `spent_micro_usd` and releases the unused reservation. Budget usage is
+`spent_micro_usd + reserved_micro_usd`; `charged_micro_usd` remains as a compatibility field derived
 from that sum, rather than a permanent charge of the full run allowance.
 
 Alerts preserve `id`, `source`, `group_id`, `run_id`, `state`, `reason`, `created`
@@ -261,7 +266,7 @@ envelope; table/CSV/JSONL put the continuation cursor on stderr.
 limacharlie investigate scoreboard [--product mailsec]
 limacharlie investigate routes enable ROUTE_ID --product mailsec --confirm
 limacharlie investigate routes disable ROUTE_ID --product mailsec
-limacharlie investigate routes configure ROUTE_ID --product mailsec [--min-agreeing N] [--sample-rate FRACTION]
+limacharlie investigate routes configure ROUTE_ID --product mailsec [--min-agreeing N] [--spot-check-ppm N] [--error-target-ppm N] [--blind-share-ppm N]
 limacharlie investigate runs label RUN_ID --assessment benign --revision 1
 ```
 
@@ -274,8 +279,10 @@ Route decisions require a verified human identity (`user:<uid>`) and
 `org.conf.set`. Enablement is a person's explicit choice
 and requires `--confirm`; the engine still checks route eligibility and action
 safety. Disable stops response automation for the route. Configure requires at
-least one setting: a positive agreement count or a finite sample fraction in
-0..1. The engine owns safety floors, default values and readiness; a CLI setting
+least one setting: a positive agreement count or an integer `--spot-check-ppm` rate in
+0..1,000,000 (50,000 = 5%). `--error-target-ppm` and `--blind-share-ppm` use
+the same integer range. The engine enforces route-specific safety bounds.
+Decimal and exponent wire values are refused. The engine owns safety floors, default values and readiness; a CLI setting
 does not bypass them. A route can be demoted after a wrong call.
 
 `runs label` records an independent human assessment: `benign`, `threat`,

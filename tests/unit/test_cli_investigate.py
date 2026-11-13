@@ -713,8 +713,8 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
 
 class TestAutopilot:
     def test_status_keeps_spend_counters_and_automation_flag(self, sdk):
-        status = {"config": {"sources": {}}, "day": {"charged_usd": 1.5, "spent_usd": 1, "reserved_usd": 0.5},
-                  "month": {"charged_usd": 2.5, "spent_usd": 2, "reserved_usd": 0.5}, "budget_exhausted": False,
+        status = {"config": {"sources": {}}, "day": {"charged_micro_usd": 1500000, "spent_micro_usd": 1000000, "reserved_micro_usd": 500000},
+                  "month": {"charged_micro_usd": 2500000, "spent_micro_usd": 2000000, "reserved_micro_usd": 500000}, "budget_exhausted": False,
                   "counters": {"seen": 3, "skipped_budget": 1, "queued": 1, "active": 1}, "automation_available": False}
         sdk.get_autopilot.return_value = status
         result = run(["investigate", "autopilot", "status"])
@@ -723,7 +723,7 @@ class TestAutopilot:
 
     def test_configure_from_settings_file_and_stdin(self, sdk, tmp_path):
         config = {"sources": {"mailsec": {"enabled": True, "mode": "shadow", "template": "mailsec-generic-triage"}},
-                  "daily_usd": 10, "monthly_usd": 100, "max_concurrent": 5, "run_usd": 0.5}
+                  "daily_cap_micro_usd": 10000000, "monthly_cap_micro_usd": 100000000, "max_concurrent": 5, "run_cap_micro_usd": 500000}
         sdk.set_autopilot.return_value = {"config": config, "automation_available": False}
         f = tmp_path / "autopilot.json"
         f.write_text(json.dumps(config))
@@ -737,7 +737,7 @@ class TestAutopilot:
 
     @pytest.mark.parametrize("args", [[], ["--settings", "{}", "--file", "unused"],
                                       ["--settings", "[]"], ["--settings", "null"],
-                                      ["--settings", "{broken"], ["--settings", '{"run_usd":NaN}']])
+                                      ["--settings", "{broken"], ["--settings", '{"run_cap_micro_usd":NaN}']])
     def test_bad_settings_are_refused_before_sdk(self, sdk, args):
         result = run(["investigate", "autopilot", "configure", *args])
         assert result.exit_code == 4
@@ -768,7 +768,7 @@ class TestScoreboard:
     route_id = "a" * 64
 
     def test_scoreboard_preserves_unpriced_and_incomplete_metadata(self, sdk):
-        result = {"routes": [{"route_id": self.route_id, "state": "shadow", "cost_usd": None}], "truncated": True}
+        result = {"routes": [{"route_id": self.route_id, "state": "shadow", "cost_micro_usd": None}], "truncated": True}
         sdk.get_scoreboard.return_value = result
         response = run(["investigate", "scoreboard", "--product", "mailsec"])
         assert response.exit_code == 0, response.stderr
@@ -789,12 +789,12 @@ class TestScoreboard:
         response = run(["investigate", "routes", "disable", self.route_id, "--product", "mailsec"])
         assert response.exit_code == 0, response.stderr
         sdk.decide_route.assert_called_with(self.route_id, "mailsec", "disable")
-        response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", "--min-agreeing", "250", "--sample-rate", "0.1"])
+        response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", "--min-agreeing", "250", "--spot-check-ppm", "100000"])
         assert response.exit_code == 0, response.stderr
-        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "configure", min_agreeing=250, sample_rate=0.1)
+        sdk.decide_route.assert_called_with(self.route_id, "mailsec", "configure", min_agreeing=250, spot_check_ppm=100000)
 
     def test_configure_requires_setting_and_refuses_out_of_range_sample(self, sdk):
-        for options in ([], ["--sample-rate", "-0.1"], ["--sample-rate", "1.1"], ["--min-agreeing", "0"]):
+        for options in ([], ["--spot-check-ppm", "-1"], ["--spot-check-ppm", "1000001"], ["--min-agreeing", "0"]):
             response = run(["investigate", "routes", "configure", self.route_id, "--product", "mailsec", *options])
             assert response.exit_code != 0
         sdk.decide_route.assert_not_called()
@@ -851,3 +851,24 @@ def test_autopilot_alert_page_preserves_total_truncated_and_filters(sdk):
                                                       from_="2026-11-01T00:00:00Z", to="2026-11-08T00:00:00Z", limit=50, cursor="signed+bound")
     table = run(["investigate", "autopilot", "alerts"], fmt="table")
     assert "total: 250" in table.stderr and "truncated: true" in table.stderr
+
+
+@pytest.mark.parametrize("token", ["1.0", "1e6", "1E6", '"1000000"', "null", "true"])
+def test_autopilot_settings_refuse_noninteger_micro_usd_before_write(token):
+    # Keep the real SDK validator under the CLI so syntax normalization cannot
+    # turn decimal/exponent user settings into accepted integer wire values.
+    with patch("limacharlie.commands.investigate.Client") as client, \
+            patch("limacharlie.commands.investigate.Organization") as org:
+        org.return_value.client = client.return_value
+        org.return_value.oid = "fictional-org"
+        result = run(["investigate", "autopilot", "configure", "--settings", '{"daily_cap_micro_usd":' + token + '}'])
+        assert result.exit_code != 0
+        client.return_value.request.assert_not_called()
+
+
+def test_route_configure_all_integer_ppm_options(sdk):
+    sdk.decide_route.return_value = {"route": {}}
+    result = run(["investigate", "routes", "configure", "a" * 64, "--product", "mailsec",
+                  "--spot-check-ppm", "50000", "--error-target-ppm", "15000", "--blind-share-ppm", "100000"])
+    assert result.exit_code == 0, result.stderr
+    sdk.decide_route.assert_called_once_with("a" * 64, "mailsec", "configure", spot_check_ppm=50000, error_target_ppm=15000, blind_share_ppm=100000)
