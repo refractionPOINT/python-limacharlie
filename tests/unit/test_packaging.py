@@ -121,14 +121,17 @@ class TestPyprojectToml:
 
         The SDK asks for gzip (standard library) when no zstd decoder is
         importable, so installing it must stay a choice. The dev extra pulls it
-        in so CI exercises that decoder on every Python version.
+        in so CI exercises that decoder on Python 3.10-3.13. Python 3.14+ has
+        a standard-library decoder, so the extra installs nothing there.
         """
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         deps = data["project"].get("dependencies", [])
         assert not [d for d in deps if _dep_name(d) == "zstandard"]
         extras = data["project"].get("optional-dependencies", {})
-        assert [d for d in extras.get("zstd", []) if _dep_name(d) == "zstandard"]
+        zstd = [d for d in extras.get("zstd", []) if _dep_name(d) == "zstandard"]
+        assert zstd
+        assert all("python_version < '3.14'" in d.replace('"', "'") for d in zstd), zstd
         assert [
             d for d in extras.get("dev", [])
             if _dep_name(d) == "zstandard"

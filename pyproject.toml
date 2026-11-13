@@ -52,7 +52,7 @@ toon = [
 # them with the standard library and needs nothing extra; without either, the
 # SDK asks for gzip only.
 zstd = [
-    "zstandard>=0.25.0",
+    "zstandard>=0.25.0; python_version < '3.14'",
 ]
 dev = [
     # pytest 9.x carries the CVE-2025-71176 fix and requires Python >= 3.10,

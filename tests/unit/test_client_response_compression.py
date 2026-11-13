@@ -268,8 +268,8 @@ def _isolate(monkeypatch, tmp_path):
     config_dir.mkdir()
     monkeypatch.setenv("LC_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("LC_NO_JWT_CACHE", "1")
-    for name in ("LC_CREDS_FILE", "LC_LEGACY_CONFIG", "LC_EPHEMERAL_CREDS",
-                 "LC_NO_RESPONSE_COMPRESSION", "LC_OID", "LC_API_KEY", "LC_UID"):
+    for name in ("LC_CREDS_FILE", "LC_LEGACY_CONFIG", "LC_EPHEMERAL_CREDS", "LC_NO_RESPONSE_COMPRESSION",
+                 "LC_MAX_DECODED_RESPONSE_BYTES", "LC_OID", "LC_API_KEY", "LC_UID"):
         monkeypatch.delenv(name, raising=False)
     _reset_path_cache()
     _reset_config_cache()
