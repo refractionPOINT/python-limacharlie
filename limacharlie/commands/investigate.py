@@ -65,9 +65,14 @@ AI agent workflow for a new template (a person promotes it at the end):
 
 Questions without a template: use `investigate packs` then `investigate wave`.
 
-Permissions: reads need investigation.get + insight.evt.get, writes (start,
-wave, test, cancel, delete, decide) investigation.set + insight.evt.get, pause/resume
-org.conf.set, template records investigation_plan.get/.set/.del.
+Permissions: reads need investigation.get + insight.evt.get; writes (start,
+wave, test, cancel, delete, decide action) need investigation.set + insight.evt.get.
+Routes enable|disable|configure need org.conf.set + verified human identity.
+Runs label needs investigation.set + insight.evt.get; independent API-key labels
+are valid integrations (the engine's own key is excluded). Pause/resume needs
+org.conf.set; autopilot configure adds investigation_policy.get/.set to normal
+read permissions. Automatic action log and selector undo add investigation_policy.set;
+undo and human-only reveal need investigation.set + insight.evt.get. Template records need investigation_plan.get/.set/.del.
 """
 
 _EXPLAIN_KIT = """\
@@ -373,8 +378,158 @@ _EXPLAIN_POLICY_RESUME = """\
 Resume automatic actions for the org. Needs org.conf.set.
 """
 
+_EXPLAIN_RUNS_LABEL = """\
+Submit an independent human or integration assessment of this investigated alert:
+benign, threat, disputed or unlabeled. The engine records provenance from your
+verified identity; independent API-key labels are supported, but the engine's own
+key is excluded. An action approval alone is not an alert label. Use a positive
+source revision and increase it when correcting your assessment. Requires
+investigation.set + insight.evt.get. The write is sent once.
+
+Example:
+  limacharlie investigate runs label RUN_ID --assessment benign --revision 1
+"""
+
+_EXPLAIN_SCOREBOARD = """\
+Read per-product decision route track records and graduation state. Requires
+opinion-audit rights (investigation_policy.set) as well as normal read access. Route
+versions isolate recipe/model changes; insufficient labels are not evidence
+of correctness. Read the engine's support, missing-cost and completeness
+fields before deciding whether a route is ready. Automatic response requires
+explicit route enablement and the action guard's independent safety checks.
+
+Example:
+  limacharlie investigate scoreboard --product mailsec
+"""
+
+_EXPLAIN_ROUTES = """\
+Enable, disable or configure a decision route returned by the scoreboard.
+Needs a verified human identity and org.conf.set. Enablement is a person's
+explicit decision (--confirm);
+the engine refuses ineligible routes. It demotes a route after a wrong call.
+Configure the required agreements and the human-review sampling rate in integer parts per million.
+Read the scoreboard's etag first and supply --etag VALUE on every route write.
+An empty etag explicitly asserts no default policy; one quoted wrapper is accepted.
+Alternatively choose --force explicitly; it is exclusive with --etag and only
+bypasses the client-view check. Native Hive compare-and-swap still applies.
+Missing or stale preconditions return HTTP 409: read the current etag or deliberately
+choose --force. The CLI never fetches a new etag or forces automatically.
+Changes are sent once and never replayed after a gateway timeout.
+
+Examples:
+  limacharlie investigate routes enable ROUTE_ID --product mailsec --etag ETAG --confirm
+  limacharlie investigate routes disable ROUTE_ID --product mailsec --etag ETAG
+  limacharlie investigate routes configure ROUTE_ID --product mailsec --etag ETAG --min-agreeing 200 --spot-check-ppm 50000
+"""
+
+_EXPLAIN_AUTOPILOT_STATUS = """\
+Read automatic investigation settings, day/month charged, spent and reserved
+micro-USD, budget_exhausted, and counters including queued and active work. Caps use
+spent_micro_usd plus reserved_micro_usd. Admission reserves the run maximum; settlement
+records actual cost and releases the difference. charged_micro_usd is the
+compatibility sum of spent_micro_usd and reserved_micro_usd. Money is integer
+micro-USD (1 USD = 1,000,000 micros); unknown values remain null.
+Shadow mode investigates without response actions; automation_available says
+whether automatic response is available, independently of source enablement.
+The response etag is the current Hive policy version; empty means no default policy.
+Filter with --source and --period today|7d|30d (default today), or supply
+both --from and --to ISO times spanning at most 90 days.
+
+Example:
+  limacharlie investigate autopilot status
+"""
+
+_EXPLAIN_AUTOPILOT_CONFIGURE = """\
+Replace the full automatic investigation configuration with JSON (--settings),
+a JSON file (--file), or stdin (--file -). Needs investigation_policy.get and
+investigation_policy.set, plus investigation.get and insight.evt.get. Sources select
+an enabled flag, mode (start with shadow) and active template. Integer micro-USD
+caps (daily_cap_micro_usd, monthly_cap_micro_usd, run_cap_micro_usd) and
+max_concurrent bound automatic work. The engine replaces only
+default.auto_investigation in the Hive policy record using its etag, preserving
+other policy data and metadata. Read status.etag first, then supply --etag VALUE.
+An empty etag explicitly asserts no default policy; one quoted wrapper is accepted.
+Alternatively choose --force explicitly; it is exclusive with --etag and overrides
+only the client-view check. Native Hive compare-and-swap still applies. Missing or
+stale preconditions return HTTP 409: read the current etag or deliberately choose
+--force. The CLI never reads a new etag or forces automatically. Writes are sent once.
+
+Example:
+  limacharlie investigate autopilot configure --etag ETAG --file autopilot.json
+"""
+
+_EXPLAIN_AUTOPILOT_ALERTS = """\
+List automatic investigation alerts with their source, group_id, run_id,
+state, reason and created time, plus total/truncated pagination metadata.
+Skipped alerts can have no run. Use run_id
+with `investigate runs get`; for mailsec, group_id identifies the mail group.
+--source, --state, --group-id, --run-id and --from/--to filter at the engine.
+Continue with the signed next_cursor and identical filters. Unsupported
+engine_call, match and q searches are refused rather than silently ignored.
+
+Examples:
+  limacharlie investigate autopilot alerts --source mailsec --limit 20
+  limacharlie investigate runs get <RUN_ID>
+"""
+
+_EXPLAIN_AUTOMATIC_ACTIONS = """\
+List safe automatic-action metadata with autopilot actions list (auditor permission
+investigation_policy.set plus investigation.get + insight.evt.get). Held spot checks
+are excluded unless --held-for-spot-check includes them. Native states are CSV,
+--from inclusive/--to exclusive RFC3339. The server supplies total/totals/as_of and
+opaque next_cursor; no targets, attributes or evidence are exposed. actions get ID
+supports --run-id for ambiguity; per-run blind visibility remains enforced.
+
+Undo uses autopilot actions undo: explicit IDs, --items JSON/--items-file PATH
+(array of id, optional run_id, required boolean was_engine_wrong), or an auditor-only
+--route-id + --from selector. IDs/selector require --was-engine-wrong or
+--preference-only. All modes are exclusive and bounded to 100 actions. Selector
+--limit defaults50/max 100; next_cursor freezes its upper bound. Failed current-page
+IDs must be retried explicitly; next_cursor selects later actions. Inspect every
+status/error_code/retryable/label_recorded; partial failures produce a nonzero exit.
+Undo needs investigation.set + insight.evt.get and native action permissions from
+verified claims. Shared close bulk conservatively needs mailsec.set. Wrong=true
+is human-only: after authorization it stores a durable weak pending answer BEFORE
+effects for crash recovery and gate withholding. A strong human_override requires
+confirmed actual owned undo (native Reverted, empty RevertNote), including an
+idempotent actual-success replay. Failed/noop undo has label_recorded=false:
+failures stay pending/retryable until actual retry; known noops are diagnostic.
+Preference creates no truth. No retries; gateway 120s/SDK 130s, idempotent already_undone results.
+
+Examples:
+  limacharlie investigate autopilot actions list --product mailsec --state active,confirmed
+  limacharlie investigate autopilot actions undo ACTION_ID --run-id RUN_ID --preference-only
+  limacharlie investigate autopilot actions undo --route-id ROUTE_ID --from 2026-11-01T00:00:00Z --was-engine-wrong
+"""
+
+_EXPLAIN_DECISION = """\
+Read the typed decision with runs decision RUN_ID without revealing a hidden opinion.
+The response preserves visible, visible_reason, counted and run. Reads require
+investigation.get + insight.evt.get and per-run blind guards.
+
+runs reveal RUN_ID explicitly peeks (human only), requiring investigation.set +
+insight.evt.get. Reveal is audited for this principal and alert: later answers
+become diagnostic; other reviewers can still qualify. The request is empty {} and
+sent once. visible_reason is auditor, after_your_call, revealed, hidden or not_blind.
+"""
+
 for _path, _text in {
     "investigate": _EXPLAIN_GROUP,
+    "investigate.autopilot.actions": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.autopilot.actions.list": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.autopilot.actions.get": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.autopilot.actions.undo": _EXPLAIN_AUTOMATIC_ACTIONS,
+    "investigate.runs.decision": _EXPLAIN_DECISION,
+    "investigate.runs.reveal": _EXPLAIN_DECISION,
+    "investigate.scoreboard": _EXPLAIN_SCOREBOARD,
+    "investigate.routes": _EXPLAIN_ROUTES,
+    "investigate.routes.enable": _EXPLAIN_ROUTES,
+    "investigate.routes.disable": _EXPLAIN_ROUTES,
+    "investigate.routes.configure": _EXPLAIN_ROUTES,
+    "investigate.autopilot": _EXPLAIN_AUTOPILOT_STATUS,
+    "investigate.autopilot.status": _EXPLAIN_AUTOPILOT_STATUS,
+    "investigate.autopilot.configure": _EXPLAIN_AUTOPILOT_CONFIGURE,
+    "investigate.autopilot.alerts": _EXPLAIN_AUTOPILOT_ALERTS,
     "investigate.kit": _EXPLAIN_KIT,
     "investigate.operators": _EXPLAIN_OPERATORS,
     "investigate.packs": _EXPLAIN_PACKS,
@@ -388,6 +543,7 @@ for _path, _text in {
     "investigate.templates.install-defaults": _EXPLAIN_TEMPLATES_INSTALL,
     "investigate.runs.start": _EXPLAIN_RUNS_START,
     "investigate.runs.get": _EXPLAIN_RUNS_GET,
+    "investigate.runs.label": _EXPLAIN_RUNS_LABEL,
     "investigate.runs.list": _EXPLAIN_RUNS_LIST,
     "investigate.runs.events": _EXPLAIN_RUNS_EVENTS,
     "investigate.runs.steps": _EXPLAIN_RUNS_STEPS,
@@ -398,6 +554,7 @@ for _path, _text in {
     "investigate.actions.list": _EXPLAIN_ACTIONS_LIST,
     "investigate.actions.approve": _EXPLAIN_ACTIONS_APPROVE,
     "investigate.actions.deny": _EXPLAIN_ACTIONS_DENY,
+    "investigate.actions.revert": """Undo an action. Omit --was-engine-wrong, or use --preference-only, to undo without creating an alert label. Explicit --was-engine-wrong is a human inverse assessment; the engine supplies provenance and enforces permissions.""",
     "investigate.policy.get": _EXPLAIN_POLICY_GET,
     "investigate.policy.status": _EXPLAIN_POLICY_STATUS,
     "investigate.policy.pause": _EXPLAIN_POLICY_PAUSE,
@@ -424,6 +581,45 @@ def _get_investigation(ctx: click.Context) -> Investigation:
 
 def _fmt(ctx: click.Context) -> str:
     return ctx.obj.output_format or detect_output_format()
+
+
+def _human_engine_values(value: Any) -> Any:
+    """Format integer monetary/rate fields for people, without mutating SDK data."""
+    def amount(micros: Any) -> Any:
+        if micros is None:
+            return "unknown"
+        if type(micros) is not int:
+            return micros
+        whole, fraction = divmod(abs(micros), 1_000_000)
+        digits = f"{fraction:06d}".rstrip("0").ljust(2, "0")
+        return f"{'-' if micros < 0 else ''}${whole:,}.{digits}"
+
+    def percent(ppm: Any) -> Any:
+        if ppm is None:
+            return "unknown"
+        if type(ppm) is not int:
+            return ppm
+        whole, fraction = divmod(abs(ppm), 10_000)
+        digits = f"{fraction:04d}".rstrip("0")
+        return f"{'-' if ppm < 0 else ''}{whole}{'.' + digits if digits else ''}%"
+
+    if isinstance(value, dict):
+        return {
+            key: (amount(item) if isinstance(key, str) and key.endswith("_micro_usd") else
+                  percent(item) if isinstance(key, str) and key.endswith("_ppm") else
+                  _human_engine_values(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_human_engine_values(item) for item in value]
+    return value
+
+
+def _engine_output(ctx: click.Context, data: Any, **kwargs: Any) -> None:
+    # JSONL is structured too: keep integer wire values/nulls unchanged there.
+    if _fmt(ctx) in ("table", "csv"):
+        data = _human_engine_values(data)
+    command_output(ctx, data, **kwargs)
 
 
 def _error_document(exc: LimaCharlieError) -> dict[str, Any]:
@@ -538,9 +734,9 @@ def _emit_page(ctx: click.Context, key: str, items: list[Any], next_cursor: str,
     """
     fmt = _fmt(ctx)
     if fmt in ("json", "yaml", "toon"):
-        command_output(ctx, {key: items, "next_cursor": next_cursor or ""})
+        _engine_output(ctx, {key: items, "next_cursor": next_cursor or ""})
         return
-    command_output(ctx, [project(i) for i in items] if fmt in ("table", "csv") else items)
+    _engine_output(ctx, [project(i) for i in items] if fmt in ("table", "csv") else items)
     if next_cursor:
         note(ctx, f"next_cursor: {next_cursor}")
 
@@ -586,7 +782,7 @@ def group() -> None:
 @_engine_errors
 def kit_cmd(ctx, sections) -> None:
     """Fetch the authoring kit: schema, guide, operators, examples, policy, codes, packs, library."""
-    command_output(ctx, _get_investigation(ctx).get_authoring_kit(list(sections) or None))
+    _engine_output(ctx, _get_investigation(ctx).get_authoring_kit(list(sections) or None))
 
 
 @group.command("operators")
@@ -606,7 +802,7 @@ def operators_cmd(ctx, match, names, brief) -> None:
         rows = [o for o in rows if any(needle in str(o.get(k, "")).lower() for k in ("name", "class", "description"))]
     if brief:
         rows = [{k: o.get(k) for k in ("name", "class", "description", "available", "why")} for o in rows]
-    command_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"operators": rows, "extension_requests": data.get("extension_requests", [])})
+    _engine_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"operators": rows, "extension_requests": data.get("extension_requests", [])})
 
 
 @group.command("packs")
@@ -628,7 +824,7 @@ def packs_cmd(ctx, name, brief) -> None:
             }
             for p in packs
         ]
-    command_output(ctx, packs if _fmt(ctx) in ("table", "csv", "jsonl") else {"packs": packs})
+    _engine_output(ctx, packs if _fmt(ctx) in ("table", "csv", "jsonl") else {"packs": packs})
 
 
 # ---------------------------------------------------------------------------
@@ -650,7 +846,7 @@ def templates_list(ctx, status) -> None:
     rows = [t for t in data.get("templates") or [] if isinstance(t, dict)]
     if status:
         rows = [t for t in rows if (t.get("status") or "draft") == status]
-    command_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"templates": rows})
+    _engine_output(ctx, rows if _fmt(ctx) in ("table", "csv", "jsonl") else {"templates": rows})
 
 
 @templates_group.command("get")
@@ -664,7 +860,7 @@ def templates_get(ctx, name, yaml_only) -> None:
     if yaml_only:
         click.echo(view["yaml"], nl=False)
         return
-    command_output(ctx, view)
+    _engine_output(ctx, view)
 
 
 def _file_option(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -680,7 +876,7 @@ def templates_validate(ctx, file_path) -> None:
     if not file_path:
         raise click.UsageError("--file is required.")
     report = _get_investigation(ctx).validate_plan(_read_source(file_path))
-    command_output(ctx, report)
+    _engine_output(ctx, report)
     if report.get("valid") is not True or report.get("errors"):
         ctx.exit(EXIT_REFUSED)
 
@@ -748,7 +944,7 @@ def _test_rows(test: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -> None:
     if _fmt(ctx) not in ("table", "csv"):
-        command_output(ctx, _compact_test(test, include_steps))
+        _engine_output(ctx, _compact_test(test, include_steps))
         return
     header = f"test {test.get('test_id')}: {test.get('state')}"
     if "samples_done" in test:
@@ -760,7 +956,7 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
                        + (f" (did you mean {issue['suggestion']})" if issue.get("suggestion") else ""))
     rows = _test_rows(test)
     if rows:
-        command_output(ctx, rows)
+        _engine_output(ctx, rows)
     summary = test.get("summary")
     if isinstance(summary, dict):
         click.echo("summary: " + ", ".join(f"{k}={summary[k]}" for k in (
@@ -855,7 +1051,7 @@ def templates_save(ctx, name, file_path, status, overwrite, comment, tags) -> No
     result = _get_investigation(ctx).save_template(
         name, _read_source(file_path), status=status, overwrite=overwrite, comment=comment, tags=list(tags) or None,
     )
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if not result.get("saved"):
         ctx.exit(EXIT_REFUSED)
 
@@ -870,7 +1066,7 @@ def templates_promote(ctx, name, confirm) -> None:
     if not confirm:
         raise click.UsageError("Promoting a template makes it runnable on its own and requires --confirm.")
     result = _get_investigation(ctx).promote_template(name)
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if not result.get("promoted"):
         ctx.exit(EXIT_REFUSED)
 
@@ -886,7 +1082,7 @@ def templates_delete(ctx, name, confirm) -> None:
         raise click.UsageError("Destructive operation requires --confirm flag.")
     result = _get_investigation(ctx).delete_template(name)
     note(ctx, f"Template '{name}' deleted.")
-    command_output(ctx, result)
+    _engine_output(ctx, result)
 
 
 @templates_group.command("install-defaults")
@@ -899,7 +1095,7 @@ def templates_delete(ctx, name, confirm) -> None:
 def templates_install_defaults(ctx, names, overwrite, status) -> None:
     """Write the engine's default template library to this org (never overwrites silently)."""
     result = _get_investigation(ctx).install_default_templates(list(names) or None, overwrite=overwrite, status=status)
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if result["failed"]:
         ctx.exit(1)
 
@@ -976,7 +1172,7 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
         if not ctx.obj.quiet:
             click.echo(json.dumps(answer, separators=(",", ":"), default=str))
     else:
-        command_output(ctx, answer)
+        _engine_output(ctx, answer)
     if follow:
         run_id = (answer.get("run") or {}).get("run_id")
         if run_id:
@@ -989,7 +1185,7 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
 @_engine_errors
 def runs_get(ctx, run_id) -> None:
     """Read a run: state, phase, verdict, actions and usage."""
-    command_output(ctx, _get_investigation(ctx).get_run(run_id))
+    _engine_output(ctx, _get_investigation(ctx).get_run(run_id))
 
 
 @runs_group.command("list")
@@ -1067,7 +1263,7 @@ def runs_events(ctx, run_id, after, wait, limit, follow, timeout) -> None:
             click.echo(_event_line(event))
         note(ctx, f"next: {page.get('next')}  done: {page.get('done')}")
         return
-    command_output(ctx, page)
+    _engine_output(ctx, page)
 
 
 @runs_group.command("steps")
@@ -1077,7 +1273,7 @@ def runs_events(ctx, run_id, after, wait, limit, follow, timeout) -> None:
 @_engine_errors
 def runs_steps(ctx, run_id, values) -> None:
     """Read a run's step log, plan graph, usage and belief curve."""
-    command_output(ctx, _get_investigation(ctx).get_run_steps(run_id, values=values))
+    _engine_output(ctx, _get_investigation(ctx).get_run_steps(run_id, values=values))
 
 
 @runs_group.command("case")
@@ -1086,7 +1282,7 @@ def runs_steps(ctx, run_id, values) -> None:
 @_engine_errors
 def runs_case(ctx, run_id) -> None:
     """Read the case document a run wrote."""
-    command_output(ctx, _get_investigation(ctx).get_run_case(run_id))
+    _engine_output(ctx, _get_investigation(ctx).get_run_case(run_id))
 
 
 @runs_group.command("cancel")
@@ -1096,7 +1292,7 @@ def runs_case(ctx, run_id) -> None:
 @_engine_errors
 def runs_cancel(ctx, run_id, revert_leases) -> None:
     """Cancel a run."""
-    command_output(ctx, _get_investigation(ctx).cancel_run(run_id, revert_leases=revert_leases))
+    _engine_output(ctx, _get_investigation(ctx).cancel_run(run_id, revert_leases=revert_leases))
 
 
 @runs_group.command("delete")
@@ -1110,7 +1306,7 @@ def runs_delete(ctx, run_id, confirm) -> None:
         raise click.UsageError("Destructive operation requires --confirm flag.")
     result = _get_investigation(ctx).delete_run(run_id)
     note(ctx, f"Run '{run_id}' deleted.")
-    command_output(ctx, result)
+    _engine_output(ctx, result)
 
 
 # ---------------------------------------------------------------------------
@@ -1150,9 +1346,9 @@ def wave_cmd(ctx, file_path, stop_when, deadline_ms, inputs, full, validate_only
         if not exc.issues:
             raise
         # A refused wave is a result: its coded errors are what the caller needs, on stdout.
-        command_output(ctx, {"valid": False, "error": exc.raw_message.split("\n")[0], "errors": exc.issues, "warnings": exc.warnings})
+        _engine_output(ctx, {"valid": False, "error": exc.raw_message.split("\n")[0], "errors": exc.issues, "warnings": exc.warnings})
         ctx.exit(EXIT_REFUSED)
-    command_output(ctx, result)
+    _engine_output(ctx, result)
     if validate_only and result.get("valid") is False:
         ctx.exit(EXIT_REFUSED)
 
@@ -1193,7 +1389,7 @@ def actions_list(ctx, state, action_class, run_id, limit, cursor, fetch_all) -> 
 @_engine_errors
 def actions_approve(ctx, run_id, action_id) -> None:
     """Approve an action (also needs the permission of the action's class)."""
-    command_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "approve"))
+    _engine_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "approve"))
 
 
 @actions_group.command("deny")
@@ -1204,7 +1400,21 @@ def actions_approve(ctx, run_id, action_id) -> None:
 @_engine_errors
 def actions_deny(ctx, run_id, action_id, reason) -> None:
     """Deny an action."""
-    command_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "deny", note=reason))
+    _engine_output(ctx, _get_investigation(ctx).decide_action(run_id, action_id, "deny", note=reason))
+
+
+@actions_group.command("revert")
+@click.argument("run_id")
+@click.argument("action_id")
+@click.option("--note", "reason", default=None, help="Why the action is being undone.")
+@click.option("--was-engine-wrong/--preference-only", default=None, help="Explicit human assessment that the engine was wrong; preference-only (or omission) creates no label.")
+@pass_context
+@_engine_errors
+def actions_revert(ctx, run_id, action_id, reason, was_engine_wrong) -> None:
+    """Undo an action, optionally recording an explicit human correction."""
+    _engine_output(ctx, _get_investigation(ctx).decide_action(
+        run_id, action_id, "revert", note=reason, was_engine_wrong=was_engine_wrong,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -1227,7 +1437,7 @@ def policy_group() -> None:
 @_engine_errors
 def policy_get(ctx, category, priority, severity, target_tags, action_class, template) -> None:
     """Explain the effective policy."""
-    command_output(ctx, _get_investigation(ctx).get_effective_policy(
+    _engine_output(ctx, _get_investigation(ctx).get_effective_policy(
         category=category, priority=priority, severity=severity,
         target_tags=list(target_tags) or None, action_class=action_class, template=template,
     ))
@@ -1238,7 +1448,7 @@ def policy_get(ctx, category, priority, severity, target_tags, action_class, tem
 @_engine_errors
 def policy_status(ctx) -> None:
     """Show whether automatic actions are paused."""
-    command_output(ctx, _get_investigation(ctx).get_autonomy())
+    _engine_output(ctx, _get_investigation(ctx).get_autonomy())
 
 
 @policy_group.command("pause")
@@ -1246,7 +1456,7 @@ def policy_status(ctx) -> None:
 @_engine_errors
 def policy_pause(ctx) -> None:
     """Pause automatic actions for the org."""
-    command_output(ctx, _get_investigation(ctx).set_autonomy("pause"))
+    _engine_output(ctx, _get_investigation(ctx).set_autonomy("pause"))
 
 
 @policy_group.command("resume")
@@ -1254,4 +1464,292 @@ def policy_pause(ctx) -> None:
 @_engine_errors
 def policy_resume(ctx) -> None:
     """Resume automatic actions for the org."""
-    command_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
+    _engine_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
+
+
+def _policy_write_options(fn: Callable[..., Any]) -> Callable[..., Any]:
+    fn = click.option("--force", is_flag=True, default=False,
+                      help="Explicitly override the client-view etag check; native Hive CAS still applies.")(fn)
+    return click.option("--etag", default=None,
+                        help="Exact etag from status/scoreboard (empty explicitly means no default policy); exclusive with --force.")(fn)
+
+
+def _require_policy_view(etag: str | None, force: bool) -> None:
+    if etag is not None and force:
+        raise _input_error("--etag/--force", "provide --etag or --force, not both")
+    if etag is None and not force:
+        raise _input_error("--etag/--force", "read the current etag and provide --etag, or explicitly choose --force")
+
+
+# ---------------------------------------------------------------------------
+# autopilot
+# ---------------------------------------------------------------------------
+
+@group.group("autopilot")
+def autopilot_group() -> None:
+    """Automatic investigations: settings, budgets and alert-to-run links."""
+
+
+@autopilot_group.command("status")
+@click.option("--source", default=None, help="Inspect this product source.")
+@click.option("--period", type=click.Choice(["today", "7d", "30d"]), default=None, help="Reporting period (engine default today).")
+@click.option("--from", "from_time", default=None, help="Explicit ISO start time; requires --to, maximum span 90 days.")
+@click.option("--to", "to_time", default=None, help="Explicit ISO end time; requires --from.")
+@pass_context
+@_engine_errors
+def autopilot_status(ctx, source, period, from_time, to_time) -> None:
+    """Show automatic investigation configuration, spend and counters."""
+    if (from_time is None) != (to_time is None):
+        raise _input_error("--from/--to", "provide both explicit time bounds")
+    _engine_output(ctx, _get_investigation(ctx).get_autopilot(
+        source=source, period=period, from_=from_time, to=to_time,
+    ))
+
+
+@autopilot_group.command("configure")
+@_policy_write_options
+@click.option("--settings", default=None, help="JSON settings with sources and integer micro-USD caps; exclusive with --file.")
+@click.option("--file", "-f", "file_path", default=None, help="Read JSON settings from this file, or '-' for stdin; exclusive with --settings.")
+@pass_context
+@_engine_errors
+def autopilot_configure(ctx, settings, file_path, etag, force) -> None:
+    """Replace the Hive auto-investigation settings (policy get/set)."""
+    if (settings is None) == (file_path is None):
+        raise _input_error("--settings/--file", "provide exactly one of --settings JSON or --file PATH")
+    hint = "--file" if file_path is not None else "--settings"
+    config = _json_object(_read_source(file_path) if file_path is not None else settings, hint)
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).set_autopilot(config, etag=etag, force=force))
+
+
+@autopilot_group.command("alerts")
+@click.option("--source", default=None, help="Only this product source, for example mailsec.")
+@click.option("--state", default=None, help="Only alerts in this state.")
+@click.option("--group-id", default=None, help="Only alerts for this source group.")
+@click.option("--run-id", default=None, help="Only alerts linked to this investigation run.")
+@click.option("--from", "from_time", default=None, help="ISO lower time bound.")
+@click.option("--to", "to_time", default=None, help="ISO upper time bound.")
+@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size (engine default 50).")
+@click.option("--cursor", default=None, help="Continue from the next_cursor of the previous page.")
+@pass_context
+@_engine_errors
+def autopilot_alerts(ctx, source, state, group_id, run_id, from_time, to_time, limit, cursor) -> None:
+    """List alerts and their investigation run links, including skipped alerts."""
+    page = _get_investigation(ctx).list_autopilot_alerts(
+        source=source, state=state, group_id=group_id, run_id=run_id,
+        from_=from_time, to=to_time, limit=limit, cursor=cursor,
+    )
+    if _fmt(ctx) in ("json", "yaml", "toon"):
+        _engine_output(ctx, page)
+        return
+    _emit_page(ctx, "alerts", page.get("alerts") or [], page.get("next_cursor") or "", lambda alert: alert)
+    if "total" in page:
+        note(ctx, f"total: {page['total']}")
+    if page.get("truncated"):
+        note(ctx, "truncated: true")
+
+
+# ---------------------------------------------------------------------------
+# automatic action log, undo, and decisions
+# ---------------------------------------------------------------------------
+
+@autopilot_group.group("actions")
+def automatic_actions_group() -> None:
+    """Automatic action metadata and bounded undo with per-item outcomes."""
+
+
+def _emit_automatic_page(ctx, page, key):
+    if _fmt(ctx) in ("json", "yaml", "toon"):
+        _engine_output(ctx, page)
+        return
+    _engine_output(ctx, page.get(key) or [])
+    for name in ("next_cursor", "truncated", "total", "totals", "selected", "as_of"):
+        if name in page:
+            note(ctx, f"{name}: {json.dumps(page[name]) if isinstance(page[name], (dict, bool)) else page[name]}")
+
+
+@automatic_actions_group.command("list")
+@click.option("--product", default=None)
+@click.option("--route-id", default=None, help="Exact route SHA-256 digest.")
+@click.option("--action-type", default=None, help="Native action class.")
+@click.option("--state", default=None, help="Unique comma-separated native action states.")
+@click.option("--from", "from_time", default=None, help="Inclusive RFC3339 lower bound.")
+@click.option("--to", "to_time", default=None, help="Exclusive RFC3339 upper bound.")
+@click.option("--held-for-spot-check/--exclude-held", default=None, help="Include held spot checks alongside automatic actions; excluded by default.")
+@click.option("--limit", type=click.IntRange(1, 200), default=None, help="Page size, engine default 50.")
+@click.option("--cursor", default=None, help="Opaque next_cursor from the previous page.")
+@pass_context
+@_engine_errors
+def automatic_actions_list(ctx, product, route_id, action_type, state, from_time, to_time, held_for_spot_check, limit, cursor):
+    """Read safe action metadata (opinion auditor required); no targets/evidence."""
+    page = _get_investigation(ctx).list_automatic_actions(product=product, route_id=route_id,
+        action_type=action_type, state=state, from_=from_time, to=to_time,
+        held_for_spot_check=held_for_spot_check, limit=limit, cursor=cursor)
+    _emit_automatic_page(ctx, page, "actions")
+
+
+@automatic_actions_group.command("get")
+@click.argument("action_id")
+@click.option("--run-id", default=None, help="Disambiguate the action within this run.")
+@pass_context
+@_engine_errors
+def automatic_actions_get(ctx, action_id, run_id):
+    """Get safe metadata under per-run blind guards; ambiguous IDs return 409."""
+    _engine_output(ctx, _get_investigation(ctx).get_automatic_action(action_id, run_id=run_id))
+
+
+@automatic_actions_group.command("undo")
+@click.argument("ids", nargs=-1)
+@click.option("--run-id", default=None, help="Disambiguate one explicit ID; cannot be used with a batch or selector.")
+@click.option("--items", default=None, help="JSON array of {id,run_id?,was_engine_wrong:boolean}; exclusive with IDs/selector.")
+@click.option("--items-file", default=None, help="Read the items JSON array from a file, or '-' for stdin.")
+@click.option("--route-id", default=None, help="Auditor-only selector: exact route digest; requires --from.")
+@click.option("--product", default=None, help="Optional selector product.")
+@click.option("--from", "from_time", default=None, help="Required selector inclusive RFC3339 lower bound.")
+@click.option("--to", "to_time", default=None, help="Optional exclusive upper bound; cursor freezes its first value.")
+@click.option("--was-engine-wrong/--preference-only", default=None, help="Required for IDs/selector. Wrong is human-only: the answer is durable before effects, but a strong label requires confirmed actual undo; preference records no truth.")
+@click.option("--limit", type=click.IntRange(1, 100), default=None, help="Selector page size, engine default 50.")
+@click.option("--cursor", default=None, help="Select the next page; retry failed current-page IDs explicitly.")
+@pass_context
+@_engine_errors
+def automatic_actions_undo(ctx, ids, run_id, items, items_file, route_id, product, from_time, to_time, was_engine_wrong, limit, cursor):
+    """Undo at most 100 actions once; inspect each status and label_recorded."""
+    if items is not None and items_file is not None:
+        raise _input_error("items", "provide --items or --items-file, not both")
+    def unique_fields(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError(f"repeated field {key}")
+            obj[key] = value
+        return obj
+    rows = None
+    if items is not None or items_file is not None:
+        try:
+            rows = json.loads(_read_source(items_file) if items_file is not None else items, parse_constant=_reject_constant, object_pairs_hook=unique_fields)
+        except ValueError as exc:
+            raise _input_error("items", f"invalid JSON: {exc}") from exc
+        if not isinstance(rows, list):
+            raise _input_error("items", "must be a JSON array")
+    has_selector = any(value is not None for value in (route_id, product, from_time, to_time))
+    if sum((bool(ids), rows is not None, has_selector)) != 1:
+        raise _input_error("selection", "provide exactly one of explicit IDs, items or a route/time selector")
+    if rows is not None and was_engine_wrong is not None:
+        raise _input_error("was_engine_wrong", "items must supply their own answers")
+    if rows is None and was_engine_wrong is None:
+        raise _input_error("was_engine_wrong", "choose --was-engine-wrong or --preference-only explicitly")
+    if has_selector and (route_id is None or from_time is None):
+        raise _input_error("selector", "--route-id and --from are required")
+    if not has_selector and (limit is not None or cursor is not None):
+        raise _input_error("pagination", "--limit and --cursor are selector-only")
+    if run_id is not None and (len(ids) != 1 or rows is not None or has_selector):
+        raise _input_error("--run-id", "requires exactly one explicit ID")
+    inv = _get_investigation(ctx)
+    if len(ids) == 1:
+        page = inv.undo_automatic_action(ids[0], run_id=run_id, was_engine_wrong=was_engine_wrong)
+    else:
+        selector = None
+        if has_selector:
+            selector = {"route_id": route_id, "from": from_time}
+            selector.update({name: value for name, value in (("product", product), ("to", to_time)) if value is not None})
+        page = inv.undo_automatic_actions(list(ids) if ids else None, items=rows, selector=selector,
+            was_engine_wrong=was_engine_wrong, limit=limit, cursor=cursor)
+    _emit_automatic_page(ctx, page, "results")
+    if any(result.get("status") in ("failed", "skipped") for result in page.get("results", [])):
+        ctx.exit(EXIT_REFUSED)
+
+
+@runs_group.command("decision")
+@click.argument("run_id")
+@pass_context
+@_engine_errors
+def runs_decision(ctx, run_id):
+    """Read the typed decision if visible; this does not peek or change qualification."""
+    _engine_output(ctx, _get_investigation(ctx).get_run_decision(run_id))
+
+
+@runs_group.command("reveal")
+@click.argument("run_id")
+@pass_context
+@_engine_errors
+def runs_reveal(ctx, run_id):
+    """Explicit audited human peek: later answers for this alert become diagnostic."""
+    _engine_output(ctx, _get_investigation(ctx).reveal_run_opinion(run_id))
+
+
+# ---------------------------------------------------------------------------
+# scoreboard and route graduation
+# ---------------------------------------------------------------------------
+
+@group.command("scoreboard")
+@click.option("--product", default=None, help="Restrict track records to this product, for example mailsec.")
+@pass_context
+@_engine_errors
+def scoreboard_cmd(ctx, product) -> None:
+    """Show decision route track records and graduation state."""
+    _engine_output(ctx, _get_investigation(ctx).get_scoreboard(product=product))
+
+
+@group.group("routes")
+def routes_group() -> None:
+    """Explicit human enablement and configuration of decision routes."""
+
+
+@routes_group.command("enable")
+@_policy_write_options
+@click.argument("route_id")
+@click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
+@click.option("--confirm", is_flag=True, help="Confirm the human decision to enable automatic response for this route.")
+@pass_context
+@_engine_errors
+def routes_enable(ctx, route_id, product, confirm, etag, force) -> None:
+    """Enable an eligible route (a person's decision; requires --confirm)."""
+    if not confirm:
+        raise click.UsageError("Route enablement requires a person's explicit --confirm flag.")
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "enable", etag=etag, force=force))
+
+
+@routes_group.command("disable")
+@_policy_write_options
+@click.argument("route_id")
+@click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
+@pass_context
+@_engine_errors
+def routes_disable(ctx, route_id, product, etag, force) -> None:
+    """Disable automatic response for this route."""
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "disable", etag=etag, force=force))
+
+
+@routes_group.command("configure")
+@_policy_write_options
+@click.argument("route_id")
+@click.option("--product", required=True, help="Product owning this route, as returned by the scoreboard.")
+@click.option("--min-agreeing", type=click.IntRange(min=1), default=None, help="Required agreeing labels; the engine enforces its safety floor.")
+@click.option("--spot-check-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer review sampling rate in parts per million (50000 = 5%); engine policy floors/defaults apply.")
+@click.option("--error-target-ppm", type=click.IntRange(0, 100000), default=None, help="Integer error target in parts per million, 0..100000; engine route limits may be stricter.")
+@click.option("--blind-share-ppm", type=click.IntRange(0, 1000000), default=None, help="Integer blind-review share in parts per million.")
+@pass_context
+@_engine_errors
+def routes_configure(ctx, route_id, product, min_agreeing, spot_check_ppm, error_target_ppm, blind_share_ppm, etag, force) -> None:
+    """Configure agreement requirements and independent human sampling."""
+    options = {name: value for name, value in {
+        "min_agreeing": min_agreeing, "spot_check_ppm": spot_check_ppm,
+        "error_target_ppm": error_target_ppm, "blind_share_ppm": blind_share_ppm,
+    }.items() if value is not None}
+    if not options:
+        raise _input_error("route settings", "provide at least one route setting")
+    _require_policy_view(etag, force)
+    _engine_output(ctx, _get_investigation(ctx).decide_route(route_id, product, "configure", etag=etag, force=force, **options))
+
+
+@runs_group.command("label")
+@click.argument("run_id")
+@click.option("--assessment", required=True, type=click.Choice(["benign", "threat", "disputed", "unlabeled"]), help="Independent human or integration assessment; not an action approval.")
+@click.option("--revision", required=True, type=click.IntRange(1, (1 << 63) - 1), help="Positive source revision; increase it for a correction.")
+@pass_context
+@_engine_errors
+def runs_label(ctx, run_id, assessment, revision) -> None:
+    """Submit an independent alert label with authenticated provenance."""
+    _engine_output(ctx, _get_investigation(ctx).submit_run_label(run_id, assessment, revision))
