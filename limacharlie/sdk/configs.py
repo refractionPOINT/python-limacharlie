@@ -50,7 +50,12 @@ def _dump_push_config(config: dict[str, Any]) -> str:
     return yaml.dump(config, Dumper=_QuotedStrDumper, version=(1, 1))
 
 
-def _unalias(value: Any, _path: tuple[int, ...] = ()) -> Any:
+# Upper bound on the nodes a single config file may expand to once YAML
+# aliases are unshared; stops "billion laughs" files from exhausting memory.
+_MAX_CONFIG_NODES = 1_000_000
+
+
+def _unalias(value: Any, _path: tuple[int, ...] = (), _budget: list[int] | None = None) -> Any:
     """Rebuild dicts and lists so no object appears twice in the result.
 
     YAML anchors and aliases load as one shared object. Merging updates maps
@@ -59,16 +64,22 @@ def _unalias(value: Any, _path: tuple[int, ...] = ()) -> Any:
     used for this.)
 
     Raises:
-        ConfigException: If the file contains a self-referencing anchor.
+        ConfigException: If the file contains a self-referencing anchor, or
+            expands to more than ``_MAX_CONFIG_NODES`` nodes.
     """
     if not isinstance(value, (dict, list)):
         return value
+    if _budget is None:
+        _budget = [_MAX_CONFIG_NODES]
+    _budget[0] -= 1
+    if _budget[0] < 0:
+        raise ConfigException("Config file is too large once YAML aliases are expanded.")
     if id(value) in _path:
         raise ConfigException("Config file contains a self-referencing YAML anchor.")
     path = _path + (id(value),)
     if isinstance(value, dict):
-        return {k: _unalias(v, path) for k, v in value.items()}
-    return [_unalias(v, path) for v in value]
+        return {k: _unalias(v, path, _budget) for k, v in value.items()}
+    return [_unalias(v, path, _budget) for v in value]
 
 
 # Categories whose top-level keys hold maps that are merged one level deeper

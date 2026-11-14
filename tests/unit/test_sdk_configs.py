@@ -466,6 +466,19 @@ class TestConfigsIncludeOrder:
         assert config["extensions"] == ["x"]
         assert config["resources"] == {"r": ["x", "y"]}
 
+    def test_alias_expansion_bomb_is_a_config_error(self, configs, monkeypatch):
+        monkeypatch.setattr("limacharlie.sdk.configs._MAX_CONFIG_NODES", 10_000)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = os.path.join(tmpdir, "main.yaml")
+            lines = ["version: 3", "x0: &a0 [z, z, z, z, z, z, z, z, z, z]"]
+            for i in range(1, 8):
+                refs = ", ".join([f"*a{i - 1}"] * 10)
+                lines.append(f"x{i}: &a{i} [{refs}]")
+            with open(main, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            with pytest.raises(ConfigException, match="too large"):
+                configs._load_effective_config(main)
+
     def test_self_referencing_yaml_anchor_is_a_config_error(self, configs):
         with tempfile.TemporaryDirectory() as tmpdir:
             main = os.path.join(tmpdir, "main.yaml")
