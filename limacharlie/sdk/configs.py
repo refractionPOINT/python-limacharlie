@@ -71,7 +71,7 @@ def _unalias(value: Any, _path: tuple[int, ...] = (), _budget: list[int] | None 
         return value
     if _budget is None:
         _budget = [_MAX_CONFIG_NODES]
-    _budget[0] -= 1
+    _budget[0] -= 1 + len(value)
     if _budget[0] < 0:
         raise ConfigException("Config file is too large once YAML aliases are expanded.")
     if id(value) in _path:
