@@ -953,3 +953,21 @@ class TestOrgPacksAndComposition:
         mock_org.client.request.return_value = response
         assert inv.validate_plan(source) == response
         assert json.loads(_request_args(mock_org)[2]['raw_body']) == {'yaml': source}
+
+
+def test_validate_and_initial_test_preserve_each_resolved_pack(inv, mock_org):
+    pins = [
+        {'scope': 'root', 'name': 'fictional_context', 'version': 1, 'digest': 'a' * 64},
+        {'scope': 'root/assessment', 'name': 'fictional_context', 'version': 2, 'digest': 'b' * 64},
+    ]
+    report = {'valid': True, 'resolved_packs': pins,
+              'children': [{'template': 'entity-url-harm', 'snapshot_digest': 'c' * 64}],
+              'trust_provenance': [{'kind': 'pack', 'name': 'fictional_context'}]}
+    source = 'facts:\n  context: {use: fictional_context, pack_version: 1}\n'
+    mock_org.client.request.return_value = report
+    assert inv.validate_plan(source) == report
+    assert json.loads(_request_args(mock_org)[2]['raw_body']) == {'yaml': source}
+    initial = {'state': 'running', 'test_id': 'test-1', 'validation': report}
+    mock_org.client.request.return_value = initial
+    assert inv.test_plan([{'inputs': {}}], inline=source, wait_seconds=0) == initial
+    assert json.loads(_request_args(mock_org)[2]['raw_body'])['inline'] == source

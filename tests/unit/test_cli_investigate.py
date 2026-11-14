@@ -759,3 +759,26 @@ class TestOrgPacks:
         sdk.list_packs.return_value = {"packs": [{"name": "fictional_pack", **metadata}]}
         row = out_json(run(["investigate", "packs", "--brief"]))["packs"][0]
         assert {key: row[key] for key in metadata} == metadata
+
+
+def test_validation_and_test_json_preserve_resolved_packs(sdk, tmp_path):
+    from limacharlie.commands.investigate import _compact_test
+    pins = [
+        {'scope': 'root', 'name': 'fictional_context', 'version': 1, 'digest': 'a' * 64},
+        {'scope': 'root/assessment', 'name': 'fictional_context', 'version': 2, 'digest': 'b' * 64},
+    ]
+    report = {'valid': True, 'resolved_packs': pins,
+              'children': [{'template': 'entity-url-harm'}],
+              'trust_provenance': [{'kind': 'pack', 'name': 'fictional_context'}]}
+    path = tmp_path / 'plan.yaml'
+    path.write_text('facts:\n  context: {use: fictional_context, pack_version: 1}\n')
+    sdk.validate_plan.return_value = report
+    assert out_json(run(['investigate', 'templates', 'validate', '--file', str(path)])) == report
+    initial = {'state': 'running', 'validation': report, 'resolved_packs': pins,
+               'results': [{**report, 'steps': [{'fact': 'context', 'status': 'ok'}]}]}
+    compact = _compact_test(initial, False)
+    assert compact['validation'] == report
+    assert compact['resolved_packs'] == pins
+    for key in ('resolved_packs', 'children', 'trust_provenance'):
+        assert compact['results'][0][key] == report[key]
+    assert 'steps' in initial['results'][0]  # compaction does not mutate its input

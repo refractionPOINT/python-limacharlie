@@ -291,7 +291,18 @@ facts:
 Normally omit `snapshot_digest`: admission resolves the current closure for
 that exact version, then freezes it. Validation and test responses include the
 resolved digest for an optional copy/paste `snapshot_digest` lock; a supplied
-lock must match. Replay and resume read only frozen sources. Inspect expanded
+lock must match. The child version is mandatory; it matches the current record.
+Delete/recreate is explicitly allowed, so only the digest provides an immutable
+lock against record rebinding. Same-version updates are guarded for all packs
+and callable entity templates; ordinary root template edits retain their
+existing behavior. Replay and resume read only frozen sources.
+
+Validation and the initial test response's `validation` include
+`resolved_packs: [{scope, name, version, digest}]` for every version-only pack
+pin, including descendant scopes such as `root/assessment`. SDK responses and
+CLI JSON preserve this list exactly, alongside `children` and
+`trust_provenance`, so each resolved digest can be copied into a `pack_digest`
+lock. Inspect expanded
 plans, `children`, and `trust_provenance` in JSON output from the existing
 validate/test/run/wave commands. No entity routing endpoint is required.
 

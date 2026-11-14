@@ -873,6 +873,8 @@ class Investigation:
         Returns:
             dict: ``valid``, ``errors`` and ``warnings`` (each ``{code, path,
                 message, suggestion?}``), the worst-case cost and an ``estimate``.
+                ``resolved_packs`` preserves scope/name/version/digest for every
+                resolved version-only pack pin, including descendants.
         """
         return self._call("POST", "plans/validate", body={"yaml": source})
 
@@ -908,7 +910,8 @@ class Investigation:
         Returns:
             dict: The test object: ``test_id``, ``state`` (running, done,
                 failed, invalid), ``validation``, ``results``, ``summary``,
-                ``next`` and ``done``.
+                ``next`` and ``done``. Initial ``validation`` retains
+                ``resolved_packs`` for root and descendant version-only pack pins.
 
         Raises:
             ValidationError: If not exactly one of ``template``/``inline`` is
