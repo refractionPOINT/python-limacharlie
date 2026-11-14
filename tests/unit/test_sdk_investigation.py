@@ -934,7 +934,7 @@ class TestOrgPacksAndComposition:
         assert inv_mod.Hive.call_args.args[1] == 'investigation_pack'
 
     def test_pack_validation_and_read_delete(self, inv, hive):
-        for name, source, etag in [('bad/name', 'x', None), ('good', '', None), ('good', 'x', '')]:
+        for name, source, etag in [(None, 'x', None), (123, 'x', None), ('bad/name', 'x', None), ('good', '', None), ('good', 'x', '')]:
             with pytest.raises(ValidationError):
                 inv.save_pack(name, source, etag=etag)
         hive.set.assert_not_called()
@@ -944,7 +944,7 @@ class TestOrgPacksAndComposition:
         hive.delete.assert_called_once_with('fictional_pack')
 
     @pytest.mark.parametrize('locked', [False, True])
-    def test_composition_source_and_resolved_metadata_survive(self, inv, mock_org, locked):
+    def test_composition_source_is_sent_verbatim_and_response_is_preserved(self, inv, mock_org, locked):
         source = 'facts:\n  child:\n    investigate:\n      template: entity-url-harm\n      version: 1\n'
         if locked:
             source += '      snapshot_digest: ' + 'a' * 64 + '\n'

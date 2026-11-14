@@ -742,3 +742,20 @@ class TestOrgPacks:
         sdk.delete_pack.return_value = {'deleted': True}
         assert run(['investigate', 'pack', 'delete', 'fictional_pack', '--confirm']).exit_code == 0
         sdk.delete_pack.assert_called_once_with('fictional_pack')
+
+    def test_pack_get_and_create(self, sdk, tmp_path):
+        sdk.get_pack.return_value = {"name": "fictional_pack", "yaml": "# exact\n", "etag": "r1"}
+        assert out_json(run(["investigate", "pack", "get", "fictional_pack"]))["yaml"] == "# exact\n"
+        sdk.get_pack.assert_called_once_with("fictional_pack")
+        path = tmp_path / "pack.yaml"
+        path.write_text("name: fictional_pack\nversion: 1\n")
+        sdk.save_pack.return_value = {"saved": True}
+        assert run(["investigate", "pack", "save", "fictional_pack", "--file", str(path)]).exit_code == 0
+        sdk.save_pack.assert_called_once_with("fictional_pack", path.read_text(), etag=None)
+
+    def test_brief_pack_preserves_provenance(self, sdk):
+        metadata = {"version": 1, "digest": "a" * 64, "source": "org", "trust": {"lookups": ["fictional"]},
+                    "trust_provenance": [{"kind": "pack", "name": "fictional_pack"}]}
+        sdk.list_packs.return_value = {"packs": [{"name": "fictional_pack", **metadata}]}
+        row = out_json(run(["investigate", "packs", "--brief"]))["packs"][0]
+        assert {key: row[key] for key in metadata} == metadata

@@ -253,7 +253,7 @@ Missing, disabled or unreadable Lookups grant nothing and appear as run problems
 - [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
 - [Detection & Response](detection-response.md) - D&R rules that start runs
 
-### Org-authored fact packs and template composition
+## Org-authored fact packs and template composition
 
 Use `limacharlie investigate packs` to discover the caller's managed and org
 packs. Store org packs with the existing Hive permissions

@@ -1366,7 +1366,7 @@ class Investigation:
         Raises:
             ValidationError: If name, source or revision is empty or invalid.
         """
-        if not TEMPLATE_NAME_RE.fullmatch(name):
+        if not isinstance(name, str) or not TEMPLATE_NAME_RE.fullmatch(name):
             raise ValidationError("Invalid pack name")
         if not isinstance(source, str) or not source.strip():
             raise ValidationError("Pack YAML is required")
