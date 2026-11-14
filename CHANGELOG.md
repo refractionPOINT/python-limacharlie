@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Sync - includes are merged in a fixed order
+
+- `sync push` resolved `include:` through an unordered set, so when two
+  included files defined the same record (hive record, output, org value...)
+  the winner could change from run to run. Includes are now processed in the
+  order listed, glob matches in sorted order, and a file reached twice is
+  processed once. A later include overrides an earlier one, and an included
+  file overrides the file that includes it, matching the Go SDK.
+- `resources` entries are now unioned across files instead of the last file
+  replacing the list, `extensions` no longer repeat names, and `rules` and
+  `fps` from included files are merged instead of dropped.
+
 ### AI Sessions — reasoning effort
 
 - `ai start-session` and `ai chat` take `--effort` (`low`, `medium`, `high`,

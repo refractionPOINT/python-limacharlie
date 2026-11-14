@@ -40,6 +40,32 @@ configs.push_from_file("org.yaml", sync_outputs=True,
                        sync_hives={"dr-general": True})
 ```
 
+## Includes
+
+A config file can pull in other files with `include:` (a single path or a
+list). Paths are relative to the including file, and glob patterns are
+accepted (`include: ["outputs/*.yaml"]`); a non-glob path that matches no file
+is an error. `sync push` merges the included files with the same rules as the
+Go SDK:
+
+- Includes are processed in the order listed. A glob expands to its matches in
+  sorted order. A file reached more than once (listed twice, or matched by
+  several patterns) is processed only at its first occurrence.
+- A later include overrides an earlier one, and an included file overrides the
+  file that includes it. This is decided per record: output, org value,
+  installation key, hive record (per hive name and key), exfil event/watch/
+  performance entry, YARA rule/source, and so on. The winning record replaces
+  the other one entirely; records are not merged field by field.
+- `extensions` and each entry of `resources` are unions: values from all files
+  are kept, without duplicates, in first-seen order.
+
+```yaml
+version: 3
+include:
+  - base.yaml
+  - team/*.yaml   # team/a.yaml, then team/b.yaml: b.yaml wins on a shared key
+```
+
 ## ACL Scope Membership
 
 ```python

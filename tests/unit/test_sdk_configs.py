@@ -333,6 +333,182 @@ class TestConfigsLoadEffectiveConfig:
             assert "r2" in config["hives"]["dr-general"]
 
 
+class TestConfigsIncludeOrder:
+    """Include precedence must be deterministic and match the Go SDK."""
+
+    @staticmethod
+    def _tree(tmpdir, files):
+        for rel, data in files.items():
+            path = os.path.join(tmpdir, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _write_yaml_file(path, data)
+        return os.path.join(tmpdir, "main.yaml")
+
+    @staticmethod
+    def _rec(tag):
+        return {"data": {"detect": {"tag": tag}}}
+
+    def test_later_listed_include_wins(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {
+                "main.yaml": {"version": 3, "include": ["b.yaml", "a.yaml", "c.yaml"]},
+                "a.yaml": {"version": 3, "hives": {"dr-general": {"r": self._rec("a")}},
+                           "outputs": {"o": {"module": "a"}}},
+                "b.yaml": {"version": 3, "hives": {"dr-general": {"r": self._rec("b")}},
+                           "outputs": {"o": {"module": "b"}}},
+                "c.yaml": {"version": 3, "hives": {"dr-general": {"r": self._rec("c")}},
+                           "outputs": {"o": {"module": "c"}}},
+            })
+            config, includes = configs._load_effective_config(main)
+        assert config["hives"]["dr-general"]["r"] == self._rec("c")
+        assert config["outputs"]["o"] == {"module": "c"}
+        assert [os.path.basename(i) for i in includes] == ["b.yaml", "a.yaml", "c.yaml"]
+
+    @pytest.mark.parametrize("seed", ["0", "1", "2", "3", "4", "5", "42", "1234"])
+    def test_result_independent_of_hash_seed(self, seed):
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as tmpdir:
+            names = [f"inc{i}.yaml" for i in range(12)]
+            files = {"main.yaml": {"version": 3, "include": names}}
+            for n in names:
+                files[n] = {"version": 3, "outputs": {"o": {"module": n}}}
+            main = self._tree(tmpdir, files)
+            code = (
+                "import sys\n"
+                "from unittest.mock import MagicMock\n"
+                "from limacharlie.sdk.configs import Configs\n"
+                "c, _ = Configs(MagicMock())._load_effective_config(sys.argv[1])\n"
+                "print(c['outputs']['o']['module'])\n"
+            )
+            out = subprocess.run([sys.executable, "-c", code, main], capture_output=True, text=True,
+                                 env={**os.environ, "PYTHONHASHSEED": seed}, check=True)
+        assert out.stdout.strip() == "inc11.yaml"
+
+    def test_included_overrides_includer(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {
+                "main.yaml": {"version": 3, "include": ["a.yaml"],
+                              "outputs": {"o": {"module": "main"}, "only-main": {"module": "m"}},
+                              "hives": {"dr-general": {"r": self._rec("main")}}},
+                "a.yaml": {"version": 3, "outputs": {"o": {"module": "a"}},
+                           "hives": {"dr-general": {"r": self._rec("a")}}},
+            })
+            config, _ = configs._load_effective_config(main)
+        assert config["outputs"] == {"o": {"module": "a"}, "only-main": {"module": "m"}}
+        assert config["hives"]["dr-general"]["r"] == self._rec("a")
+
+    def test_nested_include_overrides_its_includer(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {
+                "main.yaml": {"version": 3, "include": ["a.yaml"]},
+                "a.yaml": {"version": 3, "include": ["deep/d.yaml"], "outputs": {"o": {"module": "a"}}},
+                "deep/d.yaml": {"version": 3, "outputs": {"o": {"module": "d"}, "p": {"module": "d"}}},
+            })
+            config, includes = configs._load_effective_config(main)
+        # Included beats includer at every level (Go: thisConfig.Merge(incConf)).
+        assert config["outputs"] == {"o": {"module": "d"}, "p": {"module": "d"}}
+        assert [os.path.basename(i) for i in includes] == ["a.yaml", "d.yaml"]
+
+    def test_glob_expands_sorted_in_listed_position(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files = {"main.yaml": {"version": 3, "include": ["z-first.yaml", "g/*.yaml", "last.yaml"]}}
+            for n in ("g/b.yaml", "g/c.yaml", "g/a.yaml", "z-first.yaml", "last.yaml"):
+                files[n] = {"version": 3, "outputs": {os.path.basename(n): {"module": n}}}
+            files["g/a.yaml"]["outputs"]["shared"] = {"module": "a"}
+            files["g/c.yaml"]["outputs"]["shared"] = {"module": "c"}
+            files["g/b.yaml"]["outputs"]["shared"] = {"module": "b"}
+            main = self._tree(tmpdir, files)
+            config, includes = configs._load_effective_config(main)
+        assert [os.path.relpath(i, tmpdir) if os.path.isabs(i) else i for i in includes] == [
+            "z-first.yaml", os.path.join("g", "a.yaml"), os.path.join("g", "b.yaml"),
+            os.path.join("g", "c.yaml"), "last.yaml"]
+        assert config["outputs"]["shared"] == {"module": "c"}
+
+    def test_duplicate_includes_processed_at_first_occurrence(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {
+                "main.yaml": {"version": 3, "include": ["a.yaml", "b.yaml", "./a.yaml", "[ab].yaml"]},
+                "a.yaml": {"version": 3, "outputs": {"o": {"module": "a"}}},
+                "b.yaml": {"version": 3, "outputs": {"o": {"module": "b"}}},
+            })
+            config, includes = configs._load_effective_config(main)
+        # a.yaml is not re-applied after b.yaml, so b still wins.
+        assert config["outputs"]["o"] == {"module": "b"}
+        assert [os.path.basename(i) for i in includes] == ["a.yaml", "b.yaml"]
+
+    def test_non_glob_include_without_match_errors(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {"main.yaml": {"version": 3, "include": ["missing.yaml"]}})
+            with pytest.raises(ConfigException, match="No files matched"):
+                configs._load_effective_config(main)
+
+    def test_glob_without_match_is_ignored(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {"main.yaml": {"version": 3, "include": ["none/*.yaml"],
+                                                     "outputs": {"o": {"module": "m"}}}})
+            config, includes = configs._load_effective_config(main)
+        assert config["outputs"] == {"o": {"module": "m"}}
+        assert includes == []
+
+    def test_go_parity_precedence(self, configs):
+        """Mirrors go-limacharlie OrgConfig.Merge applied as parent.Merge(include) in order."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {
+                "main.yaml": {
+                    "version": 3, "include": ["one.yaml", "two.yaml"],
+                    "extensions": ["ext-a"],
+                    "resources": {"replicant": ["r1"]},
+                    "hives": {"dr-general": {"keep": self._rec("main"), "shared": self._rec("main")}},
+                    "org-value": {"v": "main"},
+                    "installation_keys": {"k": {"desc": "main"}},
+                    "exfil": {"performance": {"p": 1}, "events": {"e": {"events": ["main"]}}},
+                    "rules": {"legacy": {"detect": "main"}},
+                },
+                "one.yaml": {
+                    "version": 3,
+                    "extensions": ["ext-b", "ext-a"],
+                    "resources": {"replicant": ["r2", "r1"], "other": ["x"]},
+                    "hives": {"dr-general": {"shared": self._rec("one"), "one": self._rec("one")}, "fp": {"f": self._rec("one")}},
+                    "org-value": {"v": "one", "w": "one"},
+                    "installation_keys": {"k": {"desc": "one"}},
+                    "exfil": {"performance": {"p": 2, "q": 2}, "watches": {"w": {"value": "one"}}},
+                    "rules": {"legacy": {"detect": "one"}},
+                    "yara": {"rules": {"yr": {"rule": "one"}}, "sources": {"ys": {"source": "one"}}},
+                },
+                "two.yaml": {
+                    "version": 3,
+                    "extensions": ["ext-c"],
+                    "resources": {"replicant": ["r3"]},
+                    "hives": {"dr-general": {"shared": self._rec("two")}},
+                    "org-value": {"v": "two"},
+                    "installation_keys": {"k": {"desc": "two"}},
+                    "exfil": {"performance": {"p": 3}, "events": {"e": {"events": ["two"]}}},
+                    "fps": {"fp1": {"data": "two"}},
+                    "yara": {"rules": {"yr2": {"rule": "two"}}},
+                },
+            })
+            config, _ = configs._load_effective_config(main)
+
+        assert config["hives"] == {
+            "dr-general": {"keep": self._rec("main"), "shared": self._rec("two"), "one": self._rec("one")},
+            "fp": {"f": self._rec("one")},
+        }
+        assert config["org-value"] == {"v": "two", "w": "one"}
+        assert config["installation_keys"] == {"k": {"desc": "two"}}
+        assert config["exfil"] == {
+            "performance": {"p": 3, "q": 2},
+            "events": {"e": {"events": ["two"]}},
+            "watches": {"w": {"value": "one"}},
+        }
+        assert config["resources"] == {"replicant": ["r1", "r2", "r3"], "other": ["x"]}
+        assert config["extensions"] == ["ext-a", "ext-b", "ext-c"]
+        assert config["rules"] == {"legacy": {"detect": "one"}}
+        assert config["fps"] == {"fp1": {"data": "two"}}
+        assert config["yara"] == {"rules": {"yr": {"rule": "one"}, "yr2": {"rule": "two"}},
+                                  "sources": {"ys": {"source": "one"}}}
+
+
 class TestConfigsFetchToFile:
     def test_fetch_to_file(self, configs, mock_org):
         mock_org.client.request.return_value = {
