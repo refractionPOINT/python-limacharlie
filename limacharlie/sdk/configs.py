@@ -50,6 +50,43 @@ def _dump_push_config(config: dict[str, Any]) -> str:
     return yaml.dump(config, Dumper=_QuotedStrDumper, version=(1, 1))
 
 
+# Upper bound on the nodes a single config file may expand to once YAML
+# aliases are unshared; stops "billion laughs" files from exhausting memory.
+_MAX_CONFIG_NODES = 1_000_000
+
+
+def _unalias(value: Any, _path: tuple[int, ...] = (), _budget: list[int] | None = None) -> Any:
+    """Rebuild dicts and lists so no object appears twice in the result.
+
+    YAML anchors and aliases load as one shared object. Merging updates maps
+    and lists in place, so a shared object would change in several places at
+    once. (``copy.deepcopy`` keeps shared references shared, so it can't be
+    used for this.)
+
+    Raises:
+        ConfigException: If the file contains a self-referencing anchor, or
+            expands to more than ``_MAX_CONFIG_NODES`` nodes.
+    """
+    if not isinstance(value, (dict, list)):
+        return value
+    if _budget is None:
+        _budget = [_MAX_CONFIG_NODES]
+    _budget[0] -= 1 + len(value)
+    if _budget[0] < 0:
+        raise ConfigException("Config file is too large once YAML aliases are expanded.")
+    if id(value) in _path:
+        raise ConfigException("Config file contains a self-referencing YAML anchor.")
+    path = _path + (id(value),)
+    if isinstance(value, dict):
+        return {k: _unalias(v, path, _budget) for k, v in value.items()}
+    return [_unalias(v, path, _budget) for v in value]
+
+
+# Categories whose top-level keys hold maps that are merged one level deeper
+# (hive name -> records, exfil section -> entries, yara rules/sources).
+_NESTED_MERGE_CATEGORIES = frozenset({"hives", "exfil", "yara"})
+
+
 class Configs:
     """Infrastructure-as-Code: fetch and push org configuration.
 
@@ -68,6 +105,8 @@ class Configs:
         "outputs", "extensions", "resources", "integrity",
         "exfil", "artifact", "org-value", "hives",
         "installation_keys", "yara",
+        # Legacy categories, still merged from includes like the Go SDK does.
+        "rules", "fps",
     }
 
     # All known hive names that can be synced.
@@ -263,11 +302,12 @@ class Configs:
             config_file: Absolute path to config file.
 
         Returns:
-            tuple: (config_dict, list_of_included_files)
+            tuple: (config_dict, list_of_included_files) where the files are
+                absolute paths, in processing order, without duplicates.
         """
         config_file = os.path.abspath(config_file)
         with open(config_file, "rb") as f:
-            config = yaml.safe_load(f.read().decode())
+            config = _unalias(yaml.safe_load(f.read().decode()))
         if config is None:
             config = {}
         if "version" not in config:
@@ -283,32 +323,85 @@ class Configs:
             if isinstance(includes, str):
                 includes = [includes]
 
-            globbed_includes: set[str] = set()
+            # Includes are processed in the order they are listed, so the
+            # result does not depend on filesystem or hash ordering. A glob
+            # pattern expands to its matches in sorted order. A file reached
+            # more than once (by several patterns, or listed twice) is only
+            # processed at its first occurrence.
+            ordered_includes: list[str] = []
+            seen: set[str] = set()
             for pattern in includes:
-                found = False
-                for match in glob_module.iglob(pattern, recursive=True):
-                    globbed_includes.add(match)
-                    found = True
-                if ("?" not in pattern and "*" not in pattern) and not found:
+                matches = sorted(glob_module.glob(pattern, recursive=True))
+                if not matches and ("?" not in pattern and "*" not in pattern):
                     raise ConfigException(f"No files matched include pattern: {pattern}")
-
-            all_included = list(globbed_includes)
-            for include in list(globbed_includes):
-                sub_config, sub_includes = self._load_effective_config(include)
-                all_included.extend(sub_includes)
-
-                for cat in self.CONFIG_ROOTS:
-                    sub_cat = sub_config.get(cat)
-                    if sub_cat is None:
+                for match in matches:
+                    key = os.path.abspath(match)
+                    if key in seen:
                         continue
-                    if isinstance(sub_cat, list):
-                        config.setdefault(cat, []).extend(sub_cat)
-                    elif cat in ("exfil", "hives"):
-                        for k, v in sub_cat.items():
-                            config.setdefault(cat, {}).setdefault(k, {}).update(v)
-                    else:
-                        config.setdefault(cat, {}).update(sub_cat)
+                    seen.add(key)
+                    ordered_includes.append(key)
+
+            all_included: list[str] = []
+            for include in ordered_includes:
+                sub_config, sub_includes = self._load_effective_config(include)
+                for included in [include, *sub_includes]:
+                    if included not in all_included:
+                        all_included.append(included)
+
+                # The merge is cumulative: an include overrides the file that
+                # includes it, and a later include overrides an earlier one.
+                for cat in self.CONFIG_ROOTS:
+                    self._merge_category(config, cat, sub_config.get(cat))
         finally:
             os.chdir(original_path)
 
         return config, all_included
+
+    @staticmethod
+    def _merge_category(config: dict[str, Any], cat: str, sub_cat: Any) -> None:
+        """Merge one category of an included config over ``config``.
+
+        Mirrors the Go SDK's ``OrgConfig.Merge``: the included value wins.
+        Maps merge by record name (hives and exfil one level deeper, so a
+        hive record or exfil event is replaced as a whole). Lists, and the
+        per-name lists of ``resources``, are unions that keep first-seen
+        order and drop duplicates. ``yara`` rules and sources merge by name.
+
+        Args:
+            config: The accumulated config, modified in place.
+            cat: Category name.
+            sub_cat: The category value from the included config, or None.
+        """
+        if sub_cat is None:
+            return
+        cur = config.get(cat)
+        if isinstance(sub_cat, list):
+            if cur is None:
+                cur = config[cat] = []
+            if not isinstance(cur, list):
+                raise ConfigException(f"Cannot merge include: '{cat}' is a list in one file and a map in another.")
+            for item in sub_cat:
+                if item not in cur:
+                    cur.append(item)
+            return
+        if not isinstance(sub_cat, dict):
+            raise ConfigException(f"Cannot merge include: '{cat}' must be a map or a list.")
+        if cur is None:
+            cur = config[cat] = {}
+        if not isinstance(cur, dict):
+            raise ConfigException(f"Cannot merge include: '{cat}' is a map in one file and a list in another.")
+
+        if cat in _NESTED_MERGE_CATEGORIES:
+            for name, records in sub_cat.items():
+                if isinstance(records, dict) and isinstance(cur.get(name), dict):
+                    cur[name].update(records)
+                else:
+                    cur[name] = records
+        elif cat == "resources":
+            for name, items in sub_cat.items():
+                if isinstance(items, list) and isinstance(cur.get(name), list):
+                    cur[name].extend(i for i in items if i not in cur[name])
+                else:
+                    cur[name] = items
+        else:
+            cur.update(sub_cat)
