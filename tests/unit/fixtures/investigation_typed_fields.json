@@ -1,5 +1,5 @@
 {
- "about": "Public template schema fields interpreted as numbers or booleans, by YAML path. A star denotes a list index or map key; other template scalars outside fact arguments retain their text spelling.",
+ "about": "Generated public template number/boolean field paths from investigation_compatibility_snapshot.json; do not edit. Regenerate both fixtures with python tools/generate_investigation_fixtures.py. A star denotes a list index or map key. See README.investigation.md for provenance and input format.",
  "fields": [
   {
    "kind": "number",

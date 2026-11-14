@@ -1,5 +1,5 @@
 {
- "about": "Public template YAML scalar contract for facts.<name>.args.value. Expected kinds are null, bool, int, float, string, timestamp, sequence, mapping or error. Timestamps use UTC RFC 3339; non-finite float spellings are tested as invalid JSON inputs.",
+ "about": "Generated public template scalar contract from investigation_compatibility_snapshot.json; do not edit. Regenerate both fixtures with python tools/generate_investigation_fixtures.py. Canonical collection kinds are sequence/mapping. See README.investigation.md for provenance and input format.",
  "cases": [
   {
    "src": "012",

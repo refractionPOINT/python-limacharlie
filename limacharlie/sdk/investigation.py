@@ -379,13 +379,13 @@ def _parse_timestamp(s: str) -> str | None:
 
 
 def _resolve_scalar(text: str, tag: str = "") -> tuple[str, Any]:
-    """Resolve a scalar the way the engine's YAML library (gopkg.in/yaml.v3) does.
+    """Resolve a scalar according to the public template YAML contract.
 
-    This is a port of its ``resolve`` and is checked against the engine's own
-    parser by ``tests/unit/fixtures/investigation_scalars.json``. ``tag`` is
-    ``""`` for a plain scalar or an explicit ``!!int``-style tag. Returns
-    ``(tag, value)``; a timestamp is returned as its UTC RFC 3339 text, the
-    form the engine stores it in.
+    Checked against normalized recorded compatibility observations in
+    ``tests/unit/fixtures/investigation_scalars.json``. Regeneration and
+    provenance are documented in that directory's ``README.investigation.md``.
+    ``tag`` is empty for a plain scalar or an explicit ``!!int``-style tag.
+    Returns ``(tag, value)``; timestamps use UTC RFC 3339 text.
 
     Raises:
         ValueError: If an explicit tag does not fit the text.

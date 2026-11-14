@@ -413,6 +413,8 @@ class TestTemplateSource:
     def test_args_scalars_are_read_as_the_engine_reads_them(self, case):
         """Every spelling retains its expected public template scalar type."""
         src, kind, want = case["src"], case["kind"], case.get("value", "")
+        if kind not in {"null", "bool", "int", "float", "string", "timestamp", "sequence", "mapping", "error"}:
+            pytest.fail(f"Unknown scalar fixture kind: {kind!r}")
         text = _args_value(src)
         if kind == "error":
             with pytest.raises(ValidationError):
@@ -435,7 +437,7 @@ class TestTemplateSource:
             assert type(got) is str and got == want
         elif kind == "sequence":
             assert isinstance(got, list)
-        else:
+        elif kind == "mapping":
             assert isinstance(got, dict)
 
     def test_the_typed_field_lists_cover_every_non_text_field_of_the_engine(self):
@@ -925,3 +927,9 @@ def test_pagination_bounds_cursor_history(inv, mock_org, monkeypatch, method, ke
     with pytest.raises(ApiError, match="cursor history limit"):
         list(getattr(inv, method)())
     assert mock_org.client.request.call_count == 3
+
+
+def test_scalar_fixture_rejects_unknown_kind_clearly():
+    with pytest.raises(pytest.fail.Exception, match="Unknown scalar fixture kind"):
+        TestTemplateSource().test_args_scalars_are_read_as_the_engine_reads_them(
+            {"src": "example", "kind": "unrecognized-collection"})
