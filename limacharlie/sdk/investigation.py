@@ -81,6 +81,9 @@ _CREATE_ONLY_ETAG = "create-only: the record must not exist"
 MAX_POLL_WAIT = 10
 MAX_EVENTS_LIMIT = 500
 
+# Bound cursor history while refusing pagination cycles.
+_MAX_PAGINATION_CURSORS = 10000
+
 # Seconds added to a call's own wait to form its HTTP timeout.
 _WAIT_MARGIN = 35
 
@@ -1068,16 +1071,20 @@ class Investigation:
             dict: One run at a time.
 
         Raises:
-            ApiError: If the engine returns a cursor that does not advance.
+            ApiError: If a cursor repeats or the 10,000-cursor history limit is exceeded.
         """
+        seen = {filters["cursor"]} if filters.get("cursor") else set()
         while True:
             page = self.list_runs(**filters)
             yield from page.get("runs") or []
             nxt = page.get("next_cursor") or ""
             if not nxt:
                 return
-            if nxt == filters.get("cursor"):
-                raise ApiError("Run listing did not advance: the engine returned the same cursor.")
+            if nxt in seen:
+                raise ApiError("Run listing did not advance: the engine returned a repeated cursor.")
+            if len(seen) >= _MAX_PAGINATION_CURSORS:
+                raise ApiError("Run listing exceeded the cursor history limit; resume with an explicit cursor.")
+            seen.add(nxt)
             filters["cursor"] = nxt
 
     def get_run_steps(self, run_id: str, values: bool = False) -> dict[str, Any]:
@@ -1282,16 +1289,20 @@ class Investigation:
             dict: One action at a time.
 
         Raises:
-            ApiError: If the engine returns a cursor that does not advance.
+            ApiError: If a cursor repeats or the 10,000-cursor history limit is exceeded.
         """
+        seen = {filters["cursor"]} if filters.get("cursor") else set()
         while True:
             page = self.list_actions(**filters)
             yield from page.get("actions") or []
             nxt = page.get("next_cursor") or ""
             if not nxt:
                 return
-            if nxt == filters.get("cursor"):
-                raise ApiError("Action listing did not advance: the engine returned the same cursor.")
+            if nxt in seen:
+                raise ApiError("Action listing did not advance: the engine returned a repeated cursor.")
+            if len(seen) >= _MAX_PAGINATION_CURSORS:
+                raise ApiError("Action listing exceeded the cursor history limit; resume with an explicit cursor.")
+            seen.add(nxt)
             filters["cursor"] = nxt
 
     def decide_action(

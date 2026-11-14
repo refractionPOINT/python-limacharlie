@@ -399,7 +399,7 @@ class TestErrors:
 _SCALARS = json.loads((Path(__file__).parent / "fixtures" / "investigation_scalars.json").read_text())["cases"]
 _PLAIN_SCALARS = [
     c for c in _SCALARS
-    if c["kind"] != "error" and not c["kind"].startswith("other")
+    if c["kind"] != "error" and c["kind"] not in ("sequence", "mapping")
     and c["src"] == c["src"].strip() and c["src"] and c["src"][0] not in "'\"!&*#" and " #" not in c["src"]
 ]
 
@@ -411,7 +411,7 @@ def _args_value(src: str) -> str:
 class TestTemplateSource:
     @pytest.mark.parametrize("case", _SCALARS, ids=[c["src"] or "<empty>" for c in _SCALARS])
     def test_args_scalars_are_read_as_the_engine_reads_them(self, case):
-        """Every spelling gives what the engine's own parser gave it (fixture generated from that parser)."""
+        """Every spelling retains its expected public template scalar type."""
         src, kind, want = case["src"], case["kind"], case.get("value", "")
         text = _args_value(src)
         if kind == "error":
@@ -433,7 +433,7 @@ class TestTemplateSource:
             assert type(got) is float and got == float(want)
         elif kind in ("string", "timestamp"):
             assert type(got) is str and got == want
-        elif kind == "other:[]interface {}":
+        elif kind == "sequence":
             assert isinstance(got, list)
         else:
             assert isinstance(got, dict)
@@ -902,3 +902,26 @@ class TestParseDocument:
     def test_a_set_tag_is_refused(self):
         with pytest.raises(ValidationError):
             parse_document("a: !!set {x}\n")
+
+
+@pytest.mark.parametrize("method,key", [("iter_runs", "runs"), ("iter_actions", "actions")])
+def test_pagination_rejects_multicursor_cycles(inv, mock_org, method, key):
+    mock_org.client.request.side_effect = [
+        {key: [], "next_cursor": "A"},
+        {key: [], "next_cursor": "B"},
+        {key: [], "next_cursor": "A"},
+    ]
+    with pytest.raises(ApiError, match="repeated cursor"):
+        list(getattr(inv, method)())
+    assert mock_org.client.request.call_count == 3
+
+
+@pytest.mark.parametrize("method,key", [("iter_runs", "runs"), ("iter_actions", "actions")])
+def test_pagination_bounds_cursor_history(inv, mock_org, monkeypatch, method, key):
+    monkeypatch.setattr(inv_mod, "_MAX_PAGINATION_CURSORS", 2)
+    mock_org.client.request.side_effect = [
+        {key: [], "next_cursor": cursor} for cursor in ("A", "B", "C")
+    ]
+    with pytest.raises(ApiError, match="cursor history limit"):
+        list(getattr(inv, method)())
+    assert mock_org.client.request.call_count == 3

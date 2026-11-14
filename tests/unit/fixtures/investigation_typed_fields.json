@@ -1,5 +1,5 @@
 {
- "about": "Fields of a template the engine reads as a number or a boolean (every other scalar outside a fact's args is text), by YAML path; * is a list index or a map key. Generated from the engine's template types; do not edit by hand.",
+ "about": "Public template schema fields interpreted as numbers or booleans, by YAML path. A star denotes a list index or map key; other template scalars outside fact arguments retain their text spelling.",
  "fields": [
   {
    "kind": "number",

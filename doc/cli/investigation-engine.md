@@ -133,7 +133,7 @@ limacharlie investigate runs start (--template NAME | --file plan.yaml | --auto)
     (--detection-id ID | --case-id ID | --entity-id ID | --question TEXT) \
     [--category C] [--severity S] [--priority N] [--tag T]... \
     [--input K=V]... [--inputs-json JSON] [--urgency low|medium|high|critical] [--mode triage|full|scope] \
-    [--case-mode create|none|attach:ID] [--idempotency-key KEY] [--wait SECONDS] [--follow]
+    [--case-mode create|none|attach:ID] [--idempotency-key KEY] [--wait SECONDS] [--follow [--timeout SECONDS]]
 limacharlie investigate runs get RUN_ID
 limacharlie investigate runs list [--state S] [--verdict V] [--template T] [--trigger T] [--entity E] \
     [--started-by user:UID] [--since TIME] [--until TIME] [--limit N] [--cursor C | --all]
@@ -239,3 +239,5 @@ result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samp
 
 - [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
 - [Detection & Response](detection-response.md) - D&R rules that start runs
+
+`runs start --follow` waits up to 900 seconds by default; `--timeout 0` removes the time limit. Timeout, interruption and stream errors print an `--after N` resume point for `runs events RUN_ID --follow --after N`.

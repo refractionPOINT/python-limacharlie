@@ -1,5 +1,5 @@
 {
- "_source": "Recorded from the Investigation Engine operator catalogue and managed packs: operator names, argument names, top-level output fields; pack params and exports. Refresh when the engine's catalogue changes.",
+ "_source": "Public Investigation API catalogue contract: operator names, arguments and outputs, and managed pack parameters and exports. Refresh against the public catalogue when the API changes.",
  "operators": [
   {
    "args": [

@@ -69,7 +69,7 @@
   investigations, so a person or an AI agent can drive the whole loop from the
   CLI: `kit` (authoring kit, fetched in sections), `operators`, `packs`,
   `templates list|get|validate|test|save|promote|delete|install-defaults`,
-  `runs start|get|list|events|steps|case|cancel`, `wave`,
+  `runs start|get|list|events|steps|case|cancel|delete`, `wave`,
   `actions list|approve|deny` and `policy get|status|pause|resume`. See
   `doc/cli/investigation-engine.md`.
 - `templates save` always writes a DRAFT (a source that says `status: active`

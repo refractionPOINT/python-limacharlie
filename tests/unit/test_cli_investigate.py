@@ -709,3 +709,43 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
     assert mod._test_rows({"results": [{"cost": {"llm_usd": 0}}]})[0]["llm_cost"] == 0
     assert mod._test_rows({"results": [{"cost": {"llm_unpriced": True}}]})[0]["llm_cost"] == "0 (unpriced)"
     assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
+
+
+@pytest.mark.parametrize("seconds,expected", [(0, None), (12, 12.0)])
+def test_start_follow_timeout_is_configurable(sdk, seconds, expected):
+    sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+
+    def events(*args, **kwargs):
+        kwargs["state"]["done"] = True
+        return iter(())
+
+    sdk.iter_run_events.side_effect = events
+    result = run(["investigate", "runs", "start", "--template", "p", "--detection-id", "d",
+                  "--follow", "--timeout", str(seconds)])
+    assert result.exit_code == 0, result.stderr
+    assert sdk.iter_run_events.call_args.kwargs["timeout"] == expected
+
+
+@pytest.mark.parametrize("command", ["start", "events"])
+def test_stream_error_reports_resume_after_last_received_page(sdk, command):
+    sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+
+    def events(*args, **kwargs):
+        kwargs["state"]["next"] = 99
+        yield {"seq": 7, "type": "step", "data": {}}
+        raise InvestigationError("stream unavailable", status_code=503)
+
+    sdk.iter_run_events.side_effect = events
+    args = (["start", "--template", "p", "--detection-id", "d"] if command == "start"
+            else ["events", "r1"])
+    result = run(["investigate", "runs", *args, "--follow"])
+    assert result.exit_code == 1
+    assert "--after 7" in result.stderr
+    assert "stream unavailable" in result.stderr
+    assert json.loads(result.stdout.splitlines()[-1])["seq"] == 7
+
+
+def test_start_follow_rejects_negative_timeout_before_start(sdk):
+    result = run(["investigate", "runs", "start", "--template", "p", "--detection-id", "d", "--follow", "--timeout", "-1"])
+    assert result.exit_code == 2
+    sdk.start_run.assert_not_called()
