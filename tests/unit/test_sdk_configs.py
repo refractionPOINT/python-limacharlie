@@ -581,7 +581,7 @@ class TestAllHives:
         expected = {
             "cloudsec_policy", "cloudsec_provider", "cloudsec_query",
             "cloudsec_code_rule", "mailsec_provider",
-            "acl", "dr-mail", "mailsec_policy", "app_control_policy", "app_control_rule", "dr-general", "dr-managed", "dr-service", "fp",
+            "acl", "dr-mail", "mailsec_policy", "app_control_policy", "app_control_rule", "host_posture_rule", "dr-general", "dr-managed", "dr-service", "fp",
             "cloud_sensor", "extension_config", "yara", "lookup",
             "secret", "query", "playbook", "ai_agent",
             "ai_skill", "ai_memory", "external_adapter",

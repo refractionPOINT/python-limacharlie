@@ -159,6 +159,7 @@ limacharlie schema dr create
 | [Data & Query](data-query.md) | search, ioc, event, stream |
 | [Platform Administration](platform-admin.md) | org, user, group, api-key, ingestion-key, billing, audit |
 | [Hive & Data Stores](hive-data.md) | hive, secret, lookup, playbook, note, sop, app-control, adapter, cloud-sensor, extension |
+| [Host Posture](host-posture.md) | host-posture (rules, default pack, scans and sweeps, per-host results) |
 | [Infrastructure](infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
 | [Email Security](email-security.md) | mailsec (onboarding, coverage, triage, EML, remediation, campaigns, reports, sample submission, rules, tenant purge) |

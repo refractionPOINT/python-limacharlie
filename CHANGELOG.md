@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Host Posture
+
+- New `limacharlie host-posture` command group for the `ext-host-posture`
+  extension. `rules` (`list`, `get`, `set`, `delete`, `enable`, `disable`,
+  `tag`) manages the new `host_posture_rule` hive; the server validates every
+  rule. `install-defaults` writes LimaCharlie's default pack into the hive with
+  your own permissions: it creates missing rules, never overwrites silently,
+  `--update` replaces only older rules nobody edited (etag-safe), `--force`
+  replaces edited ones, `--dry-run` writes nothing. `scan --sid` checks one
+  online sensor, `sweep [--tag]` sweeps with reliable tasking, and `results`
+  (`summary`, `hosts`, `host`, `rules`, `rule-hosts`, `standards`) reads the
+  per-host results with server-side filters and paging. `status` reports the
+  extension's health.
+- `host_posture_rule` is listed by `hive list-types` and synced by `sync pull` /
+  `sync push` with `--hive-host-posture-rule` (and by `--all`; SDK
+  `Configs.ALL_HIVES`). New SDK class `limacharlie.sdk.host_posture.HostPosture`.
+- Saving, enabling or disabling a rule needs `host_posture.set` and
+  `sensor.task`; deleting needs `host_posture.set`.
+
 ### Sync - includes are merged in a fixed order
 
 - `sync push` resolved `include:` through an unordered set, so when two

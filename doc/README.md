@@ -16,6 +16,7 @@
 | [Data & Query](cli/data-query.md) | search, ioc, event, stream |
 | [Platform Administration](cli/platform-admin.md) | org, user, group, api-key, ingestion-key, billing, audit |
 | [Hive & Data Stores](cli/hive-data.md) | hive, secret, lookup, playbook, note, sop, app-control, adapter, cloud-sensor, extension |
+| [Host Posture](cli/host-posture.md) | host-posture |
 | [Infrastructure](cli/infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cli/cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
 | [Investigation Engine](cli/investigation-engine.md) | investigate (authoring kit, templates, dry runs on past alerts, runs, waves, approvals, policy) |

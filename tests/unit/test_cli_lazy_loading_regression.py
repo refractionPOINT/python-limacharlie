@@ -48,7 +48,7 @@ EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
     "ai", "ai-cost-model", "ai-memory", "ai-skill", "api", "api-key", "app", "app-control", "arl", "artifact",
     "audit", "auth", "billing", "case", "cloud-adapter", "cloudsec", "completion", "config",
     "detection", "download", "dr", "endpoint-policy", "event", "exfil",
-    "extension", "external-adapter", "feedback", "fp", "group", "help", "hive",
+    "extension", "external-adapter", "feedback", "fp", "group", "help", "hive", "host-posture",
     "ingestion-key", "installation-key", "integrity", "investigate", "ioc", "job", "logging",
     "lookup", "mailsec", "note", "org", "output", "payload", "playbook", "replay",
     "schema", "search", "secret", "sensor", "sop", "spotcheck", "stream",
@@ -89,6 +89,7 @@ EXPECTED_MODULE_MAP = {
     "group": ("group", "group"),
     "help_cmd": ("group", "help"),
     "hive": ("group", "hive"),
+    "host_posture": ("group", "host-posture"),
     "ingestion_key": ("group", "ingestion-key"),
     "installation_key": ("group", "installation-key"),
     "integrity": ("group", "integrity"),
@@ -187,6 +188,9 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "hive": frozenset({
         "delete", "disable", "enable", "export", "get", "import",
         "list", "list-types", "rename", "schema", "set", "validate",
+    }),
+    "host-posture": frozenset({
+        "install-defaults", "results", "rules", "scan", "status", "sweep",
     }),
     "ingestion-key": frozenset({"create", "delete", "list"}),
     "installation-key": frozenset({"create", "delete", "get", "list"}),

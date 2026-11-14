@@ -74,3 +74,24 @@ def test_app_control_flags_select_only_their_hives(tmp_path, sync_transport):
     assert result.exit_code == 0, result.output
     assert seen.get("app_control_rule") is True
     assert not seen.get("app_control_policy")
+
+
+def test_host_posture_rule_hive_is_synced_by_flag_and_by_all(tmp_path, sync_transport):
+    config = {"version": 3, "hives": {
+        "host_posture_rule": {"acme.linux.x": {"data": {"rule": {"id": "acme.linux.x"}},
+                                               "usr_mtd": {"enabled": True}}},
+    }}
+    for flags in (["--hive-host-posture-rule"], ["--all"]):
+        def transport(*args, **kwargs):
+            action, payload = decode_request(*args, **kwargs)
+            assert payload["options"]["sync_hives"]["host_posture_rule"] is True
+            if action == "fetch":
+                return {"data": {"org": copy.deepcopy(config)}}
+            assert yaml.safe_load(payload["config"]) == config
+            return {"data": {"ops": []}}
+        sync_transport.side_effect = transport
+        path = tmp_path / "hp.yaml"
+        for action in ["pull", "push"]:
+            result = CliRunner().invoke(cli, ["sync", action, "--config-file", str(path), *flags])
+            assert result.exit_code == 0, result.output
+        assert yaml.safe_load(path.read_text()) == config

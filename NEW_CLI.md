@@ -1251,6 +1251,7 @@ Features in the API gateway that are **NOT** in the current CLI and are **added 
 | `external_adapter` | External adapter configs | Third-party integrations |
 | `app_control_policy` | Application Control policies | Endpoint application control |
 | `app_control_rule` | Application Control allow/deny rules | Endpoint application control |
+| `host_posture_rule` | Host Posture rules | Endpoint misconfiguration checks |
 | `sop` | Standard Operating Procedures | Runbooks |
 | `note` | Organization notes | Documentation |
 

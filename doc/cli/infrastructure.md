@@ -24,7 +24,7 @@ limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-ru
 ```
 
 Available hive flags: `--hive-cloudsec-policy`, `--hive-cloudsec-provider`,
-`--hive-cloudsec-query`, `--hive-cloudsec-code-rule`, `--hive-mailsec-provider`, `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
+`--hive-cloudsec-query`, `--hive-cloudsec-code-rule`, `--hive-mailsec-provider`, `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-host-posture-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
 `--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
 `--hive-ai-agent`, `--hive-external-adapter`.
