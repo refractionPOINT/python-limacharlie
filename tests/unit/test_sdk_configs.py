@@ -382,7 +382,7 @@ class TestConfigsIncludeOrder:
                 "c, _ = Configs(MagicMock())._load_effective_config(sys.argv[1])\n"
                 "print(c['outputs']['o']['module'])\n"
             )
-            out = subprocess.run([sys.executable, "-c", code, main], capture_output=True, text=True,
+            out = subprocess.run([sys.executable, "-c", code, main], capture_output=True, text=True, timeout=60,
                                  env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": repo_root}, check=True)
         assert out.stdout.strip() == "inc11.yaml"
 
@@ -456,12 +456,23 @@ class TestConfigsIncludeOrder:
             with open(os.path.join(tmpdir, "a.yaml"), "w") as f:
                 f.write("version: 3\nhives:\n  dr-general: &h {r1: {data: {k: 1}}}\n  dr-service: *h\n")
             with open(os.path.join(tmpdir, "b.yaml"), "w") as f:
-                f.write("version: 3\nhives:\n  dr-general: {r2: {data: {k: 2}}}\n")
+                f.write("version: 3\nhives:\n  dr-general: {r2: {data: {k: 2}}}\nresources: {r: [y]}\n")
             with open(main, "w") as f:
                 f.write("version: 3\ninclude: [a.yaml, b.yaml]\nextensions: &e [x]\nresources: {r: *e}\n")
             config, _ = configs._load_effective_config(main)
         assert set(config["hives"]["dr-general"]) == {"r1", "r2"}
         assert set(config["hives"]["dr-service"]) == {"r1"}
+        # Aliases in the including file itself: only resources.r gets "y".
+        assert config["extensions"] == ["x"]
+        assert config["resources"] == {"r": ["x", "y"]}
+
+    def test_self_referencing_yaml_anchor_is_a_config_error(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = os.path.join(tmpdir, "main.yaml")
+            with open(main, "w") as f:
+                f.write("version: 3\nextensions: &a [*a]\n")
+            with pytest.raises(ConfigException, match="self-referencing"):
+                configs._load_effective_config(main)
 
     def test_non_glob_include_without_match_errors(self, configs):
         with tempfile.TemporaryDirectory() as tmpdir:

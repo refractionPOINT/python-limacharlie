@@ -50,19 +50,25 @@ def _dump_push_config(config: dict[str, Any]) -> str:
     return yaml.dump(config, Dumper=_QuotedStrDumper, version=(1, 1))
 
 
-def _unalias(value: Any) -> Any:
+def _unalias(value: Any, _path: tuple[int, ...] = ()) -> Any:
     """Rebuild dicts and lists so no object appears twice in the result.
 
     YAML anchors and aliases load as one shared object. Merging updates maps
     and lists in place, so a shared object would change in several places at
     once. (``copy.deepcopy`` keeps shared references shared, so it can't be
     used for this.)
+
+    Raises:
+        ConfigException: If the file contains a self-referencing anchor.
     """
+    if not isinstance(value, (dict, list)):
+        return value
+    if id(value) in _path:
+        raise ConfigException("Config file contains a self-referencing YAML anchor.")
+    path = _path + (id(value),)
     if isinstance(value, dict):
-        return {k: _unalias(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_unalias(v) for v in value]
-    return value
+        return {k: _unalias(v, path) for k, v in value.items()}
+    return [_unalias(v, path) for v in value]
 
 
 # Categories whose top-level keys hold maps that are merged one level deeper
