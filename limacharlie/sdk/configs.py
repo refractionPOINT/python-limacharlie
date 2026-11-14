@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 import glob as glob_module
@@ -49,6 +48,21 @@ def _dump_push_config(config: dict[str, Any]) -> str:
         str: The config as a YAML document with every string double-quoted.
     """
     return yaml.dump(config, Dumper=_QuotedStrDumper, version=(1, 1))
+
+
+def _unalias(value: Any) -> Any:
+    """Rebuild dicts and lists so no object appears twice in the result.
+
+    YAML anchors and aliases load as one shared object. Merging updates maps
+    and lists in place, so a shared object would change in several places at
+    once. (``copy.deepcopy`` keeps shared references shared, so it can't be
+    used for this.)
+    """
+    if isinstance(value, dict):
+        return {k: _unalias(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_unalias(v) for v in value]
+    return value
 
 
 # Categories whose top-level keys hold maps that are merged one level deeper
@@ -276,7 +290,7 @@ class Configs:
         """
         config_file = os.path.abspath(config_file)
         with open(config_file, "rb") as f:
-            config = yaml.safe_load(f.read().decode())
+            config = _unalias(yaml.safe_load(f.read().decode()))
         if config is None:
             config = {}
         if "version" not in config:
@@ -343,9 +357,6 @@ class Configs:
         """
         if sub_cat is None:
             return
-        # Copy so YAML aliases in the included file cannot make two records
-        # share one object that a later include then updates in place.
-        sub_cat = copy.deepcopy(sub_cat)
         cur = config.get(cat)
         if isinstance(sub_cat, list):
             if cur is None:

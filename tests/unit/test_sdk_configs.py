@@ -450,17 +450,18 @@ class TestConfigsIncludeOrder:
         assert set(config["outputs"]) == {"root", "deep"}
         assert len(includes) == 3 and all(os.path.isabs(i) for i in includes)
 
-    def test_yaml_aliases_do_not_leak_between_records(self, configs):
+    def test_yaml_aliases_do_not_leak_between_hives(self, configs):
         with tempfile.TemporaryDirectory() as tmpdir:
             main = os.path.join(tmpdir, "main.yaml")
             with open(os.path.join(tmpdir, "a.yaml"), "w") as f:
-                f.write("version: 3\nhives:\n  dr-general:\n    r1: &x {data: {k: 1}}\n    r2: *x\n")
+                f.write("version: 3\nhives:\n  dr-general: &h {r1: {data: {k: 1}}}\n  dr-service: *h\n")
             with open(os.path.join(tmpdir, "b.yaml"), "w") as f:
-                f.write("version: 3\nhives:\n  dr-general:\n    r1: {extra: 1}\n")
-            _write_yaml_file(main, {"version": 3, "include": ["a.yaml", "b.yaml"]})
+                f.write("version: 3\nhives:\n  dr-general: {r2: {data: {k: 2}}}\n")
+            with open(main, "w") as f:
+                f.write("version: 3\ninclude: [a.yaml, b.yaml]\nextensions: &e [x]\nresources: {r: *e}\n")
             config, _ = configs._load_effective_config(main)
-        assert config["hives"]["dr-general"]["r2"] == {"data": {"k": 1}}
-        assert config["hives"]["dr-general"]["r1"] == {"extra": 1}
+        assert set(config["hives"]["dr-general"]) == {"r1", "r2"}
+        assert set(config["hives"]["dr-service"]) == {"r1"}
 
     def test_non_glob_include_without_match_errors(self, configs):
         with tempfile.TemporaryDirectory() as tmpdir:
