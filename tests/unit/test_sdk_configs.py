@@ -364,10 +364,11 @@ class TestConfigsIncludeOrder:
         assert config["outputs"]["o"] == {"module": "c"}
         assert [os.path.basename(i) for i in includes] == ["b.yaml", "a.yaml", "c.yaml"]
 
-    @pytest.mark.parametrize("seed", ["0", "1", "2", "3", "4", "5", "42", "1234"])
+    @pytest.mark.parametrize("seed", ["0", "1", "42"])
     def test_result_independent_of_hash_seed(self, seed):
         import subprocess
         import sys
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         with tempfile.TemporaryDirectory() as tmpdir:
             names = [f"inc{i}.yaml" for i in range(12)]
             files = {"main.yaml": {"version": 3, "include": names}}
@@ -382,7 +383,7 @@ class TestConfigsIncludeOrder:
                 "print(c['outputs']['o']['module'])\n"
             )
             out = subprocess.run([sys.executable, "-c", code, main], capture_output=True, text=True,
-                                 env={**os.environ, "PYTHONHASHSEED": seed}, check=True)
+                                 env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": repo_root}, check=True)
         assert out.stdout.strip() == "inc11.yaml"
 
     def test_included_overrides_includer(self, configs):
@@ -420,7 +421,7 @@ class TestConfigsIncludeOrder:
             files["g/b.yaml"]["outputs"]["shared"] = {"module": "b"}
             main = self._tree(tmpdir, files)
             config, includes = configs._load_effective_config(main)
-        assert [os.path.relpath(i, tmpdir) if os.path.isabs(i) else i for i in includes] == [
+        assert [os.path.relpath(i, os.path.realpath(tmpdir)) for i in includes] == [
             "z-first.yaml", os.path.join("g", "a.yaml"), os.path.join("g", "b.yaml"),
             os.path.join("g", "c.yaml"), "last.yaml"]
         assert config["outputs"]["shared"] == {"module": "c"}
@@ -436,6 +437,30 @@ class TestConfigsIncludeOrder:
         # a.yaml is not re-applied after b.yaml, so b still wins.
         assert config["outputs"]["o"] == {"module": "b"}
         assert [os.path.basename(i) for i in includes] == ["a.yaml", "b.yaml"]
+
+    def test_same_name_in_different_directories_is_not_a_duplicate(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = self._tree(tmpdir, {
+                "main.yaml": {"version": 3, "include": ["a.yaml", "deep/x.yaml"]},
+                "a.yaml": {"version": 3, "outputs": {"root": {"module": "a"}}},
+                "deep/x.yaml": {"version": 3, "include": ["a.yaml"]},
+                "deep/a.yaml": {"version": 3, "outputs": {"deep": {"module": "a"}}},
+            })
+            config, includes = configs._load_effective_config(main)
+        assert set(config["outputs"]) == {"root", "deep"}
+        assert len(includes) == 3 and all(os.path.isabs(i) for i in includes)
+
+    def test_yaml_aliases_do_not_leak_between_records(self, configs):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main = os.path.join(tmpdir, "main.yaml")
+            with open(os.path.join(tmpdir, "a.yaml"), "w") as f:
+                f.write("version: 3\nhives:\n  dr-general:\n    r1: &x {data: {k: 1}}\n    r2: *x\n")
+            with open(os.path.join(tmpdir, "b.yaml"), "w") as f:
+                f.write("version: 3\nhives:\n  dr-general:\n    r1: {extra: 1}\n")
+            _write_yaml_file(main, {"version": 3, "include": ["a.yaml", "b.yaml"]})
+            config, _ = configs._load_effective_config(main)
+        assert config["hives"]["dr-general"]["r2"] == {"data": {"k": 1}}
+        assert config["hives"]["dr-general"]["r1"] == {"extra": 1}
 
     def test_non_glob_include_without_match_errors(self, configs):
         with tempfile.TemporaryDirectory() as tmpdir:

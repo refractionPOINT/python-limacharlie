@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import glob as glob_module
@@ -270,7 +271,8 @@ class Configs:
             config_file: Absolute path to config file.
 
         Returns:
-            tuple: (config_dict, list_of_included_files)
+            tuple: (config_dict, list_of_included_files) where the files are
+                absolute paths, in processing order, without duplicates.
         """
         config_file = os.path.abspath(config_file)
         with open(config_file, "rb") as f:
@@ -306,7 +308,7 @@ class Configs:
                     if key in seen:
                         continue
                     seen.add(key)
-                    ordered_includes.append(match)
+                    ordered_includes.append(key)
 
             all_included: list[str] = []
             for include in ordered_includes:
@@ -341,6 +343,9 @@ class Configs:
         """
         if sub_cat is None:
             return
+        # Copy so YAML aliases in the included file cannot make two records
+        # share one object that a later include then updates in place.
+        sub_cat = copy.deepcopy(sub_cat)
         cur = config.get(cat)
         if isinstance(sub_cat, list):
             if cur is None:
