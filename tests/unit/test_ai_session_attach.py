@@ -622,6 +622,23 @@ class TestShouldSkipMessage:
                 verbose=False,
             )
 
+    def test_effort_events(self):
+        from limacharlie.commands._ai_attach import _should_skip_message
+
+        # effort_set is plumbing like model_set; adjusted/skipped tell
+        # the user the level they asked for was changed or dropped.
+        assert _should_skip_message(
+            {"type": "system", "payload": {"subtype": "effort_set",
+                                            "effort": "high"}},
+            verbose=False,
+        )
+        for subtype in ("effort_adjusted", "effort_skipped"):
+            assert not _should_skip_message(
+                {"type": "system", "payload": {"subtype": subtype,
+                                                "message": "changed"}},
+                verbose=False,
+            )
+
     def test_keeps_unknown_system_subtype(self):
         from limacharlie.commands._ai_attach import _should_skip_message
 

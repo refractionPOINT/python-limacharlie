@@ -92,6 +92,27 @@ def _is_transient_poll_error(exc: Exception) -> bool:
 _REGION_PATTERN = re.compile(r"(?:https?://)?([a-f0-9]+)\.replay-search\.")
 
 
+#: Stream names the Search API accepts in a request's ``stream`` field.
+SEARCH_STREAMS = ("event", "detection", "audit")
+
+# ``detect`` is what the detection stream is called by outputs, Spout and
+# Replay, and what this SDK's documentation once named for search. The Search
+# API rejects it, so it is sent as ``detection``.
+_SEARCH_STREAM_ALIASES = {"detect": "detection"}
+
+
+def search_stream(stream: str | None) -> str | None:
+    """Return the Search API name for *stream*.
+
+    ``detect`` (any case) becomes ``detection``. Every other value, including
+    None, is returned unchanged for the server to validate, so a stream added
+    server-side works without an SDK release.
+    """
+    if stream is None:
+        return None
+    return _SEARCH_STREAM_ALIASES.get(stream.strip().lower(), stream)
+
+
 class Search:
     """LCQL query execution and saved query management."""
 
@@ -134,7 +155,8 @@ class Search:
             query: LCQL query string.
             start_time: Optional start time (unix seconds).
             end_time: Optional end time (unix seconds).
-            stream: Optional stream type.
+            stream: Optional stream: ``event`` (default), ``detection`` or
+                ``audit``. ``detect`` is accepted as ``detection``.
 
         Returns:
             dict: Validation result.
@@ -151,7 +173,7 @@ class Search:
             "endTime": str(int(end_time)),
         }
         if stream:
-            body["stream"] = stream
+            body["stream"] = search_stream(stream)
         return self._org.client.request(
             "POST", "search/validate",
             raw_body=json.dumps(body).encode(),
@@ -243,7 +265,8 @@ class Search:
             query: LCQL query string.
             start_time: Start time (unix seconds).
             end_time: End time (unix seconds).
-            stream: Stream type ('event', 'detect', 'audit').
+            stream: Stream: ``event`` (default), ``detection`` or ``audit``.
+                ``detect`` is accepted as ``detection``.
             limit: Max results.
             progress_fn: Optional callback for progress messages (e.g.,
                 "Running search...", "Fetching page 2...").  Called with
@@ -279,7 +302,7 @@ class Search:
             "paginated": True,
         }
         if stream:
-            body["stream"] = stream
+            body["stream"] = search_stream(stream)
 
         # Initiate search - wrap transport exceptions so the caller always
         # gets a SearchError with region/oid context for troubleshooting.

@@ -159,6 +159,11 @@ def group() -> None:
     Uses the ext-infrastructure extension for all operations.
     D&R rules and FP rules are synced via hives (--hive-dr-general,
     --hive-fp, etc.) rather than the legacy --rules / --fps flags.
+
+    A config file can "include:" other files (globs allowed).  Includes
+    are processed in the order listed, globs in sorted order; a later
+    include overrides an earlier one, and an included file overrides
+    the file that includes it, record by record.
     """
 
 
