@@ -1240,6 +1240,8 @@ class Investigation:
             dict: ``results``, ``stopped_by``, ``usage`` and ``compact``; with
                 ``validate_only``, the validation report.
         """
+        if "trust" in request:
+            raise ValidationError("request-level trust is supported only by run start")
         if not isinstance(request.get("steps"), list) or not request["steps"]:
             raise ValidationError("a wave needs a non-empty 'steps' list")
         deadline = request.get("deadline_ms") or 30000
