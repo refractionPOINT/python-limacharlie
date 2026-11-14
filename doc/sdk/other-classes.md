@@ -194,6 +194,10 @@ The Cloud Security (CNAPP) surface also includes Code Security: repository and c
 
 `limacharlie.sdk.mailsec.Mailsec` wraps Email Security onboarding, provider tests, coverage, messages, justified EML downloads, verdict revisions, campaigns, remediation, and user reports. See [Security Products](security-products.md#email-security) for setup, examples, and pagination, and [CLI: mailsec](../cli/email-security.md) for complete workflows.
 
+## Investigation
+
+`limacharlie.sdk.investigation.Investigation` wraps the Investigation Engine (experimental): the authoring kit, plan validation and dry runs on past alerts, template records (saved as drafts unless a person passes `status="active"`), runs, waves, the approvals inbox and the autonomy switch. Failures raise `InvestigationError`, which keeps the engine's `error_code` and coded `issues`. See [CLI: investigate](../cli/investigation-engine.md) for the workflow and permissions.
+
 ## See Also
 
 - [CLI: case](../cli/other-commands.md#case) — Case CLI commands
