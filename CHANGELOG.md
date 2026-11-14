@@ -2,14 +2,81 @@
 
 ## Unreleased
 
+### Sync - includes are merged in a fixed order
+
+- `sync push` resolved `include:` through an unordered set, so when two
+  included files defined the same record (hive record, output, org value...)
+  the winner could change from run to run. Includes are now processed in the
+  order listed, glob matches in sorted order, and a file reached twice is
+  processed once. A later include overrides an earlier one, and an included
+  file overrides the file that includes it, matching the Go SDK.
+- `resources` entries are now unioned across files instead of the last file
+  replacing the list, `extensions` no longer repeat names, and `rules` and
+  `fps` from included files are merged instead of dropped.
+
+### AI Sessions — reasoning effort
+
+- `ai start-session` and `ai chat` take `--effort` (`low`, `medium`, `high`,
+  `xhigh` or `max`) to set how long the model reasons. Higher levels do better
+  on hard investigations, but they are slower and use more tokens on your AI
+  provider's bill. Leaving it out sends nothing, so the model's own default
+  applies as before.
+- The SDK takes the same `effort` keyword on `AI.start_session` (in the
+  session profile) and `AI.create_user_session`. An empty value sends nothing.
+- `ai chat` and `ai session attach` hide the runner's `effort_set` notice like
+  `model_set`, and show `effort_adjusted` and `effort_skipped`, which say when
+  the runner changed or dropped the requested level for the model in use.
+- The service accepts the field only while reasoning effort is enabled on it;
+  otherwise it is ignored.
+
+### Search - the detection stream is named `detection`
+
+- The SDK docstrings and the `search run`, `search estimate` and
+  `search saved-create` help named the detection stream `detect`, which the
+  Search API rejects with HTTP 400. They now say `detection`, the name the
+  API accepts (with `event` and `audit`).
+- `Search.execute`, `Search.validate`, `Search.estimate` and
+  `search saved-create` send `detect` as `detection`, so scripts and saved
+  queries that used the documented name keep working. Outputs, Spout and
+  firehose still use `detect`, which is correct there.
+
+### Client - compressed API responses
+
+- The SDK and CLI now ask the API for compressed responses
+  (`Accept-Encoding`) and decode them transparently, so large responses such
+  as search result pages transfer several times faster. Return values,
+  parsed JSON and error messages are unchanged.
+- zstd is requested when a decoder is available: the standard library on
+  Python 3.14+, or the optional `zstandard` package
+  (`pip install 'limacharlie[zstd]'`) on earlier versions. Otherwise gzip,
+  from the standard library, is requested. No new required dependency.
+- A truncated or corrupt compressed response raises the new
+  `ResponseDecodeError` (a subclass of `ApiError`) instead of returning a
+  partial body.
+- Turn it off with `Client(compressed_responses=False)` or the
+  `LC_NO_RESPONSE_COMPRESSION=1` environment variable.
+- A compressed response may decode to at most 1 GiB, far above the largest
+  API responses. The limit is enforced while decoding, so a response with an
+  extreme compression ratio raises `ResponseDecodeError` instead of filling
+  memory. Change it with `LC_MAX_DECODED_RESPONSE_BYTES=<bytes>` or
+  `Client(max_decoded_response_bytes=...)`; 0 or a negative value removes it.
+  Uncompressed responses are not limited.
+
 ### Investigation Engine — `limacharlie investigate` (experimental)
 
+- Add org-authored pack get/save/delete commands and SDK methods, preserve
+  pack discovery metadata and resolved pack pins, and document version and
+  digest locks for template composition.
+
+- `investigate runs start` adds repeatable `--trust-lookup NAME` and
+  `--trust-value VALUE` options, additive to template trust for one run only.
+  The SDK validates the same optional request object and omits empty trust.
 - New `investigate` command group and `limacharlie.sdk.investigation.Investigation`
   SDK class to build, test and tune Investigation Engine templates and to run
   investigations, so a person or an AI agent can drive the whole loop from the
   CLI: `kit` (authoring kit, fetched in sections), `operators`, `packs`,
   `templates list|get|validate|test|save|promote|delete|install-defaults`,
-  `runs start|get|list|events|steps|case|cancel`, `wave`,
+  `runs start|get|list|events|steps|case|cancel|delete`, `wave`,
   `actions list|approve|deny` and `policy get|status|pause|resume`. See
   `doc/cli/investigation-engine.md`.
 - `templates save` always writes a DRAFT (a source that says `status: active`

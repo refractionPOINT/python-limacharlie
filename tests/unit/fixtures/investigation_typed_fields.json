@@ -1,5 +1,5 @@
 {
- "about": "Fields of a template the engine reads as a number or a boolean (every other scalar outside a fact's args is text), by YAML path; * is a list index or a map key. Generated from the engine's template types; do not edit by hand.",
+ "about": "Generated public template number/boolean field paths from investigation_compatibility_snapshot.json; do not edit. Regenerate both fixtures with python tools/generate_investigation_fixtures.py. A star denotes a list index or map key. See README.investigation.md for provenance and input format.",
  "fields": [
   {
    "kind": "number",
