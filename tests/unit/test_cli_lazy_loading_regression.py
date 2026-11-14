@@ -191,7 +191,7 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
     "ingestion-key": frozenset({"create", "delete", "list"}),
     "installation-key": frozenset({"create", "delete", "get", "list"}),
     "integrity": frozenset({"create", "delete", "get", "list"}),
-    "investigate": frozenset({"actions", "kit", "operators", "packs", "policy", "runs", "templates", "wave"}),
+    "investigate": frozenset({"actions", "autopilot", "kit", "operators", "packs", "policy", "routes", "runs", "scoreboard", "templates", "wave"}),
     "ioc": frozenset({"batch-enrich", "batch-search", "enrich", "hosts", "search"}),
     "job": frozenset({"delete", "get", "list", "wait"}),
     "logging": frozenset({"create", "delete", "get", "list"}),

@@ -180,12 +180,149 @@ A step has an `id` and exactly one of `op` (an operator) or `use` (a fact pack).
 
 An invalid wave prints `{"valid": false, "errors": [...], "warnings": [...]}` with the engine's coded errors on **stdout** and exits `4`; `--validate-only` checks without running anything.
 
+## Autopilot
+
+Autopilot automatically investigates product alerts within org budget caps. Start
+with shadow mode: investigation enablement is separate from permission to take
+response actions. `status` preserves the engine's `automation_available` flag;
+an enabled source does not itself mean response automation is available.
+
+```bash
+limacharlie investigate autopilot status [--source mailsec] [--period today|7d|30d] [--from ISO --to ISO]
+limacharlie investigate autopilot configure --etag ETAG --file autopilot.json
+limacharlie investigate autopilot configure --etag ETAG --settings '{"sources":{"mailsec":{"enabled":false}},"daily_cap_micro_usd":10000000,"monthly_cap_micro_usd":100000000,"max_concurrent":5,"run_cap_micro_usd":500000}'
+limacharlie investigate autopilot alerts [--source mailsec] [--state STATE] [--group-id ID] [--run-id ID] \
+    [--from ISO] [--to ISO] [--limit N] [--cursor C]
+```
+
+Supply exactly one of `--settings` (a JSON object) or `--file` (JSON, `-` for stdin).
+All money is int64 micro-USD: 1 USD = 1,000,000 micros. Defaults are 10,000,000
+daily, 100,000,000 monthly and 500,000 per run ($10, $100 and $0.50). Unknown
+reported money remains null. Settings must use JSON integer tokens: floats,
+quoted numbers, decimal/exponent notation and old floating-USD keys are refused.
+The CLI does not silently convert old wire fields. Table/CSV output displays
+monetary fields as USD strings and PPM fields as percentages using exact integer
+arithmetic. JSON/YAML/TOON/JSONL and SDK results retain raw integer fields and nulls.
+A full configuration example for `autopilot.json`:
+
+```json
+{
+  "sources": {
+    "mailsec": {
+      "enabled": true,
+      "mode": "shadow",
+      "template": "mailsec-generic-triage"
+    }
+  },
+  "daily_cap_micro_usd": 10000000,
+  "monthly_cap_micro_usd": 100000000,
+  "max_concurrent": 5,
+  "run_cap_micro_usd": 500000
+}
+```
+
+Each configure call replaces the full configuration, including all sources and
+budget limits. Start from the current `status.config` and edit the full object.
+Read `status.etag` from that same response and pass `--etag VALUE`. An empty
+string explicitly asserts no default policy (`--etag ''`); raw native etags and
+one quoted HTTP wrapper are accepted and preserved. Alternatively choose
+`--force` explicitly, exclusive with `--etag`. The CLI and SDK never refresh
+etags or force automatically. A missing or stale precondition returns HTTP 409;
+read the current etag or deliberately choose force before retrying. Force skips
+only the client-view comparison: native Hive compare-and-swap still applies,
+and a concurrent native write can still return 409. Invalid or repeated HTTP
+preconditions, or `force=true` with `If-Match`, return 400. `force=false` with
+`If-Match` remains conditional. SDK writes accept `etag=...` or `force=True`;
+the HTTP API uses an `If-Match` header or explicit `?force=true`, outside the
+unchanged JSON configuration body.
+The engine replaces only `default.auto_investigation` in the Hive
+`investigation_policy` record with an etag check, preserving all other policy
+data and metadata. It reads configuration from Hive rather than persisting a
+second runtime copy. `configure` requires `investigation.get`, `insight.evt.get`,
+`investigation_policy.get` and `investigation_policy.set`. It is sent once without
+replay after a gateway timeout. Reads require `investigation.get` + `insight.evt.get`;
+source data APIs enforce source-specific access as well.
+
+Onboarding uses native APIs for the steps actually needed: template access/promotion
+(`investigation_plan.get/set`), identity secret access (`secret.get/set`) and API-key
+management (`apikey.ctrl`). A verified human identity is required for promotion.
+These setup permissions are checked by each native call; they are not all required
+just to disable Autopilot or edit existing settings.
+
+Status defaults to `--period today`; `7d` and `30d` are also supported. Use
+`--source` for one product, or explicit `--from` and `--to` ISO bounds together
+(maximum 90 days). The response also preserves `sources_available`, per-source
+period counters, `alerts_by_day`, `alerts_per_day`, period limits/bounds and
+`overview`.
+
+Status includes `config`, `day` and `month` (`period`, `charged_micro_usd`, `spent_micro_usd`,
+`reserved_micro_usd`), `budget_exhausted`, `counters` (`seen`, `investigated`, `deduped`,
+`skipped_budget`, `failed`, `queued`, `active`) and `automation_available`.
+Admission reserves the maximum run cost against the cap. Settlement records
+actual cost in `spent_micro_usd` and releases the unused reservation. Budget usage is
+`spent_micro_usd + reserved_micro_usd`; `charged_micro_usd` remains as a compatibility field derived
+from that sum, rather than a permanent charge of the full run allowance.
+
+Alerts preserve `id`, `source`, `group_id`, `run_id`, `state`, `reason`, `created`
+and page metadata `total`, `next_cursor`, `truncated`. A skipped alert can have no run. Use a `run_id` with
+`limacharlie investigate runs get RUN_ID`; a mailsec `group_id` identifies its
+source mail group. The engine filters by source, state, group ID, run ID and ISO time bounds and
+orders newest created first, then ID/source. The signed opaque cursor is bound
+to the organization and filters; keep filters unchanged on continuation. The
+`engine_call`, `match` and `q` search fields are explicitly unsupported (HTTP 400),
+until authorized underlying data is available. The list returns one page
+(default 50, maximum 200 alerts); continue using `--cursor`. Structured output keeps the page
+envelope; table/CSV/JSONL put the continuation cursor on stderr.
+
+## Scoreboard and route graduation
+
+```bash
+limacharlie investigate scoreboard [--product mailsec]
+limacharlie investigate routes enable ROUTE_ID --product mailsec --etag ETAG --confirm
+limacharlie investigate routes disable ROUTE_ID --product mailsec --etag ETAG
+limacharlie investigate routes configure ROUTE_ID --product mailsec --etag ETAG [--min-agreeing N] [--spot-check-ppm N] [--error-target-ppm N] [--blind-share-ppm N]
+limacharlie investigate runs label RUN_ID --assessment benign --revision 1
+```
+
+`scoreboard` returns the engine's `etag`, `routes` and `truncated` flag, preserving the
+versioned track record, support, coverage, cost gaps and graduation state. Take
+the exact lowercase SHA-256 `ROUTE_ID` from that response. Recipe/model changes
+start a new track record. A lack of labels does not establish correctness.
+
+Use the scoreboard response's exact `etag` for **every** route decision,
+including disable and configure. Supply `--etag VALUE` or explicitly choose
+`--force` (exclusive), with the same absence, quoting, 409 conflict and native
+compare-and-swap behavior described above. An empty `etag` asserts no default
+policy. SDK `decide_route(..., etag=..., force=False)` carries `If-Match` outside
+the decision JSON; `force=True` uses `?force=true`. The response body `etag` is
+the SDK's source; the gateway also returns an HTTP `ETag` header on reads/writes.
+
+Route decisions require a verified human identity (`user:<uid>`) and
+`org.conf.set`. Enablement is a person's explicit choice
+and requires `--confirm`; the engine still checks route eligibility and action
+safety. Disable stops response automation for the route. Configure requires at
+least one setting: a positive agreement count or an integer `--spot-check-ppm` rate in
+0..1,000,000 (50,000 = 5%). `--blind-share-ppm` uses the same range; `--error-target-ppm` is bounded to
+0..100,000. The engine enforces route-specific safety bounds.
+Decimal and exponent wire values are refused. The engine owns safety floors, default values and readiness; a CLI setting
+does not bypass them. A route can be demoted after a wrong call.
+
+`runs label` records an independent assessment: `benign`, `threat`,
+`disputed` or `unlabeled`. Use a positive source revision; increase it when
+correcting the assessment. The server supplies provenance from your verified
+human identity (`user:<uid>`) or independent API-key integration identity and
+the stored run. Integration API keys can label; the engine's own investigation
+key is excluded from labeling its work. Approving a suggested action alone is not an alert
+label. Label writes require `investigation.set` + `insight.evt.get`. Route and
+label writes are sent once, without replay after a gateway timeout.
+
 ## Approvals and policy
 
 ```bash
 limacharlie investigate actions list [--state awaiting_approval,proposed] [--class C] [--run-id ID] [--limit N] [--cursor C | --all]
 limacharlie investigate actions approve RUN_ID ACTION_ID
 limacharlie investigate actions deny RUN_ID ACTION_ID [--note TEXT]
+limacharlie investigate actions revert RUN_ID ACTION_ID [--note TEXT] [--was-engine-wrong | --preference-only]
 limacharlie investigate policy get [--category C] [--priority N] [--severity S] [--target-tag T]... [--class C] [--template NAME]
 limacharlie investigate policy status
 limacharlie investigate policy pause
@@ -193,6 +330,18 @@ limacharlie investigate policy resume
 ```
 
 `actions list` is the approvals inbox across all runs; what needs a person comes first. `policy pause` stops automatic actions for the whole org (the kill switch) and needs `org.conf.set`.
+
+`actions revert` undoes the action. Omitting `--was-engine-wrong`, or explicitly
+passing `--preference-only`, is an undo preference and creates no alert label.
+Use `--was-engine-wrong` only for an independent human correction: the engine
+records an inverse assessment with verified provenance. The optional JSON field
+is forwarded only for a revert decision, never for other action verbs.
+
+Blind opinions remain hidden unless the verified caller has opinion-audit rights
+(`investigation_policy.set`) or has explicitly labeled that run under the engine's
+same-user visibility rules. Scoreboard aggregates require audit rights, since a
+small route cohort can reveal individual opinions. API inputs cannot grant audit
+rights; the gateway derives them from verified permissions.
 
 ## Errors
 
@@ -239,3 +388,88 @@ result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samp
 
 - [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
 - [Detection & Response](detection-response.md) - D&R rules that start runs
+
+## Automatic action log, undo, and blind decisions
+
+```bash
+limacharlie investigate autopilot actions list --product mailsec --state active,confirmed
+limacharlie investigate autopilot actions get ACTION_ID [--run-id RUN_ID]
+limacharlie investigate autopilot actions undo ACTION_ID --run-id RUN_ID --preference-only
+limacharlie investigate autopilot actions undo ACTION_ID OTHER_ID --was-engine-wrong
+limacharlie investigate autopilot actions undo --items-file items.json
+limacharlie investigate autopilot actions undo --route-id ROUTE_ID --from 2026-11-01T00:00:00Z --preference-only
+limacharlie investigate runs decision RUN_ID
+limacharlie investigate runs reveal RUN_ID
+```
+
+The global action log requires `investigation.get` + `insight.evt.get` and
+opinion-audit permission `investigation_policy.set`. Filters are `--product`,
+`--route-id`, `--action-type`, `--state` (unique CSV native states), inclusive
+RFC3339 `--from`, exclusive `--to`, `--limit` (default 50/max 200) and `--cursor`.
+Held spot checks are excluded by default; `--held-for-spot-check` includes both
+held and automatic actions. Native states are awaiting_approval, proposed,
+uncertain, executing, reverting, active, confirmed, reverted, failed, denied,
+and expired. Confirmed close actions are included. Empty/unknown/duplicate
+state components and repeated HTTP filters are rejected.
+
+The response contains `actions`, `next_cursor`, `truncated`, int64 `total`,
+per-native-state `totals`, and RFC3339 `as_of`. Each action is safe metadata:
+`id`, `run_id`, `product`, `route_id`, `class`, native `state`, `created`,
+`automatic`, `held_for_spot_check`, `targets_count`, `explanation`, and optional
+`undone_by`, `undone_at`, `undo_reason`. It contains no raw target, attributes
+or evidence. Individual lookup needs only the baseline read permissions and
+per-run blind visibility; org-wide ambiguous IDs return 409. Its `class` and
+`close_product` are immutable server-derived authorization metadata.
+
+Undo requires `investigation.set` + `insight.evt.get` and each action's native
+revert permission. The gateway computes `allowed_revert_classes` solely from
+verified claims; callers cannot supply provenance or capabilities. Shared
+close bulk authorization conservatively requires `mailsec.set`. The engine
+checks native metadata and permissions before journaling any wrong answer.
+
+Choose exactly one bounded selection:
+
+- 1..100 explicit IDs plus `--was-engine-wrong` or `--preference-only`.
+- `--items JSON`, `--items-file PATH`, or `--items-file -` for an array of
+  `{id,run_id?,was_engine_wrong:boolean}`. Each item supplies its own answer.
+- Auditor-only `--route-id` + required `--from`, optional `--product`/`--to`,
+  an explicit answer, and optional `--limit` (default 50/max 100)/`--cursor`.
+
+`--run-id` disambiguates exactly one explicit ID. Duplicate IDs, overlapping
+modes, unknown fields, absent answers, invalid types and oversized batches
+are refused. `--preference-only` records no truth. `--was-engine-wrong` is a
+human-only answer: after native permission and metadata checks, the engine stores
+it **before** effects as a durable weak pending fact for crash recovery and to
+withhold the gate. This pending answer is not an assessment. A qualified
+`human_override` requires confirmed actual owned undo: native `Reverted` with
+an empty `RevertNote`; idempotent replay of actual success can also qualify.
+Failed or noop undo has `label_recorded:false`. Failed undo remains pending and
+retryable until an actual retry succeeds; known noops settle diagnostically.
+Only confirmed actual undo can create the strong label.
+
+Every undo returns the complete envelope: `results`, `next_cursor`,
+`truncated`, `selected`, and `as_of`. Each result contains `id`, `run_id`,
+native `state`, `status` (undone/already_undone/failed/skipped), optional
+`error_code`, `retryable`, and `label_recorded`. Per-item errors do not abort
+other items. Inspect all results; partial failure makes the CLI exit nonzero
+while retaining the result document on stdout. Table/CSV/JSONL show rows with
+continuation and count metadata on stderr. Structured formats preserve the
+engine envelope and exact integer values; the CLI invents no coverage fields.
+
+The selector cursor freezes the first upper bound. Continue with `next_cursor`
+and the same selector without supplying a new `as_of`. It covers actions not
+yet selected; failed or unattempted **current-page IDs need explicit retries**.
+There is no automatic pagination or mutation replay. Both single and bulk undo
+use the same result envelope, a 120s gateway budget and 130s SDK timeout; native
+undo is idempotent. SDK methods are `list_automatic_actions`,
+`get_automatic_action`, `undo_automatic_actions`, and `undo_automatic_action`.
+
+`runs decision` / SDK `get_run_decision` returns `visible`, `visible_reason`,
+`counted` and the existing typed `run` projection without peeking. Reasons are
+`auditor`, `after_your_call`, `revealed`, `hidden`, or `not_blind`. Reads retain
+the baseline read permissions and per-run visibility guards. `runs reveal` /
+SDK `reveal_run_opinion` is an explicit, audited, human-only peek requiring
+`investigation.set` + `insight.evt.get`; it sends exactly `{}` once. Later
+answers by that principal for that alert become diagnostic; other reviewers
+can still qualify. The gateway asserts verified identity, actor and boolean
+opinion-auditor context on every new RPC and sends no JWT.

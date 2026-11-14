@@ -3,7 +3,7 @@
 Wraps the ``/investigate/{oid}/...`` REST routes served by the API gateway:
 the authoring kit, the typed operator and fact-pack catalogues, plan
 validation and dry runs on past alerts, investigation runs (start, read,
-list, events, cancel, delete), waves, the approvals inbox and the autonomy switch.
+list, events, cancel, delete), waves, the approvals inbox, Autopilot and the scoreboard.
 
 The feature is experimental and gated per deployment. Where it is off, every
 route is an unknown path (HTTP 404 with no engine error code); where the
@@ -17,7 +17,9 @@ Permissions (all of the listed ones are required):
 - writes (start a run, waves, cancel, delete, test a plan, decide an action):
   ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
   the permission of the action's own class (for example ``sensor.task``)
-- pause / resume of automatic actions: ``org.conf.set``
+- pause / resume and route decisions: ``org.conf.set``
+- Autopilot configuration: ``investigation.get`` + ``insight.evt.get`` +
+  ``investigation_policy.get`` + ``investigation_policy.set``
 - the template records themselves (hive ``investigation_plan``):
   ``investigation_plan.get`` / ``investigation_plan.set`` /
   ``investigation_plan.del``. These are explicit grants, no default role has
@@ -85,6 +87,141 @@ MAX_EVENTS_LIMIT = 500
 _WAIT_MARGIN = 35
 
 
+AUTOMATIC_ACTION_STATES = (
+    "awaiting_approval", "proposed", "uncertain", "executing", "reverting",
+    "active", "confirmed", "reverted", "failed", "denied", "expired",
+)
+
+
+def _automatic_route_id(value: Any) -> None:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValidationError("route_id must be a lowercase SHA-256 digest")
+
+
+def _automatic_time_bounds(from_: str | None, to: str | None) -> None:
+    parsed = []
+    for name, value in (("from", from_), ("to", to)):
+        if value is None:
+            parsed.append(None)
+            continue
+        if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)", value) is None:
+            raise ValidationError(f"{name} must be RFC3339")
+        try:
+            # Keep nanosecond ordering while supporting Python 3.10's narrower
+            # fromisoformat fractional parser. The engine uses nanosecond time.
+            fraction = re.search(r"\.(\d+)", value)
+            nanos = fraction.group(1)[:9].ljust(9, "0") if fraction else "000000000"
+            whole = re.sub(r"\.\d+", "", value).replace("Z", "+00:00")
+            parsed.append((datetime.datetime.fromisoformat(whole), nanos))
+        except ValueError as exc:
+            raise ValidationError(f"{name} must be RFC3339") from exc
+    if all(value is not None for value in parsed) and parsed[0] >= parsed[1]:
+        raise ValidationError("from must precede to")
+
+
+def _automatic_undo_document(ids, items, selector, was_engine_wrong, limit, cursor) -> dict[str, Any]:
+    if sum(value is not None for value in (ids, items, selector)) != 1:
+        raise ValidationError("provide exactly one of ids, items or selector")
+    if selector is None and (limit is not None or cursor is not None):
+        raise ValidationError("limit and cursor are selector-only")
+    body: dict[str, Any] = {}
+    if items is not None:
+        if was_engine_wrong is not None:
+            raise ValidationError("items supply their own was_engine_wrong")
+        if not isinstance(items, list) or not 1 <= len(items) <= 100:
+            raise ValidationError("items must contain 1..100 actions")
+        seen = set()
+        rows = []
+        for item in items:
+            if not isinstance(item, dict) or set(item) - {"id", "run_id", "was_engine_wrong"}:
+                raise ValidationError("items contain unknown fields or malformed objects")
+            action_id = _check_id("action id", item.get("id"))
+            if action_id in seen:
+                raise ValidationError("action IDs must be unique")
+            seen.add(action_id)
+            if type(item.get("was_engine_wrong")) is not bool:
+                raise ValidationError("every item requires boolean was_engine_wrong")
+            if "run_id" in item:
+                _check_id("run id", item["run_id"])
+            rows.append(dict(item))
+        body["items"] = rows
+        return body
+    if type(was_engine_wrong) is not bool:
+        raise ValidationError("was_engine_wrong must be an explicit boolean")
+    body["was_engine_wrong"] = was_engine_wrong
+    if ids is not None:
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 100:
+            raise ValidationError("ids must contain 1..100 action IDs")
+        checked = [_check_id("action id", value) for value in ids]
+        if len(set(checked)) != len(checked):
+            raise ValidationError("action IDs must be unique")
+        body["ids"] = checked
+        return body
+    if not isinstance(selector, dict) or set(selector) - {"route_id", "product", "from", "to"}:
+        raise ValidationError("selector must contain only route_id, product, from and to")
+    _automatic_route_id(selector.get("route_id"))
+    if "from" not in selector or selector["from"] is None:
+        raise ValidationError("selector.from is required")
+    for name in ("product", "to"):
+        if name in selector and (not isinstance(selector[name], str) or not selector[name]):
+            raise ValidationError(f"selector.{name} must be a nonempty string")
+    _automatic_time_bounds(selector["from"], selector.get("to"))
+    body["selector"] = dict(selector)
+    if limit is not None:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValidationError("limit must be an integer between 1 and 100")
+        body["limit"] = limit
+    if cursor is not None:
+        if not isinstance(cursor, str) or not cursor:
+            raise ValidationError("cursor must be a nonempty string")
+        body["cursor"] = cursor
+    return body
+
+
+def _policy_precondition(etag: str | None, force: bool) -> tuple[dict[str, str] | None, list[tuple[str, str]] | None]:
+    """Build explicit client-view conditions without reading or forcing implicitly."""
+    if type(force) is not bool:
+        raise ValidationError("force must be a boolean")
+    if etag is not None:
+        if not isinstance(etag, str):
+            raise ValidationError("etag must be a string (empty explicitly asserts no default policy)")
+        if force:
+            raise ValidationError("provide etag or force=True, not both")
+        raw = etag
+        if len(raw) > 1024 or raw.upper().startswith("W/"):
+            raise ValidationError("etag must be one strong native etag or one quoted wrapper")
+        if raw.startswith('"') or raw.endswith('"'):
+            if len(raw) < 2 or not (raw.startswith('"') and raw.endswith('"')):
+                raise ValidationError("etag has a malformed quoted wrapper")
+            raw = raw[1:-1]
+        if raw.upper().startswith("W/") or any(ord(char) < 0x21 or ord(char) > 0x7e or char in '\",*\\' for char in raw):
+            raise ValidationError("etag must be one strong value, without weak, wildcard or list values")
+        return {"If-Match": etag}, None
+    if force:
+        return None, [("force", "true")]
+    raise ValidationError("read the current etag and provide etag=..., or explicitly choose force=True")
+
+
+def _public_setup_steps(value: Any) -> list[dict[str, str]] | None:
+    """Project typed public progress without exposing native API credentials."""
+    if not isinstance(value, list):
+        return None
+    steps: list[dict[str, str]] = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        if not isinstance(row.get("id"), str) or not row["id"] or not isinstance(row.get("status"), str) or not row["status"]:
+            continue
+        step = {"id": row["id"], "status": row["status"]}
+        for name in ("source", "error_code", "reason"):
+            if isinstance(row.get(name), str):
+                step[name] = row[name]
+        steps.append(step)
+    # An explicitly empty typed list is valid; malformed nonempty data must
+    # not create new empty progress fields in an otherwise legacy error.
+    return steps if steps or not value else None
+
+
 class InvestigationError(ApiError):
     """An Investigation Engine call failed.
 
@@ -122,7 +259,8 @@ class InvestigationError(ApiError):
 
         Returns:
             dict: ``error`` (message), ``status`` (HTTP), ``error_code``, and
-                ``errors`` / ``warnings`` exactly as the engine sent them.
+                ``errors`` / ``warnings`` exactly as the engine sent them,
+                plus allowlisted typed ``setup.steps`` / ``onboarding`` progress.
         """
         out: dict[str, Any] = {"error": self.raw_message, "status": self.status_code}
         if self.error_code:
@@ -133,6 +271,15 @@ class InvestigationError(ApiError):
             out["warnings"] = self.warnings
         if self.suggestion:
             out["suggestion"] = self.suggestion
+        if isinstance(self.response_body, dict):
+            setup = self.response_body.get("setup")
+            if isinstance(setup, dict):
+                steps = _public_setup_steps(setup.get("steps"))
+                if steps is not None:
+                    out["setup"] = {"steps": steps}
+            steps = _public_setup_steps(self.response_body.get("onboarding"))
+            if steps is not None:
+                out["onboarding"] = steps
         return out
 
 
@@ -148,7 +295,8 @@ def _issue_line(issue: Any) -> str:
 _PERMISSION_HINT = (
     "Reads need investigation.get + insight.evt.get, writes (start, wave, cancel, delete, test, decide) need "
     "investigation.set + insight.evt.get, pause/resume needs org.conf.set, and template records need "
-    "investigation_plan.get / investigation_plan.set. Deciding an action also needs the permission of its class."
+    "investigation_plan.get / investigation_plan.set. Autopilot configuration also needs investigation_policy.get/set; "
+    "scoreboard and blind-opinion audit require investigation_policy.set. Deciding an action also needs the permission of its class."
 )
 
 _DISABLED_HINT = (
@@ -713,6 +861,7 @@ class Investigation:
         body: dict[str, Any] | None = None,
         write: bool = False,
         timeout: int | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         """Make one engine call, mapping failures to :class:`InvestigationError`.
 
@@ -720,6 +869,8 @@ class Investigation:
         already have started the work.
         """
         kwargs: dict[str, Any] = {"query_params": query or None, "timeout": timeout}
+        if extra_headers is not None:
+            kwargs["extra_headers"] = extra_headers
         if body is not None:
             try:
                 kwargs["raw_body"] = json.dumps(body, allow_nan=False).encode()
@@ -834,6 +985,210 @@ class Investigation:
                 template=template,
             ),
         )
+
+    def get_scoreboard(self, product: str | None = None) -> dict[str, Any]:
+        """Read versioned decision route track records and graduation state.
+
+        Requires opinion-audit rights (``investigation_policy.set``) in addition
+        to the normal investigation read permissions.
+
+        Args:
+            product: Restrict results to this product (for example ``mailsec``).
+
+        Returns:
+            dict: The engine scoreboard, preserving support, gaps, costs and route state.
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        return self._get("scoreboard", self._q(product=product))
+
+    def decide_route(
+        self, route_id: str, product: str, verb: str, *,
+        min_agreeing: int | None = None, spot_check_ppm: int | None = None,
+        error_target_ppm: int | None = None, blind_share_ppm: int | None = None,
+        etag: str | None = None, force: bool = False,
+    ) -> dict[str, Any]:
+        """Enable, disable or configure a decision route for this product.
+
+        Route writes require a verified human identity and ``org.conf.set``;
+        enablement is an explicit human decision.
+        The engine owns readiness checks, versioning and demotion. This write
+        is sent once, without replay after a gateway timeout.
+
+        Args:
+            route_id: The route ID returned by the scoreboard.
+            product: Product owning the route.
+            verb: ``enable``, ``disable`` or ``configure``.
+            min_agreeing: Required agreements for configure; the engine enforces its floor.
+            spot_check_ppm: Integer human-review sampling rate in parts per million,
+                0..1,000,000 (50,000 = 5%). The engine applies policy floors/defaults.
+            error_target_ppm: Integer error target in parts per million, 0..100,000.
+            blind_share_ppm: Integer blind-review share in parts per million, 0..1,000,000.
+            etag: Exact Hive etag from get_scoreboard; empty asserts absence.
+                One HTTP quoted wrapper is accepted and preserved.
+            force: Explicitly override the client-view check (exclusive with etag).
+                Native post-read compare-and-swap still applies.
+
+        Returns:
+            dict: The engine's route decision response.
+
+        Raises:
+            ValidationError: If the route ID, product or verb is invalid.
+            InvestigationError: If the engine refuses or the API call fails.
+        """
+        route_id = _check_id("route id", route_id)
+        if len(route_id) != 64 or any(c not in "0123456789abcdef" for c in route_id):
+            raise ValidationError("route id must be a lowercase SHA-256 hex digest from the scoreboard")
+        if not isinstance(product, str) or not product.strip():
+            raise ValidationError("product must not be empty")
+        if verb not in ("enable", "disable", "configure"):
+            raise ValidationError("route verb must be enable, disable or configure")
+        if min_agreeing is not None and (type(min_agreeing) is not int or not 1 <= min_agreeing <= (1 << 63) - 1):
+            raise ValidationError("min_agreeing must be a positive int64")
+        rates = {"spot_check_ppm": spot_check_ppm, "error_target_ppm": error_target_ppm, "blind_share_ppm": blind_share_ppm}
+        for name, value in rates.items():
+            maximum = 100_000 if name == "error_target_ppm" else 1_000_000
+            if value is not None and (type(value) is not int or not 0 <= value <= maximum):
+                raise ValidationError(f"{name} must be an integer between 0 and {maximum}")
+        body: dict[str, Any] = {"product": product, "verb": verb}
+        if min_agreeing is not None:
+            body["min_agreeing"] = min_agreeing
+        body.update({name: value for name, value in rates.items() if value is not None})
+        headers, query = _policy_precondition(etag, force)
+        return self._call("POST", f"routes/{_quote(route_id, safe='')}/decision", body=body,
+                          query=query, extra_headers=headers, write=True)
+
+    def submit_run_label(self, run_id: str, assessment: str, revision: int) -> dict[str, Any]:
+        """Record an independent assessment of an investigated alert.
+
+        The server derives provenance from the verified caller and stored run;
+        human and independent API-key integration callers cannot provide an
+        actor or forge an outcome source. The engine's own key cannot label its work. A corrected
+        assessment needs a newer source revision. Writes are sent once.
+
+        Args:
+            run_id: The run being assessed.
+            assessment: ``benign``, ``threat``, ``disputed`` or ``unlabeled``.
+            revision: Positive source revision (increase for corrections).
+
+        Returns:
+            dict: ``outcome``, with the engine-recorded label and provenance.
+
+        Raises:
+            ValidationError: If the run ID, assessment or revision is invalid.
+            InvestigationError: If the label is refused or the API call fails.
+        """
+        run_id = _check_id("run id", run_id)
+        if assessment not in ("benign", "threat", "disputed", "unlabeled"):
+            raise ValidationError("assessment must be benign, threat, disputed or unlabeled")
+        if type(revision) is not int or not 1 <= revision <= (1 << 63) - 1:
+            raise ValidationError("revision must be a positive int64")
+        return self._call(
+            "POST", f"runs/{_quote(run_id, safe='')}/labels",
+            body={"assessment": assessment, "revision": revision}, write=True,
+        )
+
+    def get_autopilot(
+        self, *, source: str | None = None, period: str | None = None,
+        from_: str | None = None, to: str | None = None,
+    ) -> dict[str, Any]:
+        """Read automatic investigation settings, budget usage and counters.
+
+        Args:
+            source: Product source to inspect.
+            period: ``today`` (default), ``7d`` or ``30d``.
+            from_: Explicit ISO start time; supply with to, spanning at most 90 days.
+            to: Explicit ISO end time; supply with from_.
+
+        Returns:
+            dict: ``config``, ``day`` and ``month`` charged/spent/reserved micro-USD,
+                ``budget_exhausted``, ``counters`` and ``automation_available``.
+                Admission reserves the run maximum; settlement records actual cost
+                and releases the unused reservation. Compatibility ``charged_micro_usd``
+                is ``spent_micro_usd + reserved_micro_usd``. Money is integer
+                micro-USD (1 USD = 1,000,000 micros); unknown values remain null. Shadow investigations
+                do not authorize automatic response actions.
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        if period is not None and period not in ("today", "7d", "30d"):
+            raise ValidationError("period must be today, 7d or 30d")
+        if (from_ is None) != (to is None):
+            raise ValidationError("from_ and to must be supplied together")
+        return self._get("autopilot", self._q(source=source, period=period, from_=from_, to=to))
+
+    def set_autopilot(self, config: dict[str, Any], *, etag: str | None = None, force: bool = False) -> dict[str, Any]:
+        """Replace automatic investigation sources and budgets for the org.
+
+        Requires ``investigation.get``, ``insight.evt.get``,
+        ``investigation_policy.get`` and ``investigation_policy.set``.
+        The engine replaces only ``default.auto_investigation`` in the Hive
+        policy record, preserving other data and metadata with an etag check.
+        This write is sent once, without replay after a gateway timeout.
+
+        Args:
+            config: JSON settings with ``sources``, ``daily_cap_micro_usd``,
+                ``monthly_cap_micro_usd``, ``max_concurrent`` and ``run_cap_micro_usd``.
+                All numeric settings are int64 JSON integers; floating USD
+                aliases and decimal/exponent wire values are not accepted.
+            etag: Exact Hive etag from get_autopilot; empty asserts absence.
+                One HTTP quoted wrapper is accepted and preserved.
+            force: Explicitly override the client-view check (exclusive with etag).
+                Native post-read compare-and-swap still applies.
+
+        Returns:
+            dict: The engine's configuration response.
+
+        Raises:
+            ValidationError: If config is not an object or contains non-JSON values.
+            InvestigationError: If settings are refused or the API call fails.
+        """
+        if not isinstance(config, dict):
+            raise ValidationError("autopilot config must be a JSON object")
+        obsolete = {"daily_usd", "monthly_usd", "run_usd"}.intersection(config)
+        if obsolete:
+            raise ValidationError("use daily_cap_micro_usd, monthly_cap_micro_usd and run_cap_micro_usd integer settings")
+        for name in ("daily_cap_micro_usd", "monthly_cap_micro_usd", "run_cap_micro_usd", "max_concurrent"):
+            if name in config and (type(config[name]) is not int or not -(1 << 63) <= config[name] < (1 << 63)):
+                raise ValidationError(f"{name} must be an int64 JSON integer")
+        headers, query = _policy_precondition(etag, force)
+        return self._call("PUT", "autopilot", body=config, query=query, extra_headers=headers, write=True)
+
+    def list_autopilot_alerts(
+        self, *, source: str | None = None, state: str | None = None,
+        group_id: str | None = None, run_id: str | None = None,
+        from_: str | None = None, to: str | None = None,
+        limit: int | None = None, cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List one page of alerts and their automatic investigation run links.
+
+        Args:
+            source: Only alerts from this product source (for example ``mailsec``).
+            state: Only alerts in this state.
+            group_id: Only alerts for this source group.
+            run_id: Only alerts linked to this investigation run.
+            from_: ISO lower time bound.
+            to: ISO upper time bound.
+            limit: Page size, 1..200 (engine default 50).
+            cursor: ``next_cursor`` of the previous page.
+
+        Returns:
+            dict: ``alerts`` (id, source, group_id, run_id, state, reason,
+                created), ``total``, ``next_cursor`` and ``truncated``. Cursors are
+                bound to the organization and filters. A skipped alert may have no run.
+
+        Raises:
+            ValidationError: If limit is out of range or is not an integer.
+            InvestigationError: On any API failure.
+        """
+        if limit is not None and (type(limit) is not int or not 1 <= limit <= 200):
+            raise ValidationError("limit must be an integer between 1 and 200")
+        return self._get("autopilot/alerts", self._q(
+            source=source, state=state, group_id=group_id, run_id=run_id,
+            from_=from_, to=to, limit=limit, cursor=cursor,
+        ))
 
     def get_autonomy(self) -> dict[str, Any]:
         """Read whether automatic actions are paused for the org.
@@ -1244,6 +1599,114 @@ class Investigation:
     # Actions (the approvals inbox)
     # ------------------------------------------------------------------
 
+    def list_automatic_actions(
+        self, *, product: str | None = None, route_id: str | None = None,
+        action_type: str | None = None, state: str | list[str] | None = None,
+        from_: str | None = None, to: str | None = None,
+        held_for_spot_check: bool | None = None, limit: int | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one metadata-only automatic action page (opinion auditors only).
+
+        Held spot checks are excluded by default; True includes them alongside
+        automatic actions. Native states may be a CSV string or a list. Time
+        bounds are RFC3339, inclusive from and exclusive to. The engine returns
+        actions, next_cursor, truncated, total, totals and as_of unchanged.
+        """
+        if limit is not None and (type(limit) is not int or not 1 <= limit <= 200):
+            raise ValidationError("limit must be an integer between 1 and 200")
+        if held_for_spot_check is not None and type(held_for_spot_check) is not bool:
+            raise ValidationError("held_for_spot_check must be a boolean")
+        if route_id is not None:
+            _automatic_route_id(route_id)
+        if isinstance(state, (list, tuple)):
+            if any(not isinstance(value, str) for value in state):
+                raise ValidationError("state must contain native action state strings")
+            state = ",".join(state)
+        if state is not None:
+            if not isinstance(state, str):
+                raise ValidationError("state must be native action states")
+            values = state.split(",")
+            if len(values) != len(set(values)) or any(value not in AUTOMATIC_ACTION_STATES for value in values):
+                raise ValidationError("state must contain unique native action states")
+        _automatic_time_bounds(from_, to)
+        for name, value in (("product", product), ("action_type", action_type), ("cursor", cursor)):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValidationError(f"{name} must be a nonempty string")
+        return self._get("autopilot/actions", self._q(product=product, route_id=route_id,
+            action_type=action_type, state=state, from_=from_, to=to,
+            held_for_spot_check=held_for_spot_check, limit=limit, cursor=cursor))
+
+    def get_automatic_action(self, action_id: str, *, run_id: str | None = None) -> dict[str, Any]:
+        """Read safe action metadata under per-run blind guards; ambiguity is 409.
+
+        No targets, attributes or evidence are returned. class and close_product
+        are server-derived native authorization metadata, never caller authority.
+        """
+        action_id = _check_id("action id", action_id)
+        if run_id is not None:
+            _check_id("run id", run_id)
+        return self._get(f"autopilot/actions/{_quote(action_id, safe='')}", self._q(run_id=run_id))
+
+    def undo_automatic_actions(
+        self, ids: list[str] | None = None, *, items: list[dict[str, Any]] | None = None,
+        selector: dict[str, Any] | None = None, was_engine_wrong: bool | None = None,
+        limit: int | None = None, cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Undo one bounded page, preserving every per-item status and continuation.
+
+        Choose exactly one of ids (1..100), items with individual explicit boolean
+        answers and optional run_id, or an auditor-only selector (route_id/from
+        required, product/to optional). ids/selector require an explicit boolean
+        was_engine_wrong. False is preference without truth. True is human-only:
+        after native authorization the engine durably stores the answer as a weak
+        pending fact BEFORE effects. A qualified human_override requires actual
+        owned undo: native Reverted with an empty RevertNote (or idempotent actual
+        success replay). Failed/noop undo has label_recorded=False. Failures stay
+        pending/retryable until actual retry succeeds; known noops are diagnostic.
+        Read each result's status/error_code/retryable/label_recorded. Failed or
+        unattempted current-page IDs need explicit retries; next_cursor selects
+        subsequent actions, not retries. No automatic replay; native undo is
+        idempotent. The selector cursor freezes the first upper time bound.
+        """
+        body = _automatic_undo_document(ids, items, selector, was_engine_wrong, limit, cursor)
+        return self._call("POST", "autopilot/actions/undo", body=body, write=True, timeout=130)
+
+    def undo_automatic_action(self, action_id: str, *, run_id: str | None = None,
+                              was_engine_wrong: bool) -> dict[str, Any]:
+        """Undo one action with the same full result envelope and 130s budget.
+
+        was_engine_wrong is required; see undo_automatic_actions for durable
+        answer storage, confirmed actual undo and partial failure semantics.
+        No implicit retry occurs.
+        """
+        action_id = _check_id("action id", action_id)
+        item = {"id": action_id, "was_engine_wrong": was_engine_wrong}
+        if run_id is not None:
+            item["run_id"] = run_id
+        _automatic_undo_document(None, [item], None, None, None, None)
+        body = {key: value for key, value in item.items() if key != "id"}
+        return self._call("POST", f"autopilot/actions/{_quote(action_id, safe='')}/undo", body=body, write=True, timeout=130)
+
+    def get_run_decision(self, run_id: str) -> dict[str, Any]:
+        """Read the typed decision projection with per-run blind visibility.
+
+        visible, visible_reason, counted and run are returned unchanged. This
+        read does not reveal a hidden opinion or change reviewer qualification.
+        """
+        run_id = _check_id("run id", run_id)
+        return self._get(f"autopilot/alerts/{_quote(run_id, safe='')}/decision")
+
+    def reveal_run_opinion(self, run_id: str) -> dict[str, Any]:
+        """Explicitly peek at a blind opinion (human-only, audited, single attempt).
+
+        This principal's later answers for this alert become diagnostic; other
+        reviewers can still qualify. Requires investigation.set + insight.evt.get.
+        The server returns visible/visible_reason/counted and the typed run view.
+        """
+        run_id = _check_id("run id", run_id)
+        return self._call("POST", f"autopilot/alerts/{_quote(run_id, safe='')}/reveal", body={}, write=True)
+
     def list_actions(
         self,
         state: str | list[str] | None = None,
@@ -1296,6 +1759,7 @@ class Investigation:
 
     def decide_action(
         self, run_id: str, action_id: str, verb: str, note: str | None = None, seconds: int | None = None,
+        *, was_engine_wrong: bool | None = None,
     ) -> dict[str, Any]:
         """Approve, deny, revert, extend or confirm an action.
 
@@ -1307,6 +1771,8 @@ class Investigation:
             verb: One of :data:`ACTION_VERBS`.
             note: A reason (deny, revert).
             seconds: How long to extend a lease (extend).
+            was_engine_wrong: Revert only: True explicitly records an independent
+                inverse assessment. False or None means preference, not a label.
 
         Returns:
             dict: The action after the decision.
@@ -1316,7 +1782,11 @@ class Investigation:
         """
         if verb not in ACTION_VERBS:
             raise ValidationError(f"verb must be one of {', '.join(ACTION_VERBS)}")
+        if was_engine_wrong is not None and (verb != "revert" or type(was_engine_wrong) is not bool):
+            raise ValidationError("was_engine_wrong must be a boolean on revert only")
         body: dict[str, Any] = {}
+        if was_engine_wrong is not None:
+            body["was_engine_wrong"] = was_engine_wrong
         if note:
             body["note"] = note
         if seconds is not None:
