@@ -17,13 +17,13 @@ from limacharlie.sdk.investigation import parse_document
 
 ROOT = Path(__file__).resolve().parents[2]
 DOC = ROOT / "doc" / "cli" / "investigation-engine.md"
-CATALOGUE = json.loads((Path(__file__).parent / "fixtures" / "ie_catalogue.json").read_text())
+CATALOGUE = json.loads((Path(__file__).parent / "fixtures" / "ie_catalogue.json").read_text(encoding="utf-8"))
 OPERATORS = {o["name"]: o for o in CATALOGUE["operators"]}
 PACKS = {p["name"]: p for p in CATALOGUE["packs"]}
 
 
 def _doc_blocks() -> list[str]:
-    return re.findall(r"```ya?ml\n(.*?)```", DOC.read_text(), flags=re.S)
+    return re.findall(r"```ya?ml\n(.*?)```", DOC.read_text(encoding="utf-8"), flags=re.S)
 
 
 def _help_blocks() -> list[str]:

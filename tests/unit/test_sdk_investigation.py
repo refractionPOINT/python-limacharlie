@@ -396,7 +396,7 @@ class TestErrors:
 # Template source
 # ---------------------------------------------------------------------------
 
-_SCALARS = json.loads((Path(__file__).parent / "fixtures" / "investigation_scalars.json").read_text())["cases"]
+_SCALARS = json.loads((Path(__file__).parent / "fixtures" / "investigation_scalars.json").read_text(encoding="utf-8"))["cases"]
 _PLAIN_SCALARS = [
     c for c in _SCALARS
     if c["kind"] != "error" and c["kind"] not in ("sequence", "mapping")
@@ -442,7 +442,7 @@ class TestTemplateSource:
 
     def test_the_typed_field_lists_cover_every_non_text_field_of_the_engine(self):
         """A field the engine adds as a number or boolean must be added to the SDK's lists, or it would be stored as text."""
-        fields = json.loads((Path(__file__).parent / "fixtures" / "investigation_typed_fields.json").read_text())["fields"]
+        fields = json.loads((Path(__file__).parent / "fixtures" / "investigation_typed_fields.json").read_text(encoding="utf-8"))["fields"]
         sdk_paths = {
             "number": {".".join(p) for p in inv_mod._NUMBER_PATHS},
             "bool": {".".join(p) for p in inv_mod._BOOL_PATHS},

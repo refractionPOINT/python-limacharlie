@@ -13,17 +13,17 @@ spec.loader.exec_module(generator)
 
 
 def test_regeneration_matches_both_checked_in_fixtures(tmp_path):
-    snapshot = json.loads(generator.SNAPSHOT.read_text())
+    snapshot = json.loads(generator.SNAPSHOT.read_text(encoding="utf-8"))
     generator.generate(snapshot, tmp_path)
     for name in ("investigation_scalars.json", "investigation_typed_fields.json"):
         assert (tmp_path / name).read_bytes() == (FIXTURES / name).read_bytes()
-    cases = json.loads((tmp_path / "investigation_scalars.json").read_text())["cases"]
+    cases = json.loads((tmp_path / "investigation_scalars.json").read_text(encoding="utf-8"))["cases"]
     assert {c["kind"] for c in cases} <= generator.KINDS
 
 
 def test_generation_normalizes_public_collection_kinds(tmp_path):
     generator.generate({"cases": [{"src": "[]", "kind": "array"}, {"src": "{}", "kind": "object"}], "fields": []}, tmp_path)
-    cases = json.loads((tmp_path / "investigation_scalars.json").read_text())["cases"]
+    cases = json.loads((tmp_path / "investigation_scalars.json").read_text(encoding="utf-8"))["cases"]
     assert [c["kind"] for c in cases] == ["sequence", "mapping"]
 
 

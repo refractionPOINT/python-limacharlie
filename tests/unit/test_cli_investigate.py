@@ -117,7 +117,7 @@ class TestTemplates:
 
     def test_validate_exit_code_follows_the_report(self, sdk, tmp_path):
         f = tmp_path / "plan.yaml"
-        f.write_text("description: x\n")
+        f.write_text("description: x\n", encoding="utf-8")
         sdk.validate_plan.return_value = {"valid": True, "errors": [], "warnings": []}
         assert run(["investigate", "templates", "validate", "--file", str(f)]).exit_code == 0
         sdk.validate_plan.assert_called_with("description: x\n")
@@ -134,7 +134,7 @@ class TestTemplates:
 
     def test_save_is_a_draft_unless_a_person_says_otherwise(self, sdk, tmp_path):
         f = tmp_path / "plan.yaml"
-        f.write_text("description: x\n")
+        f.write_text("description: x\n", encoding="utf-8")
         sdk.save_template.return_value = {"saved": True, "status": "draft"}
         assert run(["investigate", "templates", "save", "my-plan", "--file", str(f), "--comment", "10 samples"]).exit_code == 0
         sdk.save_template.assert_called_with(
@@ -145,7 +145,7 @@ class TestTemplates:
 
     def test_refused_save_exits_4_and_says_why(self, sdk, tmp_path):
         f = tmp_path / "plan.yaml"
-        f.write_text("description: x\n")
+        f.write_text("description: x\n", encoding="utf-8")
         sdk.save_template.return_value = {"saved": False, "reason": "already exists", "validation": {"errors": []}}
         result = run(["investigate", "templates", "save", "my-plan", "--file", str(f)])
         assert result.exit_code == 4
@@ -191,7 +191,7 @@ class TestTemplateTest:
     def test_samples_are_built_from_every_flag(self, sdk, tmp_path):
         sdk.test_plan.return_value = dict(self.DONE)
         sf = tmp_path / "s.yaml"
-        sf.write_text("- {detection_id: from-file}\n")
+        sf.write_text("- {detection_id: from-file}\n", encoding="utf-8")
         result = run([
             "investigate", "templates", "test", "my-plan", "--detection-id", "d1", "--case-id", "9",
             "--detect-cat", "cat-a", "--last", "3", "--sample", '{"inputs": {"k": "v"}, "expected": "false_positive"}',
@@ -208,7 +208,7 @@ class TestTemplateTest:
     def test_inline_file_is_sent_as_the_plan(self, sdk, tmp_path):
         sdk.test_plan.return_value = dict(self.DONE)
         f = tmp_path / "plan.yaml"
-        f.write_text("description: draft\n")
+        f.write_text("description: draft\n", encoding="utf-8")
         run(["investigate", "templates", "test", "--file", str(f), "--detection-id", "d1"])
         assert sdk.test_plan.call_args.kwargs["inline"] == "description: draft\n"
         assert sdk.test_plan.call_args.kwargs["template"] is None
@@ -295,7 +295,7 @@ class TestRuns:
         # The engine refuses plan.auto for a person's run; no plan at all is what asks it to pick by applies_to.
         assert sdk.start_run.call_args.args[0] == {"trigger": {"case_id": "5"}}
         f = tmp_path / "p.yaml"
-        f.write_text("description: x\n")
+        f.write_text("description: x\n", encoding="utf-8")
         run(["investigate", "runs", "start", "--file", str(f), "--question", "why?"])
         assert sdk.start_run.call_args.args[0] == {"trigger": {"question": "why?"}, "plan": {"inline": "description: x\n"}}
 
@@ -476,7 +476,7 @@ class TestWave:
         f = tmp_path / "wave.yaml"
         f.write_text(
             "steps:\n  - {id: host, use: host_context, args: {sid: abc}}\n"
-            "stop_when: ['host__resolve.found == false']\ndeadline_ms: 5000\ninputs: {a: '1'}\n")
+            "stop_when: ['host__resolve.found == false']\ndeadline_ms: 5000\ninputs: {a: '1'}\n", encoding="utf-8")
         sdk.run_wave.return_value = {"results": [], "compact": True}
         result = run(["investigate", "wave", "--file", str(f), "--stop-when", "x == 1", "--deadline-ms", "9000",
                       "--input", "b=2", "--full", "--validate-only"])
@@ -489,14 +489,14 @@ class TestWave:
 
     def test_a_bare_list_is_the_steps(self, sdk, tmp_path):
         f = tmp_path / "wave.json"
-        f.write_text('[{"id": "a", "op": "entity.get", "args": {}}]')
+        f.write_text('[{"id": "a", "op": "entity.get", "args": {}}]', encoding="utf-8")
         sdk.run_wave.return_value = {}
         run(["investigate", "wave", "--file", str(f)])
         assert sdk.run_wave.call_args.args[0] == {"steps": [{"id": "a", "op": "entity.get", "args": {}}]}
 
     def test_a_refused_wave_prints_the_coded_errors_on_stdout_and_exits_4(self, sdk, tmp_path):
         f = tmp_path / "wave.json"
-        f.write_text('{"steps": [{"id": "a", "op": "x"}]}')
+        f.write_text('{"steps": [{"id": "a", "op": "x"}]}', encoding="utf-8")
         err = issue_error()
         sdk.run_wave.side_effect = err
         result = run(["investigate", "wave", "--file", str(f)])
@@ -506,13 +506,13 @@ class TestWave:
 
     def test_validate_only_with_an_invalid_report_exits_4(self, sdk, tmp_path):
         f = tmp_path / "wave.json"
-        f.write_text('{"steps": [{"id": "a", "op": "x"}]}')
+        f.write_text('{"steps": [{"id": "a", "op": "x"}]}', encoding="utf-8")
         sdk.run_wave.return_value = {"valid": False, "errors": [{"code": "unknown_operator"}], "warnings": []}
         assert run(["investigate", "wave", "--file", str(f), "--validate-only"]).exit_code == 4
 
     def test_a_wave_failure_without_issues_is_a_plain_error(self, sdk, tmp_path):
         f = tmp_path / "wave.json"
-        f.write_text('{"steps": [{"id": "a", "op": "x"}]}')
+        f.write_text('{"steps": [{"id": "a", "op": "x"}]}', encoding="utf-8")
         sdk.run_wave.side_effect = InvestigationError("timed out", status_code=504, exit_code=1)
         result = run(["investigate", "wave", "--file", str(f)])
         assert result.exit_code == 1
@@ -586,7 +586,7 @@ class TestYaml12Input:
     def test_wave_file_words_and_dates_are_not_converted(self, sdk, tmp_path):
         f = tmp_path / "wave.yaml"
         f.write_text(
-            "steps:\n  - {id: a, op: entity.get, args: {mode: off, flag: yes, since: 2026-11-10}}\n")
+            "steps:\n  - {id: a, op: entity.get, args: {mode: off, flag: yes, since: 2026-11-10}}\n", encoding="utf-8")
         sdk.run_wave.return_value = {}
         result = run(["investigate", "wave", "--file", str(f)])
         assert result.exit_code == 0, result.stderr
@@ -594,7 +594,7 @@ class TestYaml12Input:
 
     def test_samples_file_words_and_dates_are_not_converted(self, sdk, tmp_path):
         f = tmp_path / "samples.yaml"
-        f.write_text("- inputs: {since: 2026-11-10, quiet: off}\n  expected: false_positive\n")
+        f.write_text("- inputs: {since: 2026-11-10, quiet: off}\n  expected: false_positive\n", encoding="utf-8")
         sdk.test_plan.return_value = {"state": "done", "done": True}
         result = run(["investigate", "templates", "test", "my-plan", "--samples-file", str(f)])
         assert result.exit_code == 0, result.stderr
@@ -603,7 +603,7 @@ class TestYaml12Input:
 
     def test_an_unparseable_wave_file_is_a_coded_json_error(self, sdk, tmp_path):
         f = tmp_path / "wave.yaml"
-        f.write_text("steps: [unclosed")
+        f.write_text("steps: [unclosed", encoding="utf-8")
         result = run(["investigate", "wave", "--file", str(f)])
         assert result.exit_code == 4
         doc = json.loads(result.stderr)
@@ -612,7 +612,7 @@ class TestYaml12Input:
 
     def test_a_nan_in_a_wave_file_is_a_coded_json_error(self, sdk, tmp_path):
         f = tmp_path / "wave.yaml"
-        f.write_text("inputs: {x: .nan}\nsteps: []\n")
+        f.write_text("inputs: {x: .nan}\nsteps: []\n", encoding="utf-8")
         result = run(["investigate", "wave", "--file", str(f)])
         assert result.exit_code == 4
         error = json.loads(result.stderr)["errors"][0]
@@ -629,7 +629,7 @@ class TestYaml12Input:
 
     def test_a_wrong_shape_is_a_coded_json_error(self, sdk, tmp_path):
         f = tmp_path / "samples.yaml"
-        f.write_text("just: a mapping\n")
+        f.write_text("just: a mapping\n", encoding="utf-8")
         result = run(["investigate", "templates", "test", "my-plan", "--samples-file", str(f)])
         assert result.exit_code == 4
         assert json.loads(result.stderr)["errors"][0]["path"] == "--samples-file"
@@ -641,7 +641,7 @@ class TestYaml12Input:
 
     def test_table_mode_still_fails_with_text(self, sdk, tmp_path):
         f = tmp_path / "wave.yaml"
-        f.write_text("steps: [unclosed")
+        f.write_text("steps: [unclosed", encoding="utf-8")
         result = run(["investigate", "wave", "--file", str(f)], fmt="table")
         assert result.exit_code == 1 and isinstance(result.exception, InvestigationError)
 
