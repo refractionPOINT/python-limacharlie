@@ -235,18 +235,20 @@ result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samp
 
 `InvestigationError` carries `status_code`, `error_code`, `issues` and `warnings`.
 
-## See Also
-
-- [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
-- [Detection & Response](detection-response.md) - D&R rules that start runs
-
-### Explicit trust
+## Explicit trust
 
 Templates may declare `trust: {lookups: [partner-domains], values: [partner.example.test]}`.
 The run reads these same-org Lookup records using its own identity (`lookup.get`).
 Repeat `--trust-lookup NAME` or `--trust-value VALUE` on `investigate runs start` to add
-trust for that run only. Automatic runs use only the template block.
+trust for that run only. Runs started automatically by D&R rules or Autopilot use only the template's trust.
+The manual `--auto` option selects a template and still allows these run-only additions.
 A match accounts for the initial target as customer-declared trusted and skips active
 analysis; it never means verified or benign. Domains include DNS-boundary subdomains
 and URL hosts. Broad/shared entries and embedded URL destinations do not skip analysis.
 Missing, disabled or unreadable Lookups grant nothing and appear as run problems.
+
+
+## See Also
+
+- [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
+- [Detection & Response](detection-response.md) - D&R rules that start runs

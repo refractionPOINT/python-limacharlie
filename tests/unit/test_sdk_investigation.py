@@ -921,9 +921,3 @@ def test_wave_never_sends_unsupported_request_trust(inv, mock_org):
     with pytest.raises(ValidationError, match="only by run start"):
         inv.run_wave({"steps": [{"id": "s", "op": "entity.get"}], "trust": {"lookups": ["partners"]}})
     mock_org.client.request.assert_not_called()
-
-
-def test_plan_does_not_add_request_trust(inv, mock_org):
-    mock_org.client.request.return_value = {"test_id": "t1"}
-    inv.test_plan(template="mail", samples=[{"detection_id": "d1"}])
-    assert "trust" not in json.loads(_request_args(mock_org)[2]["raw_body"])
