@@ -711,6 +711,23 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
     assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
 
 
+def test_run_explicit_trust_additions(sdk):
+    sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+    result = run(["investigate", "runs", "start", "--template", "mail", "--detection-id", "d",
+                  "--trust-lookup", "partners", "--trust-lookup", "corporate",
+                  "--trust-value", "partner.example.test", "--trust-value", "https://portal.example.test/a"])
+    assert result.exit_code == 0, result.stderr
+    assert sdk.start_run.call_args.args[0]["trust"] == {"lookups": ["partners", "corporate"],
+        "values": ["partner.example.test", "https://portal.example.test/a"]}
+
+
+def test_run_without_trust_omits_the_optional_field(sdk):
+    sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+    result = run(["investigate", "runs", "start", "--template", "mail", "--detection-id", "d"])
+    assert result.exit_code == 0, result.stderr
+    assert "trust" not in sdk.start_run.call_args.args[0]
+
+
 @pytest.mark.parametrize("seconds,expected", [(0, None), (12, 12.0)])
 def test_start_follow_timeout_is_configurable(sdk, seconds, expected):
     sdk.start_run.return_value = {"run": {"run_id": "r1"}}
@@ -748,4 +765,24 @@ def test_stream_error_reports_resume_after_last_received_page(sdk, command):
 def test_start_follow_rejects_negative_timeout_before_start(sdk):
     result = run(["investigate", "runs", "start", "--template", "p", "--detection-id", "d", "--follow", "--timeout", "-1"])
     assert result.exit_code == 2
+    sdk.start_run.assert_not_called()
+
+
+@pytest.mark.parametrize("flag,value,expected", [
+    ("--trust-lookup", "partners", {"lookups": ["partners"]}),
+    ("--trust-value", "partner.example.test", {"values": ["partner.example.test"]}),
+])
+def test_run_trust_omits_unused_keys(sdk, flag, value, expected):
+    sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+    result = run(["investigate", "runs", "start", "--template", "mail", "--detection-id", "d", flag, value])
+    assert result.exit_code == 0, result.stderr
+    assert sdk.start_run.call_args.args[0]["trust"] == expected
+
+
+def test_start_ai_help_explains_run_only_additive_trust(sdk):
+    result = run(["investigate", "runs", "start", "--ai-help"])
+    assert result.exit_code == 0
+    assert "--trust-lookup" in result.stdout and "--trust-value" in result.stdout
+    assert "template trust" in result.stdout and "this run only" in result.stdout
+    assert "identity starting the run" in result.stdout
     sdk.start_run.assert_not_called()

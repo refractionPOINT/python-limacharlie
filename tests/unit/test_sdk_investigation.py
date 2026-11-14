@@ -906,6 +906,22 @@ class TestParseDocument:
             parse_document("a: !!set {x}\n")
 
 
+@pytest.mark.parametrize("spec", [None, {}])
+def test_start_run_empty_trust_wire_contract(inv, mock_org, spec):
+    mock_org.client.request.return_value = {"run": {"run_id": "r1"}}
+    request = {"trigger": {"question": "fictional"}, "trust": spec}
+    inv.start_run(request)
+    sent = json.loads(_request_args(mock_org)[2]["raw_body"])
+    assert "trust" not in sent
+    assert "trust" in request  # the SDK does not mutate its caller's object
+
+
+def test_wave_never_sends_unsupported_request_trust(inv, mock_org):
+    with pytest.raises(ValidationError, match="only by run start"):
+        inv.run_wave({"steps": [{"id": "s", "op": "entity.get"}], "trust": {"lookups": ["partners"]}})
+    mock_org.client.request.assert_not_called()
+
+
 @pytest.mark.parametrize("method,key", [("iter_runs", "runs"), ("iter_actions", "actions")])
 def test_pagination_rejects_multicursor_cycles(inv, mock_org, method, key):
     mock_org.client.request.side_effect = [
@@ -933,3 +949,47 @@ def test_scalar_fixture_rejects_unknown_kind_clearly():
     with pytest.raises(pytest.fail.Exception, match="Unknown scalar fixture kind"):
         TestTemplateSource().test_args_scalars_are_read_as_the_engine_reads_them(
             {"src": "example", "kind": "unrecognized-collection"})
+
+
+@pytest.mark.parametrize("spec,expected", [
+    ({"lookups": []}, None),
+    ({"values": []}, None),
+    ({"lookups": [], "values": []}, None),
+    ({"lookups": ["partners"], "values": []}, {"lookups": ["partners"]}),
+    ({"lookups": [], "values": ["partner.example.test"]}, {"values": ["partner.example.test"]}),
+])
+def test_start_run_normalizes_trust_without_mutating_caller(inv, mock_org, spec, expected):
+    import copy
+    request = {"trigger": {"question": "example"}, "trust": spec}
+    original = copy.deepcopy(request)
+    inv.start_run(request)
+    sent = json.loads(_request_args(mock_org)[2]["raw_body"])
+    if expected is None:
+        assert "trust" not in sent
+    else:
+        assert sent["trust"] == expected
+    assert request == original
+    assert request["trust"] is spec
+
+
+@pytest.mark.parametrize("spec", [
+    "invalid", [], False, {"extra": []},
+    {"lookups": "partners"}, {"values": "partner.example.test"},
+    {"lookups": None}, {"values": None},
+    {"lookups": [None]}, {"values": [None]},
+    {"lookups": [1]}, {"values": [False]},
+    {"lookups": [""]}, {"values": [""]},
+    {"lookups": [" \t"]}, {"values": ["\n "]},
+    {"lookups": ["partners"] * 65}, {"values": ["partner.example.test"] * 101},
+])
+def test_invalid_start_trust_is_rejected_before_request(inv, mock_org, spec):
+    with pytest.raises(ValidationError, match="trust"):
+        inv.start_run({"trigger": {"question": "example"}, "trust": spec})
+    mock_org.client.request.assert_not_called()
+
+
+def test_start_trust_accepts_exact_entry_limits(inv, mock_org):
+    spec = {"lookups": [f"partners-{i}" for i in range(64)],
+            "values": [f"partner-{i}.example.test" for i in range(100)]}
+    inv.start_run({"trigger": {"question": "example"}, "trust": spec})
+    assert json.loads(_request_args(mock_org)[2]["raw_body"])["trust"] == spec

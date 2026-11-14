@@ -133,7 +133,8 @@ limacharlie investigate runs start (--template NAME | --file plan.yaml | --auto)
     (--detection-id ID | --case-id ID | --entity-id ID | --question TEXT) \
     [--category C] [--severity S] [--priority N] [--tag T]... \
     [--input K=V]... [--inputs-json JSON] [--urgency low|medium|high|critical] [--mode triage|full|scope] \
-    [--case-mode create|none|attach:ID] [--idempotency-key KEY] [--wait SECONDS] [--follow [--timeout SECONDS]]
+    [--case-mode create|none|attach:ID] [--idempotency-key KEY] [--wait SECONDS] [--follow [--timeout SECONDS]] \
+    [--trust-lookup NAME]... [--trust-value VALUE]...
 limacharlie investigate runs get RUN_ID
 limacharlie investigate runs list [--state S] [--verdict V] [--template T] [--trigger T] [--entity E] \
     [--started-by user:UID] [--since TIME] [--until TIME] [--limit N] [--cursor C | --all]
@@ -234,6 +235,21 @@ result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samp
 ```
 
 `InvestigationError` carries `status_code`, `error_code`, `issues` and `warnings`.
+
+## Explicit trust
+
+Templates may declare `trust: {lookups: [partner-domains], values: [partner.example.test]}`.
+The identity starting the run needs `lookup.get` to read these same-org Lookup records.
+For Autopilot this is the onboarding key, rather than an identity that only reads settings.
+Repeat `--trust-lookup NAME` or `--trust-value VALUE` on `investigate runs start` to add
+trust for that run only (up to 64 Lookup names and 100 nonblank inline values).
+Runs started automatically by D&R rules or Autopilot use only the template's trust.
+The manual `--auto` option selects a template and still allows these run-only additions.
+A match accounts for the initial target as customer-declared trusted and skips active
+analysis; it never means verified or benign. Domains include DNS-boundary subdomains
+and URL hosts. Broad/shared entries and embedded URL destinations do not skip analysis.
+Missing, disabled or unreadable Lookups grant nothing and appear as run problems.
+
 
 ## See Also
 

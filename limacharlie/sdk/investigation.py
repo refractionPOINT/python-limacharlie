@@ -994,12 +994,39 @@ class Investigation:
                 whose ``applies_to`` matches the trigger; ``{"auto": true}`` is
                 refused for a person's run), ``inputs``, ``urgency`` (``low``,
                 ``medium``, ``high`` or ``critical``), ``mode``, ``case``,
-                ``idempotency_key``, ``wait_seconds``, ...
+                ``idempotency_key``, ``wait_seconds``, and optional ``trust``
+                (``lookups`` and ``values`` lists), additive to template trust
+                for this run only.
 
         Returns:
             dict: ``run`` and ``joined`` (True when an open run of the same
                 key absorbed the request instead of a new one starting).
         """
+        if "trust" in request:
+            trust = request["trust"]
+            normalized = {}
+            if trust is not None:
+                if not isinstance(trust, dict):
+                    raise ValidationError("trust must be an object")
+                if any(key not in {"lookups", "values"} for key in trust):
+                    raise ValidationError("trust accepts only lookups and values")
+                for key, maximum in (("lookups", 64), ("values", 100)):
+                    if key not in trust:
+                        continue
+                    entries = trust[key]
+                    if not isinstance(entries, list):
+                        raise ValidationError(f"trust.{key} must be a list of nonblank strings")
+                    if len(entries) > maximum:
+                        raise ValidationError(f"trust.{key} accepts at most {maximum} entries")
+                    if any(not isinstance(entry, str) or not entry.strip() for entry in entries):
+                        raise ValidationError(f"trust.{key} must contain only nonblank strings")
+                    if entries:
+                        normalized[key] = list(entries)
+            request = dict(request)
+            if normalized:
+                request["trust"] = normalized
+            else:
+                request.pop("trust")
         wait = request.get("wait_seconds") or 0
         return self._call("POST", "runs", body=request, write=True, timeout=max(_WAIT_MARGIN, int(wait) + _WAIT_MARGIN))
 
@@ -1242,6 +1269,8 @@ class Investigation:
             dict: ``results``, ``stopped_by``, ``usage`` and ``compact``; with
                 ``validate_only``, the validation report.
         """
+        if "trust" in request:
+            raise ValidationError("request-level trust is supported only by run start")
         if not isinstance(request.get("steps"), list) or not request["steps"]:
             raise ValidationError("a wave needs a non-empty 'steps' list")
         deadline = request.get("deadline_ms") or 30000

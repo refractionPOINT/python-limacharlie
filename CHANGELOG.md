@@ -64,6 +64,9 @@
 
 ### Investigation Engine — `limacharlie investigate` (experimental)
 
+- `investigate runs start` adds repeatable `--trust-lookup NAME` and
+  `--trust-value VALUE` options, additive to template trust for one run only.
+  The SDK validates the same optional request object and omits empty trust.
 - New `investigate` command group and `limacharlie.sdk.investigation.Investigation`
   SDK class to build, test and tune Investigation Engine templates and to run
   investigations, so a person or an AI agent can drive the whole loop from the
