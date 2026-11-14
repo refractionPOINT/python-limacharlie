@@ -719,3 +719,10 @@ def test_run_explicit_trust_additions(sdk):
     assert result.exit_code == 0, result.stderr
     assert sdk.start_run.call_args.args[0]["trust"] == {"lookups": ["partners", "corporate"],
         "values": ["partner.example.test", "https://portal.example.test/a"]}
+
+
+def test_run_without_trust_omits_the_optional_field(sdk):
+    sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+    result = run(["investigate", "runs", "start", "--template", "mail", "--detection-id", "d"])
+    assert result.exit_code == 0, result.stderr
+    assert "trust" not in sdk.start_run.call_args.args[0]

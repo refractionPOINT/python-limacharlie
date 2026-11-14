@@ -902,3 +902,16 @@ class TestParseDocument:
     def test_a_set_tag_is_refused(self):
         with pytest.raises(ValidationError):
             parse_document("a: !!set {x}\n")
+
+
+@pytest.mark.parametrize("spec", [None, {}])
+def test_start_run_empty_trust_wire_contract(inv, mock_org, spec):
+    mock_org.client.request.return_value = {"run": {"run_id": "r1"}}
+    request = {"trigger": {"question": "fictional"}, "trust": spec}
+    inv.start_run(request)
+    sent = json.loads(_request_args(mock_org)[2]["raw_body"])
+    if spec is None:
+        assert "trust" not in sent
+    else:
+        assert sent["trust"] == {}
+    assert "trust" in request  # the SDK does not mutate its caller's object

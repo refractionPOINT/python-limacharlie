@@ -999,6 +999,9 @@ class Investigation:
             dict: ``run`` and ``joined`` (True when an open run of the same
                 key absorbed the request instead of a new one starting).
         """
+        if "trust" in request and request["trust"] is None:
+            request = dict(request)
+            request.pop("trust")
         wait = request.get("wait_seconds") or 0
         return self._call("POST", "runs", body=request, write=True, timeout=max(_WAIT_MARGIN, int(wait) + _WAIT_MARGIN))
 
