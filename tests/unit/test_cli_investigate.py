@@ -709,3 +709,13 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
     assert mod._test_rows({"results": [{"cost": {"llm_usd": 0}}]})[0]["llm_cost"] == 0
     assert mod._test_rows({"results": [{"cost": {"llm_unpriced": True}}]})[0]["llm_cost"] == "0 (unpriced)"
     assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
+
+
+def test_run_explicit_trust_additions(sdk):
+    sdk.start_run.return_value = {"run": {"run_id": "r1"}}
+    result = run(["investigate", "runs", "start", "--template", "mail", "--detection-id", "d",
+                  "--trust-lookup", "partners", "--trust-lookup", "corporate",
+                  "--trust-value", "partner.example.test", "--trust-value", "https://portal.example.test/a"])
+    assert result.exit_code == 0, result.stderr
+    assert sdk.start_run.call_args.args[0]["trust"] == {"lookups": ["partners", "corporate"],
+        "values": ["partner.example.test", "https://portal.example.test/a"]}

@@ -914,6 +914,8 @@ def runs_group() -> None:
 
 
 @runs_group.command("start")
+@click.option("--trust-lookup", "trust_lookups", multiple=True, help="Same-org Lookup to trust for this run only (repeatable; adds to template trust). Requires lookup.get.")
+@click.option("--trust-value", "trust_values", multiple=True, help="Inline trusted value for this run only (repeatable; at most 100).")
 @click.option("--template", default=None, help="Stored template to run.")
 @_file_option
 @click.option("--auto", is_flag=True, default=False,
@@ -940,7 +942,7 @@ def runs_group() -> None:
 @pass_context
 @_engine_errors
 def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id, question, category, severity, priority,
-               tags, inputs, inputs_json, urgency, mode, case_mode, idempotency_key, wait_seconds, follow) -> None:
+               tags, inputs, inputs_json, urgency, mode, case_mode, idempotency_key, wait_seconds, follow, trust_lookups, trust_values) -> None:
     """Start an investigation run on a detection, case, entity or question."""
     if sum(bool(x) for x in (template, file_path, auto)) != 1:
         raise click.UsageError("Give exactly one of --template, --file or --auto.")
@@ -969,6 +971,8 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
             request[key] = value
     if wait_seconds:
         request["wait_seconds"] = wait_seconds
+    if trust_lookups or trust_values:
+        request["trust"] = {"lookups": list(trust_lookups), "values": list(trust_values)}
     inv = _get_investigation(ctx)
     answer = inv.start_run(request)
     if follow and _fmt(ctx) in _STRUCTURED:

@@ -991,7 +991,9 @@ class Investigation:
                 whose ``applies_to`` matches the trigger; ``{"auto": true}`` is
                 refused for a person's run), ``inputs``, ``urgency`` (``low``,
                 ``medium``, ``high`` or ``critical``), ``mode``, ``case``,
-                ``idempotency_key``, ``wait_seconds``, ...
+                ``idempotency_key``, ``wait_seconds``, and optional ``trust``
+                (``lookups`` and ``values`` lists), additive to template trust
+                for this run only.
 
         Returns:
             dict: ``run`` and ``joined`` (True when an open run of the same
