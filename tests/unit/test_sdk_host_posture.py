@@ -161,6 +161,7 @@ class TestInstallDefaultPack:
         old = _entry("lc.a", 1)
         stored = _pristine(old, enabled=False, expiry=123)
         stored.tags.append("org-tag")
+        stored.ui_actions = [{"name": "x"}]
         hive.get.side_effect = None
         hive.get.return_value = stored
         result = hp_.install_default_pack(["lc.a"], update=True)
@@ -170,6 +171,7 @@ class TestInstallDefaultPack:
         assert record.data == _rec("lc.a", 2)
         assert record.enabled is False and record.expiry == 123
         assert "org-tag" in record.tags
+        assert record.ui_actions == [{"name": "x"}]
         digests = [t for t in record.tags if t.startswith(PACK_DIGEST_TAG_PREFIX)]
         assert digests == [PACK_DIGEST_TAG_PREFIX + record_digest(_rec("lc.a", 2))]
 

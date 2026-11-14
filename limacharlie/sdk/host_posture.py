@@ -217,8 +217,8 @@ class HostPosture:
           record is one this pack wrote that nobody edited since (its stored
           data still matches the digest tag the install left) and the pack's
           version is newer. The replacement is conditional on the etag that
-          was read, and keeps the record's enabled state, expiry, other tags
-          and own comment.
+          was read, and keeps the record's enabled state, expiry, other tags,
+          ui_actions and own comment.
         * A rule the org edited, a record this pack did not write, or one that
           is as new as or newer than the pack's is replaced only with
           ``force``.
@@ -352,7 +352,7 @@ class HostPosture:
         record = HiveRecord(
             name=rule_id, data=data, etag=existing.etag,
             enabled=bool(existing.enabled), expiry=existing.expiry, tags=tags,
-            comment=existing.comment if keep_comment else comment,
+            comment=existing.comment if keep_comment else comment, ui_actions=existing.ui_actions,
         )
         item = {"id": rule_id, "from_version": installed_version, "to_version": pack_rule_version}
         if dry_run:

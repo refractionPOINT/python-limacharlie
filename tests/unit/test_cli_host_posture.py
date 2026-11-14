@@ -97,9 +97,9 @@ class TestCommands:
 
     def test_sweep_tags(self, sdk):
         sdk.sweep.return_value = {"job_id": "j", "sensors_tasked": 3}
-        run(["host-posture", "sweep"])
+        assert run(["host-posture", "sweep"]).exit_code == 0
         sdk.sweep.assert_called_with(None)
-        run(["host-posture", "sweep", "--tag", "prod", "--tag", "web"])
+        assert run(["host-posture", "sweep", "--tag", "prod", "--tag", "web"]).exit_code == 0
         sdk.sweep.assert_called_with(["prod", "web"])
 
     def test_status(self, sdk):
@@ -109,9 +109,9 @@ class TestCommands:
 
     def test_install_defaults_arguments_and_failure_exit(self, sdk):
         sdk.install_default_pack.return_value = {"created": [], "updated": [], "skipped": [], "failed": []}
-        run(["host-posture", "install-defaults"])
+        assert run(["host-posture", "install-defaults"]).exit_code == 0
         sdk.install_default_pack.assert_called_with(None, update=False, force=False, enabled=True, dry_run=False)
-        run(["host-posture", "install-defaults", "--id", "a", "--id", "b", "--update", "--force", "--disabled", "--dry-run"])
+        assert run(["host-posture", "install-defaults", "--id", "a", "--id", "b", "--update", "--force", "--disabled", "--dry-run"]).exit_code == 0
         sdk.install_default_pack.assert_called_with(["a", "b"], update=True, force=True, enabled=False, dry_run=True)
         sdk.install_default_pack.return_value = {"created": [], "updated": [], "skipped": [], "failed": [{"id": "a"}]}
         assert run(["host-posture", "install-defaults"]).exit_code == 1

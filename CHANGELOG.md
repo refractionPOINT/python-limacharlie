@@ -18,6 +18,9 @@
 - `host_posture_rule` is listed by `hive list-types` and synced by `sync pull` /
   `sync push` with `--hive-host-posture-rule` (and by `--all`; SDK
   `Configs.ALL_HIVES`). New SDK class `limacharlie.sdk.host_posture.HostPosture`.
+- `--all` now includes `host_posture_rule`, like every other hive. A forced
+  `sync push --all` of a config file pulled before this change has no
+  `host_posture_rule` key, so pull again first.
 - Saving, enabling or disabling a rule needs `host_posture.set` and
   `sensor.task`; deleting needs `host_posture.set`.
 
