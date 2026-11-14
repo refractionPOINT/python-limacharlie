@@ -41,7 +41,7 @@ from ..cli import pass_context
 from ..client import Client
 from ..config import get_config_value
 from ..sdk.organization import Organization
-from ..sdk.search import Search
+from ..sdk.search import Search, search_stream
 from ..sdk.hive import Hive, HiveRecord
 from ..output import format_output, format_table, detect_output_format, escape_control_chars
 from ..discovery import register_explain
@@ -1164,8 +1164,8 @@ Query Language) lets you search across events, detections, and audit
 logs stored in Insight.
 
 You must provide a time range via --start and --end (unix epoch
-seconds).  Use --stream to specify the data stream ('event', 'detect',
-'audit').  Use --limit to cap the number of results.
+seconds).  Use --stream to specify the data stream ('event', 'detection',
+'audit'; 'detect' is accepted as 'detection').  Use --limit to cap the number of results.
 
 LCQL query format:
 
@@ -1290,7 +1290,7 @@ register_explain("search.run", _EXPLAIN_RUN)
 @click.option("--query", default=None, help="LCQL query string.")
 @click.option("--start", default=None, type=int, help="Start time (unix seconds).")
 @click.option("--end", default=None, type=int, help="End time (unix seconds).")
-@click.option("--stream", default=None, help="Stream type (event, detect, audit).")
+@click.option("--stream", default=None, help="Stream type (event, detection, audit).")
 @click.option("--limit", default=None, type=int, help="Maximum number of results.")
 @click.option(
     "--token-expiry", default=None, type=float,
@@ -1975,7 +1975,7 @@ register_explain("search.estimate", _EXPLAIN_ESTIMATE)
 @click.option("--query", required=True, help="LCQL query string.")
 @click.option("--start", required=True, type=int, help="Start time (unix seconds).")
 @click.option("--end", required=True, type=int, help="End time (unix seconds).")
-@click.option("--stream", default=None, help="Stream type (event, detect, audit).")
+@click.option("--stream", default=None, help="Stream type (event, detection, audit).")
 @pass_context
 def estimate(ctx: click.Context, query: str, start: int, end: int, stream: str | None) -> None:
     """Estimate the billing cost of an LCQL query."""
@@ -2079,7 +2079,7 @@ register_explain("search.saved-create", _EXPLAIN_SAVED_CREATE)
 @click.option("--query", required=True, help="LCQL query string.")
 @click.option("--start", default=None, type=int, help="Default start time (unix seconds).")
 @click.option("--end", default=None, type=int, help="Default end time (unix seconds).")
-@click.option("--stream", default=None, help="Default stream type (event, detect, audit).")
+@click.option("--stream", default=None, help="Default stream type (event, detection, audit).")
 @pass_context
 def saved_create(ctx: click.Context, name: str, query: str, start: int | None, end: int | None, stream: str | None) -> None:
     """Create a new saved query."""
@@ -2094,7 +2094,7 @@ def saved_create(ctx: click.Context, name: str, query: str, start: int | None, e
     if end is not None:
         query_data["end"] = end
     if stream is not None:
-        query_data["stream"] = stream
+        query_data["stream"] = search_stream(stream)
 
     record = HiveRecord(name, data=query_data)
     result = hive.set(record)

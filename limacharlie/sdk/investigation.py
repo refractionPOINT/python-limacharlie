@@ -81,6 +81,9 @@ _CREATE_ONLY_ETAG = "create-only: the record must not exist"
 MAX_POLL_WAIT = 10
 MAX_EVENTS_LIMIT = 500
 
+# Bound cursor history while refusing pagination cycles.
+_MAX_PAGINATION_CURSORS = 10000
+
 # Seconds added to a call's own wait to form its HTTP timeout.
 _WAIT_MARGIN = 35
 
@@ -376,13 +379,13 @@ def _parse_timestamp(s: str) -> str | None:
 
 
 def _resolve_scalar(text: str, tag: str = "") -> tuple[str, Any]:
-    """Resolve a scalar the way the engine's YAML library (gopkg.in/yaml.v3) does.
+    """Resolve a scalar according to the public template YAML contract.
 
-    This is a port of its ``resolve`` and is checked against the engine's own
-    parser by ``tests/unit/fixtures/investigation_scalars.json``. ``tag`` is
-    ``""`` for a plain scalar or an explicit ``!!int``-style tag. Returns
-    ``(tag, value)``; a timestamp is returned as its UTC RFC 3339 text, the
-    form the engine stores it in.
+    Checked against normalized recorded compatibility observations in
+    ``tests/unit/fixtures/investigation_scalars.json``. Regeneration and
+    provenance are documented in that directory's ``README.investigation.md``.
+    ``tag`` is empty for a plain scalar or an explicit ``!!int``-style tag.
+    Returns ``(tag, value)``; timestamps use UTC RFC 3339 text.
 
     Raises:
         ValueError: If an explicit tag does not fit the text.
@@ -999,9 +1002,31 @@ class Investigation:
             dict: ``run`` and ``joined`` (True when an open run of the same
                 key absorbed the request instead of a new one starting).
         """
-        if "trust" in request and request["trust"] is None:
+        if "trust" in request:
+            trust = request["trust"]
+            normalized = {}
+            if trust is not None:
+                if not isinstance(trust, dict):
+                    raise ValidationError("trust must be an object")
+                if any(key not in {"lookups", "values"} for key in trust):
+                    raise ValidationError("trust accepts only lookups and values")
+                for key, maximum in (("lookups", 64), ("values", 100)):
+                    if key not in trust:
+                        continue
+                    entries = trust[key]
+                    if not isinstance(entries, list):
+                        raise ValidationError(f"trust.{key} must be a list of nonblank strings")
+                    if len(entries) > maximum:
+                        raise ValidationError(f"trust.{key} accepts at most {maximum} entries")
+                    if any(not isinstance(entry, str) or not entry.strip() for entry in entries):
+                        raise ValidationError(f"trust.{key} must contain only nonblank strings")
+                    if entries:
+                        normalized[key] = list(entries)
             request = dict(request)
-            request.pop("trust")
+            if normalized:
+                request["trust"] = normalized
+            else:
+                request.pop("trust")
         wait = request.get("wait_seconds") or 0
         return self._call("POST", "runs", body=request, write=True, timeout=max(_WAIT_MARGIN, int(wait) + _WAIT_MARGIN))
 
@@ -1073,16 +1098,20 @@ class Investigation:
             dict: One run at a time.
 
         Raises:
-            ApiError: If the engine returns a cursor that does not advance.
+            ApiError: If a cursor repeats or the 10,000-cursor history limit is exceeded.
         """
+        seen = {filters["cursor"]} if filters.get("cursor") else set()
         while True:
             page = self.list_runs(**filters)
             yield from page.get("runs") or []
             nxt = page.get("next_cursor") or ""
             if not nxt:
                 return
-            if nxt == filters.get("cursor"):
-                raise ApiError("Run listing did not advance: the engine returned the same cursor.")
+            if nxt in seen:
+                raise ApiError("Run listing did not advance: the engine returned a repeated cursor.")
+            if len(seen) >= _MAX_PAGINATION_CURSORS:
+                raise ApiError("Run listing exceeded the cursor history limit; resume with an explicit cursor.")
+            seen.add(nxt)
             filters["cursor"] = nxt
 
     def get_run_steps(self, run_id: str, values: bool = False) -> dict[str, Any]:
@@ -1289,16 +1318,20 @@ class Investigation:
             dict: One action at a time.
 
         Raises:
-            ApiError: If the engine returns a cursor that does not advance.
+            ApiError: If a cursor repeats or the 10,000-cursor history limit is exceeded.
         """
+        seen = {filters["cursor"]} if filters.get("cursor") else set()
         while True:
             page = self.list_actions(**filters)
             yield from page.get("actions") or []
             nxt = page.get("next_cursor") or ""
             if not nxt:
                 return
-            if nxt == filters.get("cursor"):
-                raise ApiError("Action listing did not advance: the engine returned the same cursor.")
+            if nxt in seen:
+                raise ApiError("Action listing did not advance: the engine returned a repeated cursor.")
+            if len(seen) >= _MAX_PAGINATION_CURSORS:
+                raise ApiError("Action listing exceeded the cursor history limit; resume with an explicit cursor.")
+            seen.add(nxt)
             filters["cursor"] = nxt
 
     def decide_action(

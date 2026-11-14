@@ -25,6 +25,12 @@ pip install 'limacharlie[toon]'
 
 On uv older than 0.12 the extra is not enough, because `toon_format` publishes only a pre-release and those versions resolve pre-releases for directly named requirements only. Name it directly there: `uv tool install limacharlie --with 'toon-format>=0.9.0b1'`. See [the CLI output formats guide](doc/cli/README.md#output-formats) for details.
 
+API responses are requested compressed (gzip, or zstd when a decoder is available) and decoded transparently. On Python 3.10-3.13 the `zstd` extra adds the zstd decoder; Python 3.14+ has one built in. See [Compressed Responses](doc/sdk/README.md#compressed-responses).
+
+```bash
+pip install 'limacharlie[zstd]'
+```
+
 See [Getting Started](doc/getting-started.md) for Docker credential mounting and first steps.
 
 ## Quick Start

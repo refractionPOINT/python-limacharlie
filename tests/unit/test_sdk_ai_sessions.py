@@ -602,7 +602,7 @@ class TestStartSessionCliHelp:
         result = runner.invoke(cli, ["ai", "start-session", "--help"])
         assert result.exit_code == 0, result.output
         for flag in (
-            "--model", "--max-turns", "--max-budget-usd",
+            "--model", "--effort", "--max-turns", "--max-budget-usd",
             "--task-budget-tokens", "--ttl-seconds", "--one-shot",
             "--permission-mode", "--allowed-tools", "--denied-tools",
             "--plugin", "--env", "--anthropic-key", "--lc-api-key", "--lc-uid",
@@ -866,6 +866,7 @@ class TestCreateUserSession:
             name="chat test",
             idempotent_key="key-1",
             model="claude-sonnet-4-6",
+            effort="high",
             max_turns=10,
             max_budget_usd=0.5,
             task_budget_tokens=5000,
@@ -881,6 +882,7 @@ class TestCreateUserSession:
             "name": "chat test",
             "idempotent_key": "key-1",
             "model": "claude-sonnet-4-6",
+            "effort": "high",
             "max_turns": 10,
             "max_budget_usd": 0.5,
             "task_budget_tokens": 5000,
@@ -1060,7 +1062,7 @@ class TestChatCommand:
         result = runner.invoke(cli, ["ai", "chat", "--help"])
         assert result.exit_code == 0, result.output
         for flag in (
-            "--name", "--model", "--max-turns", "--max-budget-usd",
+            "--name", "--model", "--effort", "--max-turns", "--max-budget-usd",
             "--task-budget-tokens", "--permission-mode",
             "--allowed-tools", "--denied-tools", "--plugin",
             "--idempotent-key",
@@ -1428,3 +1430,106 @@ class TestStartSessionProviderEnvelope:
         assert body["anthropic_key"] == "sk-override"
         assert "credentials" not in body
 
+
+# ---------------------------------------------------------------------------
+# Reasoning effort
+# ---------------------------------------------------------------------------
+
+class TestEffort:
+    """``effort`` reaches the request only when set; unset sends nothing."""
+
+    def test_start_session_override_sets_profile_effort(self, ai, mock_org):
+        body = _run_start(ai, mock_org, _minimal_defn(), effort="xhigh")
+        assert body["profile"]["effort"] == "xhigh"
+
+    def test_start_session_copies_template_effort(self, ai, mock_org):
+        body = _run_start(ai, mock_org, _minimal_defn(effort="medium",
+                                                      model="m1"))
+        assert body["profile"]["effort"] == "medium"
+
+    def test_start_session_override_replaces_template_effort(self, ai, mock_org):
+        body = _run_start(ai, mock_org, _minimal_defn(effort="low"),
+                          effort="max")
+        assert body["profile"]["effort"] == "max"
+
+    def test_start_session_empty_effort_sends_nothing(self, ai, mock_org):
+        # An empty template value, or an empty override clearing a
+        # template value, both mean the model's own default.
+        body = _run_start(ai, mock_org, _minimal_defn(effort="", model="m1"))
+        assert "effort" not in body["profile"]
+        body = _run_start(ai, mock_org, _minimal_defn(effort="high",
+                                                      model="m1"),
+                          effort="")
+        assert "effort" not in body["profile"]
+        assert body["profile"]["model"] == "m1"
+
+    def test_create_user_session_empty_effort_sends_nothing(self, ai, mock_org):
+        mock_org.client.request.return_value = {"id": "sess-1"}
+        ai.create_user_session(model="m1", effort="")
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert body == {"model": "m1"}
+        ai.create_user_session(effort="low")
+        body = json.loads(mock_org.client.request.call_args[1]["raw_body"])
+        assert body == {"effort": "low"}
+
+    def test_cli_start_session_passes_effort(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org"), \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK, \
+             patch("limacharlie.commands.ai._output"):
+            result = runner.invoke(cli, [
+                "ai", "start-session", "--definition", "my-agent",
+                "--effort", "high",
+            ])
+            assert result.exit_code == 0, result.output
+            kwargs = MockSDK.return_value.start_session.call_args.kwargs
+            assert kwargs["effort"] == "high"
+
+            result = runner.invoke(cli, [
+                "ai", "start-session", "--definition", "my-agent",
+            ])
+            assert result.exit_code == 0, result.output
+            kwargs = MockSDK.return_value.start_session.call_args.kwargs
+            assert kwargs["effort"] is None
+
+    @pytest.mark.parametrize("command", [
+        ["ai", "start-session", "--definition", "my-agent"],
+        ["ai", "chat", "hi"],
+    ])
+    def test_cli_rejects_unknown_effort(self, command):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org"), \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK:
+            result = runner.invoke(cli, command + ["--effort", "extreme"])
+            assert result.exit_code == 2
+            assert "Invalid value for '--effort'" in result.output
+            for level in ("low", "medium", "high", "xhigh", "max"):
+                assert f"'{level}'" in result.output
+            MockSDK.return_value.start_session.assert_not_called()
+            MockSDK.return_value.create_user_session.assert_not_called()
+
+    def test_cli_chat_passes_effort(self):
+        import click.testing
+        from limacharlie.cli import cli
+
+        runner = click.testing.CliRunner()
+        with patch("limacharlie.commands.ai._get_org"), \
+             patch("limacharlie.commands.ai.AISDK") as MockSDK, \
+             patch("limacharlie.commands._ai_attach.run_attach", return_value=0):
+            sdk = MockSDK.return_value
+            sdk.claude_auth_status.return_value = {"has_credentials": True}
+            sdk.create_user_session.return_value = {"session": {"id": "s1"}}
+
+            result = runner.invoke(cli, ["ai", "chat", "hi", "--effort", "max"])
+            assert result.exit_code == 0, result.output
+            assert sdk.create_user_session.call_args.kwargs["effort"] == "max"
+
+            result = runner.invoke(cli, ["ai", "chat", "hi"])
+            assert result.exit_code == 0, result.output
+            assert sdk.create_user_session.call_args.kwargs["effort"] is None

@@ -396,10 +396,10 @@ class TestErrors:
 # Template source
 # ---------------------------------------------------------------------------
 
-_SCALARS = json.loads((Path(__file__).parent / "fixtures" / "investigation_scalars.json").read_text())["cases"]
+_SCALARS = json.loads((Path(__file__).parent / "fixtures" / "investigation_scalars.json").read_text(encoding="utf-8"))["cases"]
 _PLAIN_SCALARS = [
     c for c in _SCALARS
-    if c["kind"] != "error" and not c["kind"].startswith("other")
+    if c["kind"] != "error" and c["kind"] not in ("sequence", "mapping")
     and c["src"] == c["src"].strip() and c["src"] and c["src"][0] not in "'\"!&*#" and " #" not in c["src"]
 ]
 
@@ -411,8 +411,10 @@ def _args_value(src: str) -> str:
 class TestTemplateSource:
     @pytest.mark.parametrize("case", _SCALARS, ids=[c["src"] or "<empty>" for c in _SCALARS])
     def test_args_scalars_are_read_as_the_engine_reads_them(self, case):
-        """Every spelling gives what the engine's own parser gave it (fixture generated from that parser)."""
+        """Every spelling retains its expected public template scalar type."""
         src, kind, want = case["src"], case["kind"], case.get("value", "")
+        if kind not in {"null", "bool", "int", "float", "string", "timestamp", "sequence", "mapping", "error"}:
+            pytest.fail(f"Unknown scalar fixture kind: {kind!r}")
         text = _args_value(src)
         if kind == "error":
             with pytest.raises(ValidationError):
@@ -433,14 +435,14 @@ class TestTemplateSource:
             assert type(got) is float and got == float(want)
         elif kind in ("string", "timestamp"):
             assert type(got) is str and got == want
-        elif kind == "other:[]interface {}":
+        elif kind == "sequence":
             assert isinstance(got, list)
-        else:
+        elif kind == "mapping":
             assert isinstance(got, dict)
 
     def test_the_typed_field_lists_cover_every_non_text_field_of_the_engine(self):
         """A field the engine adds as a number or boolean must be added to the SDK's lists, or it would be stored as text."""
-        fields = json.loads((Path(__file__).parent / "fixtures" / "investigation_typed_fields.json").read_text())["fields"]
+        fields = json.loads((Path(__file__).parent / "fixtures" / "investigation_typed_fields.json").read_text(encoding="utf-8"))["fields"]
         sdk_paths = {
             "number": {".".join(p) for p in inv_mod._NUMBER_PATHS},
             "bool": {".".join(p) for p in inv_mod._BOOL_PATHS},
@@ -910,10 +912,7 @@ def test_start_run_empty_trust_wire_contract(inv, mock_org, spec):
     request = {"trigger": {"question": "fictional"}, "trust": spec}
     inv.start_run(request)
     sent = json.loads(_request_args(mock_org)[2]["raw_body"])
-    if spec is None:
-        assert "trust" not in sent
-    else:
-        assert sent["trust"] == {}
+    assert "trust" not in sent
     assert "trust" in request  # the SDK does not mutate its caller's object
 
 
@@ -921,3 +920,76 @@ def test_wave_never_sends_unsupported_request_trust(inv, mock_org):
     with pytest.raises(ValidationError, match="only by run start"):
         inv.run_wave({"steps": [{"id": "s", "op": "entity.get"}], "trust": {"lookups": ["partners"]}})
     mock_org.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("method,key", [("iter_runs", "runs"), ("iter_actions", "actions")])
+def test_pagination_rejects_multicursor_cycles(inv, mock_org, method, key):
+    mock_org.client.request.side_effect = [
+        {key: [], "next_cursor": "A"},
+        {key: [], "next_cursor": "B"},
+        {key: [], "next_cursor": "A"},
+    ]
+    with pytest.raises(ApiError, match="repeated cursor"):
+        list(getattr(inv, method)())
+    assert mock_org.client.request.call_count == 3
+
+
+@pytest.mark.parametrize("method,key", [("iter_runs", "runs"), ("iter_actions", "actions")])
+def test_pagination_bounds_cursor_history(inv, mock_org, monkeypatch, method, key):
+    monkeypatch.setattr(inv_mod, "_MAX_PAGINATION_CURSORS", 2)
+    mock_org.client.request.side_effect = [
+        {key: [], "next_cursor": cursor} for cursor in ("A", "B", "C")
+    ]
+    with pytest.raises(ApiError, match="cursor history limit"):
+        list(getattr(inv, method)())
+    assert mock_org.client.request.call_count == 3
+
+
+def test_scalar_fixture_rejects_unknown_kind_clearly():
+    with pytest.raises(pytest.fail.Exception, match="Unknown scalar fixture kind"):
+        TestTemplateSource().test_args_scalars_are_read_as_the_engine_reads_them(
+            {"src": "example", "kind": "unrecognized-collection"})
+
+
+@pytest.mark.parametrize("spec,expected", [
+    ({"lookups": []}, None),
+    ({"values": []}, None),
+    ({"lookups": [], "values": []}, None),
+    ({"lookups": ["partners"], "values": []}, {"lookups": ["partners"]}),
+    ({"lookups": [], "values": ["partner.example.test"]}, {"values": ["partner.example.test"]}),
+])
+def test_start_run_normalizes_trust_without_mutating_caller(inv, mock_org, spec, expected):
+    import copy
+    request = {"trigger": {"question": "example"}, "trust": spec}
+    original = copy.deepcopy(request)
+    inv.start_run(request)
+    sent = json.loads(_request_args(mock_org)[2]["raw_body"])
+    if expected is None:
+        assert "trust" not in sent
+    else:
+        assert sent["trust"] == expected
+    assert request == original
+    assert request["trust"] is spec
+
+
+@pytest.mark.parametrize("spec", [
+    "invalid", [], False, {"extra": []},
+    {"lookups": "partners"}, {"values": "partner.example.test"},
+    {"lookups": None}, {"values": None},
+    {"lookups": [None]}, {"values": [None]},
+    {"lookups": [1]}, {"values": [False]},
+    {"lookups": [""]}, {"values": [""]},
+    {"lookups": [" \t"]}, {"values": ["\n "]},
+    {"lookups": ["partners"] * 65}, {"values": ["partner.example.test"] * 101},
+])
+def test_invalid_start_trust_is_rejected_before_request(inv, mock_org, spec):
+    with pytest.raises(ValidationError, match="trust"):
+        inv.start_run({"trigger": {"question": "example"}, "trust": spec})
+    mock_org.client.request.assert_not_called()
+
+
+def test_start_trust_accepts_exact_entry_limits(inv, mock_org):
+    spec = {"lookups": [f"partners-{i}" for i in range(64)],
+            "values": [f"partner-{i}.example.test" for i in range(100)]}
+    inv.start_run({"trigger": {"question": "example"}, "trust": spec})
+    assert json.loads(_request_args(mock_org)[2]["raw_body"])["trust"] == spec

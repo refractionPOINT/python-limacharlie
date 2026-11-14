@@ -238,8 +238,15 @@ draft template runs with autonomy capped at suggest; an active one acts as
 the org's policy says (response actions may wait for a person's approval).
 --idempotency-key makes a repeated start return the same run.
 
+Repeat --trust-lookup NAME / --trust-value VALUE to add to template trust for
+this run only. The identity starting the run needs lookup.get for Lookups.
+Automatic runs use only template trust.
+
 With --wait N the call blocks up to N seconds for the verdict; --follow then
-streams the run's events until it ends. With --follow in a structured output
+streams the run's events until it ends (--timeout defaults to 900 seconds;
+0 has no time limit). On an interruption or stream error, resume with
+runs events RUN_ID --follow --after N using the printed sequence.
+With --follow in a structured output
 format stdout is JSON lines: the first line is the start answer ({"run": ...,
 "joined": ...}), the following lines are events ({"seq": ..., "type": ...}).
 
@@ -914,7 +921,7 @@ def runs_group() -> None:
 
 
 @runs_group.command("start")
-@click.option("--trust-lookup", "trust_lookups", multiple=True, help="Same-org Lookup to trust for this run only (repeatable; adds to template trust). Requires lookup.get.")
+@click.option("--trust-lookup", "trust_lookups", multiple=True, help="Same-org Lookup to trust for this run only (repeatable; up to 64; adds to template trust). The identity starting the run needs lookup.get.")
 @click.option("--trust-value", "trust_values", multiple=True, help="Inline trusted value for this run only (repeatable; at most 100).")
 @click.option("--template", default=None, help="Stored template to run.")
 @_file_option
@@ -939,10 +946,12 @@ def runs_group() -> None:
 @click.option("--idempotency-key", default=None, help="Starting twice with the same key returns the same run.")
 @click.option("--wait", "wait_seconds", type=click.IntRange(0, 60), default=0, help="Block up to this many seconds for the verdict (this CLI accepts 0..60; the run goes on after it).")
 @click.option("--follow", is_flag=True, default=False, help="Then stream the run's events until it ends.")
+@click.option("--timeout", type=click.FloatRange(min=0), default=900, show_default=True,
+              help="With --follow: stop after this many seconds; 0 follows without a time limit.")
 @pass_context
 @_engine_errors
 def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id, question, category, severity, priority,
-               tags, inputs, inputs_json, urgency, mode, case_mode, idempotency_key, wait_seconds, follow, trust_lookups, trust_values) -> None:
+               tags, inputs, inputs_json, urgency, mode, case_mode, idempotency_key, wait_seconds, follow, timeout, trust_lookups, trust_values) -> None:
     """Start an investigation run on a detection, case, entity or question."""
     if sum(bool(x) for x in (template, file_path, auto)) != 1:
         raise click.UsageError("Give exactly one of --template, --file or --auto.")
@@ -972,7 +981,11 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
     if wait_seconds:
         request["wait_seconds"] = wait_seconds
     if trust_lookups or trust_values:
-        request["trust"] = {"lookups": list(trust_lookups), "values": list(trust_values)}
+        request["trust"] = {}
+        if trust_lookups:
+            request["trust"]["lookups"] = list(trust_lookups)
+        if trust_values:
+            request["trust"]["values"] = list(trust_values)
     inv = _get_investigation(ctx)
     answer = inv.start_run(request)
     if follow and _fmt(ctx) in _STRUCTURED:
@@ -984,7 +997,7 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
     if follow:
         run_id = (answer.get("run") or {}).get("run_id")
         if run_id:
-            _follow_events(ctx, inv, run_id, 0, MAX_POLL_WAIT, None, 900)
+            _follow_events(ctx, inv, run_id, 0, MAX_POLL_WAIT, None, timeout or None)
 
 
 @runs_group.command("get")
@@ -1034,19 +1047,25 @@ def _follow_events(ctx: click.Context, inv: Investigation, run_id: str, after: i
                    limit: int | None, timeout: float | None) -> None:
     """Stream a run's events until it is over, one per line, flushing as they arrive."""
     state: dict[str, Any] = {}
+    last_sequence = after
     structured = _fmt(ctx) in _STRUCTURED
     try:
         for event in inv.iter_run_events(run_id, after=after, wait=wait, limit=limit, timeout=timeout, state=state):
             if ctx.obj.quiet:
+                last_sequence = event.get("seq", last_sequence)
                 continue
             click.echo(json.dumps(event, separators=(",", ":"), default=str) if structured else _event_line(event))
             sys.stdout.flush()
+            last_sequence = event.get("seq", last_sequence)
+    except LimaCharlieError:
+        note(ctx, f"event stream failed; resume with --after {last_sequence}")
+        raise
     except KeyboardInterrupt:
-        note(ctx, f"interrupted; resume with --after {state.get('next', after)}")
+        note(ctx, f"interrupted; resume with --after {last_sequence}")
         ctx.exit(130)
     if state.get("done"):
         return
-    note(ctx, f"run not finished after {timeout:g}s; resume with --after {state.get('next', after)}")
+    note(ctx, f"run not finished after {timeout:g}s; resume with --after {last_sequence}")
     ctx.exit(1)
 
 

@@ -86,9 +86,13 @@ class AI:
     # (see ai-sessions/pkg/api/types.go).
     _PROFILE_SCALAR_FIELDS: tuple[str, ...] = (
         "allowed_tools", "denied_tools", "permission_mode",
-        "model", "max_turns", "max_budget_usd", "task_budget_tokens",
+        "model", "effort", "max_turns", "max_budget_usd", "task_budget_tokens",
         "ttl_seconds", "one_shot", "plugins",
     )
+
+    # Reasoning effort levels accepted by ai-sessions, lowest to highest.
+    # Unset (None) sends nothing and leaves the model's own default.
+    EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
     def start_session(self, definition_name: str, prompt: str | None = None,
                       name: str | None = None,
@@ -96,6 +100,7 @@ class AI:
                       data: dict[str, Any] | None = None,
                       *,
                       model: str | None = None,
+                      effort: str | None = None,
                       max_turns: int | None = None,
                       max_budget_usd: float | None = None,
                       task_budget_tokens: int | None = None,
@@ -138,6 +143,13 @@ class AI:
         Keyword Args:
             model: Replace the model (provider-specific, e.g.
                 ``claude-sonnet-4-6``, ``gpt-5.2``, ``openai/gpt-5-mini``).
+            effort: Replace the reasoning effort (one of
+                :attr:`EFFORT_LEVELS`: ``low``, ``medium``, ``high``,
+                ``xhigh``, ``max``).  Higher levels think longer: better
+                on hard investigations, but slower and more tokens on the
+                AI provider's bill.  ``None`` keeps the template's value;
+                ``""`` clears it so the model's own default applies.
+                Passed through as is; the server validates it.
             max_turns: Replace the maximum number of agent turns.
             max_budget_usd: Replace the hard USD cost cap.
             task_budget_tokens: Replace the per-task token budget.
@@ -280,6 +292,7 @@ class AI:
         # Apply scalar / list overrides.  A None override means "keep template".
         scalar_overrides: dict[str, Any] = {
             "model": model,
+            "effort": effort,
             "max_turns": max_turns,
             "max_budget_usd": max_budget_usd,
             "task_budget_tokens": task_budget_tokens,
@@ -293,6 +306,9 @@ class AI:
         for field, value in scalar_overrides.items():
             if value is not None:
                 profile[field] = value
+        # An empty effort means the model's own default: send nothing.
+        if not profile.get("effort"):
+            profile.pop("effort", None)
 
         # Environment: merge template + overrides (override wins on key collision).
         template_env = defn.get("environment") or {}
@@ -833,6 +849,7 @@ class AI:
                             name: str | None = None,
                             idempotent_key: str | None = None,
                             model: str | None = None,
+                            effort: str | None = None,
                             max_turns: int | None = None,
                             max_budget_usd: float | None = None,
                             task_budget_tokens: int | None = None,
@@ -853,7 +870,9 @@ class AI:
 
         Keyword Args mirror the :class:`CreateSessionRequest` fields
         accepted by ``POST /v1/sessions`` on ai-sessions (see
-        ``internal/sessionmanager/models.go``).
+        ``internal/sessionmanager/models.go``).  ``effort`` is the
+        reasoning effort (one of :attr:`EFFORT_LEVELS`); ``None`` or ``""``
+        sends nothing and leaves the model's own default.
 
         Returns:
             dict representation of the created session (``id``,
@@ -866,6 +885,8 @@ class AI:
             body["idempotent_key"] = idempotent_key
         if model is not None:
             body["model"] = model
+        if effort:
+            body["effort"] = effort
         if max_turns is not None:
             body["max_turns"] = max_turns
         if max_budget_usd is not None:

@@ -428,7 +428,7 @@ This is a full v2.0.0 rewrite with no backwards compatibility requirement:
 - [ ] `payload delete <name>` - Delete payload
 
 ### Search Commands - `limacharlie search`
-- [ ] `search run <lcql-query> --start <time> --end <time> [--stream <event|detect|audit>] [--limit <n>]` - Execute LCQL query
+- [ ] `search run <lcql-query> --start <time> --end <time> [--stream <event|detection|audit>] [--limit <n>]` - Execute LCQL query
 - [ ] `search run --input-file <query-file> --start <time> --end <time>` - Execute from file
 - [ ] `search validate <lcql-query>` - Validate LCQL syntax
 - [ ] `search estimate <lcql-query> --start <time> --end <time>` - Estimate billing cost
