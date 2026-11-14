@@ -623,12 +623,50 @@ def packs_cmd(ctx, name, brief) -> None:
             {
                 "name": p.get("name"),
                 "brief": p.get("brief"),
+                **{k: p[k] for k in ("version", "digest", "source", "trust", "trust_provenance") if k in p},
                 "params": [{k: x.get(k) for k in ("name", "type", "required") if k in x} for x in p.get("params") or []],
                 "exports": [{k: x.get(k) for k in ("name", "type", "ref", "brief") if k in x} for x in p.get("exports") or []],
             }
             for p in packs
         ]
     command_output(ctx, packs if _fmt(ctx) in ("table", "csv", "jsonl") else {"packs": packs})
+
+
+@group.group("pack")
+def pack_group() -> None:
+    """Manage org-authored pack YAML; discover resolved packs with packs."""
+
+
+@pack_group.command("get")
+@click.argument("name")
+@pass_context
+@_engine_errors
+def pack_get(ctx, name) -> None:
+    """Read an org pack, including exact source and etag."""
+    command_output(ctx, _get_investigation(ctx).get_pack(name))
+
+
+@pack_group.command("save")
+@click.argument("name")
+@click.option("--file", "-f", "file_path", required=True, help="Pack YAML file ('-' for stdin).")
+@click.option("--etag", default=None, help="Revision to replace; omit to create only.")
+@pass_context
+@_engine_errors
+def pack_save(ctx, name, file_path, etag) -> None:
+    """Store exact pack YAML through Hive validation."""
+    command_output(ctx, _get_investigation(ctx).save_pack(name, _read_source(file_path), etag=etag))
+
+
+@pack_group.command("delete")
+@click.argument("name")
+@click.option("--confirm", is_flag=True, help="Confirm deletion of the org pack.")
+@pass_context
+@_engine_errors
+def pack_delete(ctx, name, confirm) -> None:
+    """Delete an org pack; pinned runs retain their frozen sources."""
+    if not confirm:
+        raise click.UsageError("Deleting a pack requires --confirm.")
+    command_output(ctx, _get_investigation(ctx).delete_pack(name))
 
 
 # ---------------------------------------------------------------------------

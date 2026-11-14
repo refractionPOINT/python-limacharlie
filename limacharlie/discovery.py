@@ -216,7 +216,7 @@ PROFILES = {
     "investigation_engine": {
         "description": "Investigation Engine: build, test and tune investigation templates, run investigations and waves, approve actions",
         "commands": [
-            "investigate kit", "investigate operators", "investigate packs",
+            "investigate kit", "investigate operators", "investigate packs", "investigate pack get", "investigate pack save", "investigate pack delete",
             "investigate templates list", "investigate templates get",
             "investigate templates validate", "investigate templates test",
             "investigate templates save", "investigate templates promote",

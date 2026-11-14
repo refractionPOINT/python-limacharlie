@@ -97,7 +97,7 @@ class TestKitAndCatalogues:
         data = out_json(run(["investigate", "packs", "--brief", "--name", "host_context"]))
         sdk.list_packs.assert_called_once_with("host_context")
         assert data["packs"] == [{
-            "name": "host_context", "brief": "who",
+            "name": "host_context", "brief": "who", "version": 1,
             "params": [{"name": "sid", "type": "string", "required": True}],
             "exports": [{"name": "hostname", "type": "string", "ref": "<id>__card.display_name", "brief": "name"}],
         }]
@@ -726,3 +726,19 @@ def test_run_without_trust_omits_the_optional_field(sdk):
     result = run(["investigate", "runs", "start", "--template", "mail", "--detection-id", "d"])
     assert result.exit_code == 0, result.stderr
     assert "trust" not in sdk.start_run.call_args.args[0]
+
+class TestOrgPacks:
+    def test_pack_save_exact_file_and_etag(self, sdk, tmp_path):
+        source = '# preserve\nname: fictional_pack\nversion: 1\n'
+        path = tmp_path / 'pack.yaml'
+        path.write_text(source)
+        sdk.save_pack.return_value = {'saved': True}
+        assert run(['investigate', 'pack', 'save', 'fictional_pack', '--file', str(path), '--etag', 'r1']).exit_code == 0
+        sdk.save_pack.assert_called_once_with('fictional_pack', source, etag='r1')
+
+    def test_pack_delete_requires_confirmation(self, sdk):
+        assert run(['investigate', 'pack', 'delete', 'fictional_pack']).exit_code != 0
+        sdk.delete_pack.assert_not_called()
+        sdk.delete_pack.return_value = {'deleted': True}
+        assert run(['investigate', 'pack', 'delete', 'fictional_pack', '--confirm']).exit_code == 0
+        sdk.delete_pack.assert_called_once_with('fictional_pack')
