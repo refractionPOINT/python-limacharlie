@@ -34,7 +34,7 @@ The command reads the pack from the extension and writes each rule into your hiv
 
 - A rule that is not in the hive is created, enabled (`--disabled` creates it disabled). Creation is conditional, so a record that appears in the meantime is not replaced.
 - A rule that already exists is skipped, and the output lists its installed and pack versions with `update_available`.
-- `--update` replaces a rule only when the pack's version is newer **and** the record is one a previous install wrote that nobody edited since. The write is conditional on the etag that was read. Enabled state, expiry, other tags and your own comment are kept.
+- `--update` replaces a rule only when the pack's version is newer **and** the record is one a previous install wrote that nobody edited since. The write is conditional on the etag that was read. Enabled state, expiry, other tags, `ui_actions` and your own comment are kept.
 - A rule the organization edited, a record the pack did not write, or a rule as new as the pack's is replaced only with `--force` (which implies `--update`).
 - `--id` (repeatable) installs only those rules. `--dry-run` writes nothing.
 

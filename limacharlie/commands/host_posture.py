@@ -182,7 +182,7 @@ Nothing is overwritten silently:
     record is one a previous install wrote that nobody has edited since
     (its data still matches the digest tag the install stored).  The write
     is conditional on the etag that was read.  Enabled state, expiry, other
-    tags and your own comment are kept.
+    tags, ui_actions and your own comment are kept.
   - A rule the org edited, one not installed from the pack, or one that is as
     new as the pack's is replaced only with --force (which implies --update).
   - --dry-run reports what would happen and writes nothing.
