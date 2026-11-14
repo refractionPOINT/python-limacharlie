@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 
 
 PLAN_HIVE = "investigation_plan"
+PACK_HIVE = "investigation_pack"
 STATUS_DRAFT = "draft"
 STATUS_ACTIVE = "active"
 
@@ -875,6 +876,8 @@ class Investigation:
         Returns:
             dict: ``valid``, ``errors`` and ``warnings`` (each ``{code, path,
                 message, suggestion?}``), the worst-case cost and an ``estimate``.
+                ``resolved_packs`` preserves scope/name/version/digest for every
+                resolved version-only pack pin, including descendants.
         """
         return self._call("POST", "plans/validate", body={"yaml": source})
 
@@ -910,7 +913,8 @@ class Investigation:
         Returns:
             dict: The test object: ``test_id``, ``state`` (running, done,
                 failed, invalid), ``validation``, ``results``, ``summary``,
-                ``next`` and ``done``.
+                ``next`` and ``done``. Initial ``validation`` retains
+                ``resolved_packs`` for root and descendant version-only pack pins.
 
         Raises:
             ValidationError: If not exactly one of ``template``/``inline`` is
@@ -1367,6 +1371,54 @@ class Investigation:
     # ------------------------------------------------------------------
     # Templates (hive records)
     # ------------------------------------------------------------------
+
+    def get_pack(self, name: str) -> dict[str, Any]:
+        """Read an org-authored pack's exact YAML and revision.
+
+        Args:
+            name: Pack record name.
+
+        Returns:
+            dict: Name, YAML, etag and enabled state.
+        """
+        record = Hive(self._org, PACK_HIVE).get(name)
+        return {"name": name, "yaml": (record.data or {}).get("yaml"),
+                "etag": record.etag, "enabled": record.enabled}
+
+    def save_pack(self, name: str, source: str, *, etag: str | None = None) -> dict[str, Any]:
+        """Create a pack or conditionally replace its exact YAML source.
+
+        Hive validates the envelope, pack schema and managed-name collisions.
+        Permissions reuse investigation_plan.set. No source is reserialized.
+
+        Args:
+            name: Pack record key, matching the name in YAML.
+            source: Complete pack YAML, including its positive version.
+            etag: Revision from get_pack; omit to create only.
+
+        Returns:
+            dict: Hive write response.
+
+        Raises:
+            ValidationError: If name, source or revision is empty or invalid.
+        """
+        if not isinstance(name, str) or not TEMPLATE_NAME_RE.fullmatch(name):
+            raise ValidationError("Invalid pack name")
+        if not isinstance(source, str) or not source.strip():
+            raise ValidationError("Pack YAML is required")
+        if etag is not None and not etag:
+            raise ValidationError("etag must not be empty")
+        return Hive(self._org, PACK_HIVE).set(HiveRecord(
+            name=name, data={"yaml": source}, enabled=True if etag is None else None,
+            etag=etag if etag is not None else _CREATE_ONLY_ETAG))
+
+    def delete_pack(self, name: str) -> dict[str, Any]:
+        """Delete an org pack using investigation_plan.del.
+
+        Args:
+            name: Pack record name.
+        """
+        return Hive(self._org, PACK_HIVE).delete(name)
 
     def _plans(self) -> Hive:
         return Hive(self._org, PLAN_HIVE)

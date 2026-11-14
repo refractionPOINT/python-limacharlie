@@ -64,6 +64,10 @@
 
 ### Investigation Engine — `limacharlie investigate` (experimental)
 
+- Add org-authored pack get/save/delete commands and SDK methods, preserve
+  pack discovery metadata and resolved pack pins, and document version and
+  digest locks for template composition.
+
 - `investigate runs start` adds repeatable `--trust-lookup NAME` and
   `--trust-value VALUE` options, additive to template trust for one run only.
   The SDK validates the same optional request object and omits empty trust.

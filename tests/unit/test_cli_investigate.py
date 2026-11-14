@@ -97,7 +97,7 @@ class TestKitAndCatalogues:
         data = out_json(run(["investigate", "packs", "--brief", "--name", "host_context"]))
         sdk.list_packs.assert_called_once_with("host_context")
         assert data["packs"] == [{
-            "name": "host_context", "brief": "who",
+            "name": "host_context", "brief": "who", "version": 1,
             "params": [{"name": "sid", "type": "string", "required": True}],
             "exports": [{"name": "hostname", "type": "string", "ref": "<id>__card.display_name", "brief": "name"}],
         }]
@@ -726,6 +726,62 @@ def test_run_without_trust_omits_the_optional_field(sdk):
     result = run(["investigate", "runs", "start", "--template", "mail", "--detection-id", "d"])
     assert result.exit_code == 0, result.stderr
     assert "trust" not in sdk.start_run.call_args.args[0]
+
+class TestOrgPacks:
+    def test_pack_save_exact_file_and_etag(self, sdk, tmp_path):
+        source = '# preserve\nname: fictional_pack\nversion: 1\n'
+        path = tmp_path / 'pack.yaml'
+        path.write_text(source, encoding="utf-8")
+        sdk.save_pack.return_value = {'saved': True}
+        assert run(['investigate', 'pack', 'save', 'fictional_pack', '--file', str(path), '--etag', 'r1']).exit_code == 0
+        sdk.save_pack.assert_called_once_with('fictional_pack', source, etag='r1')
+
+    def test_pack_delete_requires_confirmation(self, sdk):
+        assert run(['investigate', 'pack', 'delete', 'fictional_pack']).exit_code != 0
+        sdk.delete_pack.assert_not_called()
+        sdk.delete_pack.return_value = {'deleted': True}
+        assert run(['investigate', 'pack', 'delete', 'fictional_pack', '--confirm']).exit_code == 0
+        sdk.delete_pack.assert_called_once_with('fictional_pack')
+
+    def test_pack_get_and_create(self, sdk, tmp_path):
+        sdk.get_pack.return_value = {"name": "fictional_pack", "yaml": "# exact\n", "etag": "r1"}
+        assert out_json(run(["investigate", "pack", "get", "fictional_pack"]))["yaml"] == "# exact\n"
+        sdk.get_pack.assert_called_once_with("fictional_pack")
+        path = tmp_path / "pack.yaml"
+        path.write_text("name: fictional_pack\nversion: 1\n", encoding="utf-8")
+        sdk.save_pack.return_value = {"saved": True}
+        assert run(["investigate", "pack", "save", "fictional_pack", "--file", str(path)]).exit_code == 0
+        sdk.save_pack.assert_called_once_with("fictional_pack", path.read_text(encoding="utf-8"), etag=None)
+
+    def test_brief_pack_preserves_provenance(self, sdk):
+        metadata = {"version": 1, "digest": "a" * 64, "source": "org", "trust": {"lookups": ["fictional"]},
+                    "trust_provenance": [{"kind": "pack", "name": "fictional_pack"}]}
+        sdk.list_packs.return_value = {"packs": [{"name": "fictional_pack", **metadata}]}
+        row = out_json(run(["investigate", "packs", "--brief"]))["packs"][0]
+        assert {key: row[key] for key in metadata} == metadata
+
+
+def test_validation_and_test_json_preserve_resolved_packs(sdk, tmp_path):
+    from limacharlie.commands.investigate import _compact_test
+    pins = [
+        {'scope': 'root', 'name': 'fictional_context', 'version': 1, 'digest': 'a' * 64},
+        {'scope': 'root/assessment', 'name': 'fictional_context', 'version': 2, 'digest': 'b' * 64},
+    ]
+    report = {'valid': True, 'resolved_packs': pins,
+              'children': [{'template': 'entity-url-harm'}],
+              'trust_provenance': [{'kind': 'pack', 'name': 'fictional_context'}]}
+    path = tmp_path / 'plan.yaml'
+    path.write_text('facts:\n  context: {use: fictional_context, pack_version: 1}\n', encoding="utf-8")
+    sdk.validate_plan.return_value = report
+    assert out_json(run(['investigate', 'templates', 'validate', '--file', str(path)])) == report
+    initial = {'state': 'running', 'validation': report, 'resolved_packs': pins,
+               'results': [{**report, 'steps': [{'fact': 'context', 'status': 'ok'}]}]}
+    compact = _compact_test(initial, False)
+    assert compact['validation'] == report
+    assert compact['resolved_packs'] == pins
+    for key in ('resolved_packs', 'children', 'trust_provenance'):
+        assert compact['results'][0][key] == report[key]
+    assert 'steps' in initial['results'][0]  # compaction does not mutate its input
 
 
 @pytest.mark.parametrize("seconds,expected", [(0, None), (12, 12.0)])

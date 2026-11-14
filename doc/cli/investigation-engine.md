@@ -251,9 +251,81 @@ and URL hosts. Broad/shared entries and embedded URL destinations do not skip an
 Missing, disabled or unreadable Lookups grant nothing and appear as run problems.
 
 
+`runs start --follow` waits up to 900 seconds by default; `--timeout 0` removes the time limit. Timeout, interruption and stream errors print an `--after N` resume point for `runs events RUN_ID --follow --after N`.
+
+## Org-authored fact packs and template composition
+
+Use `limacharlie investigate packs` to discover the caller's managed and org
+packs. Store org packs with the existing Hive permissions
+`investigation_plan.get`, `.set`, `.del`:
+
+```sh
+limacharlie investigate pack save fictional_pack --file pack.yaml
+limacharlie investigate pack get fictional_pack
+# Replace only the revision you read:
+limacharlie investigate pack save fictional_pack --file pack.yaml --etag REVISION
+limacharlie investigate pack delete fictional_pack --confirm
+```
+
+The Hive type is `investigation_pack`; its data is exactly `{"yaml":"<source>"}`.
+The SDK methods are `org.investigation.get_pack`, `save_pack`, and `delete_pack`.
+Sources are stored byte for byte. The server rejects invalid packs, unknown
+fields, managed-name collisions and invalid dependencies. Packs cannot nest
+packs or invoke templates. Deletion does not alter admitted snapshots.
+
+On engines advertising `template_composition_v1`, a fact or wave step selects
+exactly one of `op`, `use`, or `investigate`:
+
+```yaml
+facts:
+  url_assessment:
+    investigate:
+      template: entity-url-harm
+      version: 1
+      inputs:
+        msg_uuid: '$message.msg_uuid'
+        url: '$message.links[0].url'
+    deadline: 30s
+```
+
+Normally omit `snapshot_digest`: admission resolves the current closure for
+that exact version, then freezes it. Validation and test responses include the
+resolved digest for an optional copy/paste `snapshot_digest` lock; a supplied
+lock must match. The child version is mandatory; it matches the current record.
+Delete/recreate is explicitly allowed, so only the digest provides an immutable
+lock against record rebinding. Same-version updates are guarded for all packs
+and callable entity templates; ordinary root template edits retain their
+existing behavior. Replay and resume read only frozen sources.
+
+Validation and the initial test response's `validation` include
+`resolved_packs: [{scope, name, version, digest}]` for every version-only pack
+pin, including descendant scopes such as `root/assessment`. SDK responses and
+CLI JSON preserve this list exactly, alongside `children` and
+`trust_provenance`, so each resolved digest can be copied into a `pack_digest`
+lock on the `use` fact:
+
+```yaml
+facts:
+  context:
+    use: fictional_context
+    pack_version: 1
+    pack_digest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+```
+
+Replace the example digest with the returned pack digest. `pack_digest` locks
+pack source bytes on `use`; `snapshot_digest` locks a child closure on
+`investigate`. Inspect expanded
+plans, `children`, and `trust_provenance` in JSON output from the existing
+validate/test/run/wave commands. No entity routing endpoint is required.
+
+Limits are depth 4 (root depth 0), 32 child scopes, 256 expanded facts and a
+1 MiB closure, subject to stricter existing limits. Children are advisory:
+they cannot execute actions or write cases. Failed, incomplete, cancelled or
+inconclusive children remain unknown, never benign. Trust is a declaration,
+not verified analysis. Org packs require `org_fact_packs_v1`; check the
+server's advertised capabilities before authoring against these features.
+
 ## See Also
 
 - [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
 - [Detection & Response](detection-response.md) - D&R rules that start runs
-
-`runs start --follow` waits up to 900 seconds by default; `--timeout 0` removes the time limit. Timeout, interruption and stream errors print an `--after N` resume point for `runs events RUN_ID --follow --after N`.

@@ -921,6 +921,56 @@ def test_wave_never_sends_unsupported_request_trust(inv, mock_org):
         inv.run_wave({"steps": [{"id": "s", "op": "entity.get"}], "trust": {"lookups": ["partners"]}})
     mock_org.client.request.assert_not_called()
 
+class TestOrgPacksAndComposition:
+    def test_pack_writes_exact_envelope_and_revision(self, inv, hive):
+        source = '# retained comment\nname: fictional_pack\nversion: 1\n'
+        inv.save_pack('fictional_pack', source)
+        record = hive.set.call_args.args[0]
+        assert record.data == {'yaml': source}
+        assert record.etag == inv_mod._CREATE_ONLY_ETAG
+        inv.save_pack('fictional_pack', source, etag='revision-1')
+        assert hive.set.call_args.args[0].etag == 'revision-1'
+        assert inv_mod.Hive.call_args.args[1] == 'investigation_pack'
+
+    def test_pack_validation_and_read_delete(self, inv, hive):
+        for name, source, etag in [(None, 'x', None), (123, 'x', None), ('bad/name', 'x', None), ('good', '', None), ('good', 'x', '')]:
+            with pytest.raises(ValidationError):
+                inv.save_pack(name, source, etag=etag)
+        hive.set.assert_not_called()
+        hive.get.return_value = HiveRecord(name='fictional_pack', data={'yaml': '# exact\n'}, etag='r', enabled=True)
+        assert inv.get_pack('fictional_pack') == {'name': 'fictional_pack', 'yaml': '# exact\n', 'etag': 'r', 'enabled': True}
+        inv.delete_pack('fictional_pack')
+        hive.delete.assert_called_once_with('fictional_pack')
+
+    @pytest.mark.parametrize('locked', [False, True])
+    def test_composition_source_is_sent_verbatim_and_response_is_preserved(self, inv, mock_org, locked):
+        source = 'facts:\n  child:\n    investigate:\n      template: entity-url-harm\n      version: 1\n'
+        if locked:
+            source += '      snapshot_digest: ' + 'a' * 64 + '\n'
+        response = {'valid': True, 'expanded_plan': {'children': [{'snapshot_digest': 'a' * 64}]},
+                    'trust_provenance': [{'kind': 'template', 'name': 'entity-url-harm'}]}
+        mock_org.client.request.return_value = response
+        assert inv.validate_plan(source) == response
+        assert json.loads(_request_args(mock_org)[2]['raw_body']) == {'yaml': source}
+
+
+def test_validate_and_initial_test_preserve_each_resolved_pack(inv, mock_org):
+    pins = [
+        {'scope': 'root', 'name': 'fictional_context', 'version': 1, 'digest': 'a' * 64},
+        {'scope': 'root/assessment', 'name': 'fictional_context', 'version': 2, 'digest': 'b' * 64},
+    ]
+    report = {'valid': True, 'resolved_packs': pins,
+              'children': [{'template': 'entity-url-harm', 'snapshot_digest': 'c' * 64}],
+              'trust_provenance': [{'kind': 'pack', 'name': 'fictional_context'}]}
+    source = 'facts:\n  context: {use: fictional_context, pack_version: 1}\n'
+    mock_org.client.request.return_value = report
+    assert inv.validate_plan(source) == report
+    assert json.loads(_request_args(mock_org)[2]['raw_body']) == {'yaml': source}
+    initial = {'state': 'running', 'test_id': 'test-1', 'validation': report}
+    mock_org.client.request.return_value = initial
+    assert inv.test_plan([{'inputs': {}}], inline=source, wait_seconds=0) == initial
+    assert json.loads(_request_args(mock_org)[2]['raw_body'])['inline'] == source
+
 
 @pytest.mark.parametrize("method,key", [("iter_runs", "runs"), ("iter_actions", "actions")])
 def test_pagination_rejects_multicursor_cycles(inv, mock_org, method, key):
