@@ -302,7 +302,19 @@ Validation and the initial test response's `validation` include
 pin, including descendant scopes such as `root/assessment`. SDK responses and
 CLI JSON preserve this list exactly, alongside `children` and
 `trust_provenance`, so each resolved digest can be copied into a `pack_digest`
-lock. Inspect expanded
+lock on the `use` fact:
+
+```yaml
+facts:
+  context:
+    use: fictional_context
+    pack_version: 1
+    pack_digest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+```
+
+Replace the example digest with the returned pack digest. `pack_digest` locks
+pack source bytes on `use`; `snapshot_digest` locks a child closure on
+`investigate`. Inspect expanded
 plans, `children`, and `trust_provenance` in JSON output from the existing
 validate/test/run/wave commands. No entity routing endpoint is required.
 
