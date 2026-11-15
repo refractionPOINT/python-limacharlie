@@ -8,9 +8,11 @@
   extension. `rules` (`list`, `get`, `set`, `delete`, `enable`, `disable`,
   `tag`) manages the new `host_posture_rule` hive; the server validates every
   rule. `install-defaults` writes LimaCharlie's default pack into the hive with
-  your own permissions: it creates missing rules, never overwrites silently,
-  `--update` replaces only older rules nobody edited (etag-safe), `--force`
-  replaces edited ones, `--dry-run` writes nothing. `scan --sid` checks one
+  your own permissions: the extension's `pack_status` decides each rule's fate
+  (`new`, `current`, `update_available`, `edited`, `org_newer`) and the CLI
+  computes no digest. It never overwrites silently, `--update` replaces only
+  unedited rules the pack has a newer version of (etag-safe), `--force` also
+  replaces edited and newer-than-pack ones, `--dry-run` writes nothing. `scan --sid` checks one
   online sensor, `sweep [--tag]` sweeps with reliable tasking, and `results`
   (`summary`, `hosts`, `host`, `rules`, `rule-hosts`, `standards`) reads the
   per-host results with server-side filters and paging. `status` reports the

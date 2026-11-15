@@ -172,20 +172,29 @@ Write LimaCharlie's default pack of rules into this org's 'host_posture_rule'
 hive, with YOUR permissions (host_posture.set and sensor.task).  After that a
 default rule is an ordinary record you can edit, disable or delete.
 
-Nothing is overwritten silently:
-  - A rule that is not in the hive is created, enabled (--disabled creates
-    them disabled).  Creation is conditional, so a record that appears in
-    the meantime is not replaced.
-  - A rule that exists is skipped and listed, with its installed and pack
-    versions.
-  - --update replaces a rule only when the pack's version is newer AND the
-    record is one a previous install wrote that nobody has edited since
-    (its data still matches the digest tag the install stored).  The write
-    is conditional on the etag that was read.  Enabled state, expiry, other
-    tags, ui_actions and your own comment are kept.
-  - A rule the org edited, one not installed from the pack, or one that is as
-    new as the pack's is replaced only with --force (which implies --update).
-  - --dry-run reports what would happen and writes nothing.
+The extension decides what each pack rule needs ('pack_status'); this command
+computes nothing itself.  Per rule:
+  new               Created, enabled (--disabled creates them disabled), with
+                    the tags lc:default-pack and lc:pack-sha256:<digest>
+                    (the digest exactly as the extension returned it).
+                    Creation is conditional, so a record that appears in the
+                    meantime is not replaced.
+  current           Your record is the pack's, unedited, same version.  Skipped.
+  update_available  Unedited, and the pack has a newer version.  Replaced only
+                    with --update (or --force).  The write is conditional on
+                    the etag that was read.  Enabled state, expiry, other tags,
+                    ui_actions and your own comment are kept.
+  edited            Your record differs from what the pack installed, or has
+                    no digest tag (checked first).  Skipped unless --force.
+  org_newer         Unedited, but its version is higher than the pack's.
+                    Skipped unless --force.
+
+If a write finds the record changed meanwhile (a new rule that appeared, an
+update that lost the etag race), nothing is retried: the rule is skipped, and
+'pack_status' is read again so the entry reports state_now.
+
+--force implies --update.  --id (repeatable) installs only those rules.
+--dry-run reports what would happen and writes nothing.
 
 Result: pack_version, created, updated, skipped (each with a reason) and
 failed.  Exits 1 when something failed.
@@ -255,9 +264,9 @@ for one framework.
 @group.command("install-defaults")
 @click.option("--id", "ids", multiple=True, help="Install only this rule id of the pack (repeatable).")
 @click.option("--update", is_flag=True, default=False,
-              help="Also replace older versions of rules the pack installed and nobody edited.")
+              help="Also replace unedited rules for which the pack has a newer version.")
 @click.option("--force", is_flag=True, default=False,
-              help="Replace existing rules that differ from the pack even if edited (implies --update).")
+              help="Also replace edited rules and rules newer than the pack's (implies --update).")
 @click.option("--disabled", is_flag=True, default=False, help="Create new rules disabled.")
 @click.option("--dry-run", is_flag=True, default=False, help="Report what would happen and write nothing.")
 @pass_context

@@ -30,15 +30,21 @@ limacharlie host-posture install-defaults --update
 limacharlie host-posture install-defaults --id lc.windows.network.smb1-server --disabled
 ```
 
-The command reads the pack from the extension and writes each rule into your hive with **your** permissions. Nothing is overwritten silently:
+The command reads the pack from the extension and writes each rule into your hive with **your** permissions. The extension decides what each rule needs (`pack_status`); the CLI computes nothing itself. Nothing is overwritten silently:
 
-- A rule that is not in the hive is created, enabled (`--disabled` creates it disabled). Creation is conditional, so a record that appears in the meantime is not replaced.
-- A rule that already exists is skipped, and the output lists its installed and pack versions with `update_available`.
-- `--update` replaces a rule only when the pack's version is newer **and** the record is one a previous install wrote that nobody edited since. The write is conditional on the etag that was read. Enabled state, expiry, other tags, `ui_actions` and your own comment are kept.
-- A rule the organization edited, a record the pack did not write, or a rule as new as the pack's is replaced only with `--force` (which implies `--update`).
-- `--id` (repeatable) installs only those rules. `--dry-run` writes nothing.
+| State | Meaning | What the command does |
+|---|---|---|
+| `new` | No record for it. | Creates it, enabled (`--disabled` creates it disabled). Creation is conditional, so a record that appears in the meantime is not replaced. |
+| `current` | Your record is the pack's rule, unedited, at the same version. | Nothing. |
+| `update_available` | Unedited, and the pack has a newer version. | Replaces it with `--update`. The write is conditional on the etag that was read. Enabled state, expiry, other tags, `ui_actions` and your own comment are kept. |
+| `edited` | Your record differs from what the pack installed, or has no digest tag. Checked first. | Skips it unless `--force`. |
+| `org_newer` | Your record is unedited but its version is higher than the pack's. | Skips it unless `--force`. |
 
-Records the command writes carry the tag `lc:default-pack`, a tag `lc:pack-sha256:<digest>` of the data written (that is how an edit is recognized), and a comment naming the pack version. Removing the digest tag makes the rule count as edited.
+If a write finds the record changed meanwhile (a new rule that appeared, an update that lost the etag race), nothing is retried: the rule is skipped and `pack_status` is read again, so the entry reports `state_now`.
+
+`--force` implies `--update`. `--id` (repeatable) installs only those rules. `--dry-run` writes nothing.
+
+Records the command writes carry the tag `lc:default-pack`, a tag `lc:pack-sha256:<digest>` with the digest exactly as the extension returned it with the pack, and a comment naming the pack version. The extension compares that digest with the record as it is now to tell an edited rule from an unedited one. A record without the tag counts as edited.
 
 The output has `pack_version`, `created`, `updated`, `skipped` (each with a `reason`) and `failed`. The command exits 1 when a write failed.
 

@@ -10,8 +10,6 @@ and the scan and sweep actions over the standard extension request channel.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -26,8 +24,10 @@ HIVE_NAME = "host_posture_rule"
 
 #: Tag on every record written by :meth:`HostPosture.install_default_pack`.
 DEFAULT_PACK_TAG = "lc:default-pack"
-#: Prefix of the tag holding the digest of the data the pack wrote. A record
-#: whose stored data still hashes to it has not been edited since.
+#: Prefix of the tag holding the digest of the data the pack wrote. The
+#: extension computes the digest and hands it out with the pack; clients write
+#: it as given and never compute one. The extension compares it with the
+#: record to tell an edited rule from an unedited one.
 PACK_DIGEST_TAG_PREFIX = "lc:pack-sha256:"
 #: Start of the comment of a record the pack wrote.
 PACK_COMMENT_PREFIX = "LimaCharlie default pack"
@@ -40,32 +40,6 @@ _CREATE_ONLY_ETAG = "create-only: the record must not exist"
 
 STATUSES = ("pass", "fail", "error", "not_applicable", "unsupported")
 SEVERITIES = ("critical", "high", "medium", "low", "info")
-
-
-def record_digest(data: dict[str, Any]) -> str:
-    """Digest of a rule record's data, as stored in the pack digest tag.
-
-    Args:
-        data: The record data (``{"rule": ..., "scope": ...}``).
-
-    Returns:
-        str: First 32 hex characters of the SHA-256 of the canonical JSON.
-    """
-    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
-
-
-def _digest_tag(tags: list[str] | None) -> str | None:
-    for tag in tags or []:
-        if tag.startswith(PACK_DIGEST_TAG_PREFIX):
-            return tag[len(PACK_DIGEST_TAG_PREFIX):]
-    return None
-
-
-def _rule_version(data: Any) -> int | None:
-    rule = data.get("rule") if isinstance(data, dict) else None
-    version = rule.get("version") if isinstance(rule, dict) else None
-    return version if isinstance(version, int) and not isinstance(version, bool) else None
 
 
 def _is_conflict(exc: Exception) -> bool:
@@ -108,9 +82,19 @@ class HostPosture:
 
         Returns:
             dict: ``{pack_version, rules: [{id, version, title, severity,
-                platforms, record: {rule, scope}}]}``.
+                platforms, digest, record: {rule, scope}}]}``.
         """
         return self._request("default_pack")
+
+    def pack_status(self) -> dict[str, Any]:
+        """How each rule of the org's hive compares with the default pack.
+
+        Returns:
+            dict: ``{pack_version, rules: [{id, pack_version_of_rule,
+                installed_version, state}]}`` with ``state`` one of ``new``,
+                ``update_available``, ``current``, ``edited``, ``org_newer``.
+        """
+        return self._request("pack_status")
 
     def query_summary(self) -> dict[str, Any]:
         """Org-wide counts: hosts assessed and failing, results by status, and so on."""
@@ -208,25 +192,27 @@ class HostPosture:
     ) -> dict[str, Any]:
         """Write LimaCharlie's default pack into the org's ``host_posture_rule`` hive.
 
-        Records are written with the caller's own permissions. Nothing is
-        overwritten silently:
+        Records are written with the caller's own permissions. Every decision
+        comes from the extension's ``pack_status``; this client computes no
+        digest. Nothing is overwritten silently:
 
-        * A rule that is not in the hive is created (create-only: a record
-          created in the meantime is not replaced).
-        * A rule that exists is skipped, unless ``update`` is set and the
-          record is one this pack wrote that nobody edited since (its stored
-          data still matches the digest tag the install left) and the pack's
-          version is newer. The replacement is conditional on the etag that
-          was read, and keeps the record's enabled state, expiry, other tags,
-          ui_actions and own comment.
-        * A rule the org edited, a record this pack did not write, or one that
-          is as new as or newer than the pack's is replaced only with
-          ``force``.
+        * ``new``: the record is created (create-only: a record created in the
+          meantime is not replaced; on that conflict ``pack_status`` is read
+          again and the rule's new state is reported as ``state_now``), with the tags ``lc:default-pack`` and
+          ``lc:pack-sha256:<digest>``, the digest as ``default_pack`` returned it.
+        * ``update_available``: replaced only with ``update`` (or ``force``).
+          The replacement is conditional on the etag that was read and keeps
+          the record's enabled state, expiry, other tags, ``ui_actions`` and
+          own comment.
+        * ``edited`` (including a record with no digest tag) and ``org_newer``
+          (unedited, with a higher version than the pack's): replaced only
+          with ``force``.
+        * ``current``: nothing to do.
 
         Args:
             ids: Install only these rule ids (default: the whole pack).
-            update: Replace older, unedited pack rules.
-            force: Replace any existing rule that differs from the pack (implies ``update``).
+            update: Replace unedited rules with a newer pack version.
+            force: Also replace ``edited`` and ``org_newer`` rules (implies ``update``).
             enabled: State of rules that are created.
             dry_run: Report what would happen and write nothing.
 
@@ -254,6 +240,10 @@ class HostPosture:
             selected = list(dict.fromkeys(ids))
         else:
             selected = sorted(by_id)
+        states = {
+            str(r.get("id")): r
+            for r in (self.pack_status().get("rules") or []) if isinstance(r, dict)
+        }
 
         hive = self._rules()
         comment = f"{PACK_COMMENT_PREFIX} {pack_version}"
@@ -262,25 +252,36 @@ class HostPosture:
             "created": [], "updated": [], "skipped": [], "failed": [],
         }
         for rule_id in selected:
-            entry = by_id[rule_id]
-            data = entry["record"]
-            pack_rule_version = entry.get("version", _rule_version(data))
             try:
                 self._install_one(
-                    hive, result, rule_id, data, pack_rule_version, comment,
+                    hive, result, by_id[rule_id], states.get(rule_id), comment,
                     update=update, force=force, enabled=enabled, dry_run=dry_run,
                 )
             except LimaCharlieError as exc:
                 result["failed"].append({"id": rule_id, "error": exc.raw_message})
         return result
 
+    def _state_now(self, rule_id: str) -> str | None:
+        """Re-read ``pack_status`` after a write conflict and return the rule's new state.
+
+        Returns:
+            str | None: The state the extension reports now, or None when it
+                could not be read.
+        """
+        try:
+            for item in self.pack_status().get("rules") or []:
+                if isinstance(item, dict) and str(item.get("id")) == rule_id:
+                    return item.get("state")
+        except LimaCharlieError:
+            return None
+        return None
+
     def _install_one(
         self,
         hive: Hive,
         result: dict[str, Any],
-        rule_id: str,
-        data: dict[str, Any],
-        pack_rule_version: Any,
+        entry: dict[str, Any],
+        status: dict[str, Any] | None,
         comment: str,
         *,
         update: bool,
@@ -288,15 +289,22 @@ class HostPosture:
         enabled: bool,
         dry_run: bool,
     ) -> None:
-        digest_tag = PACK_DIGEST_TAG_PREFIX + record_digest(data)
-        try:
-            existing = hive.get(rule_id)
-        except ApiError as exc:
-            if not is_record_not_found(exc):
-                raise
-            existing = None
+        rule_id = str(entry["id"])
+        data = entry["record"]
+        digest = entry.get("digest")
+        if not isinstance(digest, str) or not digest:
+            raise ValidationError("the pack entry carries no digest")
+        digest_tag = PACK_DIGEST_TAG_PREFIX + digest
+        pack_rule_version = entry.get("version")
+        if status is None:
+            raise ValidationError("the extension reported no status for this rule")
+        state = status.get("state")
+        skip = {
+            "id": rule_id, "state": state,
+            "installed_version": status.get("installed_version"), "pack_version": pack_rule_version,
+        }
 
-        if existing is None:
+        if state == "new":
             record = HiveRecord(
                 name=rule_id, data=data, etag=_CREATE_ONLY_ETAG,
                 enabled=enabled, tags=[DEFAULT_PACK_TAG, digest_tag], comment=comment,
@@ -310,40 +318,41 @@ class HostPosture:
             except ApiError as exc:
                 if _is_conflict(exc):
                     result["skipped"].append({
-                        "id": rule_id, "reason": "the record was created while installing: run the command again",
+                        **skip, "state_now": self._state_now(rule_id),
+                        "reason": "the record was created while installing, so it was not written: "
+                                  "see state_now, and run the command again",
                     })
                     return
                 raise
             result["created"].append(item)
             return
 
-        installed_version = _rule_version(existing.data)
-        skip = {"id": rule_id, "installed_version": installed_version, "pack_version": pack_rule_version}
-        if existing.data == data:
+        if state == "current":
             result["skipped"].append({**skip, "reason": "already up to date"})
             return
-        if not update:
-            newer = isinstance(installed_version, int) and isinstance(pack_rule_version, int) \
-                and pack_rule_version > installed_version
-            result["skipped"].append({
-                **skip, "update_available": newer,
-                "reason": "the rule already exists: pass --update to replace an unedited older version, "
-                          "or --force to replace it whatever it holds",
-            })
-            return
-        if not force:
-            stored_digest = _digest_tag(existing.tags)
-            if stored_digest is None or stored_digest != record_digest(existing.data or {}):
+        if state == "update_available":
+            if not update:
                 result["skipped"].append({
-                    **skip, "reason": "the rule was edited, or was not installed from the pack: "
-                                      "pass --force to replace it",
+                    **skip, "update_available": True,
+                    "reason": "a newer version is in the pack: pass --update to replace the unedited rule",
                 })
                 return
-            if not (isinstance(installed_version, int) and isinstance(pack_rule_version, int)
-                    and pack_rule_version > installed_version):
-                result["skipped"].append({**skip, "reason": "the installed version is not older than the pack's"})
+        elif state in ("edited", "org_newer"):
+            if not force:
+                why = ("the rule was edited" if state == "edited"
+                       else "the rule is newer than the pack's")
+                result["skipped"].append({**skip, "reason": f"{why}: pass --force to replace it"})
                 return
+        else:
+            raise ValidationError(f"unknown pack state {state!r}")
 
+        try:
+            existing = hive.get(rule_id)
+        except ApiError as exc:
+            if is_record_not_found(exc):
+                result["skipped"].append({**skip, "reason": "the record was deleted while installing: run the command again"})
+                return
+            raise
         tags = [t for t in (existing.tags or []) if not t.startswith(PACK_DIGEST_TAG_PREFIX)]
         if DEFAULT_PACK_TAG not in tags:
             tags.append(DEFAULT_PACK_TAG)
@@ -354,7 +363,10 @@ class HostPosture:
             enabled=bool(existing.enabled), expiry=existing.expiry, tags=tags,
             comment=existing.comment if keep_comment else comment, ui_actions=existing.ui_actions,
         )
-        item = {"id": rule_id, "from_version": installed_version, "to_version": pack_rule_version}
+        item = {
+            "id": rule_id, "state": state,
+            "from_version": status.get("installed_version"), "to_version": pack_rule_version,
+        }
         if dry_run:
             result["updated"].append(item)
             return
@@ -363,7 +375,9 @@ class HostPosture:
         except ApiError as exc:
             if _is_conflict(exc):
                 result["skipped"].append({
-                    **skip, "reason": "the record changed while updating, so it was not replaced: run the command again",
+                    **skip, "state_now": self._state_now(rule_id),
+                    "reason": "the record changed while updating, so it was not replaced: "
+                              "see state_now, and run the command again",
                 })
                 return
             raise
