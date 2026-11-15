@@ -212,6 +212,33 @@ class TestInstallDefaultPack:
         assert "state_now" in result["skipped"][0]
         assert not result["failed"]
 
+    def test_edit_between_pack_status_and_the_read_is_not_overwritten(self, env):
+        hp_, hive, st, ps = env
+        self._states(st, "update_available")
+        edited = {"rules": [_status("lc.a", "edited", 1)]}
+        ps.side_effect = [dict(st), edited]  # initial read, then the check after hive.get
+        result = hp_.install_default_pack(["lc.a"], update=True)
+        assert result["skipped"][0]["state_now"] == "edited"
+        assert "changed while installing" in result["skipped"][0]["reason"]
+        assert not result["updated"]
+        hive.set.assert_not_called()
+
+    def test_state_that_cannot_be_rechecked_blocks_the_write(self, env):
+        hp_, hive, st, ps = env
+        self._states(st, "update_available")
+        ps.side_effect = [dict(st), ApiError("down", status_code=500)]
+        result = hp_.install_default_pack(["lc.a"], update=True)
+        assert result["skipped"][0]["state_now"] is None
+        hive.set.assert_not_called()
+
+    def test_force_also_rechecks(self, env):
+        hp_, hive, st, ps = env
+        self._states(st, "edited")
+        ps.side_effect = [dict(st), {"rules": [_status("lc.a", "current", 2)]}]
+        result = hp_.install_default_pack(["lc.a"], force=True)
+        assert result["skipped"][0]["state_now"] == "current"
+        hive.set.assert_not_called()
+
     def test_record_deleted_between_status_and_update_is_skipped(self, env):
         hp_, hive, st, _ = env
         self._states(st, "update_available")

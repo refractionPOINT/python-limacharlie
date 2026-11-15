@@ -36,7 +36,7 @@ The command reads the pack from the extension and writes each rule into your hiv
 |---|---|---|
 | `new` | No record for it. | Creates it, enabled (`--disabled` creates it disabled). Creation is conditional, so a record that appears in the meantime is not replaced. |
 | `current` | Your record is the pack's rule, unedited, at the same version. | Nothing. |
-| `update_available` | Unedited, and the pack has a newer version. | Replaces it with `--update`. The write is conditional on the etag that was read. Enabled state, expiry, other tags, `ui_actions` and your own comment are kept. |
+| `update_available` | Unedited, and the pack has a newer version. | Replaces it with `--update`. The state is checked again after the record is read, and the write is conditional on that read's etag. Enabled state, expiry, other tags, `ui_actions` and your own comment are kept. |
 | `edited` | Your record differs from what the pack installed, or has no digest tag. Checked first. | Skips it unless `--force`. |
 | `org_newer` | Your record is unedited but its version is higher than the pack's. | Skips it unless `--force`. |
 

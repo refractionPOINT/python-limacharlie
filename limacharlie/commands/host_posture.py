@@ -182,7 +182,7 @@ computes nothing itself.  Per rule:
   current           Your record is the pack's, unedited, same version.  Skipped.
   update_available  Unedited, and the pack has a newer version.  Replaced only
                     with --update (or --force).  The write is conditional on
-                    the etag that was read.  Enabled state, expiry, other tags,
+                    the etag that was read, after the state is checked again.  Enabled state, expiry, other tags,
                     ui_actions and your own comment are kept.
   edited            Your record differs from what the pack installed, or has
                     no digest tag (checked first).  Skipped unless --force.

@@ -201,7 +201,8 @@ class HostPosture:
           again and the rule's new state is reported as ``state_now``), with the tags ``lc:default-pack`` and
           ``lc:pack-sha256:<digest>``, the digest as ``default_pack`` returned it.
         * ``update_available``: replaced only with ``update`` (or ``force``).
-          The replacement is conditional on the etag that was read and keeps
+          The state is checked again after the record is read, and the
+          replacement is conditional on the etag of that read; it keeps
           the record's enabled state, expiry, other tags, ``ui_actions`` and
           own comment.
         * ``edited`` (including a record with no digest tag) and ``org_newer``
@@ -353,6 +354,19 @@ class HostPosture:
                 result["skipped"].append({**skip, "reason": "the record was deleted while installing: run the command again"})
                 return
             raise
+        # The state was read before this record was. Read it again now that the
+        # etag is in hand: the write below is conditional on that etag, so an
+        # edit after this point fails it, and an edit before this point shows
+        # in the fresh state. Without this an edit between the two reads would
+        # be overwritten by a plain --update.
+        now = self._state_now(rule_id)
+        if now != state:
+            result["skipped"].append({
+                **skip, "state_now": now,
+                "reason": "the record changed while installing, so it was not replaced: "
+                          "see state_now, and run the command again",
+            })
+            return
         tags = [t for t in (existing.tags or []) if not t.startswith(PACK_DIGEST_TAG_PREFIX)]
         if DEFAULT_PACK_TAG not in tags:
             tags.append(DEFAULT_PACK_TAG)
