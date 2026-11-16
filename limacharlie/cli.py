@@ -146,6 +146,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "help": ("help_cmd", "group"),
     "hive": ("hive", "group"),
     "ingestion-key": ("ingestion_key", "group"),
+    "host-posture": ("host_posture", "group"),
     "installation-key": ("installation_key", "group"),
     "investigate": ("investigate", "group"),
     "integrity": ("integrity", "group"),

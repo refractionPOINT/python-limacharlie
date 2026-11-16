@@ -120,6 +120,7 @@ _KNOWN_HIVE_TYPES = [
     "dr-mail",
     "app_control_policy",
     "app_control_rule",
+    "host_posture_rule",
     "dr-general",
     "dr-managed",
     "dr-service",
@@ -184,6 +185,7 @@ hold configuration data.  Common hive names include:
   app              - AI-generated iframe web apps
   app_control_policy - Application Control policies
   app_control_rule - Application Control rules (record key is the rule id)
+  host_posture_rule - Host Posture rules (record key is the rule id)
 
 Each record returned contains:
   data     - The record payload (structure varies by hive type)
@@ -774,7 +776,7 @@ data for a LimaCharlie organization.  Each hive type stores a specific
 kind of data. Cloud Security uses cloudsec_provider, cloudsec_policy,
 cloudsec_query, and cloudsec_code_rule. Email Security uses mailsec_provider,
 mailsec_policy, and dr-mail. Application Control uses app_control_policy and
-app_control_rule. Other known types: dr-general, dr-managed, dr-service, fp,
+app_control_rule. Host Posture uses host_posture_rule. Other known types: dr-general, dr-managed, dr-service, fp,
 cloud_sensor, extension_config, yara, lookup, secret, query, playbook,
 ai_agent, ai_skill, ai_memory, external_adapter, sop, org_notes.
 

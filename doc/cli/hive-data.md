@@ -69,6 +69,7 @@ There is no dedicated command for Stories or ACL resources; to accept a partial 
 | `dr-mail` | Email detection and verdict rules |
 | `app_control_policy` | Application Control policies |
 | `app_control_rule` | Application Control allow and deny rules |
+| `host_posture_rule` | Host Posture rules (see [Host Posture](host-posture.md)) |
 
 Store provider credentials in `secret` records and reference them with `hive://secret/<key>`. Most hives default new records to disabled; `cloudsec_policy`, `acl` and the app-control hives default them to enabled. Pass `--enabled` or `--disabled` to be explicit. See the [Cloud Security](cloud-security.md) and [Email Security](email-security.md) onboarding guides before creating connections.
 
