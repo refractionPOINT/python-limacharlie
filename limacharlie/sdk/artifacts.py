@@ -20,6 +20,10 @@ if TYPE_CHECKING:
 
 MAX_UPLOAD_PART_SIZE = 1024 * 1024 * 15
 
+# Retention applied when the caller does not choose one. Always sent
+# explicitly: the ingestion API's own fallback for a missing header is longer.
+DEFAULT_UPLOAD_RETENTION_DAYS = 30
+
 
 class Artifacts:
     """Artifact upload, download, and rule management."""
@@ -46,7 +50,7 @@ class Artifacts:
         return self._org.client
 
     def upload(self, file_path: str, source: str | None = None, hint: str | None = None,
-               retention_days: int = 30, original_path: str | None = None,
+               retention_days: int | None = None, original_path: str | None = None,
                payload_id: str | None = None) -> dict[str, Any]:
         """Upload an artifact/log file.
 
@@ -57,7 +61,7 @@ class Artifacts:
             file_path: Local file path.
             source: Source identifier.
             hint: Parse hint.
-            retention_days: Retention period in days.
+            retention_days: Retention period in days. Defaults to 30 when None.
             original_path: Original file path on the source system.
             payload_id: Optional unique payload ID for idempotent uploads.
 
@@ -88,8 +92,9 @@ class Artifacts:
             headers["lc-path"] = base64.b64encode(
                 os.path.abspath(original_path).encode()
             ).decode()
-        if retention_days is not None:
-            headers["lc-retention-days"] = str(retention_days)
+        if retention_days is None:
+            retention_days = DEFAULT_UPLOAD_RETENTION_DAYS
+        headers["lc-retention-days"] = str(retention_days)
 
         with open(file_path, "rb") as f:
             f.seek(0, 2)
