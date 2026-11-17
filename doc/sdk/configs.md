@@ -91,3 +91,10 @@ See [CLI ACL sync](../cli/infrastructure.md#acl-scopes) for permission setup.
 - [CLI: sync](../cli/infrastructure.md#sync) — CLI equivalents
 - [Hive](hive.md) — Direct hive access
 - [Detection Rules](detection-rules.md) — DRRules and FPRules
+
+### Investigation hives
+
+`Configs.ALL_HIVES` includes `investigation_policy` and `investigation_plan`.
+Select either with `sync_hives={"investigation_policy": True, "investigation_plan": True}`.
+Records retain the native `hives.<hive>.<record>.data` and `usr_mtd` wrapper,
+including tags, enabled, expiry and comment. No resolved secrets or system metadata belong in Git.

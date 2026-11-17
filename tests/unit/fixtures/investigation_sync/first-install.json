@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-11-16T16:30:00-08:00",
+  "from": "2026-11-09T16:30:00-08:00",
+  "to": "2026-11-16T16:30:00-08:00",
+  "coverage": {
+    "history_from": "2026-11-16T16:00:00-08:00",
+    "through": "2026-11-16T16:30:00-08:00",
+    "complete": false,
+    "status": "healthy",
+    "pending_from": null,
+    "gaps": []
+  },
+  "policy_access": "granted",
+  "policy_records": [
+    {
+      "name": "default",
+      "etag": "opaque-native-version"
+    }
+  ],
+  "warnings": [],
+  "items": [
+    {
+      "template": "fictional-triage",
+      "product": "cases",
+      "action_class": "close.false_positive",
+      "route": {
+        "id": "route-fictional",
+        "version": "unknown",
+        "basis": "proof",
+        "disposition": "dismiss"
+      },
+      "policy": {
+        "mode": "auto",
+        "min_confidence": 0.9,
+        "max_targets_per_run": 3,
+        "max_targets_per_hour": 50,
+        "lease": "2h",
+        "approvers": [],
+        "approvers_restricted": false,
+        "approval_timeout": "15m",
+        "spot_check": "5%",
+        "sources": [
+          "default"
+        ],
+        "field_sources": {
+          "mode": [
+            "default"
+          ],
+          "min_confidence": [
+            "default"
+          ],
+          "max_targets_per_run": [
+            "default"
+          ],
+          "max_targets_per_hour": [
+            "default"
+          ],
+          "lease": [
+            "default"
+          ],
+          "approval_timeout": [
+            "default"
+          ],
+          "spot_check": [
+            "default"
+          ],
+          "approvers": [
+            "builtin"
+          ],
+          "approvers_restricted": [
+            "builtin"
+          ],
+          "undo_supported": [
+            "builtin"
+          ]
+        },
+        "undo_supported": true
+      },
+      "guards": [
+        {
+          "source": "default",
+          "status": "clear",
+          "scope": "template_action",
+          "count": 0,
+          "count_is_lower_bound": false,
+          "threshold": 3,
+          "within": "7d",
+          "by": "people",
+          "max_source_lag": "5m",
+          "next_recheck_at": "2026-11-16T16:35:00-08:00",
+          "reason": "",
+          "coverage": {
+            "history_from": "2026-11-16T16:00:00-08:00",
+            "through": "2026-11-16T16:30:00-08:00",
+            "complete": false,
+            "status": "healthy",
+            "pending_from": null,
+            "gaps": []
+          }
+        }
+      ],
+      "counts": {
+        "predicted": 100,
+        "labeled": 20,
+        "agreeing": 18,
+        "wrong": 2,
+        "unlabeled": 80,
+        "disputed_subjects": 2,
+        "reopened_subjects": 4,
+        "reopen_events_by_principal": {
+          "user": 3,
+          "api_key": 1,
+          "ai_session": 0,
+          "service": 0,
+          "unknown": 0
+        },
+        "spot_check_held": 5
+      },
+      "agreement": {
+        "numerator": 18,
+        "denominator": 20
+      },
+      "usage": {
+        "cost_usd": null,
+        "missing_price_count": 1
+      },
+      "sources": [
+        {
+          "name": "cases-lifecycle",
+          "history_from": "2026-11-16T16:00:00-08:00",
+          "through": "2026-11-16T16:30:00-08:00",
+          "complete": false,
+          "status": "healthy",
+          "pending_from": null,
+          "gaps": []
+        }
+      ]
+    }
+  ],
+  "next_cursor": ""
+}

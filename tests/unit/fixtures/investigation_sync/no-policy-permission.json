@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-11-16T16:30:00-08:00",
+  "from": "2026-11-09T16:30:00-08:00",
+  "to": "2026-11-16T16:30:00-08:00",
+  "coverage": {
+    "history_from": "2026-11-16T16:00:00-08:00",
+    "through": "2026-11-16T16:30:00-08:00",
+    "complete": false,
+    "status": "healthy",
+    "pending_from": null,
+    "gaps": []
+  },
+  "policy_access": "denied",
+  "policy_records": [],
+  "warnings": [],
+  "items": [
+    {
+      "template": "fictional-triage",
+      "product": "cases",
+      "action_class": "close.false_positive",
+      "route": {
+        "id": "route-fictional",
+        "version": "unknown",
+        "basis": "proof",
+        "disposition": "dismiss"
+      },
+      "policy": null,
+      "guards": [],
+      "counts": {
+        "predicted": 100,
+        "labeled": 20,
+        "agreeing": 18,
+        "wrong": 2,
+        "unlabeled": 80,
+        "disputed_subjects": 2,
+        "reopened_subjects": 4,
+        "reopen_events_by_principal": {
+          "user": 3,
+          "api_key": 1,
+          "ai_session": 0,
+          "service": 0,
+          "unknown": 0
+        },
+        "spot_check_held": 5
+      },
+      "agreement": {
+        "numerator": 18,
+        "denominator": 20
+      },
+      "usage": {
+        "cost_usd": null,
+        "missing_price_count": 1
+      },
+      "sources": [
+        {
+          "name": "cases-lifecycle",
+          "history_from": "2026-11-16T16:00:00-08:00",
+          "through": "2026-11-16T16:30:00-08:00",
+          "complete": false,
+          "status": "healthy",
+          "pending_from": null,
+          "gaps": []
+        }
+      ]
+    }
+  ],
+  "next_cursor": ""
+}

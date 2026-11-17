@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-11-16T16:30:00-08:00",
+  "items": [
+    {
+      "template": "fictional-triage",
+      "action_class": "close.false_positive",
+      "subject_ref": "subject-digest-01",
+      "product": "cases",
+      "source": "cases-lifecycle",
+      "event_id": "cases-event-0002",
+      "occurred_at": "2026-11-16T16:20:00-08:00",
+      "principal_type": "user",
+      "actor_ref": "actor-digest-01",
+      "on_behalf_of_ref": "",
+      "ai_client": "",
+      "run_id": "run-fictional",
+      "action_id": "action-fictional",
+      "reason": "deliberate"
+    }
+  ],
+  "next_cursor": ""
+}
