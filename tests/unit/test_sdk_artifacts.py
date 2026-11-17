@@ -128,3 +128,69 @@ class TestArtifactsRules:
             "DELETE", "insight/test-oid/artifacts/rules",
             params={"name": "collect-logs"},
         )
+
+
+class TestArtifactsUploadRetention:
+    """The ingestion API keeps an upload for 365 days when no retention
+    header is sent, so the client must always send one."""
+
+    TOKEN = "11111111-2222-3333-4444-555555555555"
+
+    @pytest.fixture
+    def sent_headers(self, monkeypatch):
+        captured = []
+
+        def fake_urlopen(request):
+            captured.append({k.lower(): v for k, v in request.header_items()})
+            resp = MagicMock()
+            resp.read.return_value = b'{"payload_id": "p"}'
+            return resp
+
+        monkeypatch.setattr("limacharlie.sdk.artifacts.urlopen", fake_urlopen)
+        return captured
+
+    @pytest.fixture
+    def small_file(self, tmp_path):
+        p = tmp_path / "a.txt"
+        p.write_bytes(b"data")
+        return str(p)
+
+    def _artifacts(self, mock_org):
+        mock_org.get_urls.return_value = {"logs": "ingest.example"}
+        return Artifacts(mock_org, access_token=self.TOKEN)
+
+    def test_default_retention_sent_when_omitted(self, mock_org, sent_headers, small_file):
+        self._artifacts(mock_org).upload(small_file)
+        assert sent_headers[0]["lc-retention-days"] == "30"
+
+    def test_default_retention_sent_when_none(self, mock_org, sent_headers, small_file):
+        self._artifacts(mock_org).upload(small_file, retention_days=None)
+        assert sent_headers[0]["lc-retention-days"] == "30"
+
+    def test_explicit_retention_sent(self, mock_org, sent_headers, small_file):
+        self._artifacts(mock_org).upload(small_file, retention_days=2)
+        assert sent_headers[0]["lc-retention-days"] == "2"
+
+    def test_default_retention_on_every_multipart_chunk(self, mock_org, sent_headers, tmp_path, monkeypatch):
+        monkeypatch.setattr("limacharlie.sdk.artifacts.MAX_UPLOAD_PART_SIZE", 4)
+        p = tmp_path / "big.bin"
+        p.write_bytes(b"0123456789")
+        self._artifacts(mock_org).upload(str(p))
+        assert len(sent_headers) == 3
+        assert all(h["lc-retention-days"] == "30" for h in sent_headers)
+
+    def test_cli_upload_without_flag_sends_default(self, sent_headers, small_file, monkeypatch):
+        from click.testing import CliRunner
+        from unittest.mock import patch
+        from limacharlie.cli import cli
+
+        monkeypatch.setenv("LC_LOGS_TOKEN", self.TOKEN)
+        with patch("limacharlie.commands.artifact.Client"), \
+             patch("limacharlie.commands.artifact.Organization") as org_cls:
+            org = org_cls.return_value
+            org.oid = "test-oid"
+            org.get_urls.return_value = {"logs": "ingest.example"}
+            result = CliRunner().invoke(cli, ["artifact", "upload", "--file", small_file])
+
+        assert result.exit_code == 0, result.output
+        assert sent_headers[0]["lc-retention-days"] == "30"
