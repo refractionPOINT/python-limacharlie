@@ -44,6 +44,31 @@ def test_report_errors(status, body, code):
         Investigation(org).list_reopenings()
     assert err.value.error_code == code
 
+@pytest.mark.parametrize("method", ["get_track_record", "list_reopenings"])
+@pytest.mark.parametrize("body", [{}, {"error": "not found"}])
+def test_report_gateway_404_retains_disabled_guidance(method, body):
+    org = MagicMock(oid="fictional")
+    org.client.request.side_effect = error_from_status_code(404, body)
+    with pytest.raises(InvestigationError) as err:
+        getattr(Investigation(org), method)()
+    assert err.value.error_code == "upgrade_required"
+    assert "gated per deployment" in err.value.suggestion
+    assert "region" in str(err.value)
+
+
+@pytest.mark.parametrize("method", ["get_track_record", "list_reopenings"])
+def test_report_engine_not_found_passes_through(method):
+    org = MagicMock(oid="fictional")
+    body = {"error_code": "not_found", "error": "unknown template"}
+    org.client.request.side_effect = error_from_status_code(404, body)
+    with pytest.raises(InvestigationError) as err:
+        getattr(Investigation(org), method)()
+    assert err.value.status_code == 404
+    assert err.value.error_code == "not_found"
+    assert err.value.response_body == body
+    assert not err.value.suggestion
+
+
 @pytest.mark.parametrize("filters", [{"route_id":"x"}, {"by":"robot"}, {"limit":True}, {"limit":201}, {"product":["cases"]}, {"cursor":""}, {"cursor":"é"*2049}])
 def test_reopening_invalid_filters(filters):
     org = MagicMock(oid="fictional")

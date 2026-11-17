@@ -774,10 +774,14 @@ class Investigation:
         try:
             page = self._get(path, query)
         except ApiError as exc:
-            if exc.status_code != 404 or exc.error_code not in (None, "not_found"):
+            if exc.status_code != 404 or exc.error_code is not None:
                 raise
+            # A code-less gateway 404 can mean an older API or an engine
+            # unavailable for this region. Preserve that guidance; a coded
+            # engine not_found above is an application error, not an upgrade.
             raise InvestigationError(
                 "server upgrade required", status_code=501,
+                suggestion=exc.suggestion,
                 response_body={"error_code": "upgrade_required", "error": "server upgrade required", "http_status": 501},
             ) from exc
         if not isinstance(page, dict) or type(page.get("schema_version")) is not int or page["schema_version"] != 1:
