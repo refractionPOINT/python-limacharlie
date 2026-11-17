@@ -106,11 +106,11 @@
         "agreeing": 18,
         "wrong": 2,
         "unlabeled": 80,
-        "disputed_subjects": 2,
-        "reopened_subjects": 4,
+        "disputed_subjects": 0,
+        "reopened_subjects": 0,
         "reopen_events_by_principal": {
-          "user": 3,
-          "api_key": 1,
+          "user": 0,
+          "api_key": 0,
           "ai_session": 0,
           "service": 0,
           "unknown": 0

@@ -28,6 +28,43 @@ def test_report_fixture_passthrough(name):
     assert call.args[:2] == ("GET", "investigate/fictional/track-record" + ("/reopenings" if name == "reopenings" else ""))
     assert dict(call.kwargs["query_params"])["from"] == "2026-11-16T00:00:00-08:00"
 
+def test_first_install_has_no_reopen_or_dispute_history():
+    page = json.loads((FIXTURES / "first-install.json").read_text())
+    assert page["coverage"]["status"] == "healthy"
+    assert page["coverage"]["complete"] is False
+    for item in page["items"]:
+        counts = item["counts"]
+        assert counts["reopened_subjects"] == 0
+        assert counts["disputed_subjects"] == 0
+        assert counts["reopen_events_by_principal"] == {
+            "user": 0, "api_key": 0, "ai_session": 0, "service": 0, "unknown": 0,
+        }
+        for guard in item["guards"]:
+            assert guard["count"] == 0
+            assert guard["status"] == "clear"
+
+
+@pytest.mark.parametrize("output", ["json", "yaml"])
+@pytest.mark.parametrize("command,method", [
+    (["policy", "get"], "get_effective_policy"),
+    (["track-record"], "get_track_record"),
+])
+def test_cli_preserves_resolved_mode_reason(output, command, method):
+    policy = {
+        "mode": "approve",
+        "undo_supported": False,
+        "reasons": ["irreversible_requires_exact_class"],
+    }
+    page = {"schema_version": 1, "items": [
+        {"action_class": "eradicate.file", "policy": policy},
+    ]}
+    with patch("limacharlie.commands.investigate._get_investigation") as get:
+        getattr(get.return_value, method).return_value = page
+        result = CliRunner().invoke(cli, ["--output", output, "investigate"] + command)
+    assert result.exit_code == 0, result.output
+    assert yaml.safe_load(result.output) == page
+
+
 @pytest.mark.parametrize("page", [{}, {"schema_version": 2}, {"schema_version": True}, {"routes": []}])
 def test_report_schema_upgrade(page):
     org = MagicMock(oid="fictional")
