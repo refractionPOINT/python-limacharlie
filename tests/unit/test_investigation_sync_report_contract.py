@@ -28,8 +28,23 @@ def test_report_fixture_passthrough(name):
     assert call.args[:2] == ("GET", "investigate/fictional/track-record" + ("/reopenings" if name == "reopenings" else ""))
     assert dict(call.kwargs["query_params"])["from"] == "2026-11-16T00:00:00-08:00"
 
-def test_first_install_has_no_reopen_or_dispute_history():
-    page = json.loads((FIXTURES / "first-install.json").read_text())
+@pytest.mark.parametrize("transport", ["sdk", "cli-json", "cli-yaml"])
+def test_first_install_has_no_reopen_or_dispute_history(transport):
+    fixture = json.loads((FIXTURES / "first-install.json").read_text())
+    org = MagicMock(oid="fictional")
+    org.client.request.return_value = fixture
+    sdk = Investigation(org)
+    if transport == "sdk":
+        page = sdk.get_track_record()
+    else:
+        output = transport.removeprefix("cli-")
+        with patch("limacharlie.commands.investigate._get_investigation", return_value=sdk):
+            result = CliRunner().invoke(cli, ["--output", output, "investigate", "track-record"])
+        assert result.exit_code == 0, result.output
+        page = yaml.safe_load(result.output)
+    org.client.request.assert_called_once()
+    assert org.client.request.call_args.args[:2] == ("GET", "investigate/fictional/track-record")
+    assert page == fixture
     assert page["coverage"]["status"] == "healthy"
     assert page["coverage"]["complete"] is False
     for item in page["items"]:
