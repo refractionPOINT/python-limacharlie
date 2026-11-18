@@ -752,79 +752,35 @@ class Investigation:
             out.append((name.rstrip("_"), str(value)))
         return out
 
-    def _report_page(self, path: str, filters: dict[str, Any], *, reopenings: bool = False) -> dict[str, Any]:
-        allowed = {"product", "template", "action_class", "from", "to", "limit", "cursor"}
-        allowed.add("by" if reopenings else "route_id")
-        query = []
-        for name, value in filters.items():
-            if name not in allowed or isinstance(value, bool) or not isinstance(value, (str, int)) or value == "":
-                raise ValidationError("invalid report filter")
-            if name == "limit":
-                if not isinstance(value, int) or not 1 <= value <= 200:
-                    raise ValidationError("limit must be an integer between 1 and 200")
-            elif not isinstance(value, str):
-                raise ValidationError("report filters must be strings")
-            if name == "product" and value not in ("cases", "mailsec"):
-                raise ValidationError("product must be cases or mailsec")
-            if name == "by" and value not in ("people", "anyone"):
-                raise ValidationError("by must be people or anyone")
-            if name == "cursor" and len(value.encode("utf-8")) > 4096:
-                raise ValidationError("cursor exceeds 4096 bytes")
-            query.append((name, str(value)))
-        try:
-            page = self._get(path, query)
-        except ApiError as exc:
-            if exc.status_code != 404 or exc.error_code is not None:
-                raise
-            # A code-less gateway 404 can mean an older API or an engine
-            # unavailable for this region. Preserve that guidance; a coded
-            # engine not_found above is an application error, not an upgrade.
-            raise InvestigationError(
-                "server upgrade required", status_code=501,
-                suggestion=exc.suggestion,
-                response_body={"error_code": "upgrade_required", "error": "server upgrade required", "http_status": 501},
-            ) from exc
-        if not isinstance(page, dict) or type(page.get("schema_version")) is not int or page["schema_version"] != 1:
-            raise InvestigationError(
-                "server upgrade required", status_code=501,
-                response_body={"error_code": "upgrade_required", "error": "server upgrade required", "http_status": 501},
-            )
-        return page
+    def get_stats(
+        self,
+        template: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict[str, Any]:
+        """Read the engine's performance statistics for the org.
 
-    def get_track_record(self, **filters: Any) -> dict[str, Any]:
-        """Read one page of policy track records.
+        The numbers come from the engine's own records of runs, steps and
+        actions. They describe what the engine did (volumes, durations, costs,
+        and what happened to each action class per template); they do not
+        judge whether a verdict was right.
 
         Args:
-            **filters: Product, template, route_id, action_class, from, to, limit
-                or cursor. Pass timestamp filters with ``**{"from": timestamp}``.
-                Times use RFC3339; the server validates the maximum 30-day window.
+            template: Only runs of this template.
+            since: Only runs created at or after this RFC 3339 time.
+            until: Only runs created before this RFC 3339 time.
 
         Returns:
-            dict: Versioned report with items, coverage and next_cursor. Counters
-                may be integers or decimal strings; unavailable metrics stay null.
+            dict: The statistics, including ``window`` (``truncated`` is true
+                when more runs matched than the engine aggregates) and
+                ``actions``, with ``by_class_state`` and ``by_template_class``
+                (one row per template and action class). Times and counts are
+                passed through as the engine sent them.
 
         Raises:
-            ValidationError: If a filter has an invalid name or scalar type.
-            InvestigationError: On API failure or upgrade_required.
+            InvestigationError: On any API failure.
         """
-        return self._report_page("track-record", filters)
-
-    def list_reopenings(self, **filters: Any) -> dict[str, Any]:
-        """Read one page of attributed subject reopenings.
-
-        Args:
-            **filters: Product, template, action_class, from, to, limit, cursor
-                or by (people or anyone). Mixed details require both product
-                read permissions. Cursor pages can omit the time filters.
-
-        Returns:
-            dict: Versioned reopening items, source coverage and next_cursor.
-
-        Raises:
-            ValidationError: If a filter has an invalid name or scalar type.
-            InvestigationError: On API failure or upgrade_required.
-        """
-        return self._report_page("track-record/reopenings", filters, reopenings=True)
+        return self._get("stats", self._q(template=template, since=since, until=until))
 
     # ------------------------------------------------------------------
     # Reference data

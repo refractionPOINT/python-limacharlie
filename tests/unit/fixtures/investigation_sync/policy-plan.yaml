@@ -10,12 +10,6 @@ hives:
             max_targets_per_hour: 50
             lease: 2h
             approval_timeout: 15m
-            spot_check: "5%"
-            pause_when:
-              reopened: 3
-              within: 7d
-              by: people
-              max_source_lag: 5m
           eradicate.*:
             mode: approve
           tag.remove:

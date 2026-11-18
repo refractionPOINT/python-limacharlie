@@ -325,28 +325,58 @@ inconclusive children remain unknown, never benign. Trust is a declaration,
 not verified analysis. Org packs require `org_fact_packs_v1`; check the
 server's advertised capabilities before authoring against these features.
 
+## Performance statistics
+
+```bash
+limacharlie investigate stats [--template NAME] [--since RFC3339] [--until RFC3339]
+```
+
+Prints the engine's own numbers about its work: run volumes by state and verdict, time to verdict, step and cache counts, search and LLM cost, per-operator latency and errors, and what happened to the actions it proposed. The numbers are computed from the engine's records of runs, steps and actions, over at most the most recent runs that match the filters (`window.truncated` is `true` when more runs matched than were aggregated). The report describes what the engine did. It does not judge whether a verdict or an action was right, and nothing in it changes a decision: the `investigation_policy` record alone decides what the engine may do. Plain counts of the labels and corrections people submitted on runs are in `feedback: {labels, corrections}`.
+
+`--since` and `--until` are RFC 3339 times on the run's creation time; `--template` limits the report to one template. It needs the same permissions as the other reads (`investigation.get` and `insight.evt.get`). The SDK call is `Investigation.get_stats(template=None, since=None, until=None)`, which returns the parsed response.
+
+Inside `actions`, `by_class_state` counts actions per action class and engine action state. `by_template_class` is an array with one row per `(template, action_class)` that has at least one action in the window, ordered by template then action class:
+
+```json
+"actions": {
+  "by_class_state": { "close.false_positive": { "executed": 7, "proposed": 2 } },
+  "by_template_class": [
+    {
+      "template": "phishing-triage",
+      "action_class": "close.false_positive",
+      "total": 12,
+      "suggested": 3,
+      "approved": 4,
+      "denied": 1,
+      "expired": 1,
+      "auto_executed": 5,
+      "failed": 0,
+      "undone": 1,
+      "held": 2,
+      "held_by_reason": { "policy_no_approvers": 1, "rate_cap": 1 },
+      "by_state": { "executed": 8, "proposed": 2, "denied": 1, "expired": 1 }
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `total` | Actions of this template and class in the window. |
+| `by_state` | The same actions by engine action state (same names as `by_class_state`). The values sum to `total`. |
+| `suggested` | Recorded as a suggestion only: the policy mode is `suggest`, nothing was dispatched and no approval was asked. |
+| `approved` | A person approved the action. |
+| `denied` | A person denied the action. |
+| `expired` | Nobody decided within the approval timeout. |
+| `auto_executed` | Dispatched under mode `auto` with no person involved. |
+| `failed` | Dispatch was attempted and failed. |
+| `undone` | Reverted through the engine's own undo path. |
+| `held` | Would have run automatically under the policy mode but was held. An action with several hold reasons counts once here. |
+| `held_by_reason` | `held` split by the engine's stored hold reason (for example `rate_cap`). An action with several reasons counts once under each. Always an object, empty when nothing was held. |
+
+The counters are not a partition of `total`: an approved action can later be undone, so it counts under both `approved` and `undone`. Use `by_state` when you need a partition. The exact rule behind each counter is in the engine documentation.
+
 ## See Also
 
 - [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
 - [Detection & Response](detection-response.md) - D&R rules that start runs
-
-### Policy track records (requires a server supporting schema version 1)
-
-```bash
-limacharlie investigate track-record --product cases --template fictional-triage --limit 100
-limacharlie investigate reopenings --product mailsec --by people --limit 100
-```
-
-Both commands return one page, including `next_cursor`. Pass it with `--cursor`
-and the same filters for the next page; time defaults are recovered from the cursor.
-Common filters are `--product`, `--template`, `--action-class`, `--from`, `--to`,
-`--limit` (1–200), and `--cursor`. Track records also accept `--route-id`; reopenings
-accept `--by people|anyone`. The server validates RFC3339 times and the 30-day maximum.
-Reports need `investigation.get`; policy projection additionally needs
-`investigation_policy.get`. Mail reopening details need `mailsec.get`; mixed
-details need both product read grants. Historical coverage can be incomplete
-while live sources are healthy. Missing metrics remain null, counters can be
-integers or decimal strings, and reports never change policy. Missing routes or
-unsupported schemas report `upgrade_required`; transport failures retain their error.
-Use native Hive operations to write policy. These commands require server support
-and do not imply availability on older servers.

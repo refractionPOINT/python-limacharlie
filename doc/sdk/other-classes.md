@@ -196,7 +196,7 @@ The Cloud Security (CNAPP) surface also includes Code Security: repository and c
 
 ## Investigation
 
-`limacharlie.sdk.investigation.Investigation` wraps the Investigation Engine (experimental): the authoring kit, plan validation and dry runs on past alerts, template records (saved as drafts unless a person passes `status="active"`), runs, waves, the approvals inbox and the autonomy switch. Failures raise `InvestigationError`, which keeps the engine's `error_code` and coded `issues`. See [CLI: investigate](../cli/investigation-engine.md) for the workflow and permissions.
+`limacharlie.sdk.investigation.Investigation` wraps the Investigation Engine (experimental): the authoring kit, plan validation and dry runs on past alerts, template records (saved as drafts unless a person passes `status="active"`), runs, waves, the approvals inbox, the autonomy switch and performance statistics (`get_stats`). Failures raise `InvestigationError`, which keeps the engine's `error_code` and coded `issues`. See [CLI: investigate](../cli/investigation-engine.md) for the workflow and permissions.
 
 ## See Also
 
