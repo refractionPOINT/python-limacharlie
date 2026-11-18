@@ -1,6 +1,7 @@
 # Use a larger machine for parallel steps. E2_HIGHCPU_8 gives 8 vCPUs
 # which helps when running ~10+ steps concurrently.
 options:
+  logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
   # Tolerate substitutions defined on the trigger that this config no longer references.
   substitutionOption: 'ALLOW_LOOSE'
