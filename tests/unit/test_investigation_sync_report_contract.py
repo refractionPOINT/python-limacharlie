@@ -10,7 +10,7 @@ import yaml
 from click.testing import CliRunner
 from limacharlie.cli import cli
 from limacharlie.commands.sync import _resolve_sync_flags
-from limacharlie.errors import ApiError, ValidationError, error_from_status_code
+from limacharlie.errors import error_from_status_code
 from limacharlie.sdk.configs import Configs
 from limacharlie.sdk.investigation import Investigation, InvestigationError
 
