@@ -1,0 +1,31 @@
+hives:
+  investigation_policy:
+    default:
+      data:
+        autonomy:
+          close.false_positive:
+            mode: suggest
+            min_confidence: 0.90
+            max_targets_per_run: 3
+            max_targets_per_hour: 50
+            lease: 2h
+            approval_timeout: 15m
+            spot_check: "5%"
+            pause_when:
+              reopened: 3
+              within: 7d
+              by: people
+              max_source_lag: 5m
+          eradicate.*:
+            mode: approve
+          tag.remove:
+            mode: approve
+      usr_mtd:
+        enabled: true
+        tags: [fictional-iac]
+  investigation_plan:
+    fictional-triage:
+      data: {}
+      usr_mtd:
+        enabled: true
+        tags: [fictional-iac]

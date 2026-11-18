@@ -329,3 +329,24 @@ server's advertised capabilities before authoring against these features.
 
 - [Hive & Data Stores](hive-data.md) - the `investigation_plan` records are ordinary hive records
 - [Detection & Response](detection-response.md) - D&R rules that start runs
+
+### Policy track records (requires a server supporting schema version 1)
+
+```bash
+limacharlie investigate track-record --product cases --template fictional-triage --limit 100
+limacharlie investigate reopenings --product mailsec --by people --limit 100
+```
+
+Both commands return one page, including `next_cursor`. Pass it with `--cursor`
+and the same filters for the next page; time defaults are recovered from the cursor.
+Common filters are `--product`, `--template`, `--action-class`, `--from`, `--to`,
+`--limit` (1–200), and `--cursor`. Track records also accept `--route-id`; reopenings
+accept `--by people|anyone`. The server validates RFC3339 times and the 30-day maximum.
+Reports need `investigation.get`; policy projection additionally needs
+`investigation_policy.get`. Mail reopening details need `mailsec.get`; mixed
+details need both product read grants. Historical coverage can be incomplete
+while live sources are healthy. Missing metrics remain null, counters can be
+integers or decimal strings, and reports never change policy. Missing routes or
+unsupported schemas report `upgrade_required`; transport failures retain their error.
+Use native Hive operations to write policy. These commands require server support
+and do not imply availability on older servers.

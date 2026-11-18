@@ -111,6 +111,8 @@ class Configs:
 
     # All known hive names that can be synced.
     ALL_HIVES = {
+        "investigation_policy",
+        "investigation_plan",
         "cloudsec_policy",
         "cloudsec_provider",
         "cloudsec_query",

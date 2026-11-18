@@ -157,3 +157,12 @@ its contents. Policy, query and code-rule reads need `cloudsec.get`, writes
 Provider records require `cloudsec_provider.get` / `cloudsec_provider.set` and
 corresponding metadata permissions (plus `.del` for deletions).
 See [Configuring Code Security](cloud-security.md#configuring-code-security).
+
+### Investigation configuration sync
+
+`sync pull` and `sync push` accept `--investigation-policy` and
+`--investigation-plan`; `--all` includes both. Native records live at
+`hives.investigation_policy.<record>` and `hives.investigation_plan.<record>`
+with `data` and `usr_mtd` fields. Keep unknown data fields and user metadata
+when editing exports. Apply reads native versions for CAS; Git is not a source
+of unconditional ETags. Force deletion respects selected hives and tags.

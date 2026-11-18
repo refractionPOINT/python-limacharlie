@@ -52,6 +52,8 @@ _SYNC_FLAGS = [
     click.option("--org-values", is_flag=True, default=False, help="Sync org config values."),
     click.option("--installation-keys", is_flag=True, default=False, help="Sync installation keys."),
     click.option("--yara", is_flag=True, default=False, help="Sync YARA rules and sources."),
+    click.option("--investigation-policy", is_flag=True, help="Sync investigation_policy records."),
+    click.option("--investigation-plan", is_flag=True, help="Sync investigation_plan records."),
     # Hive flags
     click.option("--hive-cloudsec-policy", is_flag=True, default=False, help="Sync cloudsec_policy records."),
     click.option("--hive-cloudsec-provider", is_flag=True, default=False, help="Sync cloudsec_provider records."),
@@ -83,6 +85,8 @@ _SYNC_FLAGS = [
 
 # Maps CLI flag name -> hive name sent to the backend
 _HIVE_FLAG_MAP = {
+    "investigation_policy": "investigation_policy",
+    "investigation_plan": "investigation_plan",
     "hive_cloudsec_policy": "cloudsec_policy",
     "hive_cloudsec_provider": "cloudsec_provider",
     "hive_cloudsec_query": "cloudsec_query",
@@ -271,11 +275,13 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
          hive_cloudsec_policy, hive_cloudsec_provider, hive_cloudsec_query, hive_cloudsec_code_rule, hive_mailsec_provider,
-         hive_external_adapter, hive_acl) -> None:
+         hive_external_adapter, hive_acl, investigation_policy, investigation_plan) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
+        investigation_policy=investigation_policy,
+        investigation_plan=investigation_plan,
         hive_acl=hive_acl,
         hive_cloudsec_policy=hive_cloudsec_policy,
         hive_cloudsec_provider=hive_cloudsec_provider,
@@ -381,11 +387,13 @@ def push(ctx, config_file, force, dry_run, sync_all, outputs,
          hive_yara, hive_lookup, hive_secret, hive_query,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
          hive_cloudsec_policy, hive_cloudsec_provider, hive_cloudsec_query, hive_cloudsec_code_rule, hive_mailsec_provider,
-         hive_external_adapter, hive_acl) -> None:
+         hive_external_adapter, hive_acl, investigation_policy, investigation_plan) -> None:
     flags = _resolve_sync_flags(
         sync_all, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
+        investigation_policy=investigation_policy,
+        investigation_plan=investigation_plan,
         hive_acl=hive_acl,
         hive_cloudsec_policy=hive_cloudsec_policy,
         hive_cloudsec_provider=hive_cloudsec_provider,

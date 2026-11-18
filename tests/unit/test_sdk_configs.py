@@ -579,6 +579,7 @@ class TestConfigsFetchToFile:
 class TestAllHives:
     def test_all_hives_constant(self):
         expected = {
+            "investigation_policy", "investigation_plan",
             "cloudsec_policy", "cloudsec_provider", "cloudsec_query",
             "cloudsec_code_rule", "mailsec_provider",
             "acl", "dr-mail", "mailsec_policy", "app_control_policy", "app_control_rule", "host_posture_rule", "dr-general", "dr-managed", "dr-service", "fp",

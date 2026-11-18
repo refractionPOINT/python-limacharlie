@@ -1316,3 +1316,41 @@ def policy_pause(ctx) -> None:
 def policy_resume(ctx) -> None:
     """Resume automatic actions for the org."""
     command_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
+
+
+def _report_options(fn):
+    for option in reversed([
+        click.option("--product", type=click.Choice(["cases", "mailsec"])),
+        click.option("--template"),
+        click.option("--action-class"),
+        click.option("--from", "from_", help="RFC3339 start (maximum 30-day window)."),
+        click.option("--to", help="RFC3339 end."),
+        click.option("--limit", type=click.IntRange(1, 200)),
+        click.option("--cursor", help="Opaque next_cursor from a previous page."),
+    ]):
+        fn = option(fn)
+    return fn
+
+
+def _report_filters(filters):
+    return {("from" if k == "from_" else k): v for k, v in filters.items() if v is not None}
+
+
+@group.command("track-record")
+@_report_options
+@click.option("--route-id")
+@pass_context
+@_engine_errors
+def track_record_cmd(ctx, **filters) -> None:
+    """Read one page of policy track records and source coverage."""
+    command_output(ctx, _get_investigation(ctx).get_track_record(**_report_filters(filters)))
+
+
+@group.command("reopenings")
+@_report_options
+@click.option("--by", type=click.Choice(["people", "anyone"]))
+@pass_context
+@_engine_errors
+def reopenings_cmd(ctx, **filters) -> None:
+    """Read one page of attributed reopenings (mixed products need both read grants)."""
+    command_output(ctx, _get_investigation(ctx).list_reopenings(**_report_filters(filters)))
