@@ -88,6 +88,13 @@
 
 ### Investigation Engine — `limacharlie investigate` (experimental)
 
+- New `investigate stats [--template] [--since] [--until]` command and
+  `Investigation.get_stats()` return the engine's performance statistics,
+  including per-template, per-action-class counters (suggested, approved,
+  denied, expired, auto-executed, failed, undone, held and why).
+  `Investigation.get_track_record()`, `list_reopenings()` and the
+  `investigate track-record` / `investigate reopenings` commands are removed.
+
 - Add org-authored pack get/save/delete commands and SDK methods, preserve
   pack discovery metadata and resolved pack pins, and document version and
   digest locks for template composition.

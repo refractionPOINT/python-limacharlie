@@ -1318,39 +1318,12 @@ def policy_resume(ctx) -> None:
     command_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
 
 
-def _report_options(fn):
-    for option in reversed([
-        click.option("--product", type=click.Choice(["cases", "mailsec"])),
-        click.option("--template"),
-        click.option("--action-class"),
-        click.option("--from", "from_", help="RFC3339 start (maximum 30-day window)."),
-        click.option("--to", help="RFC3339 end."),
-        click.option("--limit", type=click.IntRange(1, 200)),
-        click.option("--cursor", help="Opaque next_cursor from a previous page."),
-    ]):
-        fn = option(fn)
-    return fn
-
-
-def _report_filters(filters):
-    return {("from" if k == "from_" else k): v for k, v in filters.items() if v is not None}
-
-
-@group.command("track-record")
-@_report_options
-@click.option("--route-id")
+@group.command("stats")
+@click.option("--template", default=None, help="Only runs of this template.")
+@click.option("--since", default=None, help="Only runs created at or after this RFC 3339 time.")
+@click.option("--until", default=None, help="Only runs created before this RFC 3339 time.")
 @pass_context
 @_engine_errors
-def track_record_cmd(ctx, **filters) -> None:
-    """Read one page of policy track records and source coverage."""
-    command_output(ctx, _get_investigation(ctx).get_track_record(**_report_filters(filters)))
-
-
-@group.command("reopenings")
-@_report_options
-@click.option("--by", type=click.Choice(["people", "anyone"]))
-@pass_context
-@_engine_errors
-def reopenings_cmd(ctx, **filters) -> None:
-    """Read one page of attributed reopenings (mixed products need both read grants)."""
-    command_output(ctx, _get_investigation(ctx).list_reopenings(**_report_filters(filters)))
+def stats_cmd(ctx, template, since, until) -> None:
+    """Show the engine's performance statistics (runs, durations, costs, actions per template and class)."""
+    command_output(ctx, _get_investigation(ctx).get_stats(template=template, since=since, until=until))
