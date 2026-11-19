@@ -196,10 +196,15 @@ def get(ctx: click.Context, sid: str) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_DELETE = """\
-Permanently delete a sensor from the organization.  This removes the
-sensor record and all associated metadata.  The sensor will need to be
-re-enrolled if you want it back.  Historical telemetry for this sensor
-is retained according to your retention policy.
+Delete a sensor from the organization.  The sensor is disconnected and
+refused when it tries to connect again.
+
+A deleted sensor can be restored for 30 days (from the web app, the API,
+or an `undelete sensor` response action).  After 30 days the deletion is
+permanent: the sensor can no longer be restored, its tags are removed
+(except tags in the reserved `acl:` namespace), and the endpoint has to
+be re-enrolled if you want it back.  Historical telemetry for this
+sensor is retained according to your retention policy.
 
 This is a destructive operation.  You must pass --confirm to proceed.
 """

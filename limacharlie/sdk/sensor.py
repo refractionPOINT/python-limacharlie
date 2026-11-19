@@ -227,6 +227,11 @@ class Sensor:
     def delete(self) -> dict[str, Any]:
         """Delete this sensor.
 
+        The sensor is disconnected and refused when it tries to connect
+        again. It can be restored for 30 days; after that the deletion is
+        permanent and the sensor's tags are removed, except tags in the
+        reserved ``acl:`` namespace.
+
         Returns:
             dict: API response.
         """
