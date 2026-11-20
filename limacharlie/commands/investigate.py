@@ -66,8 +66,10 @@ AI agent workflow for a new template (a person promotes it at the end):
 Questions without a template: use `investigate packs` then `investigate wave`.
 
 Permissions: reads need investigation.get + insight.evt.get, writes (start,
-wave, test, cancel, delete, decide) investigation.set + insight.evt.get, pause/resume
-org.conf.set, template records investigation_plan.get/.set/.del.
+wave, test, cancel, delete, decide) investigation.set + insight.evt.get, stats
+also investigation_policy.set, template records investigation_plan.get/.set/.del,
+pause/status/resume the investigation_policy record autonomy-manual-pause
+(investigation_policy.set, .get, .del).
 """
 
 _EXPLAIN_KIT = """\
@@ -369,15 +371,27 @@ an alert shape (--category, --priority, --severity, --target-tag, --class).
 """
 
 _EXPLAIN_POLICY_STATUS = """\
-Whether automatic actions are paused for the org, and who last flipped the switch.
+Whether automatic actions are paused for the org. The pause is the enabled
+investigation_policy record `autonomy-manual-pause` (every action class held at
+`suggest`); this reads that record and says who last saved it. `paused: false`
+with an `inactive_reason` means the record exists but does not pause (it is
+disabled or was edited). Needs investigation_policy.get. `policy get` shows what
+the policy records allow right now.
 """
 
 _EXPLAIN_POLICY_PAUSE = """\
-Pause automatic actions for the whole org (the kill switch). Needs org.conf.set.
+Pause automatic actions for the whole org by saving the policy record
+`autonomy-manual-pause`. Suggestions stay visible and a person can still
+approve; actions already executed are not undone. Saving it twice changes
+nothing. Needs investigation_policy.set. If Git Sync manages the
+investigation_policy hive, keep the pause in git too.
 """
 
 _EXPLAIN_POLICY_RESUME = """\
-Resume automatic actions for the org. Needs org.conf.set.
+Resume automatic actions for the org by deleting the policy record
+`autonomy-manual-pause`. The other policy records decide what new actions may
+do; suggestions held while paused are not released. Needs
+investigation_policy.del.
 """
 
 for _path, _text in {
@@ -980,7 +994,7 @@ def runs_group() -> None:
 @click.option("--urgency", type=click.Choice(["low", "medium", "high", "critical"]), default=None,
               help="Run urgency; it picks the decision thresholds. Default: derived from --priority / --severity, else medium.")
 @click.option("--mode", type=click.Choice(["triage", "full", "scope"]), default=None, help="Run mode (engine default: full; triage is cheaper).")
-@click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case id> (default: the org's policy, or the template's report.case).")
+@click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case number> (default: a new case for a detection or case trigger, unless the policy's case is none).")
 @click.option("--idempotency-key", default=None, help="Starting twice with the same key returns the same run.")
 @click.option("--wait", "wait_seconds", type=click.IntRange(0, 60), default=0, help="Block up to this many seconds for the verdict (this CLI accepts 0..60; the run goes on after it).")
 @click.option("--follow", is_flag=True, default=False, help="Then stream the run's events until it ends.")
@@ -1049,7 +1063,7 @@ def runs_get(ctx, run_id) -> None:
 
 @runs_group.command("list")
 @click.option("--state", default=None, help="Only runs in this state (queued, running, decided, completed, cancelled, failed, budget_exhausted).")
-@click.option("--verdict", default=None, help="Only runs with this verdict (true_positive, false_positive, inconclusive, undecided).")
+@click.option("--verdict", default=None, help="Only runs with this verdict (true_positive, false_positive, inconclusive, undecided; needs investigation_policy.set).")
 @click.option("--template", default=None, help="Only runs of this template.")
 @click.option("--trigger", default=None, help="Only runs started from this kind of trigger (detection, message, entity, case, question).")
 @click.option("--entity", default=None, help="Only runs about this entity.")
@@ -1274,7 +1288,7 @@ def actions_deny(ctx, run_id, action_id, reason) -> None:
 
 @group.group("policy")
 def policy_group() -> None:
-    """Effective policy and the pause switch for automatic actions."""
+    """Effective policy, and the pause record for automatic actions."""
 
 
 @policy_group.command("get")
@@ -1298,24 +1312,24 @@ def policy_get(ctx, category, priority, severity, target_tags, action_class, tem
 @pass_context
 @_engine_errors
 def policy_status(ctx) -> None:
-    """Show whether automatic actions are paused."""
-    command_output(ctx, _get_investigation(ctx).get_autonomy())
+    """Show whether automatic actions are paused (the autonomy-manual-pause record)."""
+    command_output(ctx, _get_investigation(ctx).get_pause())
 
 
 @policy_group.command("pause")
 @pass_context
 @_engine_errors
 def policy_pause(ctx) -> None:
-    """Pause automatic actions for the org."""
-    command_output(ctx, _get_investigation(ctx).set_autonomy("pause"))
+    """Pause automatic actions: save the autonomy-manual-pause policy record."""
+    command_output(ctx, _get_investigation(ctx).pause_actions())
 
 
 @policy_group.command("resume")
 @pass_context
 @_engine_errors
 def policy_resume(ctx) -> None:
-    """Resume automatic actions for the org."""
-    command_output(ctx, _get_investigation(ctx).set_autonomy("resume"))
+    """Resume automatic actions: delete the autonomy-manual-pause policy record."""
+    command_output(ctx, _get_investigation(ctx).resume_actions())
 
 
 @group.command("stats")
@@ -1325,5 +1339,5 @@ def policy_resume(ctx) -> None:
 @pass_context
 @_engine_errors
 def stats_cmd(ctx, template, since, until) -> None:
-    """Show the engine's performance statistics (runs, durations, costs, actions per template and class)."""
+    """Show the engine's performance statistics (needs investigation_policy.set too)."""
     command_output(ctx, _get_investigation(ctx).get_stats(template=template, since=since, until=until))

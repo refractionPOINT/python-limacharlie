@@ -546,12 +546,29 @@ class TestActionsAndPolicy:
              "--template", "t"])
         sdk.get_effective_policy.assert_called_with(
             category="c", priority=4, severity=None, target_tags=["a", "b"], action_class="tag", template="t")
-        run(["investigate", "policy", "status"])
-        sdk.get_autonomy.assert_called_once()
-        run(["investigate", "policy", "pause"])
-        sdk.set_autonomy.assert_called_with("pause")
-        run(["investigate", "policy", "resume"])
-        sdk.set_autonomy.assert_called_with("resume")
+
+    def test_pause_resume_and_status_use_the_policy_record(self, sdk):
+        sdk.get_pause.return_value = {"paused": False, "record": "autonomy-manual-pause"}
+        result = run(["investigate", "policy", "status"])
+        assert result.exit_code == 0 and out_json(result)["paused"] is False
+        sdk.pause_actions.return_value = {"paused": True, "changed": True}
+        result = run(["investigate", "policy", "pause"])
+        assert result.exit_code == 0 and out_json(result) == {"paused": True, "changed": True}
+        sdk.resume_actions.return_value = {"paused": False, "changed": True}
+        result = run(["investigate", "policy", "resume"])
+        assert result.exit_code == 0 and out_json(result)["paused"] is False
+        sdk.get_pause.assert_called_once_with()
+        sdk.pause_actions.assert_called_once_with()
+        sdk.resume_actions.assert_called_once_with()
+
+    def test_a_refused_pause_is_reported_with_its_permission_hint(self, sdk):
+        from limacharlie.sdk import investigation as m
+        sdk.pause_actions.side_effect = m.InvestigationError(
+            "lc_error_code:UNAUTHORIZED - nope", status_code=403, suggestion=m._POLICY_PERMISSION_HINT, exit_code=1)
+        result = run(["investigate", "policy", "pause"])
+        assert result.exit_code == 1
+        doc = json.loads(result.stderr)
+        assert doc["status"] == 403 and "investigation_policy.set" in doc["suggestion"]
 
 
 class TestErrorReporting:
@@ -572,6 +589,17 @@ class TestErrorReporting:
         result = run(["investigate", "runs", "list"])
         assert result.exit_code == 3
         assert "gated per deployment" in json.loads(result.stderr)["suggestion"]
+
+    def test_a_refused_start_shows_its_reason_code_in_both_modes(self, sdk):
+        from limacharlie.sdk import investigation as m
+        body = {"error": "no active template applies", "error_code": "bad_request", "http_status": 400,
+                "reason_code": "no_template_applies"}
+        sdk.start_run.side_effect = m._wrap_error(error_from_status_code(400, body))
+        args = ["investigate", "runs", "start", "--auto", "--detection-id", "d1"]
+        doc = json.loads(run(args).stderr)
+        assert doc["reason_code"] == "no_template_applies" and doc["error_code"] == "bad_request"
+        table = run(args, fmt="table")
+        assert table.exit_code != 0 and "reason_code: no_template_applies" in str(table.exception)
 
     def test_table_mode_raises_the_error_for_the_normal_text_rendering(self, sdk):
         sdk.get_run.side_effect = issue_error()

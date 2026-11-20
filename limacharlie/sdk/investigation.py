@@ -3,7 +3,8 @@
 Wraps the ``/investigate/{oid}/...`` REST routes served by the API gateway:
 the authoring kit, the typed operator and fact-pack catalogues, plan
 validation and dry runs on past alerts, investigation runs (start, read,
-list, events, cancel, delete), waves, the approvals inbox and the autonomy switch.
+list, events, cancel, delete), waves, the approvals inbox and the manual pause of
+automatic actions (a policy record).
 
 The feature is experimental and gated per deployment. Where it is off, every
 route is an unknown path (HTTP 404 with no engine error code); where the
@@ -17,7 +18,12 @@ Permissions (all of the listed ones are required):
 - writes (start a run, waves, cancel, delete, test a plan, decide an action):
   ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
   the permission of the action's own class (for example ``sensor.task``)
-- pause / resume of automatic actions: ``org.conf.set``
+- the performance stats additionally need ``investigation_policy.set``, and so
+  does filtering the run list by verdict
+- pause / resume / status of automatic actions: they are the hive record
+  ``investigation_policy/autonomy-manual-pause``, so ``investigation_policy.get``
+  (status), ``investigation_policy.set`` (pause) and ``investigation_policy.del``
+  (resume), explicit grants no default role has
 - the template records themselves (hive ``investigation_plan``):
   ``investigation_plan.get`` / ``investigation_plan.set`` /
   ``investigation_plan.del``. These are explicit grants, no default role has
@@ -53,6 +59,13 @@ if TYPE_CHECKING:
 
 PLAN_HIVE = "investigation_plan"
 PACK_HIVE = "investigation_pack"
+POLICY_HIVE = "investigation_policy"
+
+#: The policy record whose presence pauses automatic actions for the org.
+MANUAL_PAUSE_RECORD = "autonomy-manual-pause"
+
+# What the record must hold to pause: every action class held at ``suggest``.
+_MANUAL_PAUSE_DATA: dict[str, Any] = {"autonomy": {"*": {"mode": "suggest"}}}
 STATUS_DRAFT = "draft"
 STATUS_ACTIVE = "active"
 
@@ -99,6 +112,8 @@ class InvestigationError(ApiError):
 
     ``error_code`` (inherited) is the engine's code, or None when the answer
     did not come from the engine itself (for example a gateway 404).
+    ``reason_code`` is the engine's specific cause of a refused run start
+    (``no_template_applies``, ``template_draft``, ...), or None.
 
     Attributes:
         issues: The coded errors of a refused plan or wave.
@@ -121,16 +136,33 @@ class InvestigationError(ApiError):
         super().__init__(message, status_code=status_code, response_body=response_body, suggestion=suggestion)
         self.exit_code = exit_code
 
+    @property
+    def reason_code(self) -> str | None:
+        """The engine's ``reason_code`` of a refused run start, if the answer carried one."""
+        return _body_token(self.response_body, "reason_code")
+
+    @property
+    def path(self) -> str | None:
+        """The JSON Pointer of the policy field a refused policy answer names, if it carried one."""
+        body = self.response_body
+        value = body.get("path") if isinstance(body, dict) else None
+        return value if isinstance(value, str) else None
+
     def to_dict(self) -> dict[str, Any]:
         """Render the failure as a machine-readable document.
 
         Returns:
-            dict: ``error`` (message), ``status`` (HTTP), ``error_code``, and
+            dict: ``error`` (message), ``status`` (HTTP), ``error_code``,
+                ``reason_code`` and ``path`` when the engine sent them, and
                 ``errors`` / ``warnings`` exactly as the engine sent them.
         """
         out: dict[str, Any] = {"error": self.raw_message, "status": self.status_code}
         if self.error_code:
             out["error_code"] = self.error_code
+        if self.reason_code:
+            out["reason_code"] = self.reason_code
+        if self.path is not None:
+            out["path"] = self.path
         if self.issues:
             out["errors"] = self.issues
         if self.warnings:
@@ -138,6 +170,11 @@ class InvestigationError(ApiError):
         if self.suggestion:
             out["suggestion"] = self.suggestion
         return out
+
+
+def _body_token(body: Any, key: str) -> str | None:
+    value = body.get(key) if isinstance(body, dict) else None
+    return value if isinstance(value, str) and value else None
 
 
 def _issue_line(issue: Any) -> str:
@@ -151,8 +188,9 @@ def _issue_line(issue: Any) -> str:
 
 _PERMISSION_HINT = (
     "Reads need investigation.get + insight.evt.get, writes (start, wave, cancel, delete, test, decide) need "
-    "investigation.set + insight.evt.get, pause/resume needs org.conf.set, and template records need "
-    "investigation_plan.get / investigation_plan.set. Deciding an action also needs the permission of its class."
+    "investigation.set + insight.evt.get, the stats also need investigation_policy.set, and template records need "
+    "investigation_plan.get / investigation_plan.set. Deciding an action also needs the permission of its class, "
+    "and an API key needs a key id."
 )
 
 _DISABLED_HINT = (
@@ -183,6 +221,9 @@ def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
     lines = [_issue_line(i) for i in issues]
     if lines and not any(line in message for line in lines):
         message += "\n" + "\n".join(f"  {line}" for line in lines)
+    reason = _body_token(body, "reason_code")
+    if reason and reason not in message:
+        message += f" (reason_code: {reason})"
 
     suggestion: str | None = None
     if status == 404 and code is None:
@@ -219,32 +260,46 @@ _TEMPLATE_PERMISSION_HINT = (
 )
 
 
-def _template_record_errors(fn: Any) -> Any:
-    """Report a failed template-record operation as an :class:`InvestigationError`.
+def _record_errors(permission_hint: str) -> Any:
+    """Build the decorator that reports a failed hive-record operation as an :class:`InvestigationError`.
 
-    A refused permission also says which permission the operation needs. Any
-    other Hive or API failure keeps its message, HTTP status, response body (so
-    ``error_code`` still carries the backend's ``lc_error_code``) and exit code,
-    so callers handle one error type whatever went wrong.
+    A refused permission also says which permission the operation needs
+    (``permission_hint``). Any other Hive or API failure keeps its message,
+    HTTP status, response body (so ``error_code`` still carries the backend's
+    ``lc_error_code``) and exit code, so callers handle one error type
+    whatever went wrong.
     """
-    @functools.wraps(fn)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return fn(*args, **kwargs)
-        except InvestigationError:
-            raise
-        except LimaCharlieError as exc:
-            denied = is_permission_denied(exc)
-            if not denied and not isinstance(exc, ApiError):
-                raise  # input errors and the like are not Hive answers
-            raise InvestigationError(
-                exc.raw_message,
-                status_code=403 if denied else exc.status_code,
-                response_body=getattr(exc, "response_body", None),
-                suggestion=_TEMPLATE_PERMISSION_HINT if denied else (exc.suggestion or ""),
-                exit_code=exc.exit_code,
-            ) from exc
-    return wrapper
+    def decorate(fn: Any) -> Any:
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(*args, **kwargs)
+            except InvestigationError:
+                raise
+            except LimaCharlieError as exc:
+                denied = is_permission_denied(exc)
+                if not denied and not isinstance(exc, ApiError):
+                    raise  # input errors and the like are not Hive answers
+                raise InvestigationError(
+                    exc.raw_message,
+                    status_code=403 if denied else exc.status_code,
+                    response_body=getattr(exc, "response_body", None),
+                    suggestion=permission_hint if denied else (exc.suggestion or ""),
+                    exit_code=exc.exit_code,
+                ) from exc
+        return wrapper
+    return decorate
+
+
+_template_record_errors = _record_errors(_TEMPLATE_PERMISSION_HINT)
+
+_POLICY_PERMISSION_HINT = (
+    "The pause is the hive record 'investigation_policy/autonomy-manual-pause': reading it needs "
+    "investigation_policy.get, pausing investigation_policy.set, resuming investigation_policy.del. "
+    "They are explicit grants that no default role has."
+)
+
+_policy_record_errors = _record_errors(_POLICY_PERMISSION_HINT)
 
 
 def _check_id(kind: str, value: str) -> str:
@@ -869,29 +924,102 @@ class Investigation:
             ),
         )
 
-    def get_autonomy(self) -> dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Manual pause of automatic actions (a policy record)
+    # ------------------------------------------------------------------
+
+    def _policy(self) -> Hive:
+        return Hive(self._org, POLICY_HIVE)
+
+    def _read_pause_record(self) -> HiveRecord | None:
+        try:
+            return self._policy().get(MANUAL_PAUSE_RECORD)
+        except ApiError as exc:
+            if is_record_not_found(exc):
+                return None
+            raise
+
+    @staticmethod
+    def _pause_view(record: HiveRecord | None) -> dict[str, Any]:
+        view: dict[str, Any] = {"paused": False, "record": MANUAL_PAUSE_RECORD}
+        if record is None:
+            return view
+        # A disabled record applies nothing, and an edited one is no longer the plain pause.
+        if record.enabled is not True:
+            view["inactive_reason"] = "disabled"
+        elif record.data != _MANUAL_PAUSE_DATA:
+            view["inactive_reason"] = "edited"
+        else:
+            view["paused"] = True
+        view.update(etag=record.etag, last_author=record.last_author, last_modified=record.last_modified)
+        return view
+
+    @_policy_record_errors
+    def get_pause(self) -> dict[str, Any]:
         """Read whether automatic actions are paused for the org.
 
-        Returns:
-            dict: The pause-switch state and who last flipped it.
-        """
-        return self._get("autonomy")
-
-    def set_autonomy(self, verb: str) -> dict[str, Any]:
-        """Pause or resume automatic actions for the org.
-
-        Args:
-            verb: ``pause`` or ``resume``.
+        The pause is the enabled hive record ``investigation_policy/autonomy-manual-pause``
+        holding ``autonomy: {"*": {mode: suggest}}``. Needs ``investigation_policy.get``.
 
         Returns:
-            dict: The new switch state.
+            dict: ``paused`` (bool) and ``record`` (the record name). When the
+                record exists: ``etag``, ``last_author``, ``last_modified``, and
+                ``inactive_reason`` (``disabled`` or ``edited``) when it does not
+                pause. Use :meth:`get_effective_policy` for what the policy
+                records allow right now.
 
         Raises:
-            ValidationError: If ``verb`` is neither.
+            InvestigationError: On any API failure.
         """
-        if verb not in ("pause", "resume"):
-            raise ValidationError("verb must be pause or resume")
-        return self._call("POST", f"autonomy/{verb}", write=True)
+        return self._pause_view(self._read_pause_record())
+
+    @_policy_record_errors
+    def pause_actions(self) -> dict[str, Any]:
+        """Pause automatic actions for the org by saving the pause record.
+
+        Every action class is held at ``suggest``: suggestions stay visible and a
+        person can still approve. Saving a record that already pauses changes
+        nothing. An existing record that does not pause (disabled or edited) is
+        rewritten, keeping its tags and comment. Needs ``investigation_policy.set``.
+
+        Returns:
+            dict: The state after the write (:meth:`get_pause`) and ``changed``.
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        existing = self._read_pause_record()
+        if existing is not None and self._pause_view(existing)["paused"]:
+            return {**self._pause_view(existing), "changed": False}
+        record = HiveRecord(
+            name=MANUAL_PAUSE_RECORD, data=json.loads(json.dumps(_MANUAL_PAUSE_DATA)), enabled=True,
+            etag=_CREATE_ONLY_ETAG if existing is None else existing.etag,
+        )
+        if existing is not None:
+            # Metadata replaces the stored metadata wholesale: start from what is stored.
+            record.tags, record.comment, record.expiry = existing.tags, existing.comment, existing.expiry
+            record.ui_actions = existing.ui_actions
+        self._policy().set(record)
+        return {**self._pause_view(self._read_pause_record()), "changed": True}
+
+    @_policy_record_errors
+    def resume_actions(self) -> dict[str, Any]:
+        """Resume automatic actions for the org by deleting the pause record.
+
+        The remaining policy records decide what new actions may do. Suggestions
+        held while paused are not released. Needs ``investigation_policy.del``.
+
+        Returns:
+            dict: The state after the delete (:meth:`get_pause`) and ``changed``
+                (False when there was no record).
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        if self._read_pause_record() is None:
+            return {**self._pause_view(None), "changed": False}
+        self._policy().delete(MANUAL_PAUSE_RECORD)
+        return {**self._pause_view(self._read_pause_record()), "changed": True}
 
     # ------------------------------------------------------------------
     # Plan validation and dry runs

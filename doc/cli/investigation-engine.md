@@ -19,7 +19,8 @@ All the listed permissions are required.
 | Reads: runs, templates, operators, packs, kit, policy, test results, the approvals inbox | `investigation.get` + `insight.evt.get` |
 | Writes: start a run, wave, cancel, delete a run, test a template, decide an action | `investigation.set` + `insight.evt.get` |
 | Approve / deny an action | the writes above + the permission of the action's class (for example `sensor.task`, `mailsec.act`, `sensor.tag`) |
-| `policy pause` / `policy resume` | `org.conf.set` |
+| `stats`, and `runs list --verdict` | the reads above + `investigation_policy.set` |
+| `policy status` / `policy pause` / `policy resume` | `investigation_policy.get` / `.set` / `.del` (they read, save and delete the `autonomy-manual-pause` record; explicit grants, no default role has them) |
 | Template records (`investigation_plan` hive) | `investigation_plan.get`, `investigation_plan.set`, `investigation_plan.del` (explicit grants; no default role has them) |
 
 Waves and template tests always execute with **your own token**, so the operators enforce your permissions. A run started with `runs start` executes as the identity the organization's `investigation_policy` names for its template: your token when the policy names none, otherwise the Hive secret the policy points to, in which case the operators enforce that secret's permissions and not yours. An active template can therefore reach data or take actions beyond your own permissions. Before you start one, check `limacharlie investigate policy get --template NAME`: its `identity` shows the default identity, the allowed ones and where they come from. A finished run's `identity` field (`kind` caller or secret) records which one it used. Runs started by a detection rule or a case never have a caller and always use the policy's secret identity.
@@ -193,7 +194,9 @@ limacharlie investigate policy pause
 limacharlie investigate policy resume
 ```
 
-`actions list` is the approvals inbox across all runs; what needs a person comes first. `policy pause` stops automatic actions for the whole org (the kill switch) and needs `org.conf.set`.
+`actions list` is the approvals inbox across all runs; what needs a person comes first.
+
+`policy pause` stops automatic actions for the whole org by saving the enabled `investigation_policy` record `autonomy-manual-pause` (every action class held at `suggest`). Suggestions stay visible and a person can still approve; nothing already executed is undone. `policy resume` deletes the record, and the other policy records decide what new actions may do. `policy status` reads the record: `paused`, who last saved it, and an `inactive_reason` (`disabled` or `edited`) when it exists but does not pause. `policy get` shows what the policy records allow right now. If Git Sync manages the `investigation_policy` hive, keep the pause in git too.
 
 ## Errors
 
@@ -209,7 +212,7 @@ In a structured output format (`--output json`, the default when piped) a failur
 }
 ```
 
-`error_code` is the engine's (`bad_request`, `forbidden`, `not_found`, `conflict`, `too_many_runs`, `not_implemented`, `unavailable`). It is absent when the answer did not come from the engine: a 404 without it means the feature is not enabled, and `suggestion` says what to check. Exit codes follow the CLI's: `2` authentication or permission, `3` not found, `4` validation or a refused result, `5` rate limit.
+`error_code` is the engine's (`bad_request`, `forbidden`, `not_found`, `conflict`, `too_many_runs`, `not_implemented`, `unavailable`). A refused run start also carries `reason_code`, the specific cause (for example `no_template_applies`, `template_draft`, `unknown_template`); a refused policy field carries `path`, a JSON Pointer to it. In table mode the reason code ends the error message. It is absent when the answer did not come from the engine: a 404 without it means the feature is not enabled, and `suggestion` says what to check. Exit codes follow the CLI's: `2` authentication or permission, `3` not found, `4` validation or a refused result, `5` rate limit.
 
 Every other failure is written the same way: a Hive or API error carries its `message`, HTTP `status` and the backend's code as `error_code` (the `lc_error_code` of a Hive answer, for example a refused promote), and a refused input file (unreadable, not YAML/JSON, wrong shape) carries `errors: [{code: invalid_input, path: --file, message}]` and exits `4`.
 
