@@ -375,7 +375,7 @@ Whether automatic actions are paused for the org. The pause is the enabled
 investigation_policy record `autonomy-manual-pause` (every action class held at
 `suggest`); this reads that record and says who last saved it. `paused: false`
 with an `inactive_reason` means the record exists but does not pause (it is
-disabled or was edited). Needs investigation_policy.get. `policy get` shows what
+disabled, was edited or has an expiry). Needs investigation_policy.get. `policy get` shows what
 the policy records allow right now.
 """
 

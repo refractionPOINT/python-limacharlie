@@ -196,7 +196,7 @@ limacharlie investigate policy resume
 
 `actions list` is the approvals inbox across all runs; what needs a person comes first.
 
-`policy pause` stops automatic actions for the whole org by saving the enabled `investigation_policy` record `autonomy-manual-pause` (every action class held at `suggest`). Suggestions stay visible and a person can still approve; nothing already executed is undone. `policy resume` deletes the record, and the other policy records decide what new actions may do. `policy status` reads the record: `paused`, who last saved it, and an `inactive_reason` (`disabled` or `edited`) when it exists but does not pause. `policy get` shows what the policy records allow right now. If Git Sync manages the `investigation_policy` hive, keep the pause in git too.
+`policy pause` stops automatic actions for the whole org by saving the enabled `investigation_policy` record `autonomy-manual-pause` (every action class held at `suggest`). Suggestions stay visible and a person can still approve; nothing already executed is undone. `policy resume` deletes the record, and the other policy records decide what new actions may do. `policy status` reads the record: `paused`, who last saved it, and an `inactive_reason` (`disabled`, `edited` or `expires`) when it exists but does not pause. `policy get` shows what the policy records allow right now. If Git Sync manages the `investigation_policy` hive, keep the pause in git too.
 
 ## Errors
 

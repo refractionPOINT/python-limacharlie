@@ -598,6 +598,7 @@ class TestErrorReporting:
         args = ["investigate", "runs", "start", "--auto", "--detection-id", "d1"]
         doc = json.loads(run(args).stderr)
         assert doc["reason_code"] == "no_template_applies" and doc["error_code"] == "bad_request"
+        assert doc["error"] == "no active template applies"
         table = run(args, fmt="table")
         assert table.exit_code != 0 and "reason_code: no_template_applies" in str(table.exception)
 

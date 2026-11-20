@@ -133,6 +133,11 @@ class InvestigationError(ApiError):
     ) -> None:
         self.issues = issues or []
         self.warnings = warnings or []
+        # The reason code ends the text a person reads; the machine-readable document keeps the
+        # engine's message as sent and carries the code in its own key.
+        reason = _body_token(response_body, "reason_code")
+        self._reason_suffix = f" (reason_code: {reason})" if reason and reason not in message else ""
+        message += self._reason_suffix
         super().__init__(message, status_code=status_code, response_body=response_body, suggestion=suggestion)
         self.exit_code = exit_code
 
@@ -156,7 +161,10 @@ class InvestigationError(ApiError):
                 ``reason_code`` and ``path`` when the engine sent them, and
                 ``errors`` / ``warnings`` exactly as the engine sent them.
         """
-        out: dict[str, Any] = {"error": self.raw_message, "status": self.status_code}
+        error = self.raw_message
+        if self._reason_suffix and error.endswith(self._reason_suffix):
+            error = error[: -len(self._reason_suffix)]
+        out: dict[str, Any] = {"error": error, "status": self.status_code}
         if self.error_code:
             out["error_code"] = self.error_code
         if self.reason_code:
@@ -221,9 +229,6 @@ def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
     lines = [_issue_line(i) for i in issues]
     if lines and not any(line in message for line in lines):
         message += "\n" + "\n".join(f"  {line}" for line in lines)
-    reason = _body_token(body, "reason_code")
-    if reason and reason not in message:
-        message += f" (reason_code: {reason})"
 
     suggestion: str | None = None
     if status == 404 and code is None:
@@ -949,6 +954,9 @@ class Investigation:
             view["inactive_reason"] = "disabled"
         elif record.data != _MANUAL_PAUSE_DATA:
             view["inactive_reason"] = "edited"
+        elif record.expiry:
+            # The hive deletes a record once its expiry has passed: that would lift the pause by itself.
+            view["inactive_reason"] = "expires"
         else:
             view["paused"] = True
         view.update(etag=record.etag, last_author=record.last_author, last_modified=record.last_modified)
@@ -964,8 +972,8 @@ class Investigation:
         Returns:
             dict: ``paused`` (bool) and ``record`` (the record name). When the
                 record exists: ``etag``, ``last_author``, ``last_modified``, and
-                ``inactive_reason`` (``disabled`` or ``edited``) when it does not
-                pause. Use :meth:`get_effective_policy` for what the policy
+                ``inactive_reason`` (``disabled``, ``edited`` or ``expires``) when
+                it does not pause. Use :meth:`get_effective_policy` for what the policy
                 records allow right now.
 
         Raises:
@@ -979,8 +987,9 @@ class Investigation:
 
         Every action class is held at ``suggest``: suggestions stay visible and a
         person can still approve. Saving a record that already pauses changes
-        nothing. An existing record that does not pause (disabled or edited) is
-        rewritten, keeping its tags and comment. Needs ``investigation_policy.set``.
+        nothing, and a concurrent pause that wins the race counts as done. An existing
+        record that does not pause (disabled, edited or expiring) is rewritten without an
+        expiry, keeping its tags and comment. Needs ``investigation_policy.set``.
 
         Returns:
             dict: The state after the write (:meth:`get_pause`) and ``changed``.
@@ -997,9 +1006,17 @@ class Investigation:
         )
         if existing is not None:
             # Metadata replaces the stored metadata wholesale: start from what is stored.
-            record.tags, record.comment, record.expiry = existing.tags, existing.comment, existing.expiry
+            record.tags, record.comment = existing.tags, existing.comment
             record.ui_actions = existing.ui_actions
-        self._policy().set(record)
+        record.expiry = 0  # never expires: the hive would delete the record, and lift the pause, at its expiry
+        try:
+            self._policy().set(record)
+        except ApiError:
+            # Someone saved the record between our read and the write: if the org is paused now, so be it.
+            current = self._pause_view(self._read_pause_record())
+            if current["paused"]:
+                return {**current, "changed": False}
+            raise
         return {**self._pause_view(self._read_pause_record()), "changed": True}
 
     @_policy_record_errors

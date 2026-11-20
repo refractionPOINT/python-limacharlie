@@ -784,9 +784,11 @@ class TestPause:
         (None, PAUSE_DATA, "disabled"),
         (True, {"autonomy": {"*": {"mode": "auto"}}}, "edited"),
         (True, {"match": {"run": 'template == "t"'}, **PAUSE_DATA}, "edited"),
+        (True, PAUSE_DATA, "expires"),
     ])
     def test_a_record_that_does_not_pause_says_why(self, inv, hive, enabled, data, reason):
-        hive.get.return_value = HiveRecord(name="autonomy-manual-pause", data=data, enabled=enabled, etag="e1")
+        hive.get.return_value = HiveRecord(
+            name="autonomy-manual-pause", data=data, enabled=enabled, etag="e1", expiry=1893456000000 if reason == "expires" else 0)
         view = inv.get_pause()
         assert view["paused"] is False and view["inactive_reason"] == reason
 
@@ -820,6 +822,32 @@ class TestPause:
         assert record.etag == "e1" and record.enabled is True and record.data == PAUSE_DATA
         assert (record.tags, record.comment) == (["t"], "c")
 
+    def test_pause_rewrites_an_expiring_record_without_its_expiry(self, inv, hive):
+        stored = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1", expiry=1893456000000)
+        hive.get.side_effect = [stored, HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2", expiry=0)]
+        out = inv.pause_actions()
+        assert hive.set.call_args.args[0].expiry == 0
+        assert out["paused"] is True and out["changed"] is True
+
+    def test_a_new_record_is_written_without_expiry(self, inv, hive):
+        hive.get.side_effect = [_not_found(), HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2")]
+        inv.pause_actions()
+        assert hive.set.call_args.args[0].expiry == 0
+
+    def test_a_concurrent_pause_that_wins_the_race_is_not_an_error(self, inv, hive):
+        won = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e9")
+        hive.get.side_effect = [_not_found(), won]
+        hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH - changed"})
+        out = inv.pause_actions()
+        assert out["paused"] is True and out["changed"] is False
+
+    def test_a_failed_write_that_did_not_pause_is_raised(self, inv, hive):
+        hive.get.side_effect = [_not_found(), _not_found()]
+        hive.set.side_effect = error_from_status_code(500, "boom")
+        with pytest.raises(InvestigationError) as ei:
+            inv.pause_actions()
+        assert ei.value.status_code == 500
+
     def test_resume_deletes_the_record(self, inv, mock_org, hive):
         hive.get.side_effect = [HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1"), _not_found()]
         out = inv.resume_actions()
@@ -851,7 +879,9 @@ class TestReasonCode:
         exc = ei.value
         assert exc.reason_code == "no_template_applies" and exc.error_code == "bad_request"
         assert "(reason_code: no_template_applies)" in str(exc)
-        assert exc.to_dict()["reason_code"] == "no_template_applies"
+        doc = exc.to_dict()
+        assert doc["reason_code"] == "no_template_applies"
+        assert doc["error"] == "no active template applies"
 
     def test_a_policy_refusal_keeps_its_path(self, inv, mock_org):
         mock_org.client.request.side_effect = error_from_status_code(
