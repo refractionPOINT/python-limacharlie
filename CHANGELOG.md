@@ -88,6 +88,19 @@
 
 ### Investigation Engine — `limacharlie investigate` (experimental)
 
+- `investigate policy pause`, `resume` and `status` no longer call the retired
+  autonomy routes (they answer `410 route_control_retired`). Pausing is saving
+  the `investigation_policy` record `autonomy-manual-pause`, resuming is
+  deleting it and status reads it; they need `investigation_policy.set`, `.del`
+  and `.get` (no longer `org.conf.set`). SDK: `Investigation.pause_actions()`,
+  `resume_actions()` and `get_pause()` replace `set_autonomy()` and
+  `get_autonomy()`.
+- `InvestigationError` keeps the answer's `reason_code` (why a run start was
+  refused) and `path` (the policy field a refusal names); both are in the
+  error document and the reason code ends the message in table mode.
+  Help text of `runs start --case-mode`, `runs list --verdict` and `stats`
+  now states the real defaults and permissions.
+
 - New `investigate stats [--template] [--since] [--until]` command and
   `Investigation.get_stats()` return the engine's performance statistics,
   including per-template, per-action-class counters (suggested, approved,

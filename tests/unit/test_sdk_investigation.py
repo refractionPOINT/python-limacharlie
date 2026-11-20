@@ -251,13 +251,6 @@ class TestRoutes:
         with pytest.raises(ValidationError):
             inv.decide_action("r1", "a1", "delete")
 
-    def test_autonomy_switch(self, inv, mock_org):
-        mock_org.client.request.return_value = {}
-        inv.set_autonomy("pause")
-        assert _request_args(mock_org)[:2] == ("POST", "investigate/oid-1/autonomy/pause")
-        with pytest.raises(ValidationError):
-            inv.set_autonomy("stop")
-
     def test_list_actions_joins_states_and_uses_class(self, inv, mock_org):
         mock_org.client.request.return_value = {"actions": []}
         inv.list_actions(state=["awaiting_approval", "proposed"], action_class="tag", run_id="r1", limit=5)
@@ -375,7 +368,7 @@ class TestErrors:
         mock_org.client.request.side_effect = error_from_status_code(
             503, {"error": "the investigation engine is not available for this organization"})
         with pytest.raises(InvestigationError) as ei:
-            inv.get_autonomy()
+            inv.get_stats()
         assert "not available for this organization" in str(ei.value)
         assert "feature off" in ei.value.suggestion
 
@@ -765,6 +758,145 @@ class TestTemplateRecordPermissions:
         doc = ei.value.to_dict()
         assert doc["error_code"] == "API_KEY_NOT_ALLOWED" and "cannot promote" in doc["error"]
         assert doc["status"] == 400 and ei.value.exit_code == 1
+
+
+PAUSE_DATA = {"autonomy": {"*": {"mode": "suggest"}}}
+
+
+class TestPause:
+    """Pause, resume and status are the ``autonomy-manual-pause`` policy record, never a gateway route."""
+
+    def test_status_without_the_record_is_not_paused(self, inv, mock_org, hive):
+        hive.get.side_effect = _not_found()
+        assert inv.get_pause() == {"paused": False, "record": "autonomy-manual-pause"}
+        inv_mod.Hive.assert_called_with(mock_org, "investigation_policy")
+        hive.get.assert_called_with("autonomy-manual-pause")
+        mock_org.client.request.assert_not_called()
+
+    def test_status_of_the_pause_record(self, inv, hive):
+        hive.get.return_value = HiveRecord(
+            name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1", last_author="a@example.com", last_modified=5)
+        assert inv.get_pause() == {
+            "paused": True, "record": "autonomy-manual-pause", "etag": "e1", "last_author": "a@example.com", "last_modified": 5}
+
+    @pytest.mark.parametrize("enabled,data,reason", [
+        (False, PAUSE_DATA, "disabled"),
+        (None, PAUSE_DATA, "disabled"),
+        (True, {"autonomy": {"*": {"mode": "auto"}}}, "edited"),
+        (True, {"match": {"run": 'template == "t"'}, **PAUSE_DATA}, "edited"),
+        (True, PAUSE_DATA, "expires"),
+    ])
+    def test_a_record_that_does_not_pause_says_why(self, inv, hive, enabled, data, reason):
+        hive.get.return_value = HiveRecord(
+            name="autonomy-manual-pause", data=data, enabled=enabled, etag="e1", expiry=1893456000000 if reason == "expires" else 0)
+        view = inv.get_pause()
+        assert view["paused"] is False and view["inactive_reason"] == reason
+
+    def test_a_failed_read_is_not_taken_for_a_missing_record(self, inv, hive):
+        hive.get.side_effect = error_from_status_code(500, "boom")
+        with pytest.raises(InvestigationError) as ei:
+            inv.get_pause()
+        assert ei.value.status_code == 500
+
+    def test_pause_creates_the_record_and_only_it(self, inv, mock_org, hive):
+        hive.get.side_effect = [_not_found(), HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2")]
+        out = inv.pause_actions()
+        record = hive.set.call_args.args[0]
+        assert (record.name, record.data, record.enabled) == ("autonomy-manual-pause", PAUSE_DATA, True)
+        assert record.etag == inv_mod._CREATE_ONLY_ETAG
+        assert out["paused"] is True and out["changed"] is True
+        hive.delete.assert_not_called()
+        mock_org.client.request.assert_not_called()
+
+    def test_pause_twice_writes_nothing(self, inv, hive):
+        hive.get.return_value = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1")
+        out = inv.pause_actions()
+        assert out["paused"] is True and out["changed"] is False
+        hive.set.assert_not_called()
+
+    def test_pause_repairs_a_disabled_record_with_its_etag_and_metadata(self, inv, hive):
+        stored = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=False, etag="e1", tags=["t"], comment="c", expiry=0)
+        hive.get.side_effect = [stored, HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2")]
+        inv.pause_actions()
+        record = hive.set.call_args.args[0]
+        assert record.etag == "e1" and record.enabled is True and record.data == PAUSE_DATA
+        assert (record.tags, record.comment) == (["t"], "c")
+
+    def test_pause_rewrites_an_expiring_record_without_its_expiry(self, inv, hive):
+        stored = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1", expiry=1893456000000)
+        hive.get.side_effect = [stored, HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2", expiry=0)]
+        out = inv.pause_actions()
+        assert hive.set.call_args.args[0].expiry == 0
+        assert out["paused"] is True and out["changed"] is True
+
+    def test_a_new_record_is_written_without_expiry(self, inv, hive):
+        hive.get.side_effect = [_not_found(), HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2")]
+        inv.pause_actions()
+        assert hive.set.call_args.args[0].expiry == 0
+
+    def test_a_concurrent_pause_that_wins_the_race_is_not_an_error(self, inv, hive):
+        won = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e9")
+        hive.get.side_effect = [_not_found(), won]
+        hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH - changed"})
+        out = inv.pause_actions()
+        assert out["paused"] is True and out["changed"] is False
+
+    def test_a_failed_write_that_did_not_pause_is_raised(self, inv, hive):
+        hive.get.side_effect = [_not_found(), _not_found()]
+        hive.set.side_effect = error_from_status_code(500, "boom")
+        with pytest.raises(InvestigationError) as ei:
+            inv.pause_actions()
+        assert ei.value.status_code == 500
+
+    def test_resume_deletes_the_record(self, inv, mock_org, hive):
+        hive.get.side_effect = [HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1"), _not_found()]
+        out = inv.resume_actions()
+        hive.delete.assert_called_once_with("autonomy-manual-pause")
+        assert out["paused"] is False and out["changed"] is True
+        mock_org.client.request.assert_not_called()
+
+    def test_resume_without_the_record_deletes_nothing(self, inv, hive):
+        hive.get.side_effect = _not_found()
+        assert inv.resume_actions()["changed"] is False
+        hive.delete.assert_not_called()
+
+    def test_a_refused_pause_names_the_policy_permissions(self, inv, hive):
+        hive.get.side_effect = error_from_status_code(400, {"error": "lc_error_code:UNAUTHORIZED - nope"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.get_pause()
+        assert "investigation_policy.get" in ei.value.suggestion and "investigation_policy.del" in ei.value.suggestion
+        assert ei.value.status_code == 403
+
+
+class TestReasonCode:
+    BODY = {"error": "no active template applies", "error_code": "bad_request", "http_status": 400,
+            "reason_code": "no_template_applies"}
+
+    def test_a_refused_start_keeps_its_reason_code(self, inv, mock_org):
+        mock_org.client.request.side_effect = error_from_status_code(400, dict(self.BODY))
+        with pytest.raises(InvestigationError) as ei:
+            inv.start_run({"trigger": {"detection_id": "d"}})
+        exc = ei.value
+        assert exc.reason_code == "no_template_applies" and exc.error_code == "bad_request"
+        assert "(reason_code: no_template_applies)" in str(exc)
+        doc = exc.to_dict()
+        assert doc["reason_code"] == "no_template_applies"
+        assert doc["error"] == "no active template applies"
+
+    def test_a_policy_refusal_keeps_its_path(self, inv, mock_org):
+        mock_org.client.request.side_effect = error_from_status_code(
+            400, {"error": "unknown field", "error_code": "policy_unknown_field", "path": "/autonomy/tag/mode"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.get_effective_policy()
+        assert ei.value.path == "/autonomy/tag/mode" and ei.value.to_dict()["path"] == "/autonomy/tag/mode"
+        assert ei.value.reason_code is None and "reason_code" not in ei.value.to_dict()
+
+    def test_a_reason_already_in_the_message_is_not_repeated(self, inv, mock_org):
+        body = dict(self.BODY, error="refused: no_template_applies")
+        mock_org.client.request.side_effect = error_from_status_code(400, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.start_run({})
+        assert "(reason_code" not in str(ei.value)
 
 
 class TestPromote:
