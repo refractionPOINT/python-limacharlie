@@ -19,6 +19,7 @@ from ..sdk.organization import Organization
 from ..sdk.replay import Replay as ReplaySDK
 from ..output import format_output, detect_output_format
 from ..discovery import register_explain
+from ._replay_completeness import warn_if_partial
 from ._time_validation import validate_epoch_seconds
 
 
@@ -76,7 +77,11 @@ You can replay an existing deployed rule by --name, or provide
 ad-hoc detection and response components from separate files via
 --detect-file and --respond-file.
 
-The --start and --end times are Unix timestamps in seconds.
+The --start and --end times are Unix timestamps in seconds.  Use
+--sid to limit the replay to one sensor, or --selector for a sensor
+selector expression (tags, platform, hostname, etc.).  Scope the replay
+to the sensors the rule is meant for: an org-wide replay over a long
+window can stop at the server's deadline before it covers everything.
 
 The detection file should contain the detect component:
 
@@ -90,9 +95,16 @@ The response file should contain the respond component:
   - action: report
     name: suspicious-screensaver
 
-The result includes num_evals (number of operator evaluations),
-eval_time (seconds), num_events (events processed), responses
-(list of detections that would have been generated), and errors.
+The result includes stats (n_proc events processed, n_eval operator
+evaluations, n_matched matches), results (the detections that would
+have been generated), did_match, and error.
+
+A replay that stops early still answers with the matches found so far.
+When stats.results_partial is true, stats.stop_reason names a stop
+(such as request_deadline), stats.skipped_events is not empty, or error
+is set, the results cover only part of the window: zero matches then
+does not show the rule is clean.  The CLI prints a warning to stderr in
+that case.  Re-run with a narrower --sid/--selector or a shorter window.
 
 Note: stateful rules (using 'with child', 'with descendant', or
 'with events') are forward-looking only.  The parent event must
@@ -101,6 +113,7 @@ be seen before child matches apply during replay.
 Examples:
   limacharlie replay run --name my-rule --start 1700000000 --end 1700100000
   limacharlie replay run --detect-file detect.yaml --respond-file respond.yaml --start 1700000000 --end 1700100000
+  limacharlie replay run --detect-file detect.yaml --respond-file respond.yaml --start 1700000000 --end 1700100000 --selector 'plat == "linux" and "prod" in tags'
 """
 register_explain("replay.run", _EXPLAIN_RUN)
 
@@ -117,8 +130,10 @@ register_explain("replay.run", _EXPLAIN_RUN)
 )
 @click.option("--start", required=True, type=int, help="Start time (Unix seconds).")
 @click.option("--end", required=True, type=int, help="End time (Unix seconds).")
+@click.option("--sid", default=None, help="Specific sensor ID to replay against.")
+@click.option("--selector", default=None, help="Sensor selector expression (bexpr).")
 @pass_context
-def run(ctx, name, detect_file, respond_file, start, end) -> None:
+def run(ctx, name, detect_file, respond_file, start, end, sid, selector) -> None:
     validate_epoch_seconds(start, "start")
     validate_epoch_seconds(end, "end")
     detect = None
@@ -144,5 +159,8 @@ def run(ctx, name, detect_file, respond_file, start, end) -> None:
         respond=respond,
         start=start,
         end=end,
+        sid=sid,
+        selector=selector,
     )
     _output(ctx, data)
+    warn_if_partial(data)

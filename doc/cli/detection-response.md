@@ -44,7 +44,18 @@ limacharlie fp delete --key my-fp --confirm
 ```bash
 limacharlie replay run --name my-rule --start 1704067200 --end 1704153600
 limacharlie replay run --detect-file detect.yaml --respond-file respond.yaml --start 1704067200 --end 1704153600
+limacharlie replay run --detect-file detect.yaml --respond-file respond.yaml --start 1704067200 --end 1704153600 --selector '"prod" in tags'
+limacharlie dr replay --name my-rule --start 1704067200 --end 1704153600 --sid SENSOR_ID
 ```
+
+Scope a replay with `--sid` or `--selector` to the sensors the rule is meant for.
+A replay that stops early (its server-side deadline, an unreadable batch, an
+oversized event) still answers with the matches found so far. When
+`stats.results_partial` is true, `stats.stop_reason` names a stop,
+`stats.skipped_events` is not empty, or `error` is set, the results cover only part
+of the window: zero matches does not show the rule is clean. `dr replay` and
+`replay run` print a warning to stderr in that case. Re-run with a narrower scope
+or a shorter window.
 
 ## detection
 

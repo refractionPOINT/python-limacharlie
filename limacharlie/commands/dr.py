@@ -27,6 +27,7 @@ from ._hive_shortcut import (
     PAGING_HELP, input_metadata_block, list_hive_records, merge_current_metadata_or_warn,
     output_listing, paging_options,
 )
+from ._replay_completeness import warn_if_partial
 from ._time_validation import validate_epoch_seconds
 
 
@@ -653,8 +654,18 @@ by tags, platform, hostname, etc.).
 Use --trace to include a detailed step-by-step evaluation trace.
 Use --dry-run to estimate the evaluation cost without running.
 
-The response includes num_evals, eval_time, num_events, responses
-(detections that would have been generated), and errors.
+The response includes stats (n_proc events processed, n_eval operator
+evaluations, n_matched matches), results (the detections that would
+have been generated), did_match, and error.
+
+Scope the replay to the sensors the rule is meant for with --sid or
+--selector.  A replay that stops early (its server-side deadline, a
+batch that could not be read, an oversized event) still answers with
+the matches found so far.  When stats.results_partial is true,
+stats.stop_reason names a stop, stats.skipped_events is not empty, or
+error is set, the results cover only part of the window and zero
+matches does not show the rule is clean.  The CLI prints a warning to
+stderr in that case; re-run with a narrower scope or a shorter window.
 
 Note: stateful rules are forward-looking only.  Changing a stateful
 rule resets its state, so the parent event must be re-seen before
@@ -697,6 +708,7 @@ def replay(ctx, name, start, end, sid, selector, trace, dry_run, namespace) -> N
         dry_run=dry_run,
     )
     _output(ctx, data)
+    warn_if_partial(data)
 
 
 # ---------------------------------------------------------------------------
