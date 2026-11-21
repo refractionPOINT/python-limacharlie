@@ -2,28 +2,12 @@
  "about": "Generated public template number/boolean field paths from investigation_compatibility_snapshot.json; do not edit. Regenerate both fixtures with python tools/generate_investigation_fixtures.py. A star denotes a list index or map key. See README.investigation.md for provenance and input format.",
  "fields": [
   {
-   "kind": "number",
-   "path": "evidence.*.weight"
-  },
-  {
    "kind": "bool",
-   "path": "facts.*.case"
-  },
-  {
-   "kind": "bool",
-   "path": "facts.*.predict"
+   "path": "gather.*.always"
   },
   {
    "kind": "number",
-   "path": "prior"
-  },
-  {
-   "kind": "number",
-   "path": "signals.*.benign_weight"
-  },
-  {
-   "kind": "number",
-   "path": "signals.*.malicious_weight"
+   "path": "gather.*.pack_version"
   },
   {
    "kind": "number",

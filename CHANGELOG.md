@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Investigation Engine: the v5 template model
+
+- `limacharlie investigate` follows the engine's new template format: `gather`
+  steps, `rules` (`escalate` / `close`, each with an id and a sentence),
+  `ask_ai` questions and one optional `ai_review`. The old format (`facts`,
+  `proofs`, `evidence`, `prior`, `signals`, `respond`, `decision`) is refused by
+  the engine with `legacy_template_format`; the SDK converts nothing. Typed
+  fields read as numbers or booleans are now `version`, `gather.*.pack_version`
+  and `gather.*.always`; `act[].attrs` is read like step args.
+- A run ends with an outcome (`closed_by_rule`, `escalated_by_rule`,
+  `closed_by_ai`, `escalated_by_ai`, `ai_recommends_benign`,
+  `ai_recommends_malicious`, `couldnt_tell`, `conflict`) instead of a
+  probability. `runs list --outcome` (SDK `list_runs(outcome=...)`,
+  `RUN_OUTCOMES`) filters on it; `runs list` rows show the outcome and who
+  decided. `runs get`, `runs steps` and `runs case` return `decided_by`,
+  `recommendation`, `missing`, `ai_agent` and each step's `narrative`.
+- `templates test` prints, per sample, the outcome, the deciding rule, the AI's
+  recommendation and the rule and AI agreement with the analyst, and a summary
+  with `rule_share`, per-rule agree/disagree and the AI's counts. `p`, prior,
+  evidence and `agreement_rate` are gone.
+- New `investigate policy ai` / `policy ai-set TEMPLATE MODE --confirm` (SDK
+  `get_ai_may_decide`, `set_ai_may_decide`, `AI_MODES`) read and set the policy's
+  `ai_may_decide` per template (`off`, `escalate`, `close_and_escalate`). The
+  policy no longer has thresholds, mandatory checks or `min_confidence`.
+- Child templates (`investigate:`) and composition locks are gone. The default
+  library has one template per kind of alert (`mailsec-message`,
+  `endpoint-detection`, ...).
+
 ### Host Posture
 
 - New `limacharlie host-posture` command group for the `ext-host-posture`

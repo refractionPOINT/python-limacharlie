@@ -26,8 +26,10 @@ from ..discovery import register_explain
 from ..output import detect_output_format, format_output
 from ..errors import LimaCharlieError
 from ..sdk.investigation import (
+    AI_MODES,
     KIT_SECTIONS,
     MAX_POLL_WAIT,
+    RUN_OUTCOMES,
     Investigation,
     InvestigationError,
     parse_document,
@@ -51,6 +53,15 @@ Build, test and tune investigation templates, and run investigations, with
 the Investigation Engine (experimental; it must be enabled for your
 deployment and organization).
 
+A template has `gather` (steps that read the org's data), `rules` (`escalate`
+and `close` rules over what was gathered, each with an id and a sentence for
+the case), an optional `ai_review` (the fallback for what rules cannot decide)
+and `act` / `case`. Nothing is scored: a run ends with an outcome
+(closed_by_rule, escalated_by_rule, closed_by_ai, escalated_by_ai,
+ai_recommends_benign, ai_recommends_malicious, couldnt_tell, conflict) and the
+rule or the AI behind it. Whether the AI may DECIDE, or only recommend, is the
+org policy's `ai_may_decide` for the template (`investigate policy ai`).
+
 AI agent workflow for a new template (a person promotes it at the end):
 
   1. limacharlie investigate kit --section guide --section schema --section codes
@@ -58,7 +69,8 @@ AI agent workflow for a new template (a person promotes it at the end):
   3. write the template YAML
   4. limacharlie investigate templates validate --file plan.yaml
   5. limacharlie investigate templates test --file plan.yaml --detect-cat <category> --last 10
-  6. refine from the disagreements and unknowns, repeat 4-5
+  6. refine from the rules that disagreed with analysts, what the AI had to
+     recommend and what stayed unknown, repeat 4-5
   7. limacharlie investigate templates save my-plan --file plan.yaml --comment "<what you tested>"
      (always a DRAFT; a draft runs only through a test or a run a person starts)
   8. a person reviews it and runs: limacharlie investigate templates promote my-plan --confirm
@@ -69,7 +81,8 @@ Permissions: reads need investigation.get + insight.evt.get, writes (start,
 wave, test, cancel, delete, decide) investigation.set + insight.evt.get, stats
 also investigation_policy.set, template records investigation_plan.get/.set/.del,
 pause/status/resume the investigation_policy record autonomy-manual-pause
-(investigation_policy.set, .get, .del).
+(investigation_policy.set, .get, .del), ai / ai-set the `ai_may_decide` field of
+the default investigation_policy record (investigation_policy.get / .set).
 """
 
 _EXPLAIN_KIT = """\
@@ -145,24 +158,34 @@ Example:
 _EXPLAIN_TEMPLATES_TEST = """\
 Dry-run a template on REAL past alerts and report how it did. The plan's
 read-only operators run with your own token on each sample; nothing is written
-(no run, case, label or action). Response steps that would run are only listed
+(no run, case, label or action). `act` entries that would run are only listed
 in `would_propose`.
 
 Samples (at most 25 after expansion): --detection-id ID, --case-id ID,
 --detect-cat CATEGORY with --last N (newest N alerts of the category), or
 --sample '{"inputs": {...}, "expected": "false_positive"}'. A sample whose case
-is closed is judged against the case's classification: `agreement` is agree,
-disagree, undecided or none, and summary.agreement_rate is the share that
-agreed. Use 5-10 samples of the category, with known false AND true positives.
+is closed is judged against the analyst's classification of the case. Use 5-10
+samples of the category, with known false AND true positives.
+
+Per sample the result says which rule decided (`verdict.decided_by.rule` and
+the `outcome`), what the AI recommended when no rule decided
+(`verdict.recommendation`), what was `missing`, and `agreement`: `rule` and
+`ai` are each agree, disagree, unclear or none. The `summary` has the share of
+alerts decided by rules (`rule_share`), per rule id how many it decided and how
+many agreed or disagreed (`rules`), the AI's agree/disagree/unclear counts
+(`ai`) and the cost per sample. These numbers inform you; nothing blocks on
+them.
 
 Read the result in this order: `validation` (state `invalid`: fix the
-template), `summary`, each `disagree`, then `undecided` samples (`unknowns` says
-which fact could not be resolved and why). Steps that succeeded are left out
-unless --include-steps.
+template), `summary`, each `disagree` (tighten or remove that rule), then
+`undecided` samples (couldnt_tell or conflict: `missing` and `unknowns` say
+which step could not be resolved and why). A pattern the AI recommends
+correctly again and again is a candidate for a new rule. Steps that succeeded
+are left out unless --include-steps.
 
 The call waits for the test (default up to 600 s, --timeout). A test that is
 still running prints its test_id: continue with --test-id ID. A test counts
-against the org's concurrent run cap and may bill LLM steps.
+against the org's concurrent run cap and may bill AI steps.
 
 Examples:
   limacharlie investigate templates test --file plan.yaml --detect-cat my-category --last 10
@@ -179,10 +202,12 @@ errors, when the record exists and --overwrite is missing, or when the record
 is active and the new one is a draft (a draft never replaces an active
 template: save under a new name). A draft never runs on its own: it runs only
 through `templates test` or a run a person starts, with autonomy capped at
-`suggest`. Put what you tested in --comment so the reviewer sees it.
+`suggest`. Put what you tested in --comment so the reviewer sees it. Saving
+never lets the AI decide: that is the policy's `ai_may_decide`
+(`investigate policy ai`), set by a person.
 
 Examples:
-  limacharlie investigate templates save my-plan --file plan.yaml --comment "10 samples, 9 agree, 0 unknown"
+  limacharlie investigate templates save my-plan --file plan.yaml --comment "10 samples, 7 decided by rules (0 disagree), 2 AI recommendations agree, 1 unknown"
   limacharlie investigate templates save my-plan --file plan.yaml --overwrite
 """
 
@@ -221,13 +246,17 @@ Needs a engine version whose authoring kit has the `library` section.
 
 Examples:
   limacharlie investigate templates install-defaults
-  limacharlie investigate templates install-defaults --name mailsec-suspicious-message
+  limacharlie investigate templates install-defaults --name mailsec-message
 """
 
 _EXPLAIN_RUNS_START = """\
-Start an investigation run: the engine gathers facts with its operators,
-weighs them and reaches a verdict (true_positive, false_positive or
-inconclusive) with a proof.
+Start an investigation run: the engine gathers what the template's rules and
+review read and ends with an outcome (see `investigate`): a rule decided
+(closed_by_rule, escalated_by_rule, with the rule's sentence), the AI decided
+where the policy allows it (closed_by_ai, escalated_by_ai), the AI recommends
+and a person acts on it (ai_recommends_benign, ai_recommends_malicious), or
+nothing could be decided (couldnt_tell, conflict; `verdict.missing` says what
+was missing and who needed it).
 
 Pick the plan with --template NAME, --file plan.yaml (an inline draft) or
 --auto (the engine picks the active template whose applies_to matches the
@@ -244,7 +273,7 @@ Repeat --trust-lookup NAME / --trust-value VALUE to add to template trust for
 this run only. The identity starting the run needs lookup.get for Lookups.
 Automatic runs use only template trust.
 
-With --wait N the call blocks up to N seconds for the verdict; --follow then
+With --wait N the call blocks up to N seconds for the outcome; --follow then
 streams the run's events until it ends (--timeout defaults to 900 seconds;
 0 has no time limit). On an interruption or stream error, resume with
 runs events RUN_ID --follow --after N using the printed sequence.
@@ -258,7 +287,12 @@ Examples:
 """
 
 _EXPLAIN_RUNS_GET = """\
-Read a run: state, phase, verdict, actions and usage.
+Read a run: state, phase, actions, usage and the `verdict`: `outcome`, `label`,
+`decided_by` {kind, rule, say}, the AI's `recommendation` (label,
+self_rated_confidence, rationale, citations) when it only recommends, and
+`missing` [{step, reason, needed_by, ask}]. `ai_may_decide` is the AI mode the
+run started with and `ai_agent` the AI agent it uses. `self_rated_confidence`
+is the AI's own rating: shown, never used.
 
 Example:
   limacharlie investigate runs get <RUN_ID>
@@ -267,11 +301,13 @@ Example:
 _EXPLAIN_RUNS_LIST = """\
 List the org's runs, newest first. Filters stack as AND. One page is returned
 with --limit; continue with --cursor from the previous page's next_cursor, or
-use --all to follow every page.
+use --all to follow every page. --outcome keeps the runs that ended with one
+outcome (or `undecided`); it needs investigation_policy.set, like --verdict.
 
 Examples:
   limacharlie investigate runs list --state running
-  limacharlie investigate runs list --template my-plan --verdict false_positive --limit 50
+  limacharlie investigate runs list --outcome ai_recommends_benign --limit 50
+  limacharlie investigate runs list --template my-plan --outcome couldnt_tell
 """
 
 _EXPLAIN_RUNS_EVENTS = """\
@@ -287,12 +323,16 @@ Examples:
 """
 
 _EXPLAIN_RUNS_STEPS = """\
-Read a run's step log, plan graph, usage and belief curve. --values includes
-customer values (default: structure only).
+Read a run's step log, plan graph, usage and outcome timeline. Every step has a
+`narrative`: `why` it ran, what it `found`, and what it was `used` for (a rule,
+the AI review, another step, the case, or nothing). --values includes customer
+values (default: structure only).
 """
 
 _EXPLAIN_RUNS_CASE = """\
-Read the case document a run wrote (404 until the run has one).
+Read the case document a run wrote (404 until the run has one). It opens with
+the outcome sentence: the deciding rule's sentence, or the AI's recommendation
+and what was missing.
 """
 
 _EXPLAIN_RUNS_CANCEL = """\
@@ -313,7 +353,7 @@ Example:
 _EXPLAIN_WAVE = """\
 Hand the engine a batch of questions at once and get compact, typed answers.
 The engine runs every ready step in parallel with YOUR token (no template, no
-verdict, nothing stored), reuses what it already knows, and can stop as soon
+outcome, no case), reuses what it already knows, and can stop as soon
 as the answer is known.
 
 The file (YAML or JSON) holds the wave:
@@ -368,6 +408,35 @@ _EXPLAIN_POLICY_GET = """\
 Explain the effective policy: budgets, the operators and extension requests
 that are denied, and the autonomy mode of each action class, optionally for
 an alert shape (--category, --priority, --severity, --target-tag, --class).
+There are no confidence thresholds or mandatory checks: rules decide, and the
+AI decides only where `ai_may_decide` allows (`investigate policy ai`).
+"""
+
+_EXPLAIN_POLICY_AI = """\
+Show what the policy lets the AI decide, per template: the `ai_may_decide` field
+of the `default` investigation_policy record. `off` (the default when a
+template has no entry): an AI-assisted rule or the AI review only recommends,
+and a person acts on the recommendation. `escalate`: it may escalate.
+`close_and_escalate`: it may also close. `"*"` is every template; a template's
+own entry wins. Only the `default` record grants; other records and run
+overrides can only lower it. Runs keep the mode they started with. Needs
+investigation_policy.get. `policy get` shows the effective policy.
+
+Example:
+  limacharlie investigate policy ai
+"""
+
+_EXPLAIN_POLICY_AI_SET = """\
+Set what the AI may decide for one template (or "*" for every template):
+off, escalate or close_and_escalate. This changes only the `ai_may_decide` field
+of the `default` investigation_policy record, conditional on the version read.
+It is a person's decision about the org's automation: review the template's
+test results first (`templates test`). AI agents must not run it. Requires
+--confirm and investigation_policy.set.
+
+Examples:
+  limacharlie investigate policy ai-set mailsec-message close_and_escalate --confirm
+  limacharlie investigate policy ai-set mailsec-message off --confirm
 """
 
 _EXPLAIN_POLICY_STATUS = """\
@@ -420,6 +489,8 @@ for _path, _text in {
     "investigate.actions.approve": _EXPLAIN_ACTIONS_APPROVE,
     "investigate.actions.deny": _EXPLAIN_ACTIONS_DENY,
     "investigate.policy.get": _EXPLAIN_POLICY_GET,
+    "investigate.policy.ai": _EXPLAIN_POLICY_AI,
+    "investigate.policy.ai-set": _EXPLAIN_POLICY_AI_SET,
     "investigate.policy.status": _EXPLAIN_POLICY_STATUS,
     "investigate.policy.pause": _EXPLAIN_POLICY_PAUSE,
     "investigate.policy.resume": _EXPLAIN_POLICY_RESUME,
@@ -550,6 +621,19 @@ def _label(verdict: Any) -> Any:
     return verdict.get("label") if isinstance(verdict, dict) else verdict
 
 
+def _outcome(verdict: Any) -> Any:
+    """The outcome a run ended with ('' while nothing settled), or None for a run without one."""
+    return verdict.get("outcome") if isinstance(verdict, dict) else None
+
+
+def _decided_by(verdict: Any) -> Any:
+    """The id of the rule that decided, ``ai_review`` when the review did, or None."""
+    by = verdict.get("decided_by") if isinstance(verdict, dict) else None
+    if not isinstance(by, dict):
+        return None
+    return by.get("rule") or by.get("kind")
+
+
 def _emit_page(ctx: click.Context, key: str, items: list[Any], next_cursor: str, project: Callable[[Any], Any]) -> None:
     """Print one page of a listing, the way hive listings are printed.
 
@@ -571,6 +655,8 @@ def _run_row(run: dict[str, Any]) -> dict[str, Any]:
         "run_id": run.get("run_id"),
         "state": run.get("state"),
         "template": run.get("template"),
+        "outcome": _outcome(run.get("verdict")),
+        "decided_by": _decided_by(run.get("verdict")),
         "verdict": _label(run.get("verdict")),
         "urgency": run.get("urgency"),
         "created": run.get("created"),
@@ -587,7 +673,7 @@ def _action_row(action: dict[str, Any]) -> dict[str, Any]:
         "state": action.get("state"),
         "mode": action.get("mode"),
         "template": run.get("template"),
-        "verdict": _label(run.get("verdict")),
+        "outcome": _outcome(run.get("verdict")),
     }
 
 
@@ -785,21 +871,23 @@ def _test_rows(test: dict[str, Any]) -> list[dict[str, Any]]:
     for r in test.get("results") or []:
         if not isinstance(r, dict):
             continue
-        verdict = r.get("verdict") or {}
+        verdict = r.get("verdict") if isinstance(r.get("verdict"), dict) else {}
+        recommendation = verdict.get("recommendation") if isinstance(verdict.get("recommendation"), dict) else {}
+        agreement = r.get("agreement") if isinstance(r.get("agreement"), dict) else {}
         rows.append({
             "index": r.get("index"),
-            "sample": json.dumps(r.get("sample") or {}, separators=(",", ":")),
             "state": r.get("state"),
-            "verdict": verdict.get("label") if isinstance(verdict, dict) else verdict,
-            "p": verdict.get("p") if isinstance(verdict, dict) else None,
+            "outcome": verdict.get("outcome"),
+            "decided_by": _decided_by(verdict),
             "expected": (r.get("expected") or {}).get("label") if isinstance(r.get("expected"), dict) else None,
-            "agreement": r.get("agreement"),
-            "unknowns": len(r.get("unknowns") or []),
+            "rule_agreement": agreement.get("rule"),
+            "ai_agreement": agreement.get("ai"),
+            "ai_recommends": recommendation.get("label"),
+            "missing": len(verdict.get("missing") or []),
+            "unknowns": len(r.get("unknowns") or verdict.get("unknowns") or []),
             "wall_ms": r.get("wall_ms"),
-            "prior": verdict.get("prior") if isinstance(verdict, dict) else None,
-            "decided": verdict.get("decided") if isinstance(verdict, dict) else None,
-            "evidence": json.dumps(verdict.get("evidence") or [], separators=(",", ":")) if isinstance(verdict, dict) else None,
-            "llm_cost": _test_cost(r.get("cost")),
+            "ai_cost": _test_cost(r.get("cost")),
+            "sample": json.dumps(r.get("sample") or {}, separators=(",", ":")),
             "step_diagnostics": json.dumps(_step_diagnostics(r.get("steps")), separators=(",", ":")),
         })
     return rows
@@ -823,11 +911,17 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
     summary = test.get("summary")
     if isinstance(summary, dict):
         click.echo("summary: " + ", ".join(f"{k}={summary[k]}" for k in (
-            "samples", "ran", "errors", "decided", "undecided", "true_positive", "false_positive", "inconclusive",
-            "with_expected", "agree", "disagree", "agreement_rate") if k in summary))
+            "samples", "ran", "errors", "with_expected", "decided_by_rules", "rule_share") if k in summary))
+        if summary.get("by_outcome"):
+            click.echo(f"outcomes: {summary['by_outcome']}")
+        for rule_id, counts in sorted((summary.get("rules") or {}).items()):
+            if isinstance(counts, dict):
+                click.echo(f"rule {rule_id}: decided={counts.get('decided')} agree={counts.get('agree')} disagree={counts.get('disagree')}")
+        if isinstance(summary.get("ai"), dict):
+            click.echo("ai: " + ", ".join(f"{k}={summary['ai'][k]}" for k in ("recommended", "agree", "disagree", "unclear") if k in summary["ai"]))
         if isinstance(summary.get("cost"), dict):
             llm_cost = _test_cost(summary["cost"])
-            click.echo(f"LLM cost: {'unknown' if llm_cost is None else llm_cost}")
+            click.echo(f"AI cost: {'unknown' if llm_cost is None else llm_cost}")
         if summary.get("unknown_reasons"):
             click.echo(f"unknown reasons: {summary['unknown_reasons']}")
 
@@ -1057,13 +1151,15 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
 @pass_context
 @_engine_errors
 def runs_get(ctx, run_id) -> None:
-    """Read a run: state, phase, verdict, actions and usage."""
+    """Read a run: state, phase, outcome, actions and usage."""
     command_output(ctx, _get_investigation(ctx).get_run(run_id))
 
 
 @runs_group.command("list")
 @click.option("--state", default=None, help="Only runs in this state (queued, running, decided, completed, cancelled, failed, budget_exhausted).")
-@click.option("--verdict", default=None, help="Only runs with this verdict (true_positive, false_positive, inconclusive, undecided; needs investigation_policy.set).")
+@click.option("--outcome", type=click.Choice([*RUN_OUTCOMES, "undecided"]), default=None,
+              help="Only runs that ended with this outcome (or undecided: nothing settled yet; needs investigation_policy.set).")
+@click.option("--verdict", default=None, help="Only runs with this verdict label (true_positive, false_positive, inconclusive, undecided; needs investigation_policy.set).")
 @click.option("--template", default=None, help="Only runs of this template.")
 @click.option("--trigger", default=None, help="Only runs started from this kind of trigger (detection, message, entity, case, question).")
 @click.option("--entity", default=None, help="Only runs about this entity.")
@@ -1076,10 +1172,10 @@ def runs_get(ctx, run_id) -> None:
 @click.option("--all", "fetch_all", is_flag=True, default=False, help="Follow every page and print all runs.")
 @pass_context
 @_engine_errors
-def runs_list(ctx, state, verdict, template, trigger, entity, started_by, idempotency_key, since, until, limit, cursor, fetch_all) -> None:
+def runs_list(ctx, state, outcome, verdict, template, trigger, entity, started_by, idempotency_key, since, until, limit, cursor, fetch_all) -> None:
     """List the org's runs, newest first."""
     inv = _get_investigation(ctx)
-    filters = dict(state=state, verdict=verdict, template=template, trigger=trigger, entity=entity,
+    filters = dict(state=state, outcome=outcome, verdict=verdict, template=template, trigger=trigger, entity=entity,
                    started_by=started_by, idempotency_key=idempotency_key, since=since, until=until,
                    limit=limit, cursor=cursor)
     if fetch_all:
@@ -1306,6 +1402,27 @@ def policy_get(ctx, category, priority, severity, target_tags, action_class, tem
         category=category, priority=priority, severity=severity,
         target_tags=list(target_tags) or None, action_class=action_class, template=template,
     ))
+
+
+@policy_group.command("ai")
+@pass_context
+@_engine_errors
+def policy_ai(ctx) -> None:
+    """Show what the AI may decide per template (ai_may_decide of the default policy record)."""
+    command_output(ctx, _get_investigation(ctx).get_ai_may_decide())
+
+
+@policy_group.command("ai-set")
+@click.argument("template")
+@click.argument("mode", type=click.Choice(AI_MODES))
+@click.option("--confirm", is_flag=True, default=False, help="Confirm that you decided what the AI may decide for this template (required).")
+@pass_context
+@_engine_errors
+def policy_ai_set(ctx, template, mode, confirm) -> None:
+    """Set what the AI may decide for a template (or '*'): off, escalate or close_and_escalate."""
+    if not confirm:
+        raise click.UsageError("This changes what the AI may decide for the org: review the template's test results, then add --confirm.")
+    command_output(ctx, _get_investigation(ctx).set_ai_may_decide(template, mode))
 
 
 @policy_group.command("status")

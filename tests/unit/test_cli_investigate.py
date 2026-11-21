@@ -177,15 +177,25 @@ class TestTemplates:
 
 class TestTemplateTest:
     DONE = {
-        "test_id": "t1", "state": "done", "done": True, "samples_done": 2, "samples_total": 2,
+        "test_id": "t1", "state": "done", "done": True, "samples_done": 3, "samples_total": 3,
         "results": [
-            {"index": 0, "sample": {"detection_id": "d1"}, "state": "ok", "verdict": {"label": "false_positive", "p": 0.04},
-             "expected": {"label": "false_positive"}, "agreement": "agree", "unknowns": [],
+            {"index": 0, "sample": {"detection_id": "d1"}, "state": "ok",
+             "verdict": {"outcome": "closed_by_rule", "label": "false_positive", "decided": True, "decided_by": {"kind": "rule", "rule": "known_sender"}},
+             "expected": {"label": "false_positive"}, "agreement": {"rule": "agree", "ai": "none"}, "unknowns": [],
              "steps": [{"fact": "a", "status": "ok"}, {"fact": "b", "status": "unknown", "reason": "index_lag"}]},
-            {"index": 1, "sample": {"case_id": "9"}, "state": "ok", "verdict": {"label": "true_positive", "p": 0.9},
-             "expected": {"label": "false_positive"}, "agreement": "disagree", "unknowns": [{"fact": "b"}]},
+            {"index": 1, "sample": {"case_id": "9"}, "state": "ok",
+             "verdict": {"outcome": "escalated_by_rule", "label": "true_positive", "decided": True, "decided_by": {"kind": "rule", "rule": "clicked_link"}},
+             "expected": {"label": "false_positive"}, "agreement": {"rule": "disagree", "ai": "none"}, "unknowns": [{"fact": "b"}]},
+            {"index": 2, "sample": {"case_id": "10"}, "state": "ok",
+             "verdict": {"outcome": "ai_recommends_benign", "label": "inconclusive", "decided": False,
+                         "recommendation": {"label": "benign", "self_rated_confidence": 0.8, "citations": ["b.x"], "by": "ai_review"},
+                         "missing": [{"step": "b", "reason": "index_lag", "needed_by": ["known_sender"], "ask": "Has it written before?"}]},
+             "expected": {"label": "false_positive"}, "agreement": {"rule": "none", "ai": "agree"}},
         ],
-        "summary": {"samples": 2, "agree": 1, "disagree": 1, "agreement_rate": 0.5, "unknown_reasons": {"index_lag": 1}},
+        "summary": {"samples": 3, "ran": 3, "decided_by_rules": 2, "rule_share": 0.67,
+                    "by_outcome": {"closed_by_rule": 1, "escalated_by_rule": 1, "ai_recommends_benign": 1},
+                    "rules": {"known_sender": {"decided": 1, "agree": 1, "disagree": 0}, "clicked_link": {"decided": 1, "agree": 0, "disagree": 1}},
+                    "ai": {"recommended": 1, "agree": 1, "disagree": 0, "unclear": 0}, "unknown_reasons": {"index_lag": 1}},
     }
 
     def test_samples_are_built_from_every_flag(self, sdk, tmp_path):
@@ -265,13 +275,20 @@ class TestTemplateTest:
         sdk.test_plan.return_value = {"test_id": "t", "state": "failed", "done": True, "error": "gone"}
         assert run(["investigate", "templates", "test", "p", "--detection-id", "d"]).exit_code == 1
 
-    def test_table_output_shows_per_sample_verdicts_and_the_agreement_summary(self, sdk):
+    def test_table_output_shows_who_decided_each_sample_and_the_per_rule_summary(self, sdk):
         sdk.test_plan.return_value = dict(self.DONE)
         result = run(["investigate", "templates", "test", "p", "--detection-id", "d"], fmt="table")
         assert result.exit_code == 0, result.stderr
-        assert "agree" in result.stdout and "disagree" in result.stdout
-        assert "agreement_rate=0.5" in result.stdout
-        assert "unknown reasons: {'index_lag': 1}" in result.stdout
+        out = result.stdout
+        assert "closed_by_rule" in out and "known_sender" in out and "ai_recommends_benign" in out
+        assert "disagree" in out
+        assert "decided_by_rules=2" in out and "rule_share=0.67" in out
+        assert "rule clicked_link: decided=1 agree=0 disagree=1" in out
+        assert "rule known_sender: decided=1 agree=1 disagree=0" in out
+        assert "ai: recommended=1, agree=1, disagree=0, unclear=0" in out
+        assert "outcomes: {'closed_by_rule': 1" in out
+        assert "unknown reasons: {'index_lag': 1}" in out
+        assert "agreement_rate" not in out
 
 
 class TestRuns:
@@ -361,7 +378,7 @@ class TestRuns:
         assert out_json(result) == {"runs": [{"run_id": "r1"}], "next_cursor": "c2"}
         kwargs = sdk.list_runs.call_args.kwargs
         assert kwargs["state"] == "running" and kwargs["limit"] == 10 and kwargs["cursor"] == "c1"
-        assert kwargs["since"] == "2026-11-01T00:00:00Z" and kwargs["verdict"] is None
+        assert kwargs["since"] == "2026-11-01T00:00:00Z" and kwargs["verdict"] is None and kwargs["outcome"] is None
 
     def test_list_filters_pass_the_engines_values_through(self, sdk):
         sdk.list_runs.return_value = {"runs": [], "next_cursor": ""}
@@ -369,9 +386,27 @@ class TestRuns:
         kwargs = sdk.list_runs.call_args.kwargs
         assert (kwargs["verdict"], kwargs["trigger"], kwargs["started_by"]) == ("undecided", "detection", "a@x.io")
 
+    @pytest.mark.parametrize("outcome", ["closed_by_rule", "escalated_by_rule", "closed_by_ai", "escalated_by_ai",
+                                         "ai_recommends_benign", "ai_recommends_malicious", "couldnt_tell", "conflict", "undecided"])
+    def test_list_filters_by_outcome(self, sdk, outcome):
+        sdk.list_runs.return_value = {"runs": [], "next_cursor": ""}
+        assert run(["investigate", "runs", "list", "--outcome", outcome]).exit_code == 0
+        assert sdk.list_runs.call_args.kwargs["outcome"] == outcome
+
+    def test_list_refuses_a_label_as_an_outcome_before_any_call(self, sdk):
+        result = run(["investigate", "runs", "list", "--outcome", "false_positive"])
+        assert result.exit_code == 2
+        sdk.list_runs.assert_not_called()
+
+    def test_list_all_keeps_the_outcome_filter(self, sdk):
+        sdk.iter_runs.return_value = iter([])
+        run(["investigate", "runs", "list", "--all", "--outcome", "couldnt_tell"])
+        assert sdk.iter_runs.call_args.kwargs["outcome"] == "couldnt_tell"
+
     def test_list_help_names_the_engines_trigger_kinds(self):
         out = " ".join(CliRunner().invoke(cli, ["investigate", "runs", "list", "--help"]).output.split())
         assert "detection, message, entity, case, question" in out and "undecided" in out
+        assert "--outcome" in out and "ai_recommends_benign" in out
         assert "dr-rule" not in out
 
     def test_strict_help_says_it_refuses_loosening_overrides(self):
@@ -380,10 +415,14 @@ class TestRuns:
 
     def test_list_table_rows_and_cursor_on_stderr(self, sdk):
         sdk.list_runs.return_value = {"runs": [{
-            "run_id": "r1", "state": "completed", "template": "p", "verdict": {"label": "false_positive", "p": 0.02},
+            "run_id": "r1", "state": "completed", "template": "p",
+            "verdict": {"outcome": "closed_by_rule", "label": "false_positive", "decided": True, "decided_by": {"kind": "rule", "rule": "known_sender", "say": "s"}},
             "started_by": {"identity": "user:u", "actor": "a@x.io"}, "created": "2026-11-10T00:00:00Z"}], "next_cursor": "c2"}
         result = run(["investigate", "runs", "list"], fmt="csv")
-        assert "false_positive" in result.stdout and "a@x.io" in result.stdout and "p=" not in result.stdout
+        assert "closed_by_rule" in result.stdout and "known_sender" in result.stdout
+        assert "false_positive" in result.stdout and "a@x.io" in result.stdout
+        header = result.stdout.splitlines()[0]
+        assert "outcome" in header and "decided_by" in header
         assert "next_cursor: c2" in result.stderr
 
     def test_list_all_follows_every_page(self, sdk):
@@ -547,6 +586,30 @@ class TestActionsAndPolicy:
         sdk.get_effective_policy.assert_called_with(
             category="c", priority=4, severity=None, target_tags=["a", "b"], action_class="tag", template="t")
 
+    def test_ai_shows_what_the_ai_may_decide(self, sdk):
+        sdk.get_ai_may_decide.return_value = {"record": "default", "ai_may_decide": {"mailsec-message": "escalate"}}
+        result = run(["investigate", "policy", "ai"])
+        assert result.exit_code == 0 and out_json(result)["ai_may_decide"] == {"mailsec-message": "escalate"}
+        sdk.get_ai_may_decide.assert_called_once_with()
+
+    def test_ai_set_is_a_persons_decision_and_needs_confirm(self, sdk):
+        result = run(["investigate", "policy", "ai-set", "mailsec-message", "close_and_escalate"])
+        assert result.exit_code == 2
+        sdk.set_ai_may_decide.assert_not_called()
+        sdk.set_ai_may_decide.return_value = {"ai_may_decide": {"mailsec-message": "close_and_escalate"}, "changed": True}
+        result = run(["investigate", "policy", "ai-set", "mailsec-message", "close_and_escalate", "--confirm"])
+        assert result.exit_code == 0 and out_json(result)["changed"] is True
+        sdk.set_ai_may_decide.assert_called_once_with("mailsec-message", "close_and_escalate")
+
+    def test_ai_set_refuses_an_unknown_mode_before_any_call(self, sdk):
+        assert run(["investigate", "policy", "ai-set", "t", "auto", "--confirm"]).exit_code == 2
+        sdk.set_ai_may_decide.assert_not_called()
+
+    def test_there_are_no_threshold_or_mandatory_check_commands(self):
+        out = CliRunner().invoke(cli, ["investigate", "policy", "--help"]).output
+        for gone in ("threshold", "mandatory", "calibration"):
+            assert gone not in out
+
     def test_pause_resume_and_status_use_the_policy_record(self, sdk):
         sdk.get_pause.return_value = {"paused": False, "record": "autonomy-manual-pause"}
         result = run(["investigate", "policy", "status"])
@@ -704,8 +767,9 @@ def test_safe_test_diagnostics_survive_compaction_and_tables():
         {"fact": "positive", "status": "ok", "complete": False, "counts": {"rows": 2}},
         {"fact": "judge", "status": "ok", "complete": True,
          "judgement": {"label": "no", "confidence": 0.8, "model": "fixture"}},
-    ], "verdict": {"label": "inconclusive", "decided": True, "prior": 0.3, "p": 0.1,
-                     "evidence": [{"rule": "rule-1", "weight": -2, "facts": ["zero"]}]},
+    ], "verdict": {"outcome": "couldnt_tell", "label": "inconclusive", "decided": False,
+                   "missing": [{"step": "zero", "reason": "index_lag", "needed_by": ["rule-1"], "ask": "Is it?"}]},
+       "agreement": {"rule": "none", "ai": "none"},
        "cost": {"llm_usd": 0, "llm_unpriced": True}}
     compact = _compact_test({"results": [sample]}, False)["results"][0]
     assert len(compact["step_diagnostics"]) == 3
@@ -716,9 +780,11 @@ def test_safe_test_diagnostics_survive_compaction_and_tables():
     assert "steps" not in compact
     assert len(sample["steps"]) == 3
     row = _test_rows({"results": [sample]})[0]
-    assert row["llm_cost"] == "0 (unpriced)"
-    assert row["prior"] == 0.3
-    assert '"weight":-2' in row["evidence"]
+    assert row["ai_cost"] == "0 (unpriced)"
+    assert row["outcome"] == "couldnt_tell" and row["decided_by"] is None and row["missing"] == 1
+    assert (row["rule_agreement"], row["ai_agreement"]) == ("none", "none")
+    for gone in ("p", "prior", "evidence", "decided"):
+        assert gone not in row
     assert '"label":"no"' in row["step_diagnostics"]
 
 
@@ -726,18 +792,19 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
     from limacharlie.commands import investigate as mod
     monkeypatch.setattr(mod, "_fmt", lambda ctx: "table")
     monkeypatch.setattr(mod, "command_output", lambda *args: None)
-    mod._print_test(None, {"summary": {"inconclusive": 2, "cost": {"llm_usd": 0.25, "llm_unpriced": True}}}, False)
+    mod._print_test(None, {"summary": {"samples": 2, "rule_share": 0.5, "cost": {"llm_usd": 0.25, "llm_unpriced": True}}}, False)
     output = capsys.readouterr().out
-    assert "inconclusive=2" in output
-    assert "LLM cost: 0.25 (unpriced)" in output
+    assert "samples=2, rule_share=0.5" in output
+    assert "AI cost: 0.25 (unpriced)" in output
     mod._print_test(None, {"summary": {"cost": {}}}, False)
-    assert "LLM cost: unknown" in capsys.readouterr().out
+    assert "AI cost: unknown" in capsys.readouterr().out
     for cost in ([], "invalid", 1, None):
-        assert mod._test_rows({"results": [{"cost": cost}]})[0]["llm_cost"] is None
+        assert mod._test_rows({"results": [{"cost": cost}]})[0]["ai_cost"] is None
         mod._print_test(None, {"summary": {"cost": cost}}, False)
-    assert mod._test_rows({"results": [{"cost": {"llm_usd": 0}}]})[0]["llm_cost"] == 0
-    assert mod._test_rows({"results": [{"cost": {"llm_unpriced": True}}]})[0]["llm_cost"] == "0 (unpriced)"
-    assert list(mod._test_rows({"results": [{}]})[0])[:9] == ["index", "sample", "state", "verdict", "p", "expected", "agreement", "unknowns", "wall_ms"]
+    assert mod._test_rows({"results": [{"cost": {"llm_usd": 0}}]})[0]["ai_cost"] == 0
+    assert mod._test_rows({"results": [{"cost": {"llm_unpriced": True}}]})[0]["ai_cost"] == "0 (unpriced)"
+    assert list(mod._test_rows({"results": [{}]})[0])[:10] == [
+        "index", "state", "outcome", "decided_by", "expected", "rule_agreement", "ai_agreement", "ai_recommends", "missing", "unknowns"]
 
 
 def test_run_explicit_trust_additions(sdk):
@@ -796,11 +863,10 @@ def test_validation_and_test_json_preserve_resolved_packs(sdk, tmp_path):
         {'scope': 'root', 'name': 'fictional_context', 'version': 1, 'digest': 'a' * 64},
         {'scope': 'root/assessment', 'name': 'fictional_context', 'version': 2, 'digest': 'b' * 64},
     ]
-    report = {'valid': True, 'resolved_packs': pins,
-              'children': [{'template': 'entity-url-harm'}],
+    report = {'valid': True, 'resolved_packs': pins, 'ai_rules': ['ai_says_benign'],
               'trust_provenance': [{'kind': 'pack', 'name': 'fictional_context'}]}
     path = tmp_path / 'plan.yaml'
-    path.write_text('facts:\n  context: {use: fictional_context, pack_version: 1}\n', encoding="utf-8")
+    path.write_text('gather:\n  context: {use: fictional_context, pack_version: 1}\n', encoding="utf-8")
     sdk.validate_plan.return_value = report
     assert out_json(run(['investigate', 'templates', 'validate', '--file', str(path)])) == report
     initial = {'state': 'running', 'validation': report, 'resolved_packs': pins,
@@ -808,7 +874,7 @@ def test_validation_and_test_json_preserve_resolved_packs(sdk, tmp_path):
     compact = _compact_test(initial, False)
     assert compact['validation'] == report
     assert compact['resolved_packs'] == pins
-    for key in ('resolved_packs', 'children', 'trust_provenance'):
+    for key in ('resolved_packs', 'ai_rules', 'trust_provenance'):
         assert compact['results'][0][key] == report[key]
     assert 'steps' in initial['results'][0]  # compaction does not mutate its input
 

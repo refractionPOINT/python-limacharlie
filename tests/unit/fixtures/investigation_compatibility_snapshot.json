@@ -1088,28 +1088,12 @@
  ],
  "fields": [
   {
-   "kind": "number",
-   "path": "evidence.*.weight"
-  },
-  {
    "kind": "bool",
-   "path": "facts.*.case"
-  },
-  {
-   "kind": "bool",
-   "path": "facts.*.predict"
+   "path": "gather.*.always"
   },
   {
    "kind": "number",
-   "path": "prior"
-  },
-  {
-   "kind": "number",
-   "path": "signals.*.benign_weight"
-  },
-  {
-   "kind": "number",
-   "path": "signals.*.malicious_weight"
+   "path": "gather.*.pack_version"
   },
   {
    "kind": "number",

@@ -49,20 +49,21 @@ def _not_found():
     return error_from_status_code(400, {"error": "lc_error_code:RECORD_NOT_FOUND - no such record"})
 
 
-VALID = {"valid": True, "errors": [], "warnings": [{"code": "unused_fact", "path": "facts.x", "message": "m"}]}
-INVALID = {"valid": False, "errors": [{"code": "unknown_field", "path": "facts.a", "message": "m", "suggestion": "b"}], "warnings": []}
+VALID = {"valid": True, "errors": [], "warnings": [{"code": "unused_step", "path": "gather.x", "message": "m"}]}
+INVALID = {"valid": False, "errors": [{"code": "unknown_field", "path": "gather.a", "message": "m", "suggestion": "b"}], "warnings": []}
 
-SUMMARY = {
-    "true_positive": ["The message is a phish.", {"text": "The link {link.url} is known bad.", "when": "link.known_bad"}],
-    "false_positive": [{"text": "Long history.", "when": "history.days > 30"}],
+# The rules of a template: sentences carry {step.path} references and a `when` may be a string or a list.
+RULES = {
+    "escalate": [{"id": "known_bad_link", "when": ["link.known_bad", "link.clicked"], "say": "The link {link.url} is known bad."}],
+    "close": [{"id": "long_history", "when": "history.days > 30", "say": "Long history."}],
 }
-SUMMARY_SRC = (
-    "description: test plan\nreport:\n  summary:\n    true_positive:\n      - The message is a phish.\n"
-    "      - text: The link {link.url} is known bad.\n        when: link.known_bad\n"
-    "    false_positive:\n      - text: Long history.\n        when: history.days > 30\n"
+RULES_SRC = (
+    "description: test plan\nrules:\n  escalate:\n    - id: known_bad_link\n      when: [link.known_bad, link.clicked]\n"
+    "      say: The link {link.url} is known bad.\n"
+    "  close:\n    - id: long_history\n      when: history.days > 30\n      say: Long history.\n"
 )
 
-SRC = "description: test plan\nfacts:\n  a:\n    op: entity.get\n    args: {entity_id: $entity}\n"
+SRC = "description: test plan\ngather:\n  a:\n    op: entity.get\n    args: {entity_id: $entity}\n"
 
 
 def _request_args(mock_org):
@@ -398,7 +399,7 @@ _PLAIN_SCALARS = [
 
 
 def _args_value(src: str) -> str:
-    return "facts:\n  x:\n    op: plan.pick\n    args:\n      value: " + src + "\n"
+    return "gather:\n  x:\n    op: plan.pick\n    args:\n      value: " + src + "\n"
 
 
 class TestTemplateSource:
@@ -417,7 +418,7 @@ class TestTemplateSource:
             with pytest.raises(ValidationError, match="JSON cannot carry"):
                 parse_template_source(text)
             return
-        got = parse_template_source(text)["facts"]["x"]["args"]["value"]
+        got = parse_template_source(text)["gather"]["x"]["args"]["value"]
         if kind == "null":
             assert got is None
         elif kind == "bool":
@@ -446,38 +447,50 @@ class TestTemplateSource:
     def test_text_fields_keep_the_authors_spelling(self):
         data = parse_template_source(
             "description: 1e3\nstatus: 012\napplies_to: {category: [on, 0o17, 2026-11-10]}\n"
-            "inputs: {a: yes, 1e3: ~}\n"
+            "starts_from: none\ndeadline: 10m\ncase: {kind: [on, yes], severity: {default: low}}\n"
         )
         assert data == {
             "description": "1e3", "status": "012",
             "applies_to": {"category": ["on", "0o17", "2026-11-10"]},
-            "inputs": {"a": "yes", "1e3": "~"},
+            "starts_from": "none", "deadline": "10m",
+            "case": {"kind": ["on", "yes"], "severity": {"default": "low"}},
         }
 
     def test_numeric_and_boolean_fields_are_read_as_such(self):
         data = parse_template_source(
-            "version: 3\nprior: .5\nevidence: [{when: x, weight: -1e0}]\n"
-            "signals: {s: {malicious_weight: 2, benign_weight: 0x10}}\n"
-            "facts: {a: {op: o, predict: yes, case: true}, b: {op: o, predict: off, case: False}}\n"
+            "version: 3\n"
+            "gather: {a: {op: o, always: yes}, b: {use: p, pack_version: 0x10, always: False}, c: {op: o, always: true}}\n"
         )
         assert data["version"] == 3 and type(data["version"]) is int
-        assert data["prior"] == 0.5
-        assert data["evidence"] == [{"when": "x", "weight": -1.0}]
-        assert data["signals"]["s"] == {"malicious_weight": 2, "benign_weight": 16}
-        assert data["facts"]["a"]["predict"] is True and data["facts"]["a"]["case"] is True
-        assert data["facts"]["b"]["predict"] is False and data["facts"]["b"]["case"] is False
+        assert data["gather"]["a"]["always"] is True and data["gather"]["c"]["always"] is True
+        assert data["gather"]["b"]["always"] is False
+        assert data["gather"]["b"]["pack_version"] == 16 and type(data["gather"]["b"]["pack_version"]) is int
 
-    def test_report_case_is_text_while_a_fact_case_is_a_boolean(self):
-        data = parse_template_source("report: {case: create}\nfacts: {a: {op: o, case: true}}\n")
-        assert data["report"]["case"] == "create" and data["facts"]["a"]["case"] is True
+    def test_rule_sentences_and_conditions_stay_text(self):
+        """A `when`, a `say`, an `only_if` or a rule id is text whatever it looks like; only `always` is a boolean."""
+        data = parse_template_source(
+            "gather: {a: {op: o, only_if: 'true', why: yes, ask: 1e3, always: true}}\n"
+            "rules: {escalate: [{id: on, when: true, say: 012}], never_close_when: [off, '1e3']}\n"
+        )
+        assert data["gather"]["a"] == {"op": "o", "only_if": "true", "why": "yes", "ask": "1e3", "always": True}
+        assert data["rules"]["escalate"] == [{"id": "on", "when": "true", "say": "012"}]
+        assert data["rules"]["never_close_when"] == ["off", "1e3"]
+
+    def test_act_attrs_are_read_like_step_args(self):
+        """`attrs` is a free mapping the engine reads as any: the numbers in it stay numbers."""
+        data = parse_template_source(
+            "act:\n  - {class: tag, target: $a.sid, on: [r], attrs: {tag: 'ie:x', ttl: 86400, deep: {k: 0o17}}}\n"
+        )
+        assert data["act"][0]["attrs"] == {"tag": "ie:x", "ttl": 86400, "deep": {"k": 15}}
+        assert data["act"][0]["target"] == "$a.sid"
 
     def test_quoted_and_tagged_scalars(self):
         data = parse_template_source(
             _args_value('"1e3"') + "").copy()
-        assert data["facts"]["x"]["args"]["value"] == "1e3"
+        assert data["gather"]["x"]["args"]["value"] == "1e3"
         got = parse_template_source(
-            "facts:\n  x:\n    op: o\n    args: {a: !!str 12, b: !!int '0x1f', c: !!float 1, d: '~', e: !!binary aGk=}\n"
-        )["facts"]["x"]["args"]
+            "gather:\n  x:\n    op: o\n    args: {a: !!str 12, b: !!int '0x1f', c: !!float 1, d: '~', e: !!binary aGk=}\n"
+        )["gather"]["x"]["args"]
         assert got == {"a": "12", "b": 31, "c": 1.0, "d": "~", "e": "hi"}
 
     def test_a_tag_that_does_not_fit_is_refused(self):
@@ -486,8 +499,8 @@ class TestTemplateSource:
 
     def test_nested_args_are_read_like_top_level_args(self):
         got = parse_template_source(
-            "facts:\n  x:\n    op: o\n    args:\n      list: [012, 1_000, 1e3, off]\n      deep: {k: 0o17}\n"
-        )["facts"]["x"]["args"]
+            "gather:\n  x:\n    op: o\n    args:\n      list: [012, 1_000, 1e3, off]\n      deep: {k: 0o17}\n"
+        )["gather"]["x"]["args"]
         assert got == {"list": [10, 1000, 1000.0, "off"], "deep": {"k": 15}}
 
     def test_dump_round_trips_text_that_looks_like_something_else(self):
@@ -498,29 +511,30 @@ class TestTemplateSource:
     def test_dump_quotes_every_string_the_engine_would_read_as_something_else(self, case):
         """A string the engine reads as a non-string when bare must be written quoted."""
         src = case["src"]
-        text = dump_template({"facts": {"x": {"op": "plan.pick", "args": {"value": src}}}})
-        assert parse_template_source(text)["facts"]["x"]["args"]["value"] == src
+        text = dump_template({"gather": {"x": {"op": "plan.pick", "args": {"value": src}}}})
+        assert parse_template_source(text)["gather"]["x"]["args"]["value"] == src
         if case["kind"] != "string":
             assert f"value: {src}\n" not in text, f"{src!r} would be read as {case['kind']}: {text}"
 
     @pytest.mark.parametrize("src", ["1e3", "0o17", "1E+3", "1e-3", "0x1F", "012", "1_000", ".5", "5.", "+1", ".inf", "-.INF", ".nan", "~", "null", "True", "yes", "off", "2026-11-10", "10:30"])
     def test_dump_of_quoted_numeric_strings_keeps_the_type(self, src):
-        data = {"description": src, "facts": {"x": {"op": "o", "args": {"v": src, "l": [src]}}}}
+        data = {"description": src, "gather": {"x": {"op": "o", "args": {"v": src, "l": [src]}}}}
         assert json.dumps(parse_template_source(dump_template(data))) == json.dumps(data)
 
     def test_dump_keeps_key_order(self):
         text = dump_template({"zebra": 1, "alpha": 2})
         assert text.index("zebra") < text.index("alpha")
 
-    def test_report_summary_sentences_of_both_shapes_round_trip(self):
-        # Engine v0.1.4: a sentence is a string or {text, when}; the SDK treats the template as an opaque mapping.
-        data = {"report": {"summary": {
-            "true_positive": ["Plain: {a.b} seen.", {"text": "Only on a hit: {a.b}", "when": "a.b == true and not c.d"}],
-            "false_positive": [{"text": "Plain object", "when": ""}, "yes"],
-        }}}
+    def test_rule_sentences_of_every_shape_round_trip(self):
+        # The SDK treats a template as an opaque mapping: a rule's `when` is a string, a list or {any: [...]}.
+        data = {"rules": {"escalate": [
+            {"id": "a", "when": "x.y", "say": "Plain: {a.b} seen."},
+            {"id": "b", "when": ["x.y", "z == 1"], "say": "yes"},
+            {"id": "c", "when": {"any": ["x.y", {"all": ["p", "q"]}]}},
+        ], "never_close_when": ["signals.any_holds"]}}
         text = dump_template(data)
         assert parse_template_source(text) == data
-        assert parse_template_source(SUMMARY_SRC)["report"]["summary"] == SUMMARY
+        assert parse_template_source(RULES_SRC)["rules"] == RULES
 
     @pytest.mark.parametrize("src,match", [
         ("", "empty"),
@@ -560,21 +574,21 @@ class TestSaveTemplate:
         assert parse_template_source(sent)["status"] == "draft"
 
     def test_quoted_numeric_looking_strings_are_validated_as_stored(self, inv, mock_org, hive):
-        src = ('description: "1e3"\nfacts:\n  a:\n    op: plan.pick\n'
+        src = ('description: "1e3"\ngather:\n  a:\n    op: plan.pick\n'
                '    args: {value: "1e3", hex: "0o17", num: 1e3, octal: 012}\n')
         mock_org.client.request.return_value = VALID
         hive.get.side_effect = [_not_found(), self._stored("draft")]
         inv.save_template("my-plan", src)
         stored = hive.set.call_args.args[0].data
         assert stored["description"] == "1e3"
-        assert stored["facts"]["a"]["args"] == {"value": "1e3", "hex": "0o17", "num": 1000.0, "octal": 10}
+        assert stored["gather"]["a"]["args"] == {"value": "1e3", "hex": "0o17", "num": 1000.0, "octal": 10}
         sent = json.loads(mock_org.client.request.call_args.kwargs["raw_body"])["yaml"]
         assert json.dumps(parse_template_source(sent)) == json.dumps(stored)
         assert '"1e3"' in sent and '"0o17"' in sent  # still strings when the engine reads the text it validated
 
     def test_a_nan_in_the_source_is_refused_before_anything_is_sent(self, inv, mock_org, hive):
         with pytest.raises(ValidationError, match="JSON cannot carry"):
-            inv.save_template("my-plan", "facts: {a: {op: plan.pick, args: {value: .nan}}}\n")
+            inv.save_template("my-plan", "gather: {a: {op: plan.pick, args: {value: .nan}}}\n")
         mock_org.client.request.assert_not_called()
         hive.set.assert_not_called()
 
@@ -684,7 +698,7 @@ class TestSaveTemplate:
 
     def test_a_write_that_landed_but_failed_on_replay_is_not_reported_as_an_error(self, inv, mock_org, hive):
         mock_org.client.request.return_value = VALID
-        data = {"description": "test plan", "facts": {"a": {"op": "entity.get", "args": {"entity_id": "$entity"}}}, "status": "draft"}
+        data = {"description": "test plan", "gather": {"a": {"op": "entity.get", "args": {"entity_id": "$entity"}}}, "status": "draft"}
         landed = HiveRecord(name="my-plan", data=data, etag="e9")
         hive.get.side_effect = [_not_found(), landed, landed]
         hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH"})
@@ -692,7 +706,7 @@ class TestSaveTemplate:
 
     def test_a_failed_overwrite_does_not_pass_as_saved_when_the_comment_was_lost(self, inv, mock_org, hive):
         mock_org.client.request.return_value = VALID
-        data = {"description": "test plan", "facts": {"a": {"op": "entity.get", "args": {"entity_id": "$entity"}}}, "status": "draft"}
+        data = {"description": "test plan", "gather": {"a": {"op": "entity.get", "args": {"entity_id": "$entity"}}}, "status": "draft"}
         same = HiveRecord(name="my-plan", data=data, etag="e1", comment="old", tags=[], enabled=True)
         hive.get.side_effect = [same, same]
         hive.set.side_effect = error_from_status_code(500, "boom")
@@ -707,31 +721,33 @@ class TestSaveTemplate:
             inv.save_template("my-plan", SRC)
 
 
-class TestSummarySentences:
-    def test_get_template_returns_both_shapes_in_the_record_and_the_yaml(self, inv, hive):
-        hive.get.return_value = HiveRecord(name="p", data={"description": "d", "report": {"summary": SUMMARY}}, etag="e")
-        view = inv.get_template("p")
-        assert view["data"]["report"]["summary"] == SUMMARY
-        assert parse_template_source(view["yaml"])["report"]["summary"] == SUMMARY
+class TestRuleSentences:
+    """The rules of a template (ids, conditions, sentences) travel through get, save and install unchanged."""
 
-    def test_save_validates_and_stores_the_sentences_unchanged(self, inv, mock_org, hive):
+    def test_get_template_returns_the_rules_in_the_record_and_the_yaml(self, inv, hive):
+        hive.get.return_value = HiveRecord(name="p", data={"description": "d", "rules": RULES}, etag="e")
+        view = inv.get_template("p")
+        assert view["data"]["rules"] == RULES
+        assert parse_template_source(view["yaml"])["rules"] == RULES
+
+    def test_save_validates_and_stores_the_rules_unchanged(self, inv, mock_org, hive):
         mock_org.client.request.return_value = VALID
         hive.get.side_effect = [_not_found(), HiveRecord(name="p", data={"status": "draft"}, etag="e")]
-        assert inv.save_template("p", SUMMARY_SRC)["saved"] is True
+        assert inv.save_template("p", RULES_SRC)["saved"] is True
         sent = json.loads(mock_org.client.request.call_args.kwargs["raw_body"])["yaml"]
-        assert parse_template_source(sent)["report"]["summary"] == SUMMARY
-        assert hive.set.call_args.args[0].data["report"]["summary"] == SUMMARY
+        assert parse_template_source(sent)["rules"] == RULES
+        assert hive.set.call_args.args[0].data["rules"] == RULES
 
-    def test_install_defaults_writes_a_library_template_with_both_shapes(self, inv, mock_org, hive):
+    def test_install_defaults_writes_a_library_template_with_its_rules(self, inv, mock_org, hive):
         def request(verb, path, **kw):
             if path.endswith("authoring-kit"):
-                return {"library": [{"name": "alpha", "version": 3, "status": "active", "yaml": SUMMARY_SRC}]}
+                return {"library": [{"name": "alpha", "version": 3, "status": "active", "yaml": RULES_SRC}]}
             return VALID
         mock_org.client.request.side_effect = request
         hive.get.side_effect = [_not_found(), HiveRecord(name="alpha", data={"status": "draft"}, etag="e")]
         out = inv.install_default_templates()
         assert [w["name"] for w in out["written"]] == ["alpha"]
-        assert hive.set.call_args.args[0].data["report"]["summary"] == SUMMARY
+        assert hive.set.call_args.args[0].data["rules"] == RULES
 
 
 class TestTemplateRecordPermissions:
@@ -758,6 +774,119 @@ class TestTemplateRecordPermissions:
         doc = ei.value.to_dict()
         assert doc["error_code"] == "API_KEY_NOT_ALLOWED" and "cannot promote" in doc["error"]
         assert doc["status"] == 400 and ei.value.exit_code == 1
+
+
+class TestAIMayDecide:
+    """What the AI may decide is a field of the `default` policy record; only that field changes."""
+
+    DEFAULT = {"autonomy": {"close.false_positive": {"mode": "suggest", "lease": "2h"}}, "ai_may_decide": {"mailsec-message": "escalate"}}
+
+    def test_without_a_default_record_nothing_is_granted(self, inv, mock_org, hive):
+        hive.get.side_effect = _not_found()
+        assert inv.get_ai_may_decide() == {"record": "default", "ai_may_decide": {}}
+        inv_mod.Hive.assert_called_with(mock_org, "investigation_policy")
+        hive.get.assert_called_with("default")
+        mock_org.client.request.assert_not_called()
+
+    def test_the_modes_of_the_default_record_are_returned(self, inv, hive):
+        hive.get.return_value = HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1", last_author="a@example.com", last_modified=5)
+        out = inv.get_ai_may_decide()
+        assert out["ai_may_decide"] == {"mailsec-message": "escalate"}
+        assert (out["etag"], out["enabled"], out["last_author"]) == ("e1", True, "a@example.com")
+
+    def test_setting_a_mode_changes_that_field_only_and_is_conditional(self, inv, hive):
+        stored = HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1", tags=["t"], comment="c", expiry=0)
+        after = HiveRecord(name="default", data={**self.DEFAULT, "ai_may_decide": {"mailsec-message": "close_and_escalate"}}, enabled=True, etag="e2")
+        hive.get.side_effect = [stored, after]
+        out = inv.set_ai_may_decide("mailsec-message", "close_and_escalate")
+        record = hive.set.call_args.args[0]
+        assert record.etag == "e1" and record.enabled is True
+        assert record.data["autonomy"] == self.DEFAULT["autonomy"], "the rest of the record is kept"
+        assert record.data["ai_may_decide"] == {"mailsec-message": "close_and_escalate"}
+        assert (record.tags, record.comment) == (["t"], "c")
+        assert out["changed"] is True and out["ai_may_decide"] == {"mailsec-message": "close_and_escalate"}
+        assert stored.data["ai_may_decide"] == {"mailsec-message": "escalate"}, "the record read is not mutated"
+
+    def test_a_missing_default_record_is_created_without_overwriting(self, inv, hive):
+        hive.get.side_effect = [_not_found(), HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate"}}, enabled=True, etag="e2")]
+        out = inv.set_ai_may_decide("*", "escalate")
+        record = hive.set.call_args.args[0]
+        assert record.etag == inv_mod._CREATE_ONLY_ETAG and record.enabled is True
+        assert record.data == {"ai_may_decide": {"*": "escalate"}}
+        assert out["changed"] is True
+
+    def test_the_same_mode_writes_nothing(self, inv, hive):
+        hive.get.return_value = HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1")
+        assert inv.set_ai_may_decide("mailsec-message", "escalate")["changed"] is False
+        hive.set.assert_not_called()
+
+    def test_off_removes_a_template_entry_that_nothing_else_grants(self, inv, hive):
+        hive.get.side_effect = [HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1"), HiveRecord(name="default", data={"autonomy": self.DEFAULT["autonomy"]}, enabled=True, etag="e2")]
+        inv.set_ai_may_decide("mailsec-message", "off")
+        assert "ai_may_decide" not in hive.set.call_args.args[0].data
+
+    def test_off_is_written_when_the_wildcard_grants(self, inv, hive):
+        stored = HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate", "mailsec-message": "escalate"}}, enabled=True, etag="e1")
+        hive.get.side_effect = [stored, stored]
+        inv.set_ai_may_decide("mailsec-message", "off")
+        assert hive.set.call_args.args[0].data["ai_may_decide"] == {"*": "escalate", "mailsec-message": "off"}
+
+    def test_off_on_a_missing_record_writes_nothing(self, inv, hive):
+        hive.get.side_effect = _not_found()
+        assert inv.set_ai_may_decide("mailsec-message", "off")["changed"] is False
+        hive.set.assert_not_called()
+
+    @pytest.mark.parametrize("template,mode", [("t", "on"), ("t", "auto"), ("Bad Name", "off"), ("", "off"), ("a/b", "escalate")])
+    def test_a_bad_name_or_mode_is_refused_before_any_call(self, inv, hive, template, mode):
+        with pytest.raises(ValidationError):
+            inv.set_ai_may_decide(template, mode)
+        hive.get.assert_not_called()
+        hive.set.assert_not_called()
+
+    def test_a_refused_write_names_the_policy_permissions(self, inv, hive):
+        hive.get.side_effect = error_from_status_code(400, {"error": "lc_error_code:UNAUTHORIZED - nope"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.set_ai_may_decide("t", "escalate")
+        assert "investigation_policy" in ei.value.suggestion and ei.value.status_code == 403
+
+
+class TestRunOutcomes:
+    def test_list_runs_sends_the_outcome_filter(self, inv, mock_org):
+        mock_org.client.request.return_value = {"runs": [], "next_cursor": ""}
+        inv.list_runs(outcome="ai_recommends_benign", template="t")
+        assert dict(mock_org.client.request.call_args.kwargs["query_params"]) == {"outcome": "ai_recommends_benign", "template": "t"}
+
+    def test_undecided_is_an_outcome_filter(self, inv, mock_org):
+        mock_org.client.request.return_value = {"runs": []}
+        inv.list_runs(outcome="undecided")
+        assert dict(mock_org.client.request.call_args.kwargs["query_params"]) == {"outcome": "undecided"}
+
+    @pytest.mark.parametrize("bad", ["false_positive", "decided", "CLOSED_BY_RULE", "inconclusive"])
+    def test_a_label_or_unknown_word_is_not_an_outcome(self, inv, mock_org, bad):
+        with pytest.raises(ValidationError, match="outcome"):
+            inv.list_runs(outcome=bad)
+        mock_org.client.request.assert_not_called()
+
+    def test_every_outcome_the_engine_documents_is_accepted(self, inv, mock_org):
+        mock_org.client.request.return_value = {"runs": []}
+        for outcome in inv_mod.RUN_OUTCOMES:
+            inv.list_runs(outcome=outcome)
+        assert len(inv_mod.RUN_OUTCOMES) == 8
+
+    def test_iter_runs_keeps_the_outcome_across_pages(self, inv, mock_org):
+        mock_org.client.request.side_effect = [{"runs": [{"run_id": "a"}], "next_cursor": "c"}, {"runs": [{"run_id": "b"}]}]
+        assert [r["run_id"] for r in inv.iter_runs(outcome="couldnt_tell")] == ["a", "b"]
+        assert [dict(c.kwargs["query_params"])["outcome"] for c in mock_org.client.request.call_args_list] == ["couldnt_tell"] * 2
+
+    def test_the_run_and_the_steps_come_back_as_the_engine_sent_them(self, inv, mock_org):
+        verdict = {"outcome": "ai_recommends_benign", "label": "inconclusive", "decided": False,
+                   "recommendation": {"label": "benign", "self_rated_confidence": 0.8, "rationale": "r", "citations": ["a.b"], "by": "ai_review"},
+                   "missing": [{"step": "s", "reason": "timeout", "needed_by": ["rule_1"], "ask": "Is it?"}]}
+        run = {"run_id": "r1", "verdict": verdict, "ai_may_decide": "off", "ai_agent": {"name": "triage"}, "critical_path": []}
+        steps = {"steps": [{"id": "s", "narrative": {"why": "w", "found": "f", "used": ["ai_review"]}}], "timeline": [], "ai_may_decide": "off"}
+        mock_org.client.request.side_effect = [run, steps]
+        assert inv.get_run("r1") == run
+        assert inv.get_run_steps("r1") == steps
 
 
 PAUSE_DATA = {"autonomy": {"*": {"mode": "suggest"}}}
@@ -936,8 +1065,8 @@ class TestPromote:
 
 class TestInstallDefaults:
     LIB = [
-        {"name": "alpha", "version": 2, "status": "active", "yaml": "description: a\nstatus: active\nfacts: {}\n"},
-        {"name": "beta", "version": 1, "status": "active", "yaml": "description: b\nfacts: {}\n"},
+        {"name": "alpha", "version": 2, "status": "active", "yaml": "description: a\nstatus: active\ngather: {}\n"},
+        {"name": "beta", "version": 1, "status": "active", "yaml": "description: b\ngather: {}\n"},
     ]
 
     def _kit(self, mock_org, library):
@@ -1074,13 +1203,10 @@ class TestOrgPacksAndComposition:
         inv.delete_pack('fictional_pack')
         hive.delete.assert_called_once_with('fictional_pack')
 
-    @pytest.mark.parametrize('locked', [False, True])
-    def test_composition_source_is_sent_verbatim_and_response_is_preserved(self, inv, mock_org, locked):
-        source = 'facts:\n  child:\n    investigate:\n      template: entity-url-harm\n      version: 1\n'
-        if locked:
-            source += '      snapshot_digest: ' + 'a' * 64 + '\n'
-        response = {'valid': True, 'expanded_plan': {'children': [{'snapshot_digest': 'a' * 64}]},
-                    'trust_provenance': [{'kind': 'template', 'name': 'entity-url-harm'}]}
+    def test_a_legacy_template_is_sent_verbatim_and_the_engine_refusal_is_preserved(self, inv, mock_org):
+        """The SDK converts nothing: the engine says `legacy_template_format` and the report comes back untouched."""
+        source = 'description: old\nfacts:\n  a: {op: entity.get}\nproofs: []\n'
+        response = {'valid': False, 'errors': [{'code': 'legacy_template_format', 'path': 'facts', 'message': 'old format'}], 'warnings': []}
         mock_org.client.request.return_value = response
         assert inv.validate_plan(source) == response
         assert json.loads(_request_args(mock_org)[2]['raw_body']) == {'yaml': source}
@@ -1092,9 +1218,9 @@ def test_validate_and_initial_test_preserve_each_resolved_pack(inv, mock_org):
         {'scope': 'root/assessment', 'name': 'fictional_context', 'version': 2, 'digest': 'b' * 64},
     ]
     report = {'valid': True, 'resolved_packs': pins,
-              'children': [{'template': 'entity-url-harm', 'snapshot_digest': 'c' * 64}],
+              'ai_rules': ['ai_says_benign'],
               'trust_provenance': [{'kind': 'pack', 'name': 'fictional_context'}]}
-    source = 'facts:\n  context: {use: fictional_context, pack_version: 1}\n'
+    source = 'gather:\n  context: {use: fictional_context, pack_version: 1}\n'
     mock_org.client.request.return_value = report
     assert inv.validate_plan(source) == report
     assert json.loads(_request_args(mock_org)[2]['raw_body']) == {'yaml': source}
