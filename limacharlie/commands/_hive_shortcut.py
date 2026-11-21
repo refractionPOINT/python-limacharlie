@@ -9,7 +9,6 @@ from typing import Any
 
 import click
 import yaml
-from ..yaml_input import load_yaml
 
 from ..cli import pass_context
 from ..client import Client
@@ -382,7 +381,7 @@ def make_hive_group(group_name: str, hive_name: str, noun_singular: str, noun_pl
 
             # Parse input as YAML first (YAML is a superset of JSON)
             try:
-                data = load_yaml(content)
+                data = yaml.safe_load(content)
             except Exception:
                 data = json.loads(content)
 

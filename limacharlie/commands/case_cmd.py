@@ -16,7 +16,6 @@ from urllib.request import urlopen
 
 import click
 import yaml
-from ..yaml_input import load_yaml
 
 from ..cli import pass_context
 from ..client import Client
@@ -1564,7 +1563,7 @@ def config_set(ctx, input_file) -> None:
         raise click.UsageError("Provide config via --input-file or stdin.")
 
     try:
-        data = load_yaml(content)
+        data = yaml.safe_load(content)
     except Exception:
         data = json.loads(content)
 

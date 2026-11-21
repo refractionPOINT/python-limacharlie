@@ -13,7 +13,7 @@ from typing import Any
 
 import click
 import yaml
-from ..yaml_input import load_yaml
+from ..yaml_input import load_record_yaml
 
 from ..cli import pass_context
 from ..client import Client
@@ -43,25 +43,29 @@ def _get_org(ctx: click.Context) -> Organization:
     return Organization(client)
 
 
-def _load_file(path: str) -> Any:
-    """Load a JSON or YAML file and return parsed content."""
+def _load_file(path: str, hive_name: str | None = None) -> Any:
+    """Load a JSON or YAML file and return parsed content.
+
+    The investigation hives are read with the YAML 1.2 boolean rule (``off`` stays text); every
+    other hive, and a call without a hive name, keeps ``yaml.safe_load``.
+    """
     with open(path, "r") as f:
         content = f.read()
     try:
-        return load_yaml(content)
+        return load_record_yaml(content, hive_name)
     except Exception:
         pass
     return json.loads(content)
 
 
-def _load_input(input_file: str | None) -> Any:
-    """Load record data from a file or stdin."""
+def _load_input(input_file: str | None, hive_name: str | None = None) -> Any:
+    """Load record data from a file or stdin (see :func:`_load_file` for the hive name)."""
     if input_file:
-        return _load_file(input_file)
+        return _load_file(input_file, hive_name)
     if not sys.stdin.isatty():
         content = sys.stdin.read()
         try:
-            return load_yaml(content)
+            return load_record_yaml(content, hive_name)
         except Exception:
             pass
         return json.loads(content)
@@ -390,7 +394,7 @@ def set_record(ctx, hive_name, key, input_file, enabled, tag_add, tag_rm, commen
         validate_epoch_seconds(expiry, "expiry")
         expiry = _expiry_to_milliseconds(expiry)
 
-    data = _load_input(input_file)
+    data = _load_input(input_file, hive_name)
     has_metadata_flags = bool(tag_add or tag_rm or comment is not None or expiry is not None or enabled is not None)
 
     org = _get_org(ctx)
@@ -559,7 +563,7 @@ register_explain("hive.validate", _EXPLAIN_VALIDATE)
 @click.option("--input-file", default=None, type=click.Path(exists=True), help="Path to record data (JSON or YAML). Reads stdin if omitted.")
 @pass_context
 def validate(ctx, hive_name, key, input_file) -> None:
-    data = _load_input(input_file)
+    data = _load_input(input_file, hive_name)
     if data is None:
         click.echo(
             "Error: No input data provided.\n"
@@ -884,7 +888,7 @@ register_explain("hive.import", _EXPLAIN_IMPORT)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview changes without applying them.")
 @pass_context
 def import_records(ctx, name, input_file, partition_key, dry_run) -> None:
-    data = _load_file(input_file)
+    data = _load_file(input_file, name)
     if not isinstance(data, dict):
         click.echo(
             "Error: Input file must contain a YAML/JSON mapping of record names to record data.",

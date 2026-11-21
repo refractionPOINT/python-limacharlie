@@ -26,12 +26,12 @@
   `get_ai_may_decide`, `set_ai_may_decide`, `AI_MODES`) read and set the policy's
   `ai_may_decide` per template (`off`, `escalate`, `close_and_escalate`). The
   policy no longer has thresholds, mandatory checks or `min_confidence`.
-- Files and stdin that become hive or API records (`hive set`, the `hive` and
-  rule shortcuts, `dr`, `sync push`, `usp`, `ioc`, `extension`, ...) are read
-  with the YAML 1.2 boolean rule: only `true` and `false` are booleans, and the
-  bare words `on`, `off`, `yes` and `no` stay strings. Before, PyYAML read
-  `ai_may_decide: {"*": off}` as `false` and the Hive refused the policy. Quote
-  nothing differently: a value that must be a boolean is written `true` / `false`.
+- Files for the `investigation_policy` and `investigation_plan` hives (`hive set`,
+  `hive validate` and `hive import` with those hive names, and those hives in a
+  `sync push` config) are read with the YAML 1.2 boolean rule: only `true` and
+  `false` are booleans, and `on`, `off`, `yes` and `no` stay strings. Before,
+  `ai_may_decide: {"*": off}` was read as `false` and the Hive refused the policy.
+  Every other file the CLI reads, other hives included, is read exactly as before.
 - `policy ai-set '*' off` with no `default` policy record is refused (nothing is
   granted, so there is nothing to turn off) instead of creating a record.
 - Child templates (`investigate:`) and composition locks are gone. The default

@@ -25,7 +25,6 @@ from urllib.request import Request, urlopen
 
 import click
 import yaml
-from ..yaml_input import load_yaml
 
 if TYPE_CHECKING:
     from ..sdk.ai import AI
@@ -580,9 +579,9 @@ class ConversionPipeline:
 
             # Normalize types
             if isinstance(detect_data, str):
-                detect_data = load_yaml(detect_data)
+                detect_data = yaml.safe_load(detect_data)
             if isinstance(respond_data, str):
-                respond_data = load_yaml(respond_data)
+                respond_data = yaml.safe_load(respond_data)
             if isinstance(respond_data, dict):
                 respond_data = [respond_data]
 
