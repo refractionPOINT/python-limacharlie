@@ -56,7 +56,8 @@ deployment and organization).
 A template has `gather` (steps that read the org's data), `rules` (`escalate`
 and `close` rules over what was gathered, each with an id and a sentence for
 the case), an optional `ai_review` (the fallback for what rules cannot decide)
-and `act` / `case`. Nothing is scored: a run ends with an outcome
+and `act` / `case` (an `act` entry names the rules that fire it in
+`on_rules: [<rule id> | ai_review]`; `on` is not a key). Nothing is scored: a run ends with an outcome
 (closed_by_rule, escalated_by_rule, closed_by_ai, escalated_by_ai,
 ai_recommends_benign, ai_recommends_malicious, couldnt_tell, conflict) and the
 rule or the AI behind it. Whether the AI may DECIDE, or only recommend, is the

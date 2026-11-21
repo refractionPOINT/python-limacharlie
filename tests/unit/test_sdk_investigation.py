@@ -479,10 +479,20 @@ class TestTemplateSource:
     def test_act_attrs_are_read_like_step_args(self):
         """`attrs` is a free mapping the engine reads as any: the numbers in it stay numbers."""
         data = parse_template_source(
-            "act:\n  - {class: tag, target: $a.sid, on: [r], attrs: {tag: 'ie:x', ttl: 86400, deep: {k: 0o17}}}\n"
+            "act:\n  - {class: tag, target: $a.sid, on_rules: [r], attrs: {tag: 'ie:x', ttl: 86400, deep: {k: 0o17}}}\n"
         )
         assert data["act"][0]["attrs"] == {"tag": "ie:x", "ttl": 86400, "deep": {"k": 15}}
         assert data["act"][0]["target"] == "$a.sid"
+        assert data["act"][0]["on_rules"] == ["r"]
+
+    def test_act_on_rules_is_a_plain_text_key_and_a_legacy_on_key_is_left_for_the_engine_to_refuse(self):
+        """`on` is a YAML 1.1 boolean, hence the rename to `on_rules`. The parser keeps keys as text, so a
+        hand-written `on:` stays the key "on" (never `true`) and the engine reports it as an unknown field."""
+        good = parse_template_source("act:\n  - {class: tag, target: $a.sid, on_rules: [r, ai_review]}\n")
+        assert good["act"][0]["on_rules"] == ["r", "ai_review"] and True not in good["act"][0]
+        legacy = parse_template_source("act:\n  - {class: tag, target: $a.sid, on: [r]}\n")
+        assert "on" in legacy["act"][0] and True not in legacy["act"][0]
+        assert parse_template_source(dump_template(good)) == good
 
     def test_quoted_and_tagged_scalars(self):
         data = parse_template_source(

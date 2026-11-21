@@ -152,12 +152,14 @@ explain_signals:
     malicious_when: 'sender_history.prior_messages_30d == 0'
     benign_when: 'sender_history.prior_messages_30d > 0'
 act:
-  - {class: contain.email, target: '$message.msg_id', attrs: {group_id: '$recipients.action_attrs.group_id'}, on: [clicked_credential_harvest]}
+  - {class: contain.email, target: '$message.msg_id', attrs: {group_id: '$recipients.action_attrs.group_id'}, on_rules: [clicked_credential_harvest]}
 case:
   mode: create
   severity: {escalated_by_rule: high, closed_by_rule: low, default: medium}
   kind: [phishing]
 ```
+
+An `act` entry says which rules fire it with `on_rules: [<rule id> | ai_review]`. The key is `on_rules`, not `on`: YAML 1.1 parsers (Python's `yaml.safe_load`, many sync tools) read a bare `on:` as the boolean `true`, and the engine refuses an `on` key.
 
 Add an `ai_review` (`question`, `sees`, `needs`) for what rules cannot decide, and `ask_ai` steps for a focused question a rule reads; both only recommend until the policy's `ai_may_decide` allows them to decide.
 

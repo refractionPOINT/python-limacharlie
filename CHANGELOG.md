@@ -11,6 +11,8 @@
   the engine with `legacy_template_format`; the SDK converts nothing. Typed
   fields read as numbers or booleans are now `version`, `gather.*.pack_version`
   and `gather.*.always`; `act[].attrs` is read like step args.
+- An `act` entry names the rules that fire it with `on_rules: [<rule id> | ai_review]`; the
+  key `on` is gone (YAML 1.1 reads `on:` as `true`) and the engine refuses it.
 - A run ends with an outcome (`closed_by_rule`, `escalated_by_rule`,
   `closed_by_ai`, `escalated_by_ai`, `ai_recommends_benign`,
   `ai_recommends_malicious`, `couldnt_tell`, `conflict`) instead of a
