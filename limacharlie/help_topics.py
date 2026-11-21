@@ -780,7 +780,8 @@ and close, each with an id and a sentence) decide, and an optional `ai_review`
 covers what rules cannot. Nothing is scored: a run ends with an outcome
 (closed_by_rule, escalated_by_rule, closed_by_ai, escalated_by_ai,
 ai_recommends_benign, ai_recommends_malicious, couldnt_tell, conflict) and the
-rule or the AI behind it. Templates are YAML, stored as `investigation_plan`
+rule or the AI behind it. A gather step can carry `record:` (case entities
+with verdicts, telemetry, artifacts). Templates are YAML, stored as `investigation_plan`
 hive records. `limacharlie investigate` builds, tests and runs them.
 
 Author a template (an AI agent or a person):

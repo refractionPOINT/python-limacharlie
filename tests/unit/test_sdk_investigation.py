@@ -476,6 +476,45 @@ class TestTemplateSource:
         assert data["rules"]["escalate"] == [{"id": "on", "when": "true", "say": "012"}]
         assert data["rules"]["never_close_when"] == ["off", "1e3"]
 
+    RECORD_SRC = (
+        "gather:\n"
+        "  clicks:\n"
+        "    op: endpoint.click_check\n"
+        "    args: {copies: $r.copies}\n"
+        "    record:\n"
+        "      - kind: entity\n"
+        "        entity_type: account\n"
+        "        each: clicks.per_recipient\n"
+        "        item_key: recipient\n"
+        "        outcome_key: outcome\n"
+        "        outcome_map: {clicked: malicious, not_clicked: benign, unknown: unknown, on: off}\n"
+        "        absence: [not_clicked, no]\n"
+        "        outcome_notes: {clicked: \"The machine looked up the domain.\"}\n"
+        "        malicious_when: true\n"
+        "        benign_when: off\n"
+        "        note: 012\n"
+        "  message:\n"
+        "    op: mailsec.message_get\n"
+        "    args: {msg_uuid: $m}\n"
+        "    record: {kind: artifact, source: mailsec, type: email, ref: 'mailsec/messages/{message.msg_uuid}'}\n"
+    )
+
+    def test_record_entries_stay_text_in_both_shapes(self):
+        """`record:` is one entry or a list; nothing in it is a number or a boolean, whatever it looks like."""
+        data = parse_template_source(self.RECORD_SRC)
+        entity = data["gather"]["clicks"]["record"][0]
+        assert entity["outcome_map"] == {"clicked": "malicious", "not_clicked": "benign", "unknown": "unknown", "on": "off"}
+        assert entity["absence"] == ["not_clicked", "no"]
+        assert (entity["malicious_when"], entity["benign_when"], entity["note"]) == ("true", "off", "012")
+        assert entity["each"] == "clicks.per_recipient" and entity["item_key"] == "recipient"
+        single = data["gather"]["message"]["record"]
+        assert single == {"kind": "artifact", "source": "mailsec", "type": "email", "ref": "mailsec/messages/{message.msg_uuid}"}
+        assert True not in entity["outcome_map"] and True not in entity
+
+    def test_record_round_trips_through_dump_and_save(self):
+        data = parse_template_source(self.RECORD_SRC)
+        assert parse_template_source(dump_template(data)) == data
+
     def test_act_attrs_are_read_like_step_args(self):
         """`attrs` is a free mapping the engine reads as any: the numbers in it stay numbers."""
         data = parse_template_source(

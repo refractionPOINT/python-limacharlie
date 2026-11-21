@@ -13,6 +13,8 @@
   and `gather.*.always`; `act[].attrs` is read like step args.
 - An `act` entry names the rules that fire it with `on_rules: [<rule id> | ai_review]`; the
   key `on` is gone (YAML 1.1 reads `on:` as `true`) and the engine refuses it.
+- A `gather` step can carry `record:` (entities with verdicts, `each` outcomes, telemetry,
+  artifacts), documented in the CLI reference and help; the SDK passes it through as text.
 - A run ends with an outcome (`closed_by_rule`, `escalated_by_rule`,
   `closed_by_ai`, `escalated_by_ai`, `ai_recommends_benign`,
   `ai_recommends_malicious`, `couldnt_tell`, `conflict`) instead of a

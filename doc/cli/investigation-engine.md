@@ -161,6 +161,39 @@ case:
 
 An `act` entry says which rules fire it with `on_rules: [<rule id> | ai_review]`. The key is `on_rules`, not `on`: YAML 1.1 parsers (Python's `yaml.safe_load`, many sync tools) read a bare `on:` as the boolean `true`, and the engine refuses an `on` key.
 
+A step says what the case shows of it with `record:` (one entry or a list; a `use:` step takes none). Kinds: `entity` (`entity_type`, `indicator`, `title`, `note` with `{step.path}` values, `malicious_when`, `benign_when`), `telemetry` and `artifact` (`source`, `type`, `ref`: ids only, never customer data). The verdict is `malicious` when `malicious_when` holds, else `benign` when `benign_when` holds, else `unknown`: an unknown never asserts a verdict. With `each` (a list in the step's result), one entity is written per element: `item_key` names the indicator, `outcome_key` the outcome word, `outcome_map` maps outcomes to verdicts, `absence` lists the outcomes that are claims of absence (they hold only on a complete step) and `outcome_notes` overrides the sentence per outcome. The engine adds, with no template, the telemetry of steps a rule or the review reads, an `entity.get` step's entity and the `mailsec/messages/<uuid>` artifact of each message step; what a step records itself replaces the default of the same kind. The paths are checked like references (`unknown_field`, `not_an_array`), and `bad_record_kind` / `entity_needs_indicator` are its own codes.
+
+```yaml
+gather:
+  link_landing:
+    op: mailsec.link_resolve
+    args: {links: '$message.links'}
+    record:
+      kind: entity
+      entity_type: domain
+      indicator: link_landing.final_domain
+      title: Where the link lands
+      note: "The link lands on {link_landing.final_domain}."
+      malicious_when: 'link_landing.open_redirect'
+      benign_when: 'link_landing.via_tracker'
+  clicks:
+    op: endpoint.click_check
+    args: {copies: '$recipients.copies'}
+    record:
+      kind: entity
+      entity_type: account
+      each: clicks.per_recipient
+      item_key: recipient
+      outcome_key: outcome
+      outcome_map: {clicked: malicious, not_clicked: benign, unknown: unknown}
+      absence: [not_clicked]
+      outcome_notes: {clicked: "The recipient's machine looked up the landing domain after delivery."}
+  message:
+    op: mailsec.message_get
+    args: {msg_uuid: $msg_uuid}
+    record: {kind: artifact, source: mailsec, type: email, ref: 'mailsec/messages/{message.msg_uuid}'}
+```
+
 Add an `ai_review` (`question`, `sees`, `needs`) for what rules cannot decide, and `ask_ai` steps for a focused question a rule reads; both only recommend until the policy's `ai_may_decide` allows them to decide.
 
 `validate` prints the report: `valid`, `errors` and `warnings` (each `{code, path, message, suggestion?}`), the worst-case step count, an `estimate` of the worst-case cost and `ai_rules` (the AI-assisted rules).
