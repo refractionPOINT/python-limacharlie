@@ -19,15 +19,26 @@ Permissions (all of the listed ones are required):
   ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
   the permission of the action's own class (for example ``sensor.task``)
 - the performance stats additionally need ``investigation_policy.set``, and so
-  does filtering the run list by verdict
+  does filtering the run list by outcome or verdict
 - pause / resume / status of automatic actions: they are the hive record
   ``investigation_policy/autonomy-manual-pause``, so ``investigation_policy.get``
   (status), ``investigation_policy.set`` (pause) and ``investigation_policy.del``
   (resume), explicit grants no default role has
+- the AI switch (``ai_may_decide``, per template) is a field of the hive record
+  ``investigation_policy/default``: ``investigation_policy.get`` to read it,
+  ``investigation_policy.set`` to change it
 - the template records themselves (hive ``investigation_plan``):
   ``investigation_plan.get`` / ``investigation_plan.set`` /
   ``investigation_plan.del``. These are explicit grants, no default role has
   them.
+
+A template has ``gather`` steps (what to read), ``rules`` (``escalate`` and
+``close`` rules over what was gathered, each with an id and a sentence) and an
+optional ``ai_review`` for what rules cannot decide. A run ends with an
+*outcome* (:data:`RUN_OUTCOMES`) and the rule or the AI behind it; nothing is
+scored. Whether the AI may *decide* (rather than recommend) is the policy's
+``ai_may_decide``, set per template by a person
+(:meth:`Investigation.set_ai_may_decide`).
 
 Templates are plain Hive records. This module never writes an *active*
 template unless the caller passes ``status="active"`` explicitly (the call a
@@ -77,6 +88,19 @@ ACTION_VERBS = ("approve", "deny", "revert", "extend", "confirm")
 
 #: Run states after which a run no longer changes.
 TERMINAL_RUN_STATES = ("completed", "cancelled", "failed", "budget_exhausted")
+
+#: How a run ends (``verdict.outcome`` of a run, a list row and a test sample).
+RUN_OUTCOMES = (
+    "closed_by_rule", "escalated_by_rule", "closed_by_ai", "escalated_by_ai",
+    "ai_recommends_benign", "ai_recommends_malicious", "couldnt_tell", "conflict",
+)
+
+#: What the policy lets the AI decide for a template (``ai_may_decide``): nothing
+#: (it only recommends), escalate, or close and escalate.
+AI_MODES = ("off", "escalate", "close_and_escalate")
+
+#: The policy record that grants ``ai_may_decide``: only this record may grant it.
+DEFAULT_POLICY_RECORD = "default"
 
 #: Template (record) names this module will create.
 TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -506,15 +530,14 @@ class _TemplateLoader(yaml.SafeLoader):
     The engine reads YAML with gopkg.in/yaml.v3, not with PyYAML's YAML 1.1
     rules, and what a scalar means depends on where it sits:
 
-    * Under a fact's ``args`` (and in any document that is not a template) an
-      unquoted scalar is resolved by yaml.v3's rules: ``yes``/``off`` are text,
+    * Under a step's ``args`` or an ``act`` entry's ``attrs`` (and in any
+      document that is not a template) an unquoted scalar is resolved by yaml.v3's rules: ``yes``/``off`` are text,
       ``012`` is 10, ``1_000`` is 1000, ``0o17`` is 15, ``1e3`` is a float, a
       date is a timestamp (kept as its UTC RFC 3339 text, which is what the
       stored record holds).
     * Everywhere else the engine reads into text fields, so the author's spelling
       is kept: ``description: 1e3`` stays ``"1e3"``. A few fields are numbers or
-      booleans (``version``, ``prior``, weights, ``predict``, ``case``) and
-      are read as such.
+      booleans (``version``, ``pack_version``, ``always``) and are read as such.
 
     A quoted scalar is always text. A mapping key is always text.
     """
@@ -549,11 +572,8 @@ _TemplateLoader.add_constructor(_BINARY_TAG, _construct_binary)
 
 # Template fields the engine reads as numbers or booleans, by path ("*" is any
 # list index or map key). Every other scalar outside a fact's args is text.
-_NUMBER_PATHS = {
-    ("version",), ("prior",), ("evidence", "*", "weight"),
-    ("signals", "*", "malicious_weight"), ("signals", "*", "benign_weight"),
-}
-_BOOL_PATHS = {("facts", "*", "predict"), ("facts", "*", "case")}
+_NUMBER_PATHS = {("version",), ("gather", "*", "pack_version")}
+_BOOL_PATHS = {("gather", "*", "always")}
 
 
 def _path_matches(path: tuple[str, ...], patterns: set[tuple[str, ...]]) -> bool:
@@ -599,7 +619,10 @@ def _retag(node: yaml.Node, path: tuple[str, ...], any_ctx: bool, seen: set[int]
             if isinstance(key, yaml.ScalarNode) and key.tag == _PLAIN_TAG:
                 key.tag = _MERGE_TAG if key.value == "<<" else _STR_TAG
             name = key.value if isinstance(key, yaml.ScalarNode) else "*"
-            child_any = any_ctx or (len(path) == 2 and path[0] == "facts" and name == "args")
+            child_any = any_ctx or (
+                (len(path) == 2 and path[0] == "gather" and name == "args")
+                or (len(path) == 2 and path[0] == "act" and name == "attrs")
+            )
             _retag(value, path + (name,), child_any, seen, document)
 
 
@@ -681,7 +704,7 @@ def parse_template_source(source: str) -> dict[str, Any]:
     except yaml.YAMLError as exc:
         raise ValidationError(f"the template is not valid YAML: {exc}") from exc
     if not isinstance(doc, dict):
-        raise ValidationError("the template must be a YAML mapping (description, applies_to, facts, ...)")
+        raise ValidationError("the template must be a YAML mapping (description, applies_to, gather, rules, ...)")
     _check_json_carries(doc, "the template")
     return doc
 
@@ -1039,6 +1062,117 @@ class Investigation:
         return {**self._pause_view(self._read_pause_record()), "changed": True}
 
     # ------------------------------------------------------------------
+    # The AI switch (a field of the default policy record)
+    # ------------------------------------------------------------------
+
+    def _read_default_policy(self) -> HiveRecord | None:
+        try:
+            return self._policy().get(DEFAULT_POLICY_RECORD)
+        except ApiError as exc:
+            if is_record_not_found(exc):
+                return None
+            raise
+
+    @staticmethod
+    def _ai_view(record: HiveRecord | None) -> dict[str, Any]:
+        data = record.data if record is not None and isinstance(record.data, dict) else {}
+        modes = data.get("ai_may_decide")
+        view: dict[str, Any] = {"record": DEFAULT_POLICY_RECORD, "ai_may_decide": dict(modes) if isinstance(modes, dict) else {}}
+        if record is not None:
+            view.update(enabled=record.enabled, etag=record.etag, last_author=record.last_author, last_modified=record.last_modified)
+        return view
+
+    @_policy_record_errors
+    def get_ai_may_decide(self) -> dict[str, Any]:
+        """Read what the policy lets the AI decide, per template.
+
+        The switch is the ``ai_may_decide`` field of the ``default`` policy
+        record: ``{<template name> or "*": off | escalate | close_and_escalate}``.
+        A template without an entry (and no ``"*"``) is ``off``: an AI-assisted
+        rule or the AI review only recommends, and a person acts on it. Only the
+        ``default`` record grants; other records and run overrides can only
+        lower it. Needs ``investigation_policy.get``.
+
+        Returns:
+            dict: ``record``, ``ai_may_decide`` (the mapping, empty when
+                nothing is granted) and, when the record exists, ``enabled``,
+                ``etag``, ``last_author`` and ``last_modified``. Use
+                :meth:`get_effective_policy` for what the policy records
+                allow right now.
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        return self._ai_view(self._read_default_policy())
+
+    @_policy_record_errors
+    def set_ai_may_decide(self, template: str, mode: str) -> dict[str, Any]:
+        """Set what the AI may decide for one template (or ``"*"``: every template).
+
+        This is a person's decision about the org's automation: it changes
+        the ``default`` policy record's ``ai_may_decide`` field and nothing
+        else, keeping every other field of the record. ``off`` removes the
+        template's entry when ``"*"`` is not set; when ``"*"`` grants
+        something, ``off`` is written so the template's own entry wins. The
+        write is conditional on the record read, so a concurrent edit is
+        never overwritten. A record that does not exist yet is created, except
+        to turn something off: with no record nothing is granted, so ``off`` for
+        a template changes nothing and ``off`` for ``"*"`` is refused. The modes are written as the strings ``"off"``, ``"escalate"``
+        and ``"close_and_escalate"`` (never a YAML 1.1 boolean). The
+        run already started keep the mode they started with. Needs
+        ``investigation_policy.set``.
+
+        Args:
+            template: A template name, or ``"*"`` for every template.
+            mode: One of :data:`AI_MODES`.
+
+        Returns:
+            dict: The state after the write (:meth:`get_ai_may_decide`) and
+                ``changed`` (False when the record already said so).
+
+        Raises:
+            ValidationError: If the template name or the mode is not valid.
+            InvestigationError: On any API failure.
+        """
+        if mode not in AI_MODES:
+            raise ValidationError(f"mode must be one of {', '.join(AI_MODES)}")
+        if template != "*" and (not isinstance(template, str) or not TEMPLATE_NAME_RE.fullmatch(template)):
+            raise ValidationError("template must be a template name (lowercase letters, digits, - and _) or *")
+        existing = self._read_default_policy()
+        data = json.loads(json.dumps(existing.data)) if existing is not None and isinstance(existing.data, dict) else {}
+        modes = data.get("ai_may_decide") if isinstance(data.get("ai_may_decide"), dict) else {}
+        before = dict(modes)
+        modes[template] = mode
+        if mode == "off" and template != "*" and modes.get("*", "off") == "off":
+            del modes[template]  # nothing to override: absent is off
+        if modes:
+            data["ai_may_decide"] = modes
+        else:
+            data.pop("ai_may_decide", None)
+        if existing is None and mode == "off":
+            # Absent means off. Creating an org-wide `default` record just to store "off" grants
+            # nothing: a template's "off" is already true, and "*": off has nothing to turn off.
+            if template == "*":
+                raise ValidationError(
+                    "there is no default policy record, so the AI already may decide nothing: nothing to turn off"
+                )
+            return {**self._ai_view(None), "changed": False}
+        if modes == before and existing is not None:
+            return {**self._ai_view(existing), "changed": False}
+        record = HiveRecord(
+            name=DEFAULT_POLICY_RECORD, data=data,
+            enabled=True if existing is None else existing.enabled,
+            etag=_CREATE_ONLY_ETAG if existing is None else existing.etag,
+        )
+        if existing is not None:
+            # Metadata replaces the stored metadata wholesale: start from what is stored.
+            record.tags, record.comment, record.ui_actions, record.expiry = (
+                existing.tags, existing.comment, existing.ui_actions, existing.expiry,
+            )
+        self._policy().set(record)
+        return {**self._ai_view(self._read_default_policy()), "changed": True}
+
+    # ------------------------------------------------------------------
     # Plan validation and dry runs
     # ------------------------------------------------------------------
 
@@ -1050,9 +1184,13 @@ class Investigation:
 
         Returns:
             dict: ``valid``, ``errors`` and ``warnings`` (each ``{code, path,
-                message, suggestion?}``), the worst-case cost and an ``estimate``.
+                message, suggestion?}``), the worst-case cost, an ``estimate`` and
+                ``ai_rules`` (the ids of the rules that read an ``ask_ai``
+                answer: they decide only where ``ai_may_decide`` allows).
                 ``resolved_packs`` preserves scope/name/version/digest for every
-                resolved version-only pack pin, including descendants.
+                resolved version-only pack pin. A template in the format the
+                engine had before (``facts``, ``proofs``, ...) is refused with
+                ``legacy_template_format``.
         """
         return self._call("POST", "plans/validate", body={"yaml": source})
 
@@ -1070,7 +1208,8 @@ class Investigation:
         """Start a dry run of a plan on real past alerts.
 
         Nothing is written: no run, case, label or action. The test runs the
-        plan's read-only operators under the caller's own token.
+        plan's read-only operators under the caller's own token. Nothing
+        blocks on the result: it is information for the author.
 
         Args:
             samples: Each one of ``{detection_id}``, ``{case_id}``,
@@ -1088,8 +1227,15 @@ class Investigation:
         Returns:
             dict: The test object: ``test_id``, ``state`` (running, done,
                 failed, invalid), ``validation``, ``results``, ``summary``,
-                ``next`` and ``done``. Initial ``validation`` retains
-                ``resolved_packs`` for root and descendant version-only pack pins.
+                ``next`` and ``done``. Each result has a ``verdict`` (the
+                ``outcome``, ``decided_by`` {kind, rule}, the AI's
+                ``recommendation`` and what was ``missing``), the analyst's
+                ``expected`` label and ``agreement`` {rule, ai}. The
+                ``summary`` has ``decided_by_rules``, ``rule_share``, per
+                rule id ``rules`` {decided, agree, disagree}, ``ai``
+                {recommended, agree, disagree, unclear}, ``by_outcome``,
+                ``unknown_reasons`` and ``cost_per_sample``. Initial
+                ``validation`` retains ``resolved_packs``.
 
         Raises:
             ValidationError: If not exactly one of ``template``/``inline`` is
@@ -1210,13 +1356,21 @@ class Investigation:
         return self._call("POST", "runs", body=request, write=True, timeout=max(_WAIT_MARGIN, int(wait) + _WAIT_MARGIN))
 
     def get_run(self, run_id: str) -> dict[str, Any]:
-        """Read a run (state, phase, verdict, actions, usage).
+        """Read a run (state, phase, outcome, actions, usage).
 
         Args:
             run_id: The run id.
 
         Returns:
-            dict: The run plus its ``critical_path``.
+            dict: The run plus its ``critical_path``. Its ``verdict`` has the
+                ``outcome`` (one of :data:`RUN_OUTCOMES`), ``label`` (false_positive,
+                true_positive or inconclusive), ``decided``, ``decided_by``
+                {kind, rule, say}, the AI's ``recommendation`` {label,
+                self_rated_confidence, rationale, citations, by} when it only
+                recommends, and ``missing`` [{step, reason, needed_by, ask}].
+                ``ai_may_decide`` is the mode the run started with and
+                ``ai_agent`` the AI agent it uses. ``self_rated_confidence`` is
+                the AI's own rating: shown, never used.
         """
         return self._get(f"runs/{_quote(_check_id('run id', run_id), safe='')}")
 
@@ -1224,6 +1378,7 @@ class Investigation:
         self,
         *,
         state: str | None = None,
+        outcome: str | None = None,
         verdict: str | None = None,
         template: str | None = None,
         trigger: str | None = None,
@@ -1239,7 +1394,10 @@ class Investigation:
 
         Args:
             state: Only runs in this state.
-            verdict: Only runs with this verdict.
+            outcome: Only runs that ended with this outcome (one of
+                :data:`RUN_OUTCOMES`) or ``undecided`` (nothing settled yet).
+            verdict: Only runs with this verdict label (``true_positive``,
+                ``false_positive``, ``inconclusive``).
             template: Only runs of this template.
             trigger: Only runs with this trigger source.
             entity: Only runs about this entity.
@@ -1254,14 +1412,16 @@ class Investigation:
             dict: ``runs`` and ``next_cursor`` ("" on the last page).
 
         Raises:
-            ValidationError: If ``limit`` is out of range.
+            ValidationError: If ``limit`` is out of range or ``outcome`` is not an outcome.
         """
         if limit is not None and not 1 <= limit <= 200:
             raise ValidationError("limit must be between 1 and 200")
+        if outcome is not None and outcome != "undecided" and outcome not in RUN_OUTCOMES:
+            raise ValidationError(f"outcome must be undecided or one of {', '.join(RUN_OUTCOMES)}")
         return self._get(
             "runs",
             self._q(
-                state=state, verdict=verdict, template=template, trigger=trigger, entity=entity,
+                state=state, outcome=outcome, verdict=verdict, template=template, trigger=trigger, entity=entity,
                 started_by=started_by, idempotency_key=idempotency_key, since=since, until=until,
                 limit=limit, cursor=cursor,
             ),
@@ -1294,14 +1454,16 @@ class Investigation:
             filters["cursor"] = nxt
 
     def get_run_steps(self, run_id: str, values: bool = False) -> dict[str, Any]:
-        """Read a run's step log, plan graph and belief curve.
+        """Read a run's step log, plan graph and outcome timeline.
 
         Args:
             run_id: The run id.
             values: Include customer values (default: structure only).
 
         Returns:
-            dict: ``steps``, ``critical_path``, ``edges``, ``usage``, ...
+            dict: ``steps`` (each with a ``narrative`` {why, found, used}),
+                ``critical_path``, ``edges``, ``usage``, ``timeline`` (the
+                outcome over time) and ``ai_may_decide``.
         """
         return self._get(
             f"runs/{_quote(_check_id('run id', run_id), safe='')}/steps", self._q(values=True if values else None),

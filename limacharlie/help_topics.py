@@ -774,17 +774,23 @@ HELP_TOPICS["investigation-engine"] = """\
 Investigation Engine
 ====================
 
-The Investigation Engine (experimental, gated per deployment) gathers facts
-for an alert with typed operators, weighs them and reaches a verdict with a
-proof. Its plans are YAML templates, stored as `investigation_plan` hive
-records. `limacharlie investigate` builds, tests and runs them.
+The Investigation Engine (experimental, gated per deployment) investigates an
+alert with a template: `gather` steps read the org's data, `rules` (escalate
+and close, each with an id and a sentence) decide, and an optional `ai_review`
+covers what rules cannot. Nothing is scored: a run ends with an outcome
+(closed_by_rule, escalated_by_rule, closed_by_ai, escalated_by_ai,
+ai_recommends_benign, ai_recommends_malicious, couldnt_tell, conflict) and the
+rule or the AI behind it. A gather step can carry `record:` (case entities
+with verdicts, telemetry, artifacts). Templates are YAML, stored as `investigation_plan`
+hive records. `limacharlie investigate` builds, tests and runs them.
 
 Author a template (an AI agent or a person):
   1. limacharlie investigate kit --section guide --section schema --section codes
   2. draft the YAML (limacharlie investigate packs --brief, operators --brief)
   3. limacharlie investigate templates validate --file plan.yaml
   4. limacharlie investigate templates test --file plan.yaml --detect-cat <category> --last 10
-     Read `validation`, `summary`, each `disagree`, then `undecided` samples.
+     Read `validation`, `summary` (rule_share, per-rule agree/disagree, the AI's
+     agree/disagree), each `disagree`, then `undecided` samples.
   5. refine, repeat 3-4
   6. limacharlie investigate templates save my-plan --file plan.yaml --comment "<what you tested>"
      Always a DRAFT. A draft runs only through `templates test` or a run a
@@ -798,7 +804,8 @@ Questions without a template: `investigate packs --brief`, then
 
 Runs: `investigate runs start|get|list|events --follow|steps|case|cancel`.
 Approvals: `investigate actions list --state awaiting_approval`, `approve`, `deny`.
-Policy: `investigate policy get|status|pause|resume`.
+Policy: `investigate policy get|status|pause|resume`. Whether the AI may
+decide, or only recommend, is `investigate policy ai` / `ai-set` (a person's call).
 
 Errors carry the engine's coded issues ({code, path, message, suggestion}).
 A 404 with no engine error means the feature is not enabled for the region.

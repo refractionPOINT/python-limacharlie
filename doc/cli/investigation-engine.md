@@ -4,7 +4,7 @@
 
 Install or upgrade with `python -m pip install --upgrade limacharlie`. See [installation](../getting-started.md#installation) for setup.
 
-The `investigate` group builds, tests and tunes Investigation Engine templates and runs investigations. The engine gathers facts for an alert with typed operators, weighs them and reaches a verdict (`true_positive`, `false_positive` or `inconclusive`) with a proof. A person or an AI agent (Claude Code, Codex, ...) can drive the whole loop from the CLI.
+The `investigate` group builds, tests and tunes Investigation Engine templates and runs investigations. A template says what to gather for an alert (`gather`), which rules decide it (`rules`: `escalate` and `close`, each with an id and a sentence for the case) and, optionally, one AI review for what rules cannot decide (`ai_review`). Nothing is scored: a run ends with an **outcome** and the rule or the AI behind it (see [How a run ends](#how-a-run-ends)). A person or an AI agent (Claude Code, Codex, ...) can drive the whole loop from the CLI.
 
 The Investigation Engine is **experimental and gated per deployment**. Where it is not enabled the API does not serve the routes and the CLI says so (a 404 with no engine error code). Where your organization has no engine, the API answers 503.
 
@@ -19,7 +19,8 @@ All the listed permissions are required.
 | Reads: runs, templates, operators, packs, kit, policy, test results, the approvals inbox | `investigation.get` + `insight.evt.get` |
 | Writes: start a run, wave, cancel, delete a run, test a template, decide an action | `investigation.set` + `insight.evt.get` |
 | Approve / deny an action | the writes above + the permission of the action's class (for example `sensor.task`, `mailsec.act`, `sensor.tag`) |
-| `stats`, and `runs list --verdict` | the reads above + `investigation_policy.set` |
+| `stats`, and `runs list --outcome` / `--verdict` | the reads above + `investigation_policy.set` |
+| `policy ai` / `policy ai-set` | `investigation_policy.get` / `.set` (they read and change the `ai_may_decide` field of the `default` record) |
 | `policy status` / `policy pause` / `policy resume` | `investigation_policy.get` / `.set` / `.del` (they read, save and delete the `autonomy-manual-pause` record; explicit grants, no default role has them) |
 | Template records (`investigation_plan` hive) | `investigation_plan.get`, `investigation_plan.set`, `investigation_plan.del` (explicit grants; no default role has them) |
 
@@ -52,11 +53,12 @@ limacharlie investigate wave --file wave.yaml
 limacharlie investigate templates validate --file plan.yaml
 
 # 4. Test on past alerts; read validation, summary, each disagree, then undecided
+#    (which rule decided, what the AI recommended, what stayed unknown)
 limacharlie investigate templates test --file plan.yaml --detect-cat my-category --last 10
 
 # 5. Refine and repeat 3-4, then save a DRAFT with what you tested
 limacharlie investigate templates save my-plan --file plan.yaml \
-  --comment "10 samples: 9 agree, 1 undecided (index_lag), 0 errors"
+  --comment "10 samples: 7 decided by rules (0 disagree), 2 AI recommendations agree, 1 unknown (index_lag)"
 
 # 6. A PERSON reviews the draft and its test results, then promotes it
 limacharlie investigate templates promote my-plan --confirm
@@ -68,7 +70,8 @@ Rules the CLI enforces:
 - A record is never overwritten without `--overwrite`, and a draft **never** replaces an active template (save under a new name; a person decides whether it replaces the active one).
 - A draft runs only through `templates test` or a run a person starts, with response actions capped at `suggest`. A run started by a D&R rule or a case never uses a draft.
 - Nothing is saved when validation reports an error.
-- The CLI never rewrites a template's content beyond `status`: a `report.summary` sentence can be a plain string or `{text, when}` (written only when the condition holds), and both are stored and printed as written.
+- The CLI never rewrites a template's content beyond `status`: a rule's `when` can be a string, a list (all of) or `{any: [...]}`, and its `say` sentence is stored and printed as written. A template in the format the engine had before (`facts`, `proofs`, `evidence`, ...) is refused with `legacy_template_format`; the CLI converts nothing.
+- Saving never lets the AI decide. That is the policy's `ai_may_decide` (below), which a person sets.
 
 ## Reference data
 
@@ -79,6 +82,22 @@ limacharlie investigate packs [--brief] [--name PACK]
 ```
 
 `kit` returns the template JSON Schema, the authoring guide, the org's typed operator catalogue (and which operators the org may use), examples, the effective policy and budgets, every validation code with its usual fix, and the fact packs. The `size` entry of the answer says what was returned. `--section library` returns the default template library; it needs an engine version that serves that section.
+
+## How a run ends
+
+A run ends with one `verdict.outcome`; `verdict.label` follows from it.
+
+| Outcome | Meaning | `label` |
+|---|---|---|
+| `closed_by_rule`, `escalated_by_rule` | a rule decided. `verdict.decided_by` = `{kind: rule, rule, say}`: the rule id and its sentence | `false_positive`, `true_positive` |
+| `closed_by_ai`, `escalated_by_ai` | an AI-assisted rule or the AI review decided, because the policy's `ai_may_decide` allows it for the template. `decided_by.kind` is `ai_rule` or `ai_review` | `false_positive`, `true_positive` |
+| `ai_recommends_benign`, `ai_recommends_malicious` | the AI recommends and a person acts on it. `verdict.recommendation` = `{label, self_rated_confidence, rationale, citations, by}` | `inconclusive` |
+| `couldnt_tell` | no rule decided and the AI did not recommend. `verdict.missing` lists `{step, reason, needed_by, ask}`: what could not be established, why, which rules or the review needed it, and the question for a person | `inconclusive` |
+| `conflict` | a rule on each side held | `inconclusive` |
+
+`self_rated_confidence` is the AI's own rating. It is shown, labeled as such, and never used to decide. A rule that reads an `ask_ai` answer is *AI-assisted* (`validate` lists them in `ai_rules`) and decides only where `ai_may_decide` allows; otherwise it recommends. `runs get` also shows `ai_may_decide` (the mode the run started with) and `ai_agent` (the AI agent record it uses). `runs steps` gives every step a `narrative`: `why` it ran, what it `found`, and what it was `used` for (`rule:<id>`, `ai_review`, `step:<id>`, `case`, or nothing).
+
+The case document a run writes opens with the outcome sentence: the deciding rule's `say`, or the AI's recommendation and what was missing.
 
 ## Templates
 
@@ -95,11 +114,93 @@ limacharlie investigate templates delete NAME --confirm
 limacharlie investigate templates install-defaults [--name NAME]... [--overwrite]
 ```
 
-`validate` prints the report: `valid`, `errors` and `warnings` (each `{code, path, message, suggestion?}`), the worst-case step count and an `estimate` of the worst-case cost.
+A template, in short (this one is checked by the engine's own tests; `kit --section guide` has the full guide and `kit --section library` the default templates):
+
+```yaml
+status: draft
+version: 1
+description: "Escalate a message whose link lands on a password page a recipient reached; close one from a sender with history whose fired reasons are all explained."
+applies_to: {detect_cat: ['mailsec-ai-triage']}
+starts_from: message
+gather:                      # what to read; steps can read each other with $step.field
+  message: {op: mailsec.message_get, args: {msg_uuid: $msg_uuid}}
+  sender_history:
+    why: "Has this sender written to the org before?"
+    op: mailsec.sender_profile
+    args: {sender: '$message.sender', domain: '$message.sender_domain', before: '$message.received', exclude_group: '$message.group_id'}
+  link_landing:
+    op: mailsec.link_resolve
+    args: {links: '$message.links', links_complete: '$message.links_complete', sender_domain: '$message.sender_domain', reply_to_domain: '$message.reply_to_domain', detonation: '$message.detonation'}
+  recipients: {op: mailsec.group_recipients, args: {group_id: '$message.group_id'}}
+  clicks:
+    ask: "Did the recipients whose machines could not be checked open the link?"
+    op: endpoint.click_check
+    args: {copies: '$recipients.copies', domains: '$link_landing.malicious_domains', window: [{at: '$message.received'}, now]}
+    only_if: 'link_landing.credential_harvest'   # skipped (and read as unknown) unless true
+rules:                       # cheapest deciding rules first; the first that holds decides
+  escalate:
+    - id: clicked_credential_harvest
+      when: ['link_landing.credential_harvest', 'clicks.any_clicked']
+      say: "A link lands on a page that asks for a password, and a recipient's machine reached it after delivery."
+  close:
+    - id: known_sender
+      when: [signals.all_explained, 'sender_history.prior_messages_30d > 0']
+      say: "The sender wrote {sender_history.prior_messages_30d} message(s) in the last 30 days, and every reason Email Security flagged has a benign explanation."
+explain_signals:
+  ms_sender_first_contact:
+    question: Is this really the first time this sender wrote to the org?
+    malicious_when: 'sender_history.prior_messages_30d == 0'
+    benign_when: 'sender_history.prior_messages_30d > 0'
+act:
+  - {class: contain.email, target: '$message.msg_id', attrs: {group_id: '$recipients.action_attrs.group_id'}, on_rules: [clicked_credential_harvest]}
+case:
+  mode: create
+  severity: {escalated_by_rule: high, closed_by_rule: low, default: medium}
+  kind: [phishing]
+```
+
+An `act` entry says which rules fire it with `on_rules: [<rule id> | ai_review]`. The key is `on_rules`, not `on`: YAML 1.1 parsers (Python's `yaml.safe_load`, many sync tools) read a bare `on:` as the boolean `true`, and the engine refuses an `on` key.
+
+A step says what the case shows of it with `record:` (one entry or a list; a `use:` step takes none). Kinds: `entity` (`entity_type`, `indicator`, `title`, `note` with `{step.path}` values, `malicious_when`, `benign_when`), `telemetry` and `artifact` (`source`, `type`, `ref`: ids only, never customer data). The verdict is `malicious` when `malicious_when` holds, else `benign` when `benign_when` holds, else `unknown`: an unknown never asserts a verdict. With `each` (a list in the step's result), one entity is written per element: `item_key` names the indicator, `outcome_key` the outcome word, `outcome_map` maps outcomes to verdicts, `absence` lists the outcomes that are claims of absence (they hold only on a complete step) and `outcome_notes` overrides the sentence per outcome. The engine adds, with no template, the telemetry of steps a rule or the review reads, an `entity.get` step's entity and the `mailsec/messages/<uuid>` artifact of each message step; what a step records itself replaces the default of the same kind. The paths are checked like references (`unknown_field`, `not_an_array`), and `bad_record_kind` / `entity_needs_indicator` are its own codes.
+
+```yaml
+gather:
+  link_landing:
+    op: mailsec.link_resolve
+    args: {links: '$message.links'}
+    record:
+      kind: entity
+      entity_type: domain
+      indicator: link_landing.final_domain
+      title: Where the link lands
+      note: "The link lands on {link_landing.final_domain}."
+      malicious_when: 'link_landing.open_redirect'
+      benign_when: 'link_landing.via_tracker'
+  clicks:
+    op: endpoint.click_check
+    args: {copies: '$recipients.copies'}
+    record:
+      kind: entity
+      entity_type: account
+      each: clicks.per_recipient
+      item_key: recipient
+      outcome_key: outcome
+      outcome_map: {clicked: malicious, not_clicked: benign, unknown: unknown}
+      absence: [not_clicked]
+      outcome_notes: {clicked: "The recipient's machine looked up the landing domain after delivery."}
+  message:
+    op: mailsec.message_get
+    args: {msg_uuid: $msg_uuid}
+    record: {kind: artifact, source: mailsec, type: email, ref: 'mailsec/messages/{message.msg_uuid}'}
+```
+
+Add an `ai_review` (`question`, `sees`, `needs`) for what rules cannot decide, and `ask_ai` steps for a focused question a rule reads; both only recommend until the policy's `ai_may_decide` allows them to decide.
+
+`validate` prints the report: `valid`, `errors` and `warnings` (each `{code, path, message, suggestion?}`), the worst-case step count, an `estimate` of the worst-case cost and `ai_rules` (the AI-assisted rules).
 
 ### Test on past alerts
 
-`templates test` dry-runs a template on real past alerts. The plan's read-only operators run with your token; nothing is written (no run, case, label or action). Response steps that would run are only listed in `would_propose`. A test counts against the org's concurrent run cap and may bill LLM steps.
+`templates test` dry-runs a template on real past alerts. The plan's read-only operators run with your token; nothing is written (no run, case, label or action). `act` entries that would run are only listed in `would_propose`. A test counts against the org's concurrent run cap and may bill AI steps. Its numbers are for you: nothing blocks on them and nothing at run time reads them.
 
 Samples (at most 25 after expansion):
 
@@ -111,15 +212,15 @@ Samples (at most 25 after expansion):
 | `--sample '{"inputs": {...}, "expected": "false_positive"}'` | free inputs with an optional expected label |
 | `--samples-file FILE` | a YAML/JSON list of sample objects |
 
-Use 5 to 10 samples and include known false **and** true positives. Each sample reports a verdict, the `expected` label when there is one, and an `agreement` of `agree`, `disagree`, `undecided` or `none`; `summary.agreement_rate` is the share that agreed. `unknowns` lists the facts that could not be resolved and why (the usual cause is a wrong field path or argument). Compact output keeps problem steps in `problem_steps` and safe step diagnostics in `step_diagnostics`:
-completeness, typed reasons, row/count summaries and judge label/confidence/model.
-Table and CSV rows also show prior/posterior, applied evidence and pricing status.
-`unpriced` means USD is only the priced subtotal; it does not mean the model was
-free. `inconclusive` counts finished inconclusive samples, separate from decided samples.
-`--include-steps` additionally retains the full step records and timing.
+Use 5 to 10 samples and include known false **and** true positives. Each sample reports:
 
+- `verdict`: the `outcome`, `decided_by` (`{kind, rule}`; a test result has no `say`), the AI's `recommendation` (no `rationale`) and `missing`;
+- `expected` (the analyst's label, when there is one) and `agreement`: `{rule: agree|disagree|none, ai: agree|disagree|unclear|none}`;
+- `unknowns`: the steps that could not be resolved and why (the usual cause is a wrong field path or argument).
 
-The command waits for the test (`--timeout`, default 600 s). A test still running prints its `test_id`; continue with `--test-id`. `--no-wait` returns right after the start. In table output the per-sample verdicts and the agreement summary are printed as text.
+The `summary` has `decided_by_rules` and `rule_share`, `rules` (per rule id: `decided`, `agree`, `disagree`), `ai` (`recommended`, `agree`, `disagree`, `unclear`), `by_outcome`, `unknown_reasons` and `cost_per_sample`. Read it in this order: `validation`, `summary`, each `disagree` (tighten or remove that rule), then `undecided` samples (`couldnt_tell`, `conflict`). A pattern the AI keeps recommending correctly is a candidate for a new rule. Compact output keeps problem steps in `problem_steps` and safe step diagnostics in `step_diagnostics`. Table and CSV rows show the outcome, who decided, both agreements, what the AI recommended, how much was missing and the AI cost; `unpriced` means USD is only the priced subtotal. `--include-steps` additionally retains the full step records and timing.
+
+The command waits for the test (`--timeout`, default 600 s). A test still running prints its `test_id`; continue with `--test-id`. `--no-wait` returns right after the start. In table output the per-sample outcomes and the per-rule and AI summary are printed as text.
 
 Exit codes: `0` done, `4` the template is `invalid` (the `validation` report says why), `1` the test failed.
 
@@ -137,7 +238,7 @@ limacharlie investigate runs start (--template NAME | --file plan.yaml | --auto)
     [--case-mode create|none|attach:ID] [--idempotency-key KEY] [--wait SECONDS] [--follow [--timeout SECONDS]] \
     [--trust-lookup NAME]... [--trust-value VALUE]...
 limacharlie investigate runs get RUN_ID
-limacharlie investigate runs list [--state S] [--verdict V] [--template T] [--trigger T] [--entity E] \
+limacharlie investigate runs list [--state S] [--outcome O] [--verdict V] [--template T] [--trigger T] [--entity E] \
     [--started-by user:UID] [--since TIME] [--until TIME] [--limit N] [--cursor C | --all]
 limacharlie investigate runs events RUN_ID [--after SEQ] [--wait SECONDS] [--limit N] [--follow [--timeout S]]
 limacharlie investigate runs steps RUN_ID [--values]
@@ -150,9 +251,9 @@ limacharlie investigate runs delete RUN_ID --confirm
 
 `runs delete` requires explicit `--confirm` and returns the engine's deletion response. It needs `investigation.set` + `insight.evt.get`. Deletion requests are sent once and are not automatically replayed after a gateway timeout. The API deployment must serve run deletion, which is newer than the other run routes; an older deployment answers 404 without an engine error code, and the CLI says so.
 
-`runs list` filters: `--state` (queued, running, decided, completed, cancelled, failed, budget_exhausted), `--verdict` (true_positive, false_positive, inconclusive, undecided), `--trigger` (the kind of trigger: detection, message, entity, case, question) and `--started-by` (an identity such as `user:UID` or `apikey:ID`, or a user's email or a key's name).
+`runs list` filters: `--state` (queued, running, decided, completed, cancelled, failed, budget_exhausted), `--outcome` (one of the eight outcomes, or `undecided`), `--verdict` (the label: true_positive, false_positive, inconclusive, undecided), `--trigger` (the kind of trigger: detection, message, entity, case, question) and `--started-by` (an identity such as `user:UID` or `apikey:ID`, or a user's email or a key's name).
 
-`--mode` is `full` by default (triage, scoping and containment); `triage` stops at the verdict and costs less, `scope` is for scoping an already-triaged alert. (`templates test` defaults to `triage`.)
+`--mode` is `full` by default (triage, scoping and containment); `triage` stops at the outcome and costs less, `scope` is for scoping an already-triaged alert. (`templates test` defaults to `triage`.)
 
 `runs list` pages: structured formats print `{"runs": [...], "next_cursor": "..."}` and table/CSV/JSONL print rows with the cursor on stderr. Continue with `--cursor`, or use `--all`.
 
@@ -160,7 +261,7 @@ limacharlie investigate runs delete RUN_ID --confirm
 
 ## Waves
 
-A wave is a batch of questions: the engine runs every ready step in parallel with your token (no template, no verdict, nothing stored), reuses what it already knows and can stop as soon as the answer is known.
+A wave is a batch of questions: the engine runs every ready step in parallel with your token (no template, no outcome, no case), reuses what it already knows and can stop as soon as the answer is known.
 
 ```yaml
 # wave.yaml
@@ -189,12 +290,16 @@ limacharlie investigate actions list [--state awaiting_approval,proposed] [--cla
 limacharlie investigate actions approve RUN_ID ACTION_ID
 limacharlie investigate actions deny RUN_ID ACTION_ID [--note TEXT]
 limacharlie investigate policy get [--category C] [--priority N] [--severity S] [--target-tag T]... [--class C] [--template NAME]
+limacharlie investigate policy ai
+limacharlie investigate policy ai-set TEMPLATE|'*' off|escalate|close_and_escalate --confirm
 limacharlie investigate policy status
 limacharlie investigate policy pause
 limacharlie investigate policy resume
 ```
 
 `actions list` is the approvals inbox across all runs; what needs a person comes first.
+
+`policy ai` shows what the AI may decide per template: the `ai_may_decide` field of the `default` policy record. `off` (the default when a template has no entry) means an AI-assisted rule or the AI review only recommends and a person acts on it; `escalate` lets it escalate; `close_and_escalate` lets it also close. `"*"` covers every template and a template's own entry wins. Only the `default` record grants; other records and run overrides can only lower it, and a run keeps the mode it started with. `policy ai-set` changes only that field of the record, conditional on the version it read, and needs `--confirm`: it is a person's decision about the org's automation, not an AI agent's. If Git Sync manages the `investigation_policy` hive, keep `ai_may_decide` in git too: the next sync overwrites a change made here. With no `default` record nothing is granted, so `ai-set TEMPLATE off` is a no-op and `ai-set '*' off` is refused. There are no confidence thresholds, mandatory checks or calibration in the policy any more; rules decide, and this switch says what the AI may.
 
 `policy pause` stops automatic actions for the whole org by saving the enabled `investigation_policy` record `autonomy-manual-pause` (every action class held at `suggest`). Suggestions stay visible and a person can still approve; nothing already executed is undone. `policy resume` deletes the record, and the other policy records decide what new actions may do. `policy status` reads the record: `paused`, who last saved it, and an `inactive_reason` (`disabled`, `edited` or `expires`) when it exists but does not pause. `policy get` shows what the policy records allow right now. If Git Sync manages the `investigation_policy` hive, keep the pause in git too.
 
@@ -218,8 +323,8 @@ Every other failure is written the same way: a Hive or API error carries its `me
 
 Templates, wave files and sample files are read the way the engine's YAML library reads them, not with YAML 1.1 rules, so `off`, `yes`, `no` and an unquoted date such as `2026-11-10` are text, not a boolean or a date. What an unquoted scalar means depends on where it is:
 
-- In a template, under a fact's `args`, a number is read as the engine reads it: `012` is 10, `1_000` is 1000, `0o17` and `0x1F` are 15 and 31, `1e3` is the float 1000, `.inf` and `.nan` are floats (refused, see below), and an unquoted date or timestamp is stored as its UTC RFC 3339 text (`2026-11-10` becomes `2026-11-10T00:00:00Z`). Quote a value (`"012"`, `"1e3"`) to keep it as text.
-- Elsewhere in a template (`description`, `applies_to`, `inputs`, ...) a scalar is text exactly as written, except the numeric and boolean fields (`version`, `prior`, the weights, `predict`, `case` on a fact). Mapping keys are always text.
+- In a template, under a step's `args` (and an `act` entry's `attrs`), a number is read as the engine reads it: `012` is 10, `1_000` is 1000, `0o17` and `0x1F` are 15 and 31, `1e3` is the float 1000, `.inf` and `.nan` are floats (refused, see below), and an unquoted date or timestamp is stored as its UTC RFC 3339 text (`2026-11-10` becomes `2026-11-10T00:00:00Z`). Quote a value (`"012"`, `"1e3"`) to keep it as text.
+- Elsewhere in a template (`description`, `applies_to`, a rule's `when` and `say`, `only_if`, ...) a scalar is text exactly as written, except the numeric and boolean fields (`version`, `pack_version`, and `always` on a step). Mapping keys are always text.
 - In a wave or samples file every unquoted scalar is read like an argument, except that a date stays the text you wrote.
 
 `templates get --yaml` quotes every string that would otherwise read back as something else, and `templates save` / `promote` validate exactly the text they store. A value JSON cannot carry (`.nan`, `.inf`, `NaN`, `Infinity`) is refused as `invalid_input` before anything is sent.
@@ -256,7 +361,7 @@ Missing, disabled or unreadable Lookups grant nothing and appear as run problems
 
 `runs start --follow` waits up to 900 seconds by default; `--timeout 0` removes the time limit. Timeout, interruption and stream errors print an `--after N` resume point for `runs events RUN_ID --follow --after N`.
 
-## Org-authored fact packs and template composition
+## Org-authored fact packs
 
 Use `limacharlie investigate packs` to discover the caller's managed and org
 packs. Store org packs with the existing Hive permissions
@@ -274,41 +379,17 @@ The Hive type is `investigation_pack`; its data is exactly `{"yaml":"<source>"}`
 The SDK methods are `org.investigation.get_pack`, `save_pack`, and `delete_pack`.
 Sources are stored byte for byte. The server rejects invalid packs, unknown
 fields, managed-name collisions and invalid dependencies. Packs cannot nest
-packs or invoke templates. Deletion does not alter admitted snapshots.
-
-On engines advertising `template_composition_v1`, a fact or wave step selects
-exactly one of `op`, `use`, or `investigate`:
-
-```yaml
-facts:
-  url_assessment:
-    investigate:
-      template: entity-url-harm
-      version: 1
-      inputs:
-        msg_uuid: '$message.msg_uuid'
-        url: '$message.links[0].url'
-    deadline: 30s
-```
-
-Normally omit `snapshot_digest`: admission resolves the current closure for
-that exact version, then freezes it. Validation and test responses include the
-resolved digest for an optional copy/paste `snapshot_digest` lock; a supplied
-lock must match. The child version is mandatory; it matches the current record.
-Delete/recreate is explicitly allowed, so only the digest provides an immutable
-lock against record rebinding. Same-version updates are guarded for all packs
-and callable entity templates; ordinary root template edits retain their
-existing behavior. Replay and resume read only frozen sources.
+packs. Deletion does not alter admitted snapshots.
 
 Validation and the initial test response's `validation` include
 `resolved_packs: [{scope, name, version, digest}]` for every version-only pack
 pin, including descendant scopes such as `root/assessment`. SDK responses and
-CLI JSON preserve this list exactly, alongside `children` and
+CLI JSON preserve this list exactly, alongside `ai_rules` and
 `trust_provenance`, so each resolved digest can be copied into a `pack_digest`
-lock on the `use` fact:
+lock on the `use` step:
 
 ```yaml
-facts:
+gather:
   context:
     use: fictional_context
     pack_version: 1
@@ -316,17 +397,10 @@ facts:
 ```
 
 Replace the example digest with the returned pack digest. `pack_digest` locks
-pack source bytes on `use`; `snapshot_digest` locks a child closure on
-`investigate`. Inspect expanded
-plans, `children`, and `trust_provenance` in JSON output from the existing
-validate/test/run/wave commands. No entity routing endpoint is required.
-
-Limits are depth 4 (root depth 0), 32 child scopes, 256 expanded facts and a
-1 MiB closure, subject to stricter existing limits. Children are advisory:
-they cannot execute actions or write cases. Failed, incomplete, cancelled or
-inconclusive children remain unknown, never benign. Trust is a declaration,
+pack source bytes on `use`. Inspect expanded plans and `trust_provenance` in JSON
+output from the existing validate/test/run/wave commands. Trust is a declaration,
 not verified analysis. Org packs require `org_fact_packs_v1`; check the
-server's advertised capabilities before authoring against these features.
+server's advertised capabilities before authoring against them.
 
 ## Performance statistics
 
@@ -334,7 +408,7 @@ server's advertised capabilities before authoring against these features.
 limacharlie investigate stats [--template NAME] [--since RFC3339] [--until RFC3339]
 ```
 
-Prints the engine's own numbers about its work: run volumes by state and verdict, time to verdict, step and cache counts, search and LLM cost, per-operator latency and errors, and what happened to the actions it proposed. The numbers are computed from the engine's records of runs, steps and actions, over at most the most recent runs that match the filters (`window.truncated` is `true` when more runs matched than were aggregated). The report describes what the engine did. It does not judge whether a verdict or an action was right, and nothing in it changes a decision: the `investigation_policy` record alone decides what the engine may do. Plain counts of the labels and corrections people submitted on runs are in `feedback: {labels, corrections}`.
+Prints the engine's own numbers about its work: run volumes by state and outcome (`runs.by_outcome`), time to outcome, step and cache counts, search and AI cost, per-operator latency and errors, and what happened to the actions it proposed. The numbers are computed from the engine's records of runs, steps and actions, over at most the most recent runs that match the filters (`window.truncated` is `true` when more runs matched than were aggregated). The report describes what the engine did. It does not judge whether an outcome or an action was right, and nothing in it changes a decision: the `investigation_policy` record alone decides what the engine may do. Plain counts of the labels and corrections people submitted on runs are in `feedback: {labels, corrections}`.
 
 `--since` and `--until` are RFC 3339 times on the run's creation time; `--template` limits the report to one template. It needs the same permissions as the other reads (`investigation.get` and `insight.evt.get`). The SDK call is `Investigation.get_stats(template=None, since=None, until=None)`, which returns the parsed response.
 

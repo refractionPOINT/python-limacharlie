@@ -9,6 +9,8 @@ from typing import Any, TYPE_CHECKING
 
 import yaml
 
+from ..yaml_input import INVESTIGATION_HIVES, load_yaml
+
 if TYPE_CHECKING:
     from .organization import Organization
 
@@ -36,6 +38,22 @@ def _represent_quoted_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode
 
 
 _QuotedStrDumper.add_representer(str, _represent_quoted_str)
+
+
+def _load_config_text(text: str) -> Any:
+    """Parse a config file with ``yaml.safe_load``, except the investigation hives.
+
+    The records under ``hives.investigation_policy`` and ``hives.investigation_plan`` are read
+    with the YAML 1.2 boolean rule, so ``ai_may_decide: {"*": off}`` stays the string ``"off"``.
+    Every other part of the file keeps its YAML 1.1 meaning (``value: on`` is still a boolean).
+    """
+    config = yaml.safe_load(text)
+    hives = config.get("hives") if isinstance(config, dict) else None
+    if isinstance(hives, dict) and INVESTIGATION_HIVES & hives.keys():
+        strict = load_yaml(text)["hives"]
+        for name in INVESTIGATION_HIVES & hives.keys():
+            hives[name] = strict[name]
+    return config
 
 
 def _dump_push_config(config: dict[str, Any]) -> str:
@@ -310,7 +328,7 @@ class Configs:
         """
         config_file = os.path.abspath(config_file)
         with open(config_file, "rb") as f:
-            config = _unalias(yaml.safe_load(f.read().decode()))
+            config = _unalias(_load_config_text(f.read().decode()))
         if config is None:
             config = {}
         if "version" not in config:

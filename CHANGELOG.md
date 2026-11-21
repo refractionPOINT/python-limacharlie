@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### Investigation Engine: the v5 template model
+
+- `limacharlie investigate` follows the engine's new template format: `gather`
+  steps, `rules` (`escalate` / `close`, each with an id and a sentence),
+  `ask_ai` questions and one optional `ai_review`. The old format (`facts`,
+  `proofs`, `evidence`, `prior`, `signals`, `respond`, `decision`) is refused by
+  the engine with `legacy_template_format`; the SDK converts nothing. Typed
+  fields read as numbers or booleans are now `version`, `gather.*.pack_version`
+  and `gather.*.always`; `act[].attrs` is read like step args.
+- An `act` entry names the rules that fire it with `on_rules: [<rule id> | ai_review]`; the
+  key `on` is gone (YAML 1.1 reads `on:` as `true`) and the engine refuses it.
+- A `gather` step can carry `record:` (entities with verdicts, `each` outcomes, telemetry,
+  artifacts), documented in the CLI reference and help; the SDK passes it through as text.
+- A run ends with an outcome (`closed_by_rule`, `escalated_by_rule`,
+  `closed_by_ai`, `escalated_by_ai`, `ai_recommends_benign`,
+  `ai_recommends_malicious`, `couldnt_tell`, `conflict`) instead of a
+  probability. `runs list --outcome` (SDK `list_runs(outcome=...)`,
+  `RUN_OUTCOMES`) filters on it; `runs list` rows show the outcome and who
+  decided. `runs get`, `runs steps` and `runs case` return `decided_by`,
+  `recommendation`, `missing`, `ai_agent` and each step's `narrative`.
+- `templates test` prints, per sample, the outcome, the deciding rule, the AI's
+  recommendation and the rule and AI agreement with the analyst, and a summary
+  with `rule_share`, per-rule agree/disagree and the AI's counts. `p`, prior,
+  evidence and `agreement_rate` are gone.
+- New `investigate policy ai` / `policy ai-set TEMPLATE MODE --confirm` (SDK
+  `get_ai_may_decide`, `set_ai_may_decide`, `AI_MODES`) read and set the policy's
+  `ai_may_decide` per template (`off`, `escalate`, `close_and_escalate`). The
+  policy no longer has thresholds, mandatory checks or `min_confidence`.
+- Files for the `investigation_policy` and `investigation_plan` hives (`hive set`,
+  `hive validate` and `hive import` with those hive names, and those hives in a
+  `sync push` config) are read with the YAML 1.2 boolean rule: only `true` and
+  `false` are booleans, and `on`, `off`, `yes` and `no` stay strings. Before,
+  `ai_may_decide: {"*": off}` was read as `false` and the Hive refused the policy.
+  Every other file the CLI reads, other hives included, is read exactly as before.
+- `policy ai-set '*' off` with no `default` policy record is refused (nothing is
+  granted, so there is nothing to turn off) instead of creating a record.
+- Child templates (`investigate:`) and composition locks are gone. The default
+  library has one template per kind of alert (`mailsec-message`,
+  `endpoint-detection`, ...).
+
 ### Host Posture
 
 - New `limacharlie host-posture` command group for the `ext-host-posture`
