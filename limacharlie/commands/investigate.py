@@ -420,7 +420,9 @@ and a person acts on the recommendation. `escalate`: it may escalate.
 `close_and_escalate`: it may also close. `"*"` is every template; a template's
 own entry wins. Only the `default` record grants; other records and run
 overrides can only lower it. Runs keep the mode they started with. Needs
-investigation_policy.get. `policy get` shows the effective policy.
+investigation_policy.get. `policy get` shows the effective policy. If Git Sync
+manages the investigation_policy hive, the next sync overwrites a change made
+here: keep `ai_may_decide` in git too.
 
 Example:
   limacharlie investigate policy ai
@@ -430,7 +432,8 @@ _EXPLAIN_POLICY_AI_SET = """\
 Set what the AI may decide for one template (or "*" for every template):
 off, escalate or close_and_escalate. This changes only the `ai_may_decide` field
 of the `default` investigation_policy record, conditional on the version read.
-It is a person's decision about the org's automation: review the template's
+If Git Sync manages the investigation_policy hive, keep the change in git too or
+the next sync undoes it. It is a person's decision about the org's automation: review the template's
 test results first (`templates test`). AI agents must not run it. Requires
 --confirm and investigation_policy.set.
 
@@ -914,7 +917,8 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
             "samples", "ran", "errors", "with_expected", "decided_by_rules", "rule_share") if k in summary))
         if summary.get("by_outcome"):
             click.echo(f"outcomes: {summary['by_outcome']}")
-        for rule_id, counts in sorted((summary.get("rules") or {}).items()):
+        rules = summary.get("rules") if isinstance(summary.get("rules"), dict) else {}
+        for rule_id, counts in sorted(rules.items()):
             if isinstance(counts, dict):
                 click.echo(f"rule {rule_id}: decided={counts.get('decided')} agree={counts.get('agree')} disagree={counts.get('disagree')}")
         if isinstance(summary.get("ai"), dict):
@@ -922,6 +926,9 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
         if isinstance(summary.get("cost"), dict):
             llm_cost = _test_cost(summary["cost"])
             click.echo(f"AI cost: {'unknown' if llm_cost is None else llm_cost}")
+        per_sample = summary.get("cost_per_sample")
+        if isinstance(per_sample, dict):
+            click.echo("per sample: " + ", ".join(f"{k}={per_sample[k]}" for k in ("steps", "llm_usd", "wall_ms") if k in per_sample))
         if summary.get("unknown_reasons"):
             click.echo(f"unknown reasons: {summary['unknown_reasons']}")
 
@@ -1086,7 +1093,7 @@ def runs_group() -> None:
 @click.option("--input", "inputs", multiple=True, help="Run input KEY=VALUE (repeatable; values are text).")
 @click.option("--inputs-json", default=None, help="Run inputs as a JSON object (typed values).")
 @click.option("--urgency", type=click.Choice(["low", "medium", "high", "critical"]), default=None,
-              help="Run urgency; it picks the decision thresholds. Default: derived from --priority / --severity, else medium.")
+              help="Run urgency (how soon it matters). Default: derived from --priority / --severity, else medium.")
 @click.option("--mode", type=click.Choice(["triage", "full", "scope"]), default=None, help="Run mode (engine default: full; triage is cheaper).")
 @click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case number> (default: a new case for a detection or case trigger, unless the policy's case is none).")
 @click.option("--idempotency-key", default=None, help="Starting twice with the same key returns the same run.")
@@ -1247,7 +1254,7 @@ def runs_events(ctx, run_id, after, wait, limit, follow, timeout) -> None:
 @pass_context
 @_engine_errors
 def runs_steps(ctx, run_id, values) -> None:
-    """Read a run's step log, plan graph, usage and belief curve."""
+    """Read a run's step log (with each step's narrative), plan graph, usage and outcome timeline."""
     command_output(ctx, _get_investigation(ctx).get_run_steps(run_id, values=values))
 
 

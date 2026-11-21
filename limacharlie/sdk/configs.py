@@ -9,6 +9,8 @@ from typing import Any, TYPE_CHECKING
 
 import yaml
 
+from ..yaml_input import load_yaml
+
 if TYPE_CHECKING:
     from .organization import Organization
 
@@ -310,7 +312,7 @@ class Configs:
         """
         config_file = os.path.abspath(config_file)
         with open(config_file, "rb") as f:
-            config = _unalias(yaml.safe_load(f.read().decode()))
+            config = _unalias(load_yaml(f.read().decode()))
         if config is None:
             config = {}
         if "version" not in config:

@@ -13,6 +13,7 @@ from typing import Any
 
 import click
 import yaml
+from ..yaml_input import load_yaml
 
 from ..cli import pass_context
 from ..client import Client
@@ -353,7 +354,7 @@ def config_set(ctx, name, input_file) -> None:
         raise click.UsageError("Provide data via --input-file or pipe to stdin.")
 
     try:
-        data = yaml.safe_load(content)
+        data = load_yaml(content)
     except Exception:
         data = json.loads(content)
 

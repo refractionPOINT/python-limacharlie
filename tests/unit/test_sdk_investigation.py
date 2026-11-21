@@ -836,6 +836,27 @@ class TestAIMayDecide:
         assert inv.set_ai_may_decide("mailsec-message", "off")["changed"] is False
         hive.set.assert_not_called()
 
+    def test_the_wildcard_off_on_a_missing_record_is_refused_not_created(self, inv, hive):
+        hive.get.side_effect = _not_found()
+        with pytest.raises(ValidationError, match="no default policy record"):
+            inv.set_ai_may_decide("*", "off")
+        hive.set.assert_not_called()
+
+    def test_the_wildcard_off_on_an_existing_record_is_written(self, inv, hive):
+        stored = HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate"}}, enabled=True, etag="e1")
+        hive.get.side_effect = [stored, HiveRecord(name="default", data={"ai_may_decide": {"*": "off"}}, enabled=True, etag="e2")]
+        assert inv.set_ai_may_decide("*", "off")["changed"] is True
+        assert hive.set.call_args.args[0].data["ai_may_decide"] == {"*": "off"}
+
+    def test_the_modes_are_written_as_strings_the_hive_accepts(self, inv, hive):
+        """`off` must reach the hive as the text "off" (never a YAML 1.1 boolean), in the record and in the JSON it is sent as."""
+        stored = HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate", "t": "escalate"}}, enabled=True, etag="e1")
+        hive.get.side_effect = [stored, stored]
+        inv.set_ai_may_decide("t", "off")
+        data = hive.set.call_args.args[0].data
+        assert data["ai_may_decide"] == {"*": "escalate", "t": "off"}
+        assert json.loads(json.dumps(data))["ai_may_decide"]["t"] == "off" and isinstance(data["ai_may_decide"]["t"], str)
+
     @pytest.mark.parametrize("template,mode", [("t", "on"), ("t", "auto"), ("Bad Name", "off"), ("", "off"), ("a/b", "escalate")])
     def test_a_bad_name_or_mode_is_refused_before_any_call(self, inv, hive, template, mode):
         with pytest.raises(ValidationError):

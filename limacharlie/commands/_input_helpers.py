@@ -17,6 +17,7 @@ from typing import Any
 
 import click
 import yaml
+from ..yaml_input import load_yaml
 
 
 def load_file(path: str, param_hint: str) -> Any:
@@ -42,7 +43,7 @@ def parse_yaml_or_json(content: str, param_hint: str) -> Any:
     Raises ``click.BadParameter`` when the content is neither.
     """
     try:
-        return yaml.safe_load(content)
+        return load_yaml(content)
     except Exception:
         pass
     try:

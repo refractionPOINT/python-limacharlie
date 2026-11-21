@@ -605,6 +605,16 @@ class TestActionsAndPolicy:
         assert run(["investigate", "policy", "ai-set", "t", "auto", "--confirm"]).exit_code == 2
         sdk.set_ai_may_decide.assert_not_called()
 
+    def test_the_help_texts_name_no_removed_concept_and_warn_about_git_sync(self):
+        runner = CliRunner()
+        for args in (["runs", "start"], ["runs", "steps"], ["policy", "ai"], ["policy", "ai-set"]):
+            out = " ".join(runner.invoke(cli, ["investigate", *args, "--help"]).output.split())
+            for gone in ("threshold", "belief"):
+                assert gone not in out, (args, gone)
+        for command in ("ai", "ai-set"):
+            explain = " ".join(runner.invoke(cli, ["investigate", "policy", command, "--ai-help"]).output.split())
+            assert "Git Sync" in explain, command
+
     def test_there_are_no_threshold_or_mandatory_check_commands(self):
         out = CliRunner().invoke(cli, ["investigate", "policy", "--help"]).output
         for gone in ("threshold", "mandatory", "calibration"):
@@ -796,6 +806,10 @@ def test_test_cost_and_summary_output(capsys, monkeypatch):
     output = capsys.readouterr().out
     assert "samples=2, rule_share=0.5" in output
     assert "AI cost: 0.25 (unpriced)" in output
+    mod._print_test(None, {"summary": {"cost_per_sample": {"steps": 6.5, "llm_usd": 0.002, "wall_ms": 2400}}}, False)
+    assert "per sample: steps=6.5, llm_usd=0.002, wall_ms=2400" in capsys.readouterr().out
+    mod._print_test(None, {"summary": {"rules": ["not", "a", "mapping"], "cost_per_sample": "bad"}}, False)
+    assert "rule " not in capsys.readouterr().out
     mod._print_test(None, {"summary": {"cost": {}}}, False)
     assert "AI cost: unknown" in capsys.readouterr().out
     for cost in ([], "invalid", 1, None):

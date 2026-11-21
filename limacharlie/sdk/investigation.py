@@ -1115,7 +1115,10 @@ class Investigation:
         template's entry when ``"*"`` is not set; when ``"*"`` grants
         something, ``off`` is written so the template's own entry wins. The
         write is conditional on the record read, so a concurrent edit is
-        never overwritten. A record that does not exist yet is created. The
+        never overwritten. A record that does not exist yet is created, except
+        to turn something off: with no record nothing is granted, so ``off`` for
+        a template changes nothing and ``off`` for ``"*"`` is refused. The modes are written as the strings ``"off"``, ``"escalate"``
+        and ``"close_and_escalate"`` (never a YAML 1.1 boolean). The
         run already started keep the mode they started with. Needs
         ``investigation_policy.set``.
 
@@ -1146,7 +1149,15 @@ class Investigation:
             data["ai_may_decide"] = modes
         else:
             data.pop("ai_may_decide", None)
-        if modes == before and (existing is not None or not modes):
+        if existing is None and mode == "off":
+            # Absent means off. Creating an org-wide `default` record just to store "off" grants
+            # nothing: a template's "off" is already true, and "*": off has nothing to turn off.
+            if template == "*":
+                raise ValidationError(
+                    "there is no default policy record, so the AI already may decide nothing: nothing to turn off"
+                )
+            return {**self._ai_view(None), "changed": False}
+        if modes == before and existing is not None:
             return {**self._ai_view(existing), "changed": False}
         record = HiveRecord(
             name=DEFAULT_POLICY_RECORD, data=data,

@@ -15,6 +15,7 @@ from typing import Any
 
 import click
 import yaml
+from ..yaml_input import load_yaml
 
 from ..cli import pass_context
 from ..client import Client
@@ -63,7 +64,7 @@ def _load_file(path: str) -> Any:
     with open(path, "r") as f:
         content = f.read()
     try:
-        return yaml.safe_load(content)
+        return load_yaml(content)
     except Exception:
         pass
     return json.loads(content)
@@ -351,7 +352,7 @@ def set_cmd(ctx, key, input_file, detect_path, respond_path, tags, namespace, en
             )
 
         try:
-            data = yaml.safe_load(content)
+            data = load_yaml(content)
         except Exception:
             data = json.loads(content)
 

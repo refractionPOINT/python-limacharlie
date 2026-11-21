@@ -158,12 +158,12 @@ register_explain("yara.rule-add", _EXPLAIN_RULE_ADD)
 @pass_context
 def rule_add(ctx, name, sources_file) -> None:
     import json
-    import yaml
+    from ..yaml_input import load_yaml
 
     with open(sources_file, "r") as f:
         content = f.read()
     try:
-        sources = yaml.safe_load(content)
+        sources = load_yaml(content)
     except Exception:
         sources = json.loads(content)
 
