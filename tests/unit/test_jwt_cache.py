@@ -204,6 +204,39 @@ class TestGetCachedJwt:
         put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)
         assert get_cached_jwt("oid", "key", None, None) is None
 
+    def test_decades_long_tokens_are_purged_from_file(self, tmp_jwt_cache):
+        # Tokens minted by the old absolute-timestamp expiry bug live ~57
+        # years. Write them straight to the file, as an older SDK did.
+        from limacharlie.jwt_cache import _compute_cache_key
+
+        bad = _make_jwt(time.time() + 57 * 365 * 24 * 3600)
+        good = _make_jwt(time.time() + 3600)
+        k_this = _compute_cache_key("oid", "key", None, None)
+        k_other = _compute_cache_key("other-oid", "key", None, None)
+        k_good = _compute_cache_key("good-oid", "key", None, None)
+        with open(tmp_jwt_cache, "w") as f:
+            json.dump({k_this: {"jwt": bad}, k_other: {"jwt": bad},
+                       k_good: {"jwt": good}}, f)
+
+        assert get_cached_jwt("oid", "key", None, None) is None
+
+        with open(tmp_jwt_cache) as f:
+            remaining = json.load(f)
+        # Both decades-long tokens are gone, including the one for an org
+        # that was not asked for; the normal token is kept.
+        assert remaining == {k_good: {"jwt": good}}
+
+    def test_decades_long_token_is_not_written(self, tmp_jwt_cache):
+        put_cached_jwt(_make_jwt(time.time() + 57 * 365 * 24 * 3600),
+                       "oid", "key", None, None)
+        assert not os.path.exists(tmp_jwt_cache)
+
+    def test_returns_long_but_plausible_token(self, tmp_jwt_cache):
+        exp = time.time() + 30 * 24 * 3600
+        jwt = _make_jwt(exp)
+        put_cached_jwt(jwt, "oid", "key", None, None)
+        assert get_cached_jwt("oid", "key", None, None) == jwt
+
     def test_returns_none_when_expired(self, tmp_jwt_cache):
         exp = time.time() - 100  # already expired
         put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)

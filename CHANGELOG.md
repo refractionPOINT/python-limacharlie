@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Fix: custom JWT expiry minted tokens valid for decades
+
+- `Client.get_jwt(expiry_hours=...)`, and the commands built on it
+  (`limacharlie search`, `limacharlie auth get-token --hours`), sent the
+  JWT service an absolute unix timestamp as `expiry`. The service reads
+  `expiry` as a lifetime in seconds, so those tokens were valid for about
+  57 years instead of the requested hours. The SDK now sends the lifetime
+  in seconds. The on-disk JWT cache neither stores nor reuses a token that
+  expires more than a year out, and the first cache read after upgrading
+  deletes every such token from the cache file. Tokens minted by older
+  versions remain valid on the server until their own expiry.
+  `refresh_jwt(expiry=...)` and `mint_jwt(expiry=...)` are documented as
+  taking seconds.
+
 ### Investigation Engine: the v5 template model
 
 - `limacharlie investigate` follows the engine's new template format: `gather`

@@ -38,6 +38,12 @@ from .paths import get_jwt_cache_path as _resolve_jwt_cache_path
 # Cached JWT must have at least this many seconds remaining to be reused.
 _EXPIRY_BUFFER_SECONDS = 600  # 10 minutes
 
+# A cached JWT that expires further out than this is never reused. Older
+# SDK versions sent an absolute timestamp where the JWT service expects a
+# lifetime in seconds, which minted tokens valid for decades; this drops
+# any such token still sitting in a cache file.
+_MAX_REUSABLE_LIFETIME_SECONDS = 366 * 24 * 3600
+
 # Per-process cache for the disabled check. Each CLI invocation is a
 # separate process, so evaluating once is sufficient - the config file
 # and env vars won't change mid-process. Avoids repeated YAML parsing.
@@ -201,6 +207,28 @@ def _load_cache() -> dict[str, Any]:
         return {}
 
 
+def _purge_overlong_entries(cache: dict[str, Any], now: float) -> bool:
+    """Drop every entry whose JWT expires more than a year out.
+
+    Such tokens were minted by the old expiry bug and are bearer tokens
+    valid for decades; they must not stay on disk, even for orgs or keys
+    the user no longer uses.
+
+    Returns:
+        True if any entry was removed.
+    """
+    stale = []
+    for key, entry in cache.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("jwt"), str):
+            continue
+        exp = _decode_jwt_exp(entry["jwt"])
+        if exp is not None and exp - now > _MAX_REUSABLE_LIFETIME_SECONDS:
+            stale.append(key)
+    for key in stale:
+        del cache[key]
+    return bool(stale)
+
+
 def _save_cache(cache: dict[str, Any]) -> None:
     """Write the cache dict to disk atomically. Best-effort, never raises.
 
@@ -245,7 +273,10 @@ def get_cached_jwt(
     if cache_key is None:
         return None
 
+    now = time.time()
     cache = _load_cache()
+    if _purge_overlong_entries(cache, now):
+        _save_cache(cache)
     entry = cache.get(cache_key)
     if not isinstance(entry, dict):
         return None
@@ -258,7 +289,7 @@ def get_cached_jwt(
     if exp is None:
         return None
 
-    if time.time() + _EXPIRY_BUFFER_SECONDS >= exp:
+    if now + _EXPIRY_BUFFER_SECONDS >= exp:
         return None
 
     return jwt_str
@@ -293,6 +324,8 @@ def put_cached_jwt(
 
     exp = _decode_jwt_exp(jwt_str)
     if exp is None:
+        return
+    if exp - time.time() > _MAX_REUSABLE_LIFETIME_SECONDS:
         return
 
     cache = _load_cache()
