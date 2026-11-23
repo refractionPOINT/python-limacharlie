@@ -207,6 +207,28 @@ def _load_cache() -> dict[str, Any]:
         return {}
 
 
+def _purge_overlong_entries(cache: dict[str, Any], now: float) -> bool:
+    """Drop every entry whose JWT expires more than a year out.
+
+    Such tokens were minted by the old expiry bug and are bearer tokens
+    valid for decades; they must not stay on disk, even for orgs or keys
+    the user no longer uses.
+
+    Returns:
+        True if any entry was removed.
+    """
+    stale = []
+    for key, entry in cache.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("jwt"), str):
+            continue
+        exp = _decode_jwt_exp(entry["jwt"])
+        if exp is not None and exp - now > _MAX_REUSABLE_LIFETIME_SECONDS:
+            stale.append(key)
+    for key in stale:
+        del cache[key]
+    return bool(stale)
+
+
 def _save_cache(cache: dict[str, Any]) -> None:
     """Write the cache dict to disk atomically. Best-effort, never raises.
 
@@ -251,7 +273,10 @@ def get_cached_jwt(
     if cache_key is None:
         return None
 
+    now = time.time()
     cache = _load_cache()
+    if _purge_overlong_entries(cache, now):
+        _save_cache(cache)
     entry = cache.get(cache_key)
     if not isinstance(entry, dict):
         return None
@@ -264,11 +289,7 @@ def get_cached_jwt(
     if exp is None:
         return None
 
-    now = time.time()
     if now + _EXPIRY_BUFFER_SECONDS >= exp:
-        return None
-
-    if exp - now > _MAX_REUSABLE_LIFETIME_SECONDS:
         return None
 
     return jwt_str
@@ -303,6 +324,8 @@ def put_cached_jwt(
 
     exp = _decode_jwt_exp(jwt_str)
     if exp is None:
+        return
+    if exp - time.time() > _MAX_REUSABLE_LIFETIME_SECONDS:
         return
 
     cache = _load_cache()
