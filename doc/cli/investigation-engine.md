@@ -347,11 +347,11 @@ result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samp
 ## Explicit trust
 
 Templates may declare `trust: {lookups: [partner-domains], values: [partner.example.test]}`.
-The identity starting the run needs `lookup.get` to read these same-org Lookup records.
-For Autopilot this is the onboarding key, rather than an identity that only reads settings.
+The identity the run executes with needs `lookup.get` to read these same-org Lookup records.
+For a run started by a D&R rule that is the key the policy names for the template.
 Repeat `--trust-lookup NAME` or `--trust-value VALUE` on `investigate runs start` to add
 trust for that run only (up to 64 Lookup names and 100 nonblank inline values).
-Runs started automatically by D&R rules or Autopilot use only the template's trust.
+Runs started automatically by D&R rules use only the template's trust.
 The manual `--auto` option selects a template and still allows these run-only additions.
 A match accounts for the initial target as customer-declared trusted and skips active
 analysis; it never means verified or benign. Domains include DNS-boundary subdomains
