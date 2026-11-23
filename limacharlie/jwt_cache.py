@@ -38,6 +38,12 @@ from .paths import get_jwt_cache_path as _resolve_jwt_cache_path
 # Cached JWT must have at least this many seconds remaining to be reused.
 _EXPIRY_BUFFER_SECONDS = 600  # 10 minutes
 
+# A cached JWT that expires further out than this is never reused. Older
+# SDK versions sent an absolute timestamp where the JWT service expects a
+# lifetime in seconds, which minted tokens valid for decades; this drops
+# any such token still sitting in a cache file.
+_MAX_REUSABLE_LIFETIME_SECONDS = 366 * 24 * 3600
+
 # Per-process cache for the disabled check. Each CLI invocation is a
 # separate process, so evaluating once is sufficient - the config file
 # and env vars won't change mid-process. Avoids repeated YAML parsing.
@@ -258,7 +264,11 @@ def get_cached_jwt(
     if exp is None:
         return None
 
-    if time.time() + _EXPIRY_BUFFER_SECONDS >= exp:
+    now = time.time()
+    if now + _EXPIRY_BUFFER_SECONDS >= exp:
+        return None
+
+    if exp - now > _MAX_REUSABLE_LIFETIME_SECONDS:
         return None
 
     return jwt_str

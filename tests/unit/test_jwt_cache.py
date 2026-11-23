@@ -204,6 +204,18 @@ class TestGetCachedJwt:
         put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)
         assert get_cached_jwt("oid", "key", None, None) is None
 
+    def test_returns_none_for_decades_long_token(self, tmp_jwt_cache):
+        # Tokens minted by the old absolute-timestamp expiry bug live ~57 years.
+        exp = time.time() + 57 * 365 * 24 * 3600
+        put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)
+        assert get_cached_jwt("oid", "key", None, None) is None
+
+    def test_returns_long_but_plausible_token(self, tmp_jwt_cache):
+        exp = time.time() + 30 * 24 * 3600
+        jwt = _make_jwt(exp)
+        put_cached_jwt(jwt, "oid", "key", None, None)
+        assert get_cached_jwt("oid", "key", None, None) == jwt
+
     def test_returns_none_when_expired(self, tmp_jwt_cache):
         exp = time.time() - 100  # already expired
         put_cached_jwt(_make_jwt(exp), "oid", "key", None, None)

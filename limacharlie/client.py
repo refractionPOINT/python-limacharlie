@@ -502,14 +502,16 @@ class Client:
         import time as time_module
         from .errors import ValidationError
 
-        expiry_ts: int | None = None
+        # jwt.limacharlie.io reads "expiry" as a lifetime in seconds, not as
+        # an absolute timestamp.
+        expiry_seconds: int | None = None
         if expiry_hours is not None:
             if expiry_hours <= 0:
                 raise ValidationError(
                     f"Token expiry must be positive, got {expiry_hours} hours.",
                     suggestion="Use a positive number of hours (e.g. --token-expiry 8).",
                 )
-            expiry_ts = int(time_module.time()) + int(expiry_hours * 3600)
+            expiry_seconds = max(1, int(expiry_hours * 3600))
 
         # If we already have a JWT (from cache or prior call), check if it
         # has enough remaining TTL for the requested expiry. If so, reuse it.
@@ -530,7 +532,7 @@ class Client:
                     f"need {expiry_hours}h, fetching new one"
                 )
 
-        self.refresh_jwt(expiry=expiry_ts)
+        self.refresh_jwt(expiry=expiry_seconds)
 
         if self._jwt is None:
             from .errors import AuthenticationError
@@ -538,7 +540,7 @@ class Client:
 
         # Cache the long-lived JWT so subsequent CLI invocations reuse it.
         # Mirror auth path selection: OAuth takes priority over api_key.
-        if expiry_ts is not None:
+        if expiry_seconds is not None:
             from .jwt_cache import put_cached_jwt
 
             self._debug(
@@ -560,7 +562,8 @@ class Client:
         """Generate or refresh a JWT token.
 
         Args:
-            expiry: Optional expiry time for the JWT.
+            expiry: Optional JWT lifetime in seconds from now (not an
+                absolute timestamp). None uses the server default (1 hour).
             oid_override: Optional OID override. Pass '-' for minimal JWT
                          (UID only, no org permissions).
         """
@@ -701,7 +704,8 @@ class Client:
                 user-scoped credentials (uid API key / OAuth) that mints a
                 multi-org JWT carrying the permissions of every org the
                 user can access.
-            expiry: Optional expiry time for the JWT.
+            expiry: Optional JWT lifetime in seconds from now (not an
+                absolute timestamp). None uses the server default (1 hour).
 
         Returns:
             The signed JWT string.

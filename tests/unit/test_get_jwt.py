@@ -49,7 +49,7 @@ class TestClientGetJwt:
 
     @patch("limacharlie.client.resolve_credentials")
     def test_get_jwt_custom_expiry_hours(self, mock_resolve):
-        """get_jwt(expiry_hours=8) computes correct unix timestamp."""
+        """get_jwt(expiry_hours=8) asks for an 8-hour lifetime in seconds."""
         mock_resolve.return_value = {
             "oid": "test-oid", "uid": None,
             "api_key": "test-api-key-12345678", "oauth": None,
@@ -58,18 +58,34 @@ class TestClientGetJwt:
         client.refresh_jwt = MagicMock()
         client._jwt = "mock-jwt-8h"
 
-        before = int(time.time())
         token = client.get_jwt(expiry_hours=8)
-        after = int(time.time())
 
-        client.refresh_jwt.assert_called_once()
-        call_kwargs = client.refresh_jwt.call_args
-        expiry_ts = call_kwargs[1]["expiry"] if "expiry" in (call_kwargs[1] or {}) else call_kwargs[0][0]
-        # Expiry should be ~8 hours from now
-        expected_min = before + 8 * 3600
-        expected_max = after + 8 * 3600
-        assert expected_min <= expiry_ts <= expected_max
+        client.refresh_jwt.assert_called_once_with(expiry=8 * 3600)
         assert token == "mock-jwt-8h"
+
+    @pytest.mark.parametrize("creds", [
+        {"api_key": "test-api-key-12345678", "oauth": None},
+        {"api_key": None, "oauth": {"id_token": "tok", "refresh_token": "r"}},
+    ], ids=["api_key", "oauth"])
+    @patch("limacharlie.client.resolve_credentials")
+    def test_get_jwt_sends_lifetime_seconds_to_jwt_service(self, mock_resolve, creds):
+        """The JWT service reads "expiry" as seconds, so the request must
+        carry the lifetime (4h = 14400), never an absolute unix timestamp,
+        which the service would turn into a token valid for decades."""
+        mock_resolve.return_value = {"oid": "test-oid", "uid": None, **creds}
+        client = Client(oid="test-oid")
+        client._refreshed_oauth_id_token = MagicMock(return_value="tok")
+        sent = {}
+
+        def fake_call(auth_data):
+            sent.update(auth_data)
+            return "mock-jwt"
+
+        client._call_jwt_endpoint = MagicMock(side_effect=fake_call)
+        with patch("limacharlie.jwt_cache.put_cached_jwt"):
+            client.get_jwt(expiry_hours=4)
+
+        assert int(sent["expiry"]) == 4 * 3600
 
     @patch("limacharlie.client.resolve_credentials")
     def test_get_jwt_fractional_hours(self, mock_resolve):
@@ -82,15 +98,9 @@ class TestClientGetJwt:
         client.refresh_jwt = MagicMock()
         client._jwt = "mock-jwt-30m"
 
-        before = int(time.time())
         client.get_jwt(expiry_hours=0.5)
-        after = int(time.time())
 
-        call_kwargs = client.refresh_jwt.call_args
-        expiry_ts = call_kwargs[1]["expiry"] if "expiry" in (call_kwargs[1] or {}) else call_kwargs[0][0]
-        expected_min = before + 1800
-        expected_max = after + 1800
-        assert expected_min <= expiry_ts <= expected_max
+        client.refresh_jwt.assert_called_once_with(expiry=1800)
 
     @patch("limacharlie.client.resolve_credentials")
     def test_get_jwt_zero_hours_raises_validation_error(self, mock_resolve):
