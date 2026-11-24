@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fix: `org config-set` help listed configuration names the API rejects
+
+- The help of `limacharlie org config-set` (and `org config-get`) named
+  `retention`, `sensor_version`, `twilio_*` and `otx_key`, none of which the
+  API accepts. It now lists the accepted names and documents the new
+  `sensor_auto_upgrade` setting, as does `doc/cli/platform-admin.md`. No
+  behavior change: the CLI still passes any name through to the API.
+
 ### Fix: custom JWT expiry minted tokens valid for decades
 
 - `Client.get_jwt(expiry_hours=...)`, and the commands built on it
