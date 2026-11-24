@@ -109,10 +109,12 @@ def list_orgs(ctx: click.Context, filter_text: str | None, limit: int | None, of
 
 _EXPLAIN_CONFIG_GET = """\
 Retrieve an organization configuration value by name.  Organization
-configuration values control platform behavior such as retention periods,
-sensor version pinning, and feature flags.
+configuration values hold integration API keys and settings (vt, otx,
+shodan, ...) and the sensor_auto_upgrade setting.
 
-Use 'limacharlie org config-set' to change a configuration value.
+Use 'limacharlie org config-set' to change a configuration value, and
+'limacharlie org config-set --ai-help' for the list of configuration
+names.
 """
 register_explain("org.config-get", _EXPLAIN_CONFIG_GET)
 
@@ -131,17 +133,31 @@ def config_get(ctx: click.Context, name: str) -> None:
 # ---------------------------------------------------------------------------
 
 _EXPLAIN_CONFIG_SET = """\
-Set an organization configuration value.  Configuration values control
-platform behavior.  Changes take effect immediately and are audited.
+Set an organization configuration value.  Changes take effect
+immediately and are audited.
 
-Common configuration keys:
-  vt               - VirusTotal API key for hash lookups
-  retention        - Telemetry retention period (days)
-  sensor_version   - Target sensor version for the org
-  twilio_*         - Twilio integration credentials
-  otx_key          - AlienVault OTX API key
+The API accepts only the configuration names below and rejects any
+other name as unknown.  Names are matched exactly (case-sensitive).
 
-Use with caution as incorrect values may affect sensor behavior.
+Integration API keys and settings (require the org.conf.set permission):
+  vt, otx, domain, shodan, pagerduty, twilio, socprime, alphamountain,
+  pangea, echotrail, hybrid_analysis, greynoise, ipqs
+
+Automatic sensor upgrades (requires the module.update permission in
+addition to org.conf.set):
+  sensor_auto_upgrade
+      Where automatic sensor upgrades are available, setting this to
+      'true' keeps the organization's sensors on the stable sensor
+      version: when a new stable version is published, they are
+      upgraded automatically, in batches.  Only the string 'true' turns
+      it on; unset, empty and 'false' all mean off, and the API refuses
+      any other value.  Automatic upgrades pause when the sensor
+      version is set by hand; setting the value to 'true' again while
+      it is already on resumes them.
+
+Examples:
+  limacharlie org config-set --name vt --value <api-key>
+  limacharlie org config-set --name sensor_auto_upgrade --value true
 """
 register_explain("org.config-set", _EXPLAIN_CONFIG_SET)
 
