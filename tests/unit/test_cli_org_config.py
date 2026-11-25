@@ -23,7 +23,7 @@ from limacharlie.discovery import get_explain
 _CONFIG_NAMES = [
     "vt", "otx", "domain", "shodan", "pagerduty", "twilio", "socprime",
     "alphamountain", "pangea", "echotrail", "hybrid_analysis", "greynoise",
-    "ipqs", "sensor_auto_upgrade",
+    "ipqs", "sensor_auto_upgrade", "retention_months",
 ]
 
 # Names earlier help text advertised and the API rejects as unknown.
@@ -51,7 +51,7 @@ class TestConfigSetHelp:
     @pytest.mark.parametrize("name", _REJECTED_NAMES)
     @pytest.mark.parametrize("command", ["org.config-get", "org.config-set"])
     def test_does_not_list_rejected_names(self, command, name):
-        assert name not in get_explain(command)
+        assert not _has_name(get_explain(command), name)
 
     def test_documents_sensor_auto_upgrade(self):
         text = get_explain("org.config-set")
