@@ -311,7 +311,7 @@ def _record_errors(permission_hint: str) -> Any:
                     status_code=403 if denied else exc.status_code,
                     response_body=getattr(exc, "response_body", None),
                     suggestion=permission_hint if denied else (exc.suggestion or ""),
-                    exit_code=exc.exit_code,
+                    exit_code=2 if denied else exc.exit_code,  # 2 = authentication or permission
                 ) from exc
         return wrapper
     return decorate
@@ -971,19 +971,21 @@ class Investigation:
         view["paused"] = record.enabled is True and data.get("paused") is True
         if record.enabled is not True:
             view["inactive_reason"] = "disabled"
+        if record.expiry:
+            # The hive deletes the whole record at its expiry, and the pause with it.
+            view["expires"] = record.expiry
         view.update(etag=record.etag, last_author=record.last_author, last_modified=record.last_modified)
         return view
 
+    @staticmethod
+    def _paused_field(record: HiveRecord | None) -> bool:
+        """What the record's ``paused`` field says, whether or not the engine reads the record."""
+        data = record.data if record is not None and isinstance(record.data, dict) else {}
+        return data.get("paused") is True
+
     def _write_paused(self, existing: HiveRecord | None, paused: bool) -> None:
         """Save ``paused`` on the settings record, conditional on the version read."""
-        if existing is None:
-            data: dict[str, Any] = {}
-        elif isinstance(existing.data, dict):
-            data = json.loads(json.dumps(existing.data))
-        else:
-            raise ValidationError(
-                f"the {SETTINGS_RECORD} record of {POLICY_HIVE} does not hold an object: fix it before pausing or resuming"
-            )
+        data: dict[str, Any] = {} if existing is None else json.loads(json.dumps(existing.data))
         data["paused"] = paused
         record = HiveRecord(
             name=SETTINGS_RECORD, data=data,
@@ -999,25 +1001,49 @@ class Investigation:
 
     def _set_paused(self, paused: bool) -> dict[str, Any]:
         existing = self._read_settings_record()
+        if existing is not None and not isinstance(existing.data, dict):
+            # The engine cannot read it either, and what it falls back to is not ours to guess.
+            raise ValidationError(
+                f"the {SETTINGS_RECORD} record of {POLICY_HIVE} does not hold an object: fix it before pausing or resuming"
+            )
         if paused and existing is not None and existing.enabled is not True:
             # The engine ignores a disabled record: writing the field would pause nothing.
             raise ValidationError(
                 f"the {SETTINGS_RECORD} record of {POLICY_HIVE} is disabled, so the engine ignores it and a pause "
                 "written on it would stop nothing: enable the record first"
             )
-        if self._pause_view(existing)["paused"] == paused:
+        # Resume looks at the field itself: a disabled record that still says paused would pause the org
+        # again the day someone enables it.
+        if self._paused_field(existing) == paused and (existing is None or not paused or existing.enabled is True):
             return {**self._pause_view(existing), "changed": False}
-        if not paused and existing is None:
-            return {**self._pause_view(None), "changed": False}
+        if existing is not None and not existing.etag:
+            raise ValidationError(
+                f"the {SETTINGS_RECORD} record of {POLICY_HIVE} was returned without a version, so the write could "
+                "not be conditional and could overwrite a concurrent edit: nothing was written"
+            )
         try:
             self._write_paused(existing, paused)
-        except ApiError:
-            # Someone saved the record between our read and the write: if it says what we wanted, so be it.
-            current = self._pause_view(self._read_settings_record())
-            if current["paused"] == paused:
-                return {**current, "changed": False}
+        except ApiError as exc:
+            if is_permission_denied(exc):
+                raise
+            # Someone may have saved the record between our read and the write: if it now says what we wanted,
+            # so be it. Anything else (including a failed re-read) is the original failure.
+            try:
+                current = self._read_settings_record()
+            except LimaCharlieError:
+                raise exc
+            if current is not None and self._paused_field(current) == paused and current.enabled is True:
+                return {**self._pause_view(current), "changed": False}
             raise
-        return {**self._pause_view(self._read_settings_record()), "changed": True}
+        after = self._read_settings_record()
+        if self._paused_field(after) != paused or (paused and (after is None or after.enabled is not True)):
+            # Expired, deleted or changed by someone else between our write and this read: never report success.
+            raise InvestigationError(
+                f"the {SETTINGS_RECORD} record of {POLICY_HIVE} was saved but does not read back as "
+                f"paused={str(paused).lower()}: another writer or an expiry changed it; check `investigate settings get`",
+                status_code=409,
+            )
+        return {**self._pause_view(after), "changed": True}
 
     @_policy_record_errors
     def get_pause(self) -> dict[str, Any]:
@@ -1031,7 +1057,9 @@ class Investigation:
             dict: ``paused`` (bool) and ``record`` (the record name). When the
                 record exists: ``etag``, ``last_author``, ``last_modified``, and
                 ``inactive_reason`` (``disabled``) when the record exists but
-                the engine ignores it.
+                the engine ignores it, and ``expires`` when the record carries
+                an expiry (the hive deletes the whole record then, the pause
+                with it).
 
         Raises:
             InvestigationError: On any API failure.

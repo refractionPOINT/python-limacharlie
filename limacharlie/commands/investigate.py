@@ -67,7 +67,7 @@ rule or the AI behind it. Whether the AI may DECIDE, or only recommend, is the
 template's own `ai_may_decide` key (off, escalate, close_and_escalate).
 
 The template is the authority: nothing above it limits what it does. Each `act`
-entry says `do` (the action), `target`, `on_rules`, a REQUIRED `approval`
+entry says `do` (the action), `target` (not on a close), `on_rules`, a REQUIRED `approval`
 (`none`, `required` or `{when: <expression>}`) and, for a reversible action
 (contain.*), a `lease` and `on_lease_end` (`release`, `hold` or a `check:`
 that runs again before it releases). A case close is an `act` entry too
@@ -281,8 +281,10 @@ reason). Say what to investigate with --detection-id, --case-id, --entity-id or
 --question. --urgency (low, medium, high, critical) defaults to a value derived
 from --priority and --severity, else medium. A
 draft template only suggests its actions; an active one does what its `act`
-entries say (an action with `approval` other than `none` waits for a person,
-and nothing acts alone while the org is paused: `investigate settings`).
+entries say: `approval: required` waits for a person, `{when: ...}` waits only
+when the condition holds or is unknown (when it is false the action acts on its
+own), and nothing acts alone while the org is paused or over the circuit
+breaker (`investigate settings`).
 --idempotency-key makes a repeated start return the same run.
 
 Repeat --trust-lookup NAME / --trust-value VALUE to add to template trust for
@@ -446,8 +448,11 @@ waits for a person. Runs still investigate, and approvals, denials, undos and
 lease ends still work. Actions already taken are not undone, and actions that
 waited keep waiting for a person after a resume. Only that field changes, and
 the write is conditional on the version read, so a concurrent edit is never
-overwritten. Saving it twice changes nothing. Needs investigation_policy.get
-and investigation_policy.set. If Git Sync manages the investigation_policy
+overwritten. Saving it twice changes nothing, and the command fails (non-zero
+exit) when the record does not read back as paused. It writes the record only:
+run `settings get` to confirm the engine enforces it (its `warnings` name a
+record the engine rejected). Needs investigation_policy.get and
+investigation_policy.set. If Git Sync manages the investigation_policy
 hive, keep the pause in git too or the next sync undoes it.
 
 Example:
@@ -669,7 +674,8 @@ def _action_row(action: dict[str, Any]) -> dict[str, Any]:
         "id": action.get("id"),
         "class": action.get("class"),
         "state": action.get("state"),
-        "mode": action.get("mode"),
+        "approval": (action.get("approval") or {}).get("form") if isinstance(action.get("approval"), dict) else None,
+        "approval_reason": action.get("approval_reason"),
         "template": run.get("template"),
         "outcome": _outcome(run.get("verdict")),
     }

@@ -795,7 +795,7 @@ Author a template (an AI agent or a person):
   6. limacharlie investigate templates save my-plan --file plan.yaml --comment "<what you tested>"
      Always a DRAFT. A draft runs only through `templates test` or a run a
      person starts, and it only suggests its actions.
-     Each `act` entry needs `do`, `target`, `on_rules` and `approval`
+     Each `act` entry needs `do`, `target` (not on a close), `on_rules` and `approval`
      (none | required | {when: <expr>}); a reversible action also needs
      `lease` and `on_lease_end` (release | hold | {check, args, extend, max,
      at_max}). A case close is an `act` entry with `do: close.false_positive`.

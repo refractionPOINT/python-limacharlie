@@ -20,6 +20,12 @@ the `investigate policy` commands are removed.
   `investigation_policy` record `default` with a compare-and-set, instead of
   saving or deleting the `autonomy-manual-pause` record. The authoring kit
   section `policy` is now `settings`.
+- Migration: an org paused under the old scheme holds an
+  `investigation_policy` record `autonomy-manual-pause` that `investigate` can
+  no longer see or delete, and the engine no longer reads it. Check for it
+  (`limacharlie hive get --hive-name investigation_policy --key autonomy-manual-pause`),
+  run `investigate settings pause` if the org should stay paused, then delete
+  the old record with `limacharlie hive delete`.
 - New permissions for these calls: `settings pause` and `settings resume` need
   `investigation_policy.get` and `investigation_policy.set` (resume no longer
   needs `investigation_policy.del`). `settings get` needs only

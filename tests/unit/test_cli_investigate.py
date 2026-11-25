@@ -572,6 +572,18 @@ class TestActionsAndSettings:
         assert out_json(run(["investigate", "actions", "list"]))["next_cursor"] == "c9"
         assert sdk.list_actions.call_count == 1
 
+    def test_the_inbox_rows_say_why_an_action_waits_and_carry_no_removed_mode(self, sdk):
+        sdk.list_actions.return_value = {"actions": [
+            {"run_id": "r1", "id": "a1", "class": "contain.network", "state": "awaiting_approval",
+             "approval": {"form": "when", "when": "x", "value": "unknown"}, "approval_reason": "approval_condition",
+             "run": {"template": "t"}},
+        ], "next_cursor": ""}
+        result = run(["--output", "csv", "investigate", "actions", "list"])
+        assert result.exit_code == 0
+        header = result.output.splitlines()[0].split(",")
+        assert "mode" not in header and {"approval", "approval_reason"} <= set(header)
+        assert "approval_condition" in result.output and "when" in result.output
+
     def test_approve_and_deny(self, sdk):
         sdk.decide_action.return_value = {"state": "executing"}
         run(["investigate", "actions", "approve", "r1", "a1"])
@@ -620,9 +632,9 @@ class TestActionsAndSettings:
     def test_a_refused_pause_is_reported_with_its_permission_hint(self, sdk):
         from limacharlie.sdk import investigation as m
         sdk.pause_actions.side_effect = m.InvestigationError(
-            "lc_error_code:UNAUTHORIZED - nope", status_code=403, suggestion=m._POLICY_PERMISSION_HINT, exit_code=1)
+            "lc_error_code:UNAUTHORIZED - nope", status_code=403, suggestion=m._POLICY_PERMISSION_HINT, exit_code=2)
         result = run(["investigate", "settings", "pause"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         doc = json.loads(result.stderr)
         assert doc["status"] == 403 and "investigation_policy.set" in doc["suggestion"]
 

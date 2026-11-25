@@ -911,6 +911,13 @@ class TestPause:
         view = inv.get_pause()
         assert view["paused"] is False and view["inactive_reason"] == "disabled"
 
+    def test_a_record_with_an_expiry_says_so_because_the_hive_deletes_it_then(self, inv, hive):
+        hive.get.return_value = _settings({"paused": True}, expiry=1893456000000)
+        view = inv.get_pause()
+        assert view["paused"] is True and view["expires"] == 1893456000000
+        hive.get.return_value = _settings({"paused": True}, expiry=0)
+        assert "expires" not in inv.get_pause()
+
     def test_a_failed_read_is_not_taken_for_a_missing_record(self, inv, hive):
         hive.get.side_effect = error_from_status_code(500, "boom")
         with pytest.raises(InvestigationError) as ei:
@@ -952,9 +959,9 @@ class TestPause:
 
     def test_a_record_that_is_not_an_object_is_refused_not_overwritten(self, inv, hive):
         hive.get.return_value = _settings(["x"])
-        with pytest.raises(ValidationError, match="does not hold an object"):
-            inv.pause_actions()
-        assert inv.resume_actions()["changed"] is False  # it pauses nothing, so there is nothing to lift
+        for call in (inv.pause_actions, inv.resume_actions):
+            with pytest.raises(ValidationError, match="does not hold an object"):
+                call()
         hive.set.assert_not_called()
 
     def test_a_concurrent_pause_that_wins_the_race_is_not_an_error(self, inv, hive):
@@ -998,11 +1005,53 @@ class TestPause:
         hive.set.assert_not_called()
         hive.delete.assert_not_called()
 
-    def test_resume_of_a_disabled_record_has_nothing_to_lift(self, inv, hive):
-        hive.get.return_value = _settings({"paused": True}, enabled=False)
-        # A disabled record pauses nothing, so there is nothing to lift: no write.
+    def test_resume_clears_a_paused_field_on_a_disabled_record_and_keeps_it_disabled(self, inv, hive):
+        # Re-enabling the record later must not pause the org again.
+        hive.get.side_effect = [_settings({"paused": True}, enabled=False), _settings({"paused": False}, enabled=False, etag="e2")]
+        out = inv.resume_actions()
+        record = hive.set.call_args.args[0]
+        assert record.data == {"paused": False} and record.enabled is False and record.etag == "e1"
+        assert out["changed"] is True and out["paused"] is False
+
+    def test_resume_of_a_disabled_record_that_does_not_say_paused_writes_nothing(self, inv, hive):
+        hive.get.return_value = _settings({"paused": False}, enabled=False)
         assert inv.resume_actions()["changed"] is False
         hive.set.assert_not_called()
+
+    def test_a_record_returned_without_a_version_is_never_written_unconditionally(self, inv, hive):
+        hive.get.return_value = _settings(self.STORED, etag=None)
+        with pytest.raises(ValidationError, match="without a version"):
+            inv.pause_actions()
+        hive.set.assert_not_called()
+
+    def test_a_denied_write_is_a_permission_error_even_if_someone_else_paused(self, inv, hive):
+        # The re-read would find the wanted state, which must not hide that this key may not write.
+        hive.get.side_effect = [_settings(self.STORED), _settings({**self.STORED, "paused": True}, etag="e9")]
+        hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:UNAUTHORIZED - nope"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.pause_actions()
+        assert ei.value.status_code == 403 and ei.value.exit_code == 2
+        assert "investigation_policy.set" in ei.value.suggestion
+        assert hive.get.call_count == 1
+
+    def test_a_failed_reread_after_a_failed_write_reports_the_write_failure(self, inv, hive):
+        hive.get.side_effect = [_settings(self.STORED), error_from_status_code(500, "reread boom")]
+        hive.set.side_effect = error_from_status_code(409, {"error": "lc_error_code:ETAG_MISMATCH - changed"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.pause_actions()
+        assert ei.value.status_code == 409 and "ETAG_MISMATCH" in str(ei.value)
+
+    def test_a_pause_that_does_not_read_back_as_paused_is_not_reported_as_done(self, inv, hive):
+        # Someone resumed (or the record expired and was deleted) between our write and the read.
+        for after in (_settings(self.STORED, etag="e2"), None):
+            hive.get.side_effect = [_settings(self.STORED), after if after is not None else _not_found()]
+            with pytest.raises(InvestigationError, match="does not read back as paused=true"):
+                inv.pause_actions()
+
+    def test_a_resume_that_does_not_read_back_as_resumed_is_not_reported_as_done(self, inv, hive):
+        hive.get.side_effect = [_settings({**self.STORED, "paused": True}), _settings({**self.STORED, "paused": True}, etag="e2")]
+        with pytest.raises(InvestigationError, match="does not read back as paused=false"):
+            inv.resume_actions()
 
     def test_a_refused_pause_names_the_settings_permissions(self, inv, hive):
         hive.get.side_effect = error_from_status_code(400, {"error": "lc_error_code:UNAUTHORIZED - nope"})
