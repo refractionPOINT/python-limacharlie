@@ -36,6 +36,15 @@
   The `investigation_*` hives exist only where the Investigation Engine is
   enabled. 5.13.0 added no hive to `--all`.
 
+### Docs: `sensor_auto_upgrade` takes a release channel
+
+- The value of the `sensor_auto_upgrade` organization configuration names the
+  sensor release channel to follow: `stable` or `latest`. `true` still works
+  and means `stable`; `false` turns it off. The help of
+  `limacharlie org config-set` and `doc/cli/platform-admin.md` say so. No
+  behavior change: the CLI passes the value through to the API, which refuses
+  one it does not know.
+
 ### Fix: `org config-set` help listed configuration names the API rejects
 
 - The help of `limacharlie org config-set` (and `org config-get`) named

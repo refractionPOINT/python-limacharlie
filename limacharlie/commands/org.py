@@ -146,18 +146,26 @@ Integration API keys and settings (require the org.conf.set permission):
 Automatic sensor upgrades (requires the module.update permission in
 addition to org.conf.set):
   sensor_auto_upgrade
-      Where automatic sensor upgrades are available, setting this to
-      'true' keeps the organization's sensors on the stable sensor
-      version: when a new stable version is published, they are
-      upgraded automatically, in batches.  Only the string 'true' turns
-      it on; unset, empty and 'false' all mean off, and the API refuses
-      any other value.  Automatic upgrades pause when the sensor
-      version is set by hand; setting the value to 'true' again while
-      it is already on resumes them.
+      Where automatic sensor upgrades are available, this keeps the
+      organization's sensors on a sensor release channel: when a new
+      version of that channel is published, they are upgraded
+      automatically, in batches.  The value names the channel:
+        stable   follow the stable version (recommended)
+        latest   follow the latest version
+        true     same as stable
+        false    off (so are unset and empty)
+      The API refuses any other value.  Where release channels are
+      not available yet, it accepts only true and false: use true to
+      follow the stable version there.  Switching from latest to
+      stable moves the sensors down to the stable version.  Automatic
+      upgrades pause when the sensor version is set by hand; setting
+      the value again while it is already on resumes them.
 
 Examples:
   limacharlie org config-set --name vt --value <api-key>
-  limacharlie org config-set --name sensor_auto_upgrade --value true
+  limacharlie org config-set --name sensor_auto_upgrade --value stable
+  limacharlie org config-set --name sensor_auto_upgrade --value latest
+  limacharlie org config-set --name sensor_auto_upgrade --value false
 """
 register_explain("org.config-set", _EXPLAIN_CONFIG_SET)
 

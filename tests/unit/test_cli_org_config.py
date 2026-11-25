@@ -57,7 +57,12 @@ class TestConfigSetHelp:
         text = get_explain("org.config-set")
         assert "module.update" in text
         assert "org.conf.set" in text
-        assert "limacharlie org config-set --name sensor_auto_upgrade --value true" in text
+        # The value names a release channel; "true" is kept as stable.
+        for value in ("stable", "latest", "false"):
+            assert f"limacharlie org config-set --name sensor_auto_upgrade --value {value}" in text
+        assert "same as stable" in text
+        # An API from before channels refuses "stable": the help says what to use.
+        assert "accepts only true and false" in text
 
     def test_ai_help_shows_the_names(self):
         result = CliRunner().invoke(cli, ["org", "config-set", "--ai-help"])
@@ -73,6 +78,15 @@ class TestConfigPassThrough:
             cli, ["org", "config-set", "--name", "sensor_auto_upgrade", "--value", "true"])
         assert result.exit_code == 0, result.output
         org.set_config.assert_called_once_with("sensor_auto_upgrade", "true")
+
+    @pytest.mark.parametrize("value", ["stable", "latest", "true", "false", "not-a-channel"])
+    def test_set_does_not_validate_the_channel_client_side(self, org, value):
+        # The server owns the list of channels too.
+        org.set_config.return_value = {}
+        result = CliRunner().invoke(
+            cli, ["org", "config-set", "--name", "sensor_auto_upgrade", "--value", value])
+        assert result.exit_code == 0, result.output
+        org.set_config.assert_called_once_with("sensor_auto_upgrade", value)
 
     def test_set_does_not_validate_the_name_client_side(self, org):
         # The server owns the list of names; a name this CLI has never heard

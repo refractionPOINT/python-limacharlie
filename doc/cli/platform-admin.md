@@ -15,7 +15,7 @@ limacharlie org errors                   # Platform errors
 limacharlie org dismiss-error --component <name>
 limacharlie org config-get --name vt     # Read a config value
 limacharlie org config-set --name vt --value <key>
-limacharlie org config-set --name sensor_auto_upgrade --value true  # See below
+limacharlie org config-set --name sensor_auto_upgrade --value stable  # See below
 limacharlie org mitre                    # MITRE ATT&CK coverage report
 limacharlie org schema                   # Event schemas
 limacharlie org schema --event-type NEW_PROCESS
@@ -35,13 +35,24 @@ unknown.
 | `vt`, `otx`, `domain`, `shodan`, `pagerduty`, `twilio`, `socprime`, `alphamountain`, `pangea`, `echotrail`, `hybrid_analysis`, `greynoise`, `ipqs` | Integration API keys and settings. | `org.conf.set` |
 | `sensor_auto_upgrade` | Automatic sensor upgrades. | `org.conf.set` and `module.update` |
 
-Where automatic sensor upgrades are available, setting `sensor_auto_upgrade`
-to `true` keeps the organization's sensors on the stable sensor version: when
-a new stable version is published, they are upgraded automatically, in
-batches. Only the string `true` turns it on; unset, empty and `false` all mean
-off, and the API refuses any other value. Automatic upgrades pause when the
-sensor version is set by hand; setting the value to `true` again while it is
-already on resumes them.
+Where automatic sensor upgrades are available, `sensor_auto_upgrade` keeps the
+organization's sensors on a sensor release channel: when a new version of that
+channel is published, they are upgraded automatically, in batches. The value
+names the channel:
+
+| Value | Meaning |
+|-------|---------|
+| `stable` | Follow the stable sensor version. Recommended. |
+| `latest` | Follow the latest sensor version. |
+| `true` | Same as `stable`. |
+| `false` | Off. Unset and empty also mean off. |
+
+The API refuses any other value. Where release channels are not available yet,
+it accepts only `true` and `false`: use `true` to follow the stable version
+there. Switching from `latest` to `stable` moves the
+sensors down to the stable version. Automatic upgrades pause when the sensor
+version is set by hand; setting the value again while it is already on resumes
+them.
 
 ## user
 
