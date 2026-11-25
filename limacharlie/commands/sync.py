@@ -182,6 +182,18 @@ Fetch the current organization configuration from the cloud and
 save it to a local YAML file.  This enables Infrastructure-as-Code
 workflows where the entire org configuration is version-controlled.
 
+--all is strict: it fails if the key cannot read one of the hives (a new
+hive added by a CLI release can break a scheduled backup that way).
+--all-available selects the same set but skips hives the key has no
+permission for: a "Warning: skipped hive <hive>: this key lacks
+<permission>" line is printed on stderr (even with --quiet) and the
+command still exits 0.  Use --all-available for scheduled backups.  It
+cannot be combined with --all; explicit --hive-* flags are redundant with
+it (the skipping still applies).  A hive named only by an explicit
+--hive-* flag stays strict.  --all-available is pull-only and needs a
+backend that supports skipping (an older one fails on the first
+unreadable hive, as with --all).
+
 The saved YAML file uses version 3 format with top-level keys for
 each resource type:
 
@@ -253,6 +265,7 @@ Hive flags (for syncing hive-based resources):
 
 Examples:
   limacharlie sync pull --config-file org.yaml --all
+  limacharlie sync pull --config-file org.yaml --all-available
   limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
   limacharlie sync pull --config-file outputs.yaml --outputs
 """
@@ -264,9 +277,14 @@ register_explain("sync.pull", _EXPLAIN_PULL)
     "--config-file", required=True, type=click.Path(),
     help="Path to save the configuration YAML file.",
 )
+@click.option(
+    "--all-available", "all_available", is_flag=True, default=False,
+    help="Like --all, but skip hives this key cannot read (with a warning on stderr) "
+         "instead of failing. Recommended for scheduled backups. Cannot be combined with --all.",
+)
 @_add_sync_flags
 @pass_context
-def pull(ctx, config_file, sync_all, outputs, integrity,
+def pull(ctx, config_file, all_available, sync_all, outputs, integrity,
          exfil, artifact, resources, extensions, org_values,
          installation_keys, yara,
          hive_dr_general, hive_dr_mail, hive_mailsec_policy,
@@ -276,8 +294,17 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
          hive_playbook, hive_ai_agent, hive_ai_skill, hive_ai_memory,
          hive_cloudsec_policy, hive_cloudsec_provider, hive_cloudsec_query, hive_cloudsec_code_rule, hive_mailsec_provider,
          hive_external_adapter, hive_acl, investigation_policy, investigation_plan) -> None:
+    if sync_all and all_available:
+        click.echo(
+            "Error: --all and --all-available cannot be used together.\n"
+            "Suggestion: Use --all-available to skip hives this key cannot read, or --all to fail on them.",
+            err=True,
+        )
+        ctx.exit(4)
+        return
+
     flags = _resolve_sync_flags(
-        sync_all, outputs, integrity, exfil,
+        sync_all or all_available, outputs, integrity, exfil,
         artifact, resources, extensions, org_values,
         installation_keys, yara,
         investigation_policy=investigation_policy,
@@ -312,8 +339,8 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
 
     if not any(flags.values()):
         click.echo(
-            "Error: Specify --all or at least one resource type flag.\n"
-            "Suggestion: Use --all to fetch everything, or specific flags like --outputs or --hive-dr-general.",
+            "Error: Specify --all, --all-available or at least one resource type flag.\n"
+            "Suggestion: Use --all-available to fetch everything this key can read, or specific flags like --outputs or --hive-dr-general.",
             err=True,
         )
         ctx.exit(4)
@@ -321,7 +348,21 @@ def pull(ctx, config_file, sync_all, outputs, integrity,
 
     org = _get_org(ctx)
     configs = Configs(org)
-    data = configs.fetch_to_file(config_file, **flags)
+    skipped: list[dict[str, Any]] = []
+    data = configs.fetch_to_file(
+        config_file, skipped_hives=skipped,
+        skip_unauthorized_hives=all_available, **flags,
+    )
+    # Always on stderr, even with --quiet: a scheduled backup must not hide
+    # that part of the org was left out of the file.
+    for item in skipped:
+        hive = item.get("hive", "unknown")
+        perm = item.get("permission")
+        if perm:
+            msg = f"this key lacks {perm}; grant it to include this hive in the sync."
+        else:
+            msg = f"this key is not authorized to read it ({item.get('error', 'unauthorized')}); grant access to include this hive in the sync."
+        click.echo(f"Warning: skipped hive {hive}: {msg}", err=True)
     if not ctx.obj.quiet:
         click.echo(f"Configuration saved to {config_file}.")
     _output(ctx, data)
