@@ -19,7 +19,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import os
 from typing import Any
 
 import click
@@ -134,7 +133,7 @@ def _save_option(fn):
 
 _SAVE_FAILED = "the answer above is complete; nothing was written to {path}: {why}"
 _SAVE_PARTIAL = (
-    "the answer above is complete; writing {path} failed and the file may be incomplete: {why}. "
+    "the answer above is complete; writing {path} failed, so the file may be incomplete or missing: {why}. "
     "Write it again (drops get --save) before using it"
 )
 
@@ -162,34 +161,25 @@ def _save_paste(result: dict[str, Any], path: str) -> None:
 
 
 def _write_file(path: str, content: bytes) -> None:
-    """Write ``content`` to ``path``, as a plain write would.
+    """Write ``content`` to ``path`` with a plain write.
 
     An existing file (a symlink's target included) is rewritten in place, so
     it keeps its owner, group, mode and ACLs: a decoy file is often put where
-    other people open it. If that write fails the file may be incomplete, and
-    the error says so. A new file is created exclusively, with the mode the
-    umask gives, and removed if its write fails, so nothing partial is left.
+    other people open it. A new file gets the mode the umask gives. Nothing is
+    cleaned up after a failure, so the error says only what is certain: an
+    open that fails wrote nothing; a write that fails may leave the file
+    incomplete, and it must be written again.
     """
     try:
-        f = open(path, "xb")
-    except FileExistsError:
-        try:
-            with open(path, "wb") as f:
-                f.write(content)
-        except OSError as exc:
-            raise click.ClickException(_SAVE_PARTIAL.format(path=path, why=exc))
-        return
+        f = open(path, "wb")
     except OSError as exc:
+        # An open that fails truncates and creates nothing.
         raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
     try:
         with f:
             f.write(content)
     except OSError as exc:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
+        raise click.ClickException(_SAVE_PARTIAL.format(path=path, why=exc))
 
 
 def _output_and_save(ctx, result: dict[str, Any], save_path: str | None) -> None:

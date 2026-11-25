@@ -449,25 +449,30 @@ class TestFollowUps:
         assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(link)]).exit_code == 0
         assert link.is_symlink() and target.read_text() == "<svg/>"
 
-    def test_a_failed_write_of_a_new_file_leaves_nothing(self, ext, tmp_path):
-        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+    def test_a_write_that_fails_part_way_says_the_file_may_be_incomplete(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg>whole</svg>"}}
         out = tmp_path / "qr.svg"
+        out.write_text("old content")
         real_open = open
 
         def fake_open(path, mode="r", *args, **kwargs):
-            real = real_open(path, mode, *args, **kwargs)  # the file is really created
+            real = real_open(path, mode, *args, **kwargs)
             wrapper = MagicMock()
             wrapper.__enter__.return_value = wrapper
             wrapper.__exit__.side_effect = lambda *a: real.close()
-            wrapper.write.side_effect = OSError("disk full")
+
+            def write(data):
+                real.write(data[:4])  # a prefix lands, then the disk fills
+                raise OSError("disk full")
+            wrapper.write.side_effect = write
             return wrapper
 
         with patch("limacharlie.commands.deception.open", side_effect=fake_open, create=True):
             result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(out)])
-        assert result.exit_code == 1 and "nothing was written" in result.output
-        assert not out.exists()
+        assert result.exit_code == 1 and "may be incomplete" in result.output
+        assert out.read_text() == "<svg"  # exactly what the message warns about
 
-    def test_a_failed_rewrite_says_the_file_may_be_incomplete(self, ext, tmp_path):
+    def test_a_failed_open_says_nothing_was_written_and_leaves_the_file(self, ext, tmp_path):
         ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
         out = tmp_path / "qr.svg"
         out.write_text("old")
@@ -480,8 +485,8 @@ class TestFollowUps:
 
         with patch("limacharlie.commands.deception.open", side_effect=fake_open, create=True):
             result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(out)])
-        assert result.exit_code == 1 and "may be incomplete" in result.output
-        assert "Traceback" not in result.output
+        assert result.exit_code == 1 and "nothing was written" in result.output
+        assert "Traceback" not in result.output and out.read_text() == "old"
 
 class TestTableOutput:
     def test_a_list_shows_its_rows_and_the_whole_page_token(self, ext):
