@@ -17,6 +17,7 @@ validates nothing itself beyond the shape of its own flags.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 from typing import Any
 
@@ -34,6 +35,8 @@ from ..sdk.deception import (
 )
 from ..sdk.organization import Organization
 from ._input_helpers import load_file, load_stdin
+from .. import output as output_state
+from ..output import detect_output_format, format_output
 from ._output_helpers import command_output
 from ._time_validation import validate_epoch_seconds
 
@@ -128,34 +131,63 @@ def _save_option(fn):
     )(fn)
 
 
+_SAVE_FAILED = "the answer above is complete; nothing was written to {path}: {why}"
+
+
 def _save_paste(result: dict[str, Any], path: str) -> None:
     """Write the file a drop's paste carries (a document, or a QR code as SVG) to ``path``."""
     paste = result.get("paste") or {}
     doc = paste.get("document")
-    if isinstance(doc, dict) and doc.get("content_b64"):
-        content = base64.b64decode(doc["content_b64"])
-        expected = doc.get("sha256")
-        if expected and hashlib.sha256(content).hexdigest() != str(expected).lower():
-            raise click.ClickException("the document does not match its sha256: nothing was written")
-        with open(path, "wb") as f:
-            f.write(content)
-    elif paste.get("qr_svg"):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(paste["qr_svg"])
-    else:
-        raise click.ClickException(
-            "this drop's paste has no file to save (a url or hostname drop, or a deleted drop): "
-            "copy the value from the answer"
-        )
+    try:
+        if isinstance(doc, dict) and doc.get("content_b64"):
+            content = base64.b64decode(doc["content_b64"], validate=True)
+            expected = doc.get("sha256")
+            if expected and hashlib.sha256(content).hexdigest() != str(expected).lower():
+                raise click.ClickException(_SAVE_FAILED.format(
+                    path=path, why="the document does not match its sha256"))
+            with open(path, "wb") as f:
+                f.write(content)
+        elif paste.get("qr_svg"):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(paste["qr_svg"])
+        else:
+            raise click.ClickException(_SAVE_FAILED.format(
+                path=path, why="its paste has no file (a url or hostname drop, or a deleted drop)"))
+    except (binascii.Error, ValueError, OSError) as exc:
+        raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
     click.echo(f"Wrote {path}", err=True)
 
 
 def _output_and_save(ctx, result: dict[str, Any], save_path: str | None) -> None:
     # Print first: a create cannot be repeated to get the same value, so the
     # answer must reach the operator even if the file cannot be written.
-    command_output(ctx, result)
+    _out(ctx, None, result)
     if save_path:
         _save_paste(result, save_path)
+
+
+def _out(ctx: click.Context, rows: str | None, data: Any) -> None:
+    """Print an answer.
+
+    Every format but a table prints the answer whole. A table cannot show an
+    answer's nested values (a list reads "[4 items]" and long values are cut),
+    so a table shows the answer's ``rows`` list as a table followed by the
+    rest of the answer as YAML (page tokens and totals whole), and any other
+    answer as YAML. With --filter or --fields the answer is printed as usual,
+    since those are written against the whole answer.
+    """
+    fmt = ctx.obj.output_format or detect_output_format()
+    if fmt != "table" or ctx.obj.quiet or output_state._filter_expr or output_state._fields:
+        command_output(ctx, data)
+        return
+    if rows and isinstance(data, dict) and isinstance(data.get(rows), list) and data[rows] \
+            and all(isinstance(r, dict) for r in data[rows]):
+        click.echo(format_output(data[rows], "table"))
+        rest = {k: v for k, v in data.items() if k != rows and v not in (None, "", [], {})}
+        if rest:
+            click.echo(format_output(rest, "yaml"))
+        return
+    click.echo(format_output(data, "yaml"))
 
 
 def _require_confirm(confirm: bool) -> None:
@@ -247,7 +279,8 @@ Metadata:
   * --enabled / --disabled set the enabled state and win over usr_mtd.
 
 Etag: --etag, or the one in the input, makes the write a compare-and-set; a
-stale etag is refused (read the record again). --no-etag ignores the one in
+stale etag, or the etag of a record deleted since, is refused (read the
+record again). --no-etag ignores the one in
 the input. Reading the stored metadata takes ext.conf.get (or
 ext.conf.get.mtd); writing takes ext.conf.set.
 
@@ -502,7 +535,7 @@ template, picked at random each call); fields given are checked and kept.
 @pass_context
 def config_get(ctx) -> None:
     """Read the configuration record (data, metadata, etag)."""
-    command_output(ctx, _get_dec(ctx).get_config().to_dict())
+    _out(ctx, None, _get_dec(ctx).get_config().to_dict())
 
 
 @config_group.command("set")
@@ -536,14 +569,14 @@ def config_set(ctx, input_file, etag, no_etag, enabled) -> None:
     else:
         config = body
     result = _get_dec(ctx).set_config(config, etag=etag or None, enabled=enabled, usr_mtd=usr_mtd)
-    command_output(ctx, result)
+    _out(ctx, None, result)
 
 
 @config_group.command("enable")
 @pass_context
 def config_enable(ctx) -> None:
     """Enable the configuration record (a disabled record reads as empty)."""
-    command_output(ctx, _get_dec(ctx).enable_config())
+    _out(ctx, None, _get_dec(ctx).enable_config())
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +587,7 @@ def config_enable(ctx) -> None:
 @pass_context
 def kinds(ctx) -> None:
     """Decoy kinds, the template library and the benign readers."""
-    command_output(ctx, _get_dec(ctx).list_kinds())
+    _out(ctx, None, _get_dec(ctx).list_kinds())
 
 
 @group.command("plan")
@@ -571,9 +604,11 @@ def plan(ctx, policy, sid, draft_policy_file, draft_templates_file) -> None:
         raise click.UsageError("--draft-templates needs --draft-policy.")
     draft_policy = load_file(draft_policy_file, "--draft-policy") if draft_policy_file else None
     draft_templates = load_file(draft_templates_file, "--draft-templates") if draft_templates_file else None
+    if draft_policy_file and not isinstance(draft_policy, dict):
+        raise click.BadParameter("must hold a policy record (a mapping)", param_hint="--draft-policy")
     if draft_templates is not None and not isinstance(draft_templates, list):
         raise click.BadParameter("must hold a list of template records", param_hint="--draft-templates")
-    command_output(ctx, _get_dec(ctx).plan(
+    _out(ctx, None, _get_dec(ctx).plan(
         policy=policy, sid=sid, draft_policy=draft_policy, draft_templates=draft_templates,
     ))
 
@@ -587,7 +622,7 @@ def plan(ctx, policy, sid, draft_policy_file, draft_templates_file) -> None:
 @pass_context
 def deploy(ctx, policy, sid, apply_pack, apply_all_pack) -> None:
     """Apply the configuration: rules, other extensions' entries, decoys."""
-    command_output(ctx, _get_dec(ctx).deploy(
+    _out(ctx, None, _get_dec(ctx).deploy(
         policy=policy, sid=sid, apply_pack=list(apply_pack), apply_all_pack=apply_all_pack,
     ))
 
@@ -596,7 +631,7 @@ def deploy(ctx, policy, sid, apply_pack, apply_all_pack) -> None:
 @pass_context
 def rollout_status(ctx) -> None:
     """How far the rollout to the sensors is (read-only, cheap)."""
-    command_output(ctx, _get_dec(ctx).rollout_status())
+    _out(ctx, None, _get_dec(ctx).rollout_status())
 
 
 @group.command("restore-rules")
@@ -606,8 +641,14 @@ def rollout_status(ctx) -> None:
 def restore_rules(ctx, rules) -> None:
     """Put shipped detection rules back as shipped, enabled, without a rollout."""
     result = _get_dec(ctx).restore_rules(list(rules))
-    command_output(ctx, result)
-    if any(isinstance(r, dict) and not r.get("restored") for r in result.get("rules") or []):
+    _out(ctx, None, result)
+    # A rule counts as repaired only when it was written AND reads back
+    # enabled, with no error (the extension reports a failed read-back so).
+    rows = result.get("rules") or []
+    if not rows or any(
+        not isinstance(r, dict) or not r.get("restored") or not r.get("enabled") or r.get("error")
+        for r in rows
+    ):
         ctx.exit(1)
 
 
@@ -634,7 +675,7 @@ def restore_rules(ctx, rules) -> None:
 def list_decoys(ctx, policy, sid, states, template, kind, text, cause, include_test,
                 include_superseded, exclude_skipped, summary, page_token, page_size) -> None:
     """List decoys (never their secret values)."""
-    command_output(ctx, _get_dec(ctx).list_decoys(
+    _out(ctx, "instances", _get_dec(ctx).list_decoys(
         policy=policy, sid=sid, states=list(states), include_test=include_test, template=template,
         kind=kind, text=text, cause=cause, summary=summary, include_superseded=include_superseded,
         exclude_skipped=exclude_skipped, page_token=page_token, page_size=page_size,
@@ -663,7 +704,7 @@ def list_decoys(ctx, policy, sid, states, template, kind, text, cause, include_t
 def list_hosts(ctx, policy, template, sid, text, status, states, sort, include_test,
                include_superseded, include_deleted, summary, page_token, page_size) -> None:
     """List targeted sensors and sensors with decoys, with their status."""
-    command_output(ctx, _get_dec(ctx).list_hosts(
+    _out(ctx, "hosts", _get_dec(ctx).list_hosts(
         policy=policy, template=template, text=text, states=list(states), include_test=include_test,
         status=status, include_superseded=include_superseded, sid=sid, summary=summary, sort=sort,
         include_deleted=include_deleted, page_token=page_token, page_size=page_size,
@@ -675,7 +716,7 @@ def list_hosts(ctx, policy, template, sid, text, status, states, sort, include_t
 @pass_context
 def verify(ctx, policy, sid, instance_ids, template) -> None:
     """Re-check that decoys are still in place."""
-    command_output(ctx, _get_dec(ctx).verify(
+    _out(ctx, None, _get_dec(ctx).verify(
         policy=policy, sid=sid, instance_ids=list(instance_ids), template=template,
     ))
 
@@ -685,7 +726,7 @@ def verify(ctx, policy, sid, instance_ids, template) -> None:
 @pass_context
 def rotate(ctx, policy, sid, instance_ids, template) -> None:
     """Retire decoys and plant replacements with new secrets."""
-    command_output(ctx, _get_dec(ctx).rotate(
+    _out(ctx, None, _get_dec(ctx).rotate(
         policy=policy, sid=sid, instance_ids=list(instance_ids), template=template,
     ))
 
@@ -697,7 +738,7 @@ def rotate(ctx, policy, sid, instance_ids, template) -> None:
 def remove(ctx, policy, sid, instance_ids, template, confirm) -> None:
     """Remove decoys from their hosts."""
     _require_confirm(confirm)
-    command_output(ctx, _get_dec(ctx).remove(
+    _out(ctx, None, _get_dec(ctx).remove(
         policy=policy, sid=sid, instance_ids=list(instance_ids), template=template,
     ))
 
@@ -711,7 +752,7 @@ def remove(ctx, policy, sid, instance_ids, template, confirm) -> None:
 @pass_context
 def coverage(ctx, policy) -> None:
     """What is covered, unavailable, blind or broken."""
-    command_output(ctx, _get_dec(ctx).coverage(policy))
+    _out(ctx, None, _get_dec(ctx).coverage(policy))
 
 
 @group.command("test-fire")
@@ -720,7 +761,7 @@ def coverage(ctx, policy) -> None:
 @pass_context
 def test_fire(ctx, policy, drop_id) -> None:
     """Prove each alert path works (synthetic hits, no cases, no responses)."""
-    command_output(ctx, _get_dec(ctx).test_fire(policy=policy, drop_id=drop_id))
+    _out(ctx, "runs", _get_dec(ctx).test_fire(policy=policy, drop_id=drop_id))
 
 
 @group.command("list-test-runs")
@@ -732,7 +773,7 @@ def test_fire(ctx, policy, drop_id) -> None:
 @pass_context
 def list_test_runs(ctx, policy, template, layer, state, page_token, page_size) -> None:
     """Recent test-fire runs, newest first."""
-    command_output(ctx, _get_dec(ctx).list_test_runs(
+    _out(ctx, "runs", _get_dec(ctx).list_test_runs(
         policy=policy, template=template, layer=layer, state=state,
         page_token=page_token, page_size=page_size,
     ))
@@ -747,7 +788,7 @@ def list_test_runs(ctx, policy, template, layer, state, page_token, page_size) -
 @pass_context
 def list_test_paths(ctx, policy, template, state, page_token, page_size) -> None:
     """Every alert path with its latest test result, or why no test proves it."""
-    command_output(ctx, _get_dec(ctx).list_test_paths(
+    _out(ctx, "paths", _get_dec(ctx).list_test_paths(
         policy=policy, template=template, state=state, page_token=page_token, page_size=page_size,
     ))
 
@@ -786,7 +827,7 @@ def list_hits(ctx, since, until, layer, template, policy, sid, classification, e
     """Recorded hits (or hit groups), newest first."""
     validate_epoch_seconds(since, "since")
     validate_epoch_seconds(until, "until")
-    command_output(ctx, _get_dec(ctx).list_hits(
+    _out(ctx, "groups" if group_ else "hits", _get_dec(ctx).list_hits(
         since=since, until=until, layer=layer, template=template, policy=policy, sid=sid,
         classification=classification, event_types=list(event_types), drop_id=drop_id,
         include_test=include_test, mode=mode, group=group_, group_id=group_id,
@@ -804,7 +845,7 @@ def list_hits(ctx, since, until, layer, template, policy, sid, classification, e
 @pass_context
 def list_readers(ctx, days, policy, template, platform, page_token, page_size) -> None:
     """Who reads the decoys, and the allowlist entry that would approve them."""
-    command_output(ctx, _get_dec(ctx).list_readers(
+    _out(ctx, "readers", _get_dec(ctx).list_readers(
         days=days, policy=policy, template=template, platform=platform,
         page_token=page_token, page_size=page_size,
     ))
@@ -826,14 +867,14 @@ def uninstall(ctx, force, cancel, confirm) -> None:
         raise click.UsageError("--force and --cancel are mutually exclusive.")
     if not cancel:
         _require_confirm(confirm)
-    command_output(ctx, _get_dec(ctx).uninstall(force=force, cancel=cancel))
+    _out(ctx, None, _get_dec(ctx).uninstall(force=force, cancel=cancel))
 
 
 @group.command("uninstall-status")
 @pass_context
 def uninstall_status(ctx) -> None:
     """Where an uninstall stands (read-only)."""
-    command_output(ctx, _get_dec(ctx).uninstall_status())
+    _out(ctx, None, _get_dec(ctx).uninstall_status())
 
 
 # ---------------------------------------------------------------------------
@@ -856,6 +897,10 @@ def uninstall_status(ctx) -> None:
 def drops_create(ctx, form, label, memo, format_, domain, mode, observe_until, redirect_url,
                  file_name, title, lines, link_text, author, document_file, save_path) -> None:
     """Make a drop and print what to paste."""
+    if save_path and form in ("url", "hostname"):
+        # Refused before the drop is made: a failure after it would invite a
+        # retry that makes a second drop.
+        raise click.UsageError("--save needs --form qr or document: url and hostname drops have no file.")
     document = _document(document_file, file_name, title, lines, link_text, author)
     result = _get_dec(ctx).create_drop(
         form, label, memo=memo, format=format_, domain=domain, mode=mode,
@@ -882,7 +927,7 @@ def drops_create(ctx, form, label, memo, format_, domain, mode, observe_until, r
 def drops_list(ctx, forms, states, text, name, managed_by, last_hit, last_hit_since, sort,
                include_test, page_token, page_size) -> None:
     """List drops (never their secret values)."""
-    command_output(ctx, _get_dec(ctx).list_drops(
+    _out(ctx, "drops", _get_dec(ctx).list_drops(
         forms=list(forms), states=list(states), text=text, include_test=include_test, name=name,
         managed_by=managed_by, last_hit=last_hit, last_hit_since=last_hit_since, sort=sort,
         page_token=page_token, page_size=page_size,
@@ -923,7 +968,7 @@ def drops_update(ctx, drop_id, version, label, memo, state, mode, observe_until,
         if document is not None:
             raise click.UsageError("--reset-document cannot be combined with document fields.")
         document = {}
-    command_output(ctx, _get_dec(ctx).update_drop(
+    _out(ctx, None, _get_dec(ctx).update_drop(
         drop_id, version, label=label, memo=memo, state=state, mode=mode,
         observe_until=observe_until, redirect_url=redirect_url, document=document,
     ))
@@ -947,7 +992,7 @@ def drops_rotate(ctx, drop_id, version, save_path) -> None:
 def drops_delete(ctx, drop_id, confirm) -> None:
     """Stop a drop's alerts for good."""
     _require_confirm(confirm)
-    command_output(ctx, _get_dec(ctx).delete_drop(drop_id))
+    _out(ctx, None, _get_dec(ctx).delete_drop(drop_id))
 
 
 @drops_group.command("draft-document")
@@ -957,4 +1002,4 @@ def drops_delete(ctx, drop_id, confirm) -> None:
 def drops_draft_document(ctx, format_, file_name, title, lines, link_text, author, document_file) -> None:
     """The content a document drop would be generated with (read-only)."""
     document = _document(document_file, file_name, title, lines, link_text, author)
-    command_output(ctx, _get_dec(ctx).draft_drop_document(format_, document))
+    _out(ctx, None, _get_dec(ctx).draft_drop_document(format_, document))

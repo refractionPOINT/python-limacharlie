@@ -55,16 +55,6 @@ def hive():
         yield hive_cls, mock_hive
 
 
-def _existing(enabled=True, tags=None):
-    """merge_current_metadata of a stored record."""
-    def merge(record):
-        record.enabled = enabled
-        record.tags = tags
-        record.comment = "kept"
-        return True
-    return merge
-
-
 class TestRequests:
     def test_list_hits_maps_flags_to_the_extension_fields(self, ext):
         result = run([
@@ -240,10 +230,19 @@ class TestDrops:
         assert ext.calls == [("delete_drop", {"drop_id": "d1"})]
 
 
+def _missing(*_args):
+    raise ApiError("not found", status_code=400,
+                   response_body={"error": "lc_error_code:RECORD_NOT_FOUND - ext-deception"})
+
+
+def _stored(enabled=True, tags=None, etag="e-now"):
+    return HiveRecord(name="ext-deception", enabled=enabled, tags=tags, comment="kept", etag=etag)
+
+
 class TestConfig:
     def test_new_record_is_created_enabled_and_create_only(self, hive, tmp_path):
         hive_cls, mock_hive = hive
-        mock_hive.merge_current_metadata.return_value = False
+        mock_hive.get_metadata.side_effect = _missing
         cfg = tmp_path / "deception.yaml"
         cfg.write_text("schema_version: 1\npolicies: []\n")
         result = run(["deception", "config", "set", "--input-file", str(cfg)])
@@ -255,17 +254,15 @@ class TestConfig:
         assert record.enabled is True
         assert record.etag and record.etag.startswith("create-only")
 
-    def test_new_record_disabled_on_request(self, hive, tmp_path):
+    def test_new_record_disabled_on_request(self, hive):
         _, mock_hive = hive
-        mock_hive.merge_current_metadata.return_value = False
-        cfg = tmp_path / "c.yaml"
-        cfg.write_text("schema_version: 1\n")
-        assert run(["deception", "config", "set", "--input-file", str(cfg), "--disabled"]).exit_code == 0
+        mock_hive.get_metadata.side_effect = _missing
+        assert run(["deception", "config", "set", "--disabled"], input="schema_version: 1\n").exit_code == 0
         assert mock_hive.set.call_args[0][0].enabled is False
 
     def test_existing_record_keeps_its_metadata(self, hive):
         _, mock_hive = hive
-        mock_hive.merge_current_metadata.side_effect = _existing(enabled=False, tags=["t"])
+        mock_hive.get_metadata.return_value = _stored(enabled=False, tags=["t"])
         result = run(["deception", "config", "set"], input="schema_version: 1\n")
         assert result.exit_code == 0, result.output
         record = mock_hive.set.call_args[0][0]
@@ -273,18 +270,22 @@ class TestConfig:
         assert record.enabled is None and record.tags is None and record.comment is None
         assert record.etag is None
 
-    def test_enabled_flag_on_existing_record_keeps_the_other_metadata(self, hive):
+    def test_enabled_flag_keeps_the_other_metadata_conditionally(self, hive):
         _, mock_hive = hive
-        mock_hive.merge_current_metadata.side_effect = _existing(enabled=False, tags=["t"])
+        mock_hive.get_metadata.return_value = _stored(enabled=False, tags=["t"], etag="e-now")
         assert run(["deception", "config", "set", "--enabled"], input="schema_version: 1\n").exit_code == 0
         record = mock_hive.set.call_args[0][0]
         assert record.enabled is True and record.tags == ["t"] and record.comment == "kept"
+        # The metadata block replaces the stored one, so it is written only if
+        # nothing changed since it was read.
+        assert record.etag == "e-now"
 
     def test_record_input_round_trips_with_its_etag(self, hive):
         _, mock_hive = hive
         rec = HiveRecord(name="ext-deception", data={"schema_version": 1}, enabled=True,
                          tags=["iac"], etag="e1")
         mock_hive.get.return_value = rec
+        mock_hive.get_metadata.return_value = _stored(etag="e1")
         got = run(["deception", "config", "get", "--output", "yaml"])
         assert got.exit_code == 0, got.output
 
@@ -294,28 +295,41 @@ class TestConfig:
         assert record.data == {"schema_version": 1}
         assert record.etag == "e1"
         assert record.enabled is True and record.tags == ["iac"]
-        mock_hive.merge_current_metadata.assert_not_called()
+
+    def test_round_trip_of_a_deleted_record_is_refused(self, hive):
+        _, mock_hive = hive
+        mock_hive.get_metadata.side_effect = _missing
+        body = "data: {schema_version: 1}\nusr_mtd: {enabled: true}\nsys_mtd: {etag: e1}\n"
+        result = run(["deception", "config", "set"], input=body)
+        assert result.exit_code != 0
+        mock_hive.set.assert_not_called()
+
+    def test_record_input_without_etag_creates_only(self, hive):
+        _, mock_hive = hive
+        mock_hive.get_metadata.side_effect = _missing
+        body = "data: {schema_version: 1}\nusr_mtd: {enabled: true}\n"
+        assert run(["deception", "config", "set"], input=body).exit_code == 0
+        assert mock_hive.set.call_args[0][0].etag.startswith("create-only")
 
     def test_no_etag_overwrites(self, hive):
         _, mock_hive = hive
-        mock_hive.merge_current_metadata.side_effect = _existing()
+        mock_hive.get_metadata.return_value = _stored()
         body = "data: {schema_version: 1}\nsys_mtd: {etag: e1}\n"
         assert run(["deception", "config", "set", "--no-etag"], input=body).exit_code == 0
         assert mock_hive.set.call_args[0][0].etag is None
 
     def test_etag_of_a_deleted_record_is_refused(self, hive):
         _, mock_hive = hive
-        mock_hive.merge_current_metadata.return_value = False
+        mock_hive.get_metadata.side_effect = _missing
         result = run(["deception", "config", "set", "--etag", "e1"], input="schema_version: 1\n")
         assert result.exit_code != 0
         mock_hive.set.assert_not_called()
 
-    def test_stale_etag_is_reported(self, hive):
+    def test_metadata_read_failure_is_not_taken_for_a_missing_record(self, hive):
         _, mock_hive = hive
-        mock_hive.merge_current_metadata.side_effect = _existing()
-        mock_hive.set.side_effect = ApiError("ETAG_MISMATCH", status_code=409)
-        result = run(["deception", "config", "set", "--etag", "old"], input="schema_version: 1\n")
-        assert result.exit_code != 0
+        mock_hive.get_metadata.side_effect = ApiError("denied", status_code=403)
+        assert run(["deception", "config", "set"], input="schema_version: 1\n").exit_code != 0
+        mock_hive.set.assert_not_called()
 
     def test_enable_writes_metadata_only(self, hive):
         _, mock_hive = hive
@@ -323,6 +337,77 @@ class TestConfig:
         assert run(["deception", "config", "enable"]).exit_code == 0
         record = mock_hive.set.call_args[0][0]
         assert record.data is None and record.enabled is True and record.tags == ["t"]
+
+
+class TestMoreRequests:
+    """Flag-to-field mapping of the commands not covered above."""
+
+    @pytest.mark.parametrize("args, action, data", [
+        (["list-hosts", "--status", "failed", "--sort", "problems", "--include-deleted", "--summary"],
+         "list_hosts", {"status": "failed", "sort": "problems", "include_deleted": True, "summary": True}),
+        (["list-readers", "--days", "7", "--platform", "linux", "--template", "kb"],
+         "list_readers", {"days": 7, "platform": "linux", "template": "kb"}),
+        (["list-test-runs", "--layer", "use", "--state", "pending"],
+         "list_test_runs", {"layer": "use", "state": "pending"}),
+        (["list-test-paths", "--state", "testable", "--policy", "p"],
+         "list_test_paths", {"state": "testable", "policy": "p"}),
+        (["coverage", "--policy", "p"], "coverage", {"policy": "p"}),
+        (["test-fire", "--drop-id", "d1"], "test_fire", {"drop_id": "d1"}),
+        (["kinds"], "list_kinds", {}),
+        (["rollout-status"], "rollout_status", {}),
+        (["drops", "list", "--form", "url", "--form", "qr", "--state", "deleted", "--managed-by", "api",
+          "--last-hit", "not_since", "--last-hit-since", "2026-11-01T00:00:00Z", "--sort", "last_hit"],
+         "list_drops", {"forms": ["url", "qr"], "states": ["deleted"], "managed_by": "api",
+                        "last_hit": "not_since", "last_hit_since": "2026-11-01T00:00:00Z", "sort": "last_hit"}),
+        (["drops", "draft-document", "--format", "svg", "--title", "t"],
+         "draft_drop_document", {"format": "svg", "document": {"title": "t"}}),
+    ])
+    def test_mapping(self, ext, args, action, data):
+        result = run(["deception"] + args)
+        assert result.exit_code == 0, result.output
+        assert ext.calls == [(action, data)]
+
+    def test_restore_rules_fails_when_the_read_back_failed(self, ext):
+        ext.answers["restore_rules"] = {"rules": [
+            {"name": "deception-respond", "restored": True, "enabled": False, "error": "read back failed"},
+        ]}
+        assert run(["deception", "restore-rules", "--rule", "deception-respond"]).exit_code == 1
+
+    def test_empty_draft_policy_is_refused(self, ext, tmp_path):
+        empty = tmp_path / "empty.yaml"
+        empty.write_text("")
+        assert run(["deception", "plan", "--draft-policy", str(empty)]).exit_code != 0
+        assert ext.calls == []
+
+    def test_save_with_a_url_drop_is_refused_before_creating(self, ext, tmp_path):
+        result = run(["deception", "drops", "create", "--form", "url", "--label", "x",
+                      "--save", str(tmp_path / "f")])
+        assert result.exit_code != 0
+        assert ext.calls == []
+
+    def test_save_into_a_missing_folder_is_a_clean_error(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(tmp_path / "no" / "f.svg")])
+        assert result.exit_code == 1
+        assert "nothing was written" in result.output and "Traceback" not in result.output
+
+
+class TestTableOutput:
+    def test_a_list_shows_its_rows_and_the_whole_page_token(self, ext):
+        token = "t" * 300
+        ext.answers["list"] = {"instances": [{"id": "i1", "state": "verified"}, {"id": "i2", "state": "failed"}],
+                               "next_page_token": token}
+        result = CliRunner().invoke(cli, ["--output", "table", "deception", "list"])
+        assert result.exit_code == 0, result.output
+        assert "i2" in result.output and "[2 items]" not in result.output
+        assert token in result.output
+
+    def test_a_drop_paste_is_printed_whole(self, ext):
+        url = "https://example.invalid/" + "a" * 200
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"url": url}}
+        result = CliRunner().invoke(cli, ["--output", "table", "deception", "drops", "get", "--drop-id", "d1"])
+        assert result.exit_code == 0, result.output
+        assert url in result.output
 
 
 def _leaves(cmd, prefix):

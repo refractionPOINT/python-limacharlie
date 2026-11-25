@@ -22,9 +22,9 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from .organization import Organization
 
-from ..errors import ValidationError
+from ..errors import ApiError, ValidationError
 from .extensions import Extensions
-from .hive import Hive, HiveRecord
+from .hive import Hive, HiveRecord, is_record_not_found
 
 EXTENSION_NAME = "ext-deception"
 #: The configuration record: the ``extension_config`` record named after the extension.
@@ -100,7 +100,9 @@ class Deception:
         The extension validates the whole configuration when it is saved.
 
         * An existing record keeps its metadata (enabled state, tags, comment,
-          expiry) unless ``enabled`` or ``usr_mtd`` is given.
+          expiry) unless ``enabled`` or ``usr_mtd`` is given. With
+          ``enabled`` alone, the other metadata is kept and the write is
+          conditional on the etag it was read with.
         * A record that does not exist yet is created enabled unless
           ``enabled`` is False (or ``usr_mtd`` says otherwise): a disabled
           record gives the extension an empty configuration. Creation is
@@ -122,11 +124,31 @@ class Deception:
         Raises:
             ValidationError: If ``etag`` is given and the record does not
                 exist (it was deleted since it was read).
+            ApiError: If the stored metadata cannot be read (other than
+                a missing record).
             ApiError: If the hive refuses the write, for example on an etag
                 mismatch.
         """
         hive = self._config_hive()
+        # Reading the stored metadata takes ext.conf.get (or ext.conf.get.mtd).
+        # The hive ignores an etag when no record exists, so existence is
+        # checked here: a stale etag of a deleted record is refused, and a
+        # new record is written create-only.
+        try:
+            current: HiveRecord | None = hive.get_metadata(CONFIG_RECORD)
+        except ApiError as exc:
+            if not is_record_not_found(exc):
+                raise
+            current = None
+        if current is None and etag:
+            raise ValidationError(
+                f"the {CONFIG_RECORD} record no longer exists, so the etag cannot match: "
+                "read it again, or write it without an etag to create it"
+            )
+
         record = HiveRecord(name=CONFIG_RECORD, data=config, etag=etag)
+        if current is None:
+            record.etag = _CREATE_ONLY_ETAG
         if usr_mtd is not None:
             record.expiry = usr_mtd.get("expiry")
             record.enabled = bool(usr_mtd.get("enabled", False))
@@ -135,24 +157,20 @@ class Deception:
             record.ui_actions = usr_mtd.get("ui_actions")
             if enabled is not None:
                 record.enabled = enabled
-            return hive.set(record)
-
-        # Reading the stored metadata takes ext.conf.get (or ext.conf.get.mtd).
-        exists = hive.merge_current_metadata(record)
-        if not exists:
-            if etag:
-                raise ValidationError(
-                    f"the {CONFIG_RECORD} record no longer exists, so the etag cannot match: "
-                    "read it again, or write it without an etag to create it"
-                )
-            record.etag = _CREATE_ONLY_ETAG
+        elif current is None:
             record.enabled = True if enabled is None else enabled
-            return hive.set(record)
-        if enabled is None:
-            # Data only: the hive keeps the stored metadata as it is.
-            record.enabled = record.tags = record.comment = record.expiry = record.ui_actions = None
-        else:
+        elif enabled is not None:
+            # A metadata block replaces the stored one: start from it, and
+            # make the write conditional on the etag read with it, so a
+            # concurrent change to the tags or comment is not lost.
             record.enabled = enabled
+            record.tags = current.tags
+            record.comment = current.comment
+            record.expiry = current.expiry
+            record.ui_actions = current.ui_actions
+            if not record.etag:
+                record.etag = current.etag
+        # Otherwise data only: the hive keeps the stored metadata as it is.
         return hive.set(record)
 
     def enable_config(self) -> dict[str, Any]:

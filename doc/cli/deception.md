@@ -27,6 +27,8 @@ Subscribe first: `limacharlie extension subscribe --name ext-deception`.
 | `deception drops ...` | `create`, `list`, `get`, `update`, `rotate`, `delete`, `draft-document`. |
 | `deception uninstall` / `uninstall-status` | Remove everything before unsubscribing; read where it stands. |
 
+In a terminal (`--output table`, the default there), a list prints its rows as a table and the rest of the answer (page token, totals, summary) as YAML, and any other answer prints as YAML, so no value is cut. Every other `--output` format prints the answer whole.
+
 Every command maps to one extension request (`extension request --name ext-deception --action <action>` does the same with raw JSON). The extension validates every request and the configuration; the CLI only checks the shape of its own flags.
 
 ## Permissions
@@ -60,8 +62,8 @@ limacharlie deception config enable
 
 `config set` takes either the configuration itself (`schema_version`, `policies`, `templates`, ...) or a record as `config get` prints it (`data` holding the configuration, with `usr_mtd` and `sys_mtd.etag`).
 
-- **Etag.** The etag in the input, or `--etag`, makes the write a compare-and-set: it is refused if someone saved the record since it was read. `--no-etag` ignores the etag in the input.
-- **Enabled state.** Without `usr_mtd` or a flag, an existing record keeps its metadata, and a record that does not exist yet is created **enabled** (a disabled record gives the extension an empty configuration). Creation is conditional, so a record created meanwhile is not replaced. A `usr_mtd` block replaces the stored metadata, as with `hive set`. `--enabled` / `--disabled` set the state and win over `usr_mtd`.
+- **Etag.** The etag in the input, or `--etag`, makes the write a compare-and-set: it is refused if someone saved the record since it was read, or deleted it. `--no-etag` ignores the etag in the input.
+- **Enabled state.** Without `usr_mtd` or a flag, an existing record keeps its metadata, and a record that does not exist yet is created **enabled** (a disabled record gives the extension an empty configuration). Creation is conditional, so a record created meanwhile is not replaced. A `usr_mtd` block replaces the stored metadata, as with `hive set`. `--enabled` / `--disabled` set the state and win over `usr_mtd`; on an existing record they keep its other metadata, and the write is conditional on the metadata they were read with.
 - `config enable` enables a record saved disabled (for example a new record written by `extension config-set`).
 
 The record also works with `limacharlie extension config-get` / `config-set`, the generic `hive` commands and `limacharlie sync` (`--hive-extension-config`).
@@ -77,7 +79,7 @@ limacharlie deception rollout-status
 limacharlie deception restore-rules --rule deception-respond
 ```
 
-`--draft-policy` plans an unsaved policy record instead, with `--draft-templates` (a list of template records the save would add). `deploy` never overwrites a shipped detection rule you edited: `--apply-pack` (repeatable) or `--apply-all-pack` replace them with the current shipped version. The rollout continues after `deploy` returns. `restore-rules` exits 1 when a rule was not restored.
+`--draft-policy` plans an unsaved policy record instead, with `--draft-templates` (a list of template records the save would add). `deploy` never overwrites a shipped detection rule you edited: `--apply-pack` (repeatable) or `--apply-all-pack` replace them with the current shipped version. The rollout continues after `deploy` returns. `restore-rules` exits 1 unless every rule was restored and reads back enabled.
 
 ## Decoys and hosts
 
@@ -123,7 +125,7 @@ limacharlie deception drops delete --drop-id <id> --confirm
 limacharlie deception drops draft-document --format docx
 ```
 
-`create`, `get` and `rotate` print what to paste (the only answers that carry a secret value). `--save PATH` also writes the document (checked against its `sha256`) or the QR code as SVG to a file; the answer is printed either way.
+`create`, `get` and `rotate` print what to paste (the only answers that carry a secret value). `--save PATH` also writes the document (checked against its `sha256`) or the QR code as SVG to a file; the answer is printed either way, and `drops create --save` refuses a url or hostname drop before making it.
 
 A document's content comes from `--title`, `--line` (repeatable, one paragraph each), `--link-text`, `--author`, `--file-name`, or `--document-file` (YAML or JSON with those fields; the flags override it). A field left out is generated.
 
