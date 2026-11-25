@@ -392,6 +392,43 @@ class TestMoreRequests:
         assert "nothing was written" in result.output and "Traceback" not in result.output
 
 
+class TestFollowUps:
+    @pytest.mark.parametrize("rows, code", [
+        ([{"name": "a", "restored": True, "enabled": True}, {"name": "b", "restored": True, "enabled": True}], 0),
+        ([{"name": "a", "restored": True, "enabled": False}], 1),
+        ([{"name": "a", "restored": True, "enabled": True, "error": "read back failed"}], 1),
+        ([{"name": "a", "restored": False, "enabled": True, "code": "write_failed"}], 1),
+        ([], 1),
+    ])
+    def test_restore_rules_exit_code(self, ext, rows, code):
+        ext.answers["restore_rules"] = {"rules": rows}
+        assert run(["deception", "restore-rules", "--rule", "a"]).exit_code == code
+
+    def test_rotate_save_of_a_url_drop_is_refused_before_rotating(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1", "form": "url", "version": 4}, "paste": {}}
+        result = run(["deception", "drops", "rotate", "--drop-id", "d1", "--save", str(tmp_path / "f")])
+        assert result.exit_code != 0
+        assert [a for a, _ in ext.calls] == ["get_drop"]
+
+    def test_rotate_save_uses_the_version_it_read(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1", "form": "qr", "version": 4}, "paste": {}}
+        ext.answers["rotate_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        out = tmp_path / "qr.svg"
+        assert run(["deception", "drops", "rotate", "--drop-id", "d1", "--save", str(out)]).exit_code == 0
+        assert ext.calls == [("get_drop", {"drop_id": "d1"}), ("rotate_drop", {"drop_id": "d1", "version": 4})]
+        assert out.read_text() == "<svg/>"
+
+    def test_a_failed_save_leaves_the_existing_file_and_no_partial_one(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg new/>"}}
+        out = tmp_path / "qr.svg"
+        out.write_text("old")
+        with patch("limacharlie.commands.deception.os.replace", side_effect=OSError("disk full")):
+            result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(out)])
+        assert result.exit_code == 1 and "nothing was written" in result.output
+        assert out.read_text() == "old"
+        assert [p.name for p in tmp_path.iterdir()] == ["qr.svg"]
+
+
 class TestTableOutput:
     def test_a_list_shows_its_rows_and_the_whole_page_token(self, ext):
         token = "t" * 300

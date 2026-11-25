@@ -19,6 +19,8 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import os
+import tempfile
 from typing import Any
 
 import click
@@ -145,17 +147,31 @@ def _save_paste(result: dict[str, Any], path: str) -> None:
             if expected and hashlib.sha256(content).hexdigest() != str(expected).lower():
                 raise click.ClickException(_SAVE_FAILED.format(
                     path=path, why="the document does not match its sha256"))
-            with open(path, "wb") as f:
-                f.write(content)
         elif paste.get("qr_svg"):
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(paste["qr_svg"])
+            content = paste["qr_svg"].encode("utf-8")
         else:
             raise click.ClickException(_SAVE_FAILED.format(
                 path=path, why="its paste has no file (a url or hostname drop, or a deleted drop)"))
+        _write_whole(path, content)
     except (binascii.Error, ValueError, OSError) as exc:
         raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
     click.echo(f"Wrote {path}", err=True)
+
+
+def _write_whole(path: str, content: bytes) -> None:
+    """Write ``content`` to ``path`` through a temporary file beside it, so a
+    failed write leaves an existing file as it was and no partial file."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".deception-save-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _output_and_save(ctx, result: dict[str, Any], save_path: str | None) -> None:
@@ -982,7 +998,16 @@ def drops_update(ctx, drop_id, version, label, memo, state, mode, observe_until,
 @pass_context
 def drops_rotate(ctx, drop_id, version, save_path) -> None:
     """Give a drop a new value to paste (the old one alerts 90 more days)."""
-    _output_and_save(ctx, _get_dec(ctx).rotate_drop(drop_id, version), save_path)
+    dec = _get_dec(ctx)
+    if save_path:
+        # Refused before rotating: a failure after it would invite a retry
+        # that rotates again.
+        drop = dec.get_drop(drop_id=drop_id).get("drop") or {}
+        if drop.get("form") in ("url", "hostname"):
+            raise click.UsageError("--save needs a qr or document drop: url and hostname drops have no file.")
+        if version is None and isinstance(drop.get("version"), int):
+            version = drop["version"]
+    _output_and_save(ctx, dec.rotate_drop(drop_id, version), save_path)
 
 
 @drops_group.command("delete")
