@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Breaking (experimental Investigation Engine): the template is the authority
+
+The engine now does what a template says: there is no policy layer above it, so
+the `investigate policy` commands are removed.
+
+- Removed: `investigate policy get`, `ai`, `ai-set`, `status`, `pause` and
+  `resume`. SDK: `Investigation.get_effective_policy()`, `get_ai_may_decide()`,
+  `set_ai_may_decide()` and the constants `MANUAL_PAUSE_RECORD` and
+  `DEFAULT_POLICY_RECORD`. Whether the AI may decide is the template's own
+  `ai_may_decide` key. Run overrides can no longer carry `autonomy`,
+  `ai_may_decide` or `operators`.
+- New: `investigate settings get` (SDK `get_settings()`) shows the org settings
+  the engine enforces, including who last saved the record (`set_by`, `set_at`)
+  and the circuit breaker's usage. `investigate settings pause` and `resume`
+  (SDK `pause_actions()`, `resume_actions()`) set the `paused` field of the
+  `investigation_policy` record `default` with a compare-and-set, instead of
+  saving or deleting the `autonomy-manual-pause` record. The authoring kit
+  section `policy` is now `settings`.
+- New permissions for these calls: `settings pause` and `settings resume` need
+  `investigation_policy.get` and `investigation_policy.set` (resume no longer
+  needs `investigation_policy.del`). `settings get` needs only
+  `investigation.get` and `insight.evt.get`.
+- `doc/cli/investigation-engine.md` describes the new `act` entry (`do`, a
+  required `approval`, `lease`, `on_lease_end`, the close entry) and the
+  template's `ai_may_decide`.
+
 ### New permissions: hives that `sync pull --all` reads
 
 - `sync pull --all` fails for the whole org when the API key cannot read one of

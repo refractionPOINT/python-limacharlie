@@ -794,7 +794,12 @@ Author a template (an AI agent or a person):
   5. refine, repeat 3-4
   6. limacharlie investigate templates save my-plan --file plan.yaml --comment "<what you tested>"
      Always a DRAFT. A draft runs only through `templates test` or a run a
-     person starts, with response actions capped at `suggest`.
+     person starts, and it only suggests its actions.
+     Each `act` entry needs `do`, `target`, `on_rules` and `approval`
+     (none | required | {when: <expr>}); a reversible action also needs
+     `lease` and `on_lease_end` (release | hold | {check, args, extend, max,
+     at_max}). A case close is an `act` entry with `do: close.false_positive`.
+     Whether the AI may decide is the template's `ai_may_decide` key.
   7. A PERSON reviews and promotes: limacharlie investigate templates promote my-plan --confirm
      AI agents must not promote or save with --status active.
 
@@ -804,8 +809,9 @@ Questions without a template: `investigate packs --brief`, then
 
 Runs: `investigate runs start|get|list|events --follow|steps|case|cancel`.
 Approvals: `investigate actions list --state awaiting_approval`, `approve`, `deny`.
-Policy: `investigate policy get|status|pause|resume`. Whether the AI may
-decide, or only recommend, is `investigate policy ai` / `ai-set` (a person's call).
+Settings: `investigate settings get|pause|resume` (the org pause, circuit
+breaker, run identity, notifications, budgets). The template, not the org,
+decides what acts alone, what waits for a person and for how long.
 
 Errors carry the engine's coded issues ({code, path, message, suggestion}).
 A 404 with no engine error means the feature is not enabled for the region.

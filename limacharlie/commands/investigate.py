@@ -26,7 +26,6 @@ from ..discovery import register_explain
 from ..output import detect_output_format, format_output
 from ..errors import LimaCharlieError
 from ..sdk.investigation import (
-    AI_MODES,
     KIT_SECTIONS,
     MAX_POLL_WAIT,
     RUN_OUTCOMES,
@@ -65,7 +64,16 @@ artifacts (`ref` holds ids only). Nothing is scored: a run ends with an outcome
 (closed_by_rule, escalated_by_rule, closed_by_ai, escalated_by_ai,
 ai_recommends_benign, ai_recommends_malicious, couldnt_tell, conflict) and the
 rule or the AI behind it. Whether the AI may DECIDE, or only recommend, is the
-org policy's `ai_may_decide` for the template (`investigate policy ai`).
+template's own `ai_may_decide` key (off, escalate, close_and_escalate).
+
+The template is the authority: nothing above it limits what it does. Each `act`
+entry says `do` (the action), `target`, `on_rules`, a REQUIRED `approval`
+(`none`, `required` or `{when: <expression>}`) and, for a reversible action
+(contain.*), a `lease` and `on_lease_end` (`release`, `hold` or a `check:`
+that runs again before it releases). A case close is an `act` entry too
+(`do: close.false_positive`, `approval`, `on_rules`). A draft only suggests.
+The org keeps three controls that belong to no template: the pause, the
+circuit breaker and the plain settings (`investigate settings get|pause|resume`).
 
 AI agent workflow for a new template (a person promotes it at the end):
 
@@ -77,7 +85,8 @@ AI agent workflow for a new template (a person promotes it at the end):
   6. refine from the rules that disagreed with analysts, what the AI had to
      recommend and what stayed unknown, repeat 4-5
   7. limacharlie investigate templates save my-plan --file plan.yaml --comment "<what you tested>"
-     (always a DRAFT; a draft runs only through a test or a run a person starts)
+     (always a DRAFT; a draft runs only through a test or a run a person starts,
+     and it only suggests its actions)
   8. a person reviews it and runs: limacharlie investigate templates promote my-plan --confirm
 
 Questions without a template: use `investigate packs` then `investigate wave`.
@@ -85,23 +94,24 @@ Questions without a template: use `investigate packs` then `investigate wave`.
 Permissions: reads need investigation.get + insight.evt.get, writes (start,
 wave, test, cancel, delete, decide) investigation.set + insight.evt.get, stats
 also investigation_policy.set, template records investigation_plan.get/.set/.del,
-pause/status/resume the investigation_policy record autonomy-manual-pause
-(investigation_policy.set, .get, .del), ai / ai-set the `ai_may_decide` field of
-the default investigation_policy record (investigation_policy.get / .set).
+settings pause/resume write the `paused` field of the default investigation_policy
+record (investigation_policy.get and .set); settings get reads it through the
+engine (the reads above).
 """
 
 _EXPLAIN_KIT = """\
 Fetch the authoring kit: template JSON Schema, the authoring guide, the
-org's typed operator catalogue, examples, effective policy and budgets, every
+org's typed operator catalogue, examples, the org settings (budgets, pause,
+circuit breaker, whether an AI agent is configured), every
 validation code with its fix, the fact packs, and (when the engine has it) the
 default template library.
 
 The whole kit is about 33k tokens. Fetch it in parts with --section
-(repeatable): start with guide, policy, codes, then schema and library. The
+(repeatable): start with guide, settings, codes, then schema and library. The
 `size` entry of the answer says what was returned.
 
 Examples:
-  limacharlie investigate kit --section guide --section policy --section codes
+  limacharlie investigate kit --section guide --section settings --section codes
   limacharlie investigate kit --section library
 """
 
@@ -206,10 +216,10 @@ that says `status: active` is refused. Nothing is written when validation has
 errors, when the record exists and --overwrite is missing, or when the record
 is active and the new one is a draft (a draft never replaces an active
 template: save under a new name). A draft never runs on its own: it runs only
-through `templates test` or a run a person starts, with autonomy capped at
-`suggest`. Put what you tested in --comment so the reviewer sees it. Saving
-never lets the AI decide: that is the policy's `ai_may_decide`
-(`investigate policy ai`), set by a person.
+through `templates test` or a run a person starts, and it only suggests its
+actions: none is executed. Put what you tested in --comment so the reviewer
+sees it. Saving never lets the AI decide: that is the template's `ai_may_decide`
+key, which a person reviews before promoting the template.
 
 Examples:
   limacharlie investigate templates save my-plan --file plan.yaml --comment "10 samples, 7 decided by rules (0 disagree), 2 AI recommendations agree, 1 unknown"
@@ -258,7 +268,7 @@ _EXPLAIN_RUNS_START = """\
 Start an investigation run: the engine gathers what the template's rules and
 review read and ends with an outcome (see `investigate`): a rule decided
 (closed_by_rule, escalated_by_rule, with the rule's sentence), the AI decided
-where the policy allows it (closed_by_ai, escalated_by_ai), the AI recommends
+where the template allows it (closed_by_ai, escalated_by_ai), the AI recommends
 and a person acts on it (ai_recommends_benign, ai_recommends_malicious), or
 nothing could be decided (couldnt_tell, conflict; `verdict.missing` says what
 was missing and who needed it).
@@ -270,8 +280,9 @@ trigger: detect_cat, severity, tag and source, the first three from --category,
 reason). Say what to investigate with --detection-id, --case-id, --entity-id or
 --question. --urgency (low, medium, high, critical) defaults to a value derived
 from --priority and --severity, else medium. A
-draft template runs with autonomy capped at suggest; an active one acts as
-the org's policy says (response actions may wait for a person's approval).
+draft template only suggests its actions; an active one does what its `act`
+entries say (an action with `approval` other than `none` waits for a person,
+and nothing acts alone while the org is paused: `investigate settings`).
 --idempotency-key makes a repeated start return the same run.
 
 Repeat --trust-lookup NAME / --trust-value VALUE to add to template trust for
@@ -409,66 +420,48 @@ Example:
   limacharlie investigate actions deny <RUN_ID> <ACTION_ID> --note "known admin activity"
 """
 
-_EXPLAIN_POLICY_GET = """\
-Explain the effective policy: budgets, the operators and extension requests
-that are denied, and the autonomy mode of each action class, optionally for
-an alert shape (--category, --priority, --severity, --target-tag, --class).
-There are no confidence thresholds or mandatory checks: rules decide, and the
-AI decides only where `ai_may_decide` allows (`investigate policy ai`).
-"""
+_EXPLAIN_SETTINGS_GET = """\
+Show the org's Investigation Engine settings as the engine enforces them: the
+`default` record of the investigation_policy hive. `paused` says whether
+nothing acts alone, and `set_by` / `set_at` say who last saved the record and
+when (a pause is a field of that record, so this is who paused it unless
+someone saved the record again since). `circuit_breaker` shows the caps and
+`used_last_hour` / `tripped`. The rest: the run identity and whether it is
+ready, where notifications go, which AI agent answers, budgets and the case
+mode. `source: builtin` means there is no record. `warnings` lists a rejected
+record (the engine then keeps its last good copy).
 
-_EXPLAIN_POLICY_AI = """\
-Show what the policy lets the AI decide, per template: the `ai_may_decide` field
-of the `default` investigation_policy record. `off` (the default when a
-template has no entry): an AI-assisted rule or the AI review only recommends,
-and a person acts on the recommendation. `escalate`: it may escalate.
-`close_and_escalate`: it may also close. `"*"` is every template; a template's
-own entry wins. Only the `default` record grants; other records and run
-overrides can only lower it. Runs keep the mode they started with. Needs
-investigation_policy.get. `policy get` shows the effective policy. If Git Sync
-manages the investigation_policy hive, the next sync overwrites a change made
-here: keep `ai_may_decide` in git too.
+The settings never override a template. What a template does is written in the
+template: approval, lease and what happens when it ends, whether the AI may
+decide.
 
 Example:
-  limacharlie investigate policy ai
+  limacharlie investigate settings get
 """
 
-_EXPLAIN_POLICY_AI_SET = """\
-Set what the AI may decide for one template (or "*" for every template):
-off, escalate or close_and_escalate. This changes only the `ai_may_decide` field
-of the `default` investigation_policy record, conditional on the version read.
-If Git Sync manages the investigation_policy hive, keep the change in git too or
-the next sync undoes it. It is a person's decision about the org's automation: review the template's
-test results first (`templates test`). AI agents must not run it. Requires
---confirm and investigation_policy.set.
+_EXPLAIN_SETTINGS_PAUSE = """\
+Pause the org: set `paused: true` on the `default` investigation_policy record.
+Nothing acts alone while it is true: an action that would have acted alone
+waits for a person. Runs still investigate, and approvals, denials, undos and
+lease ends still work. Actions already taken are not undone, and actions that
+waited keep waiting for a person after a resume. Only that field changes, and
+the write is conditional on the version read, so a concurrent edit is never
+overwritten. Saving it twice changes nothing. Needs investigation_policy.get
+and investigation_policy.set. If Git Sync manages the investigation_policy
+hive, keep the pause in git too or the next sync undoes it.
 
-Examples:
-  limacharlie investigate policy ai-set mailsec-message close_and_escalate --confirm
-  limacharlie investigate policy ai-set mailsec-message off --confirm
+Example:
+  limacharlie investigate settings pause
 """
 
-_EXPLAIN_POLICY_STATUS = """\
-Whether automatic actions are paused for the org. The pause is the enabled
-investigation_policy record `autonomy-manual-pause` (every action class held at
-`suggest`); this reads that record and says who last saved it. `paused: false`
-with an `inactive_reason` means the record exists but does not pause (it is
-disabled, was edited or has an expiry). Needs investigation_policy.get. `policy get` shows what
-the policy records allow right now.
-"""
+_EXPLAIN_SETTINGS_RESUME = """\
+Lift the pause: set `paused: false` on the `default` investigation_policy
+record. Actions that waited while paused keep waiting for a person. Same
+conditional write as `settings pause`. Needs investigation_policy.get and
+investigation_policy.set.
 
-_EXPLAIN_POLICY_PAUSE = """\
-Pause automatic actions for the whole org by saving the policy record
-`autonomy-manual-pause`. Suggestions stay visible and a person can still
-approve; actions already executed are not undone. Saving it twice changes
-nothing. Needs investigation_policy.set. If Git Sync manages the
-investigation_policy hive, keep the pause in git too.
-"""
-
-_EXPLAIN_POLICY_RESUME = """\
-Resume automatic actions for the org by deleting the policy record
-`autonomy-manual-pause`. The other policy records decide what new actions may
-do; suggestions held while paused are not released. Needs
-investigation_policy.del.
+Example:
+  limacharlie investigate settings resume
 """
 
 for _path, _text in {
@@ -496,12 +489,9 @@ for _path, _text in {
     "investigate.actions.list": _EXPLAIN_ACTIONS_LIST,
     "investigate.actions.approve": _EXPLAIN_ACTIONS_APPROVE,
     "investigate.actions.deny": _EXPLAIN_ACTIONS_DENY,
-    "investigate.policy.get": _EXPLAIN_POLICY_GET,
-    "investigate.policy.ai": _EXPLAIN_POLICY_AI,
-    "investigate.policy.ai-set": _EXPLAIN_POLICY_AI_SET,
-    "investigate.policy.status": _EXPLAIN_POLICY_STATUS,
-    "investigate.policy.pause": _EXPLAIN_POLICY_PAUSE,
-    "investigate.policy.resume": _EXPLAIN_POLICY_RESUME,
+    "investigate.settings.get": _EXPLAIN_SETTINGS_GET,
+    "investigate.settings.pause": _EXPLAIN_SETTINGS_PAUSE,
+    "investigate.settings.resume": _EXPLAIN_SETTINGS_RESUME,
 }.items():
     register_explain(_path, _text)
 
@@ -700,7 +690,7 @@ def group() -> None:
 @pass_context
 @_engine_errors
 def kit_cmd(ctx, sections) -> None:
-    """Fetch the authoring kit: schema, guide, operators, examples, policy, codes, packs, library."""
+    """Fetch the authoring kit: schema, guide, operators, examples, settings, codes, packs, library."""
     command_output(ctx, _get_investigation(ctx).get_authoring_kit(list(sections) or None))
 
 
@@ -949,7 +939,7 @@ def _print_test(ctx: click.Context, test: dict[str, Any], include_steps: bool) -
 @click.option("--sample", "samples_json", multiple=True, help="Sample as a JSON object, e.g. '{\"inputs\": {...}, \"expected\": \"false_positive\"}' (repeatable).")
 @click.option("--samples-file", default=None, help="YAML/JSON file holding a list of samples.")
 @click.option("--mode", type=click.Choice(["triage", "full"]), default=None, help="triage (default for a test, the cheap pass) or full.")
-@click.option("--strict", is_flag=True, default=False, help="Refuse the test when --overrides-json would loosen the org's policy (default: the loosening part is ignored and reported in policy.clamped).")
+@click.option("--strict", is_flag=True, default=False, help="Refuse the test when --overrides-json would loosen the org's budgets (default: the loosening part is ignored).")
 @click.option("--overrides-json", default=None, help="Tighten-only budget overrides, e.g. '{\"budgets\": {\"max_wall_seconds\": 120}}'.")
 @click.option("--wait", "wait_seconds", type=click.IntRange(0, MAX_POLL_WAIT), default=5, show_default=True,
               help="Seconds the starting call waits for a fast test.")
@@ -1091,16 +1081,16 @@ def runs_group() -> None:
 @click.option("--case-id", default=None, help="Case to investigate.")
 @click.option("--entity-id", default=None, help="Entity to investigate.")
 @click.option("--question", default=None, help="Free-text question, for a template that takes one.")
-@click.option("--category", default=None, help="Detection category of the alert: matched by --auto and by run-scoped policy records.")
-@click.option("--severity", default=None, help="Severity of the alert (low, medium, high, critical): matched by --auto and policy records; sets the default urgency.")
-@click.option("--priority", type=int, default=None, help="Detection priority: matched by policy records; sets the default urgency (8+ critical, 6+ high, 3+ medium).")
-@click.option("--tag", "tags", multiple=True, help="Tag of the alert (repeatable): matched by --auto and by run-scoped policy records.")
+@click.option("--category", default=None, help="Detection category of the alert: matched by --auto.")
+@click.option("--severity", default=None, help="Severity of the alert (low, medium, high, critical): matched by --auto; sets the default urgency.")
+@click.option("--priority", type=int, default=None, help="Detection priority: sets the default urgency (8+ critical, 6+ high, 3+ medium).")
+@click.option("--tag", "tags", multiple=True, help="Tag of the alert (repeatable): matched by --auto.")
 @click.option("--input", "inputs", multiple=True, help="Run input KEY=VALUE (repeatable; values are text).")
 @click.option("--inputs-json", default=None, help="Run inputs as a JSON object (typed values).")
 @click.option("--urgency", type=click.Choice(["low", "medium", "high", "critical"]), default=None,
               help="Run urgency (how soon it matters). Default: derived from --priority / --severity, else medium.")
 @click.option("--mode", type=click.Choice(["triage", "full", "scope"]), default=None, help="Run mode (engine default: full; triage is cheaper).")
-@click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case number> (default: a new case for a detection or case trigger, unless the policy's case is none).")
+@click.option("--case-mode", "case_mode", default=None, help="create, none or attach:<case number> (default: a new case for a detection or case trigger, unless the settings' case is none).")
 @click.option("--idempotency-key", default=None, help="Starting twice with the same key returns the same run.")
 @click.option("--wait", "wait_seconds", type=click.IntRange(0, 60), default=0, help="Block up to this many seconds for the verdict (this CLI accepts 0..60; the run goes on after it).")
 @click.option("--follow", is_flag=True, default=False, help="Then stream the run's events until it ends.")
@@ -1391,73 +1381,35 @@ def actions_deny(ctx, run_id, action_id, reason) -> None:
 
 
 # ---------------------------------------------------------------------------
-# policy
+# settings
 # ---------------------------------------------------------------------------
 
-@group.group("policy")
-def policy_group() -> None:
-    """Effective policy, and the pause record for automatic actions."""
+@group.group("settings")
+def settings_group() -> None:
+    """The org's engine settings, and the pause for automatic actions."""
 
 
-@policy_group.command("get")
-@click.option("--category", default=None, help="Detection category to match run-scoped policy records.")
-@click.option("--priority", type=int, default=None, help="Detection priority.")
-@click.option("--severity", default=None, help="Detection severity.")
-@click.option("--target-tag", "target_tags", multiple=True, help="Tag of the target sensor (repeatable).")
-@click.option("--class", "action_class", default=None, help="Restrict to one action class.")
-@click.option("--template", default=None, help="Template whose run identity to explain.")
+@settings_group.command("get")
 @pass_context
 @_engine_errors
-def policy_get(ctx, category, priority, severity, target_tags, action_class, template) -> None:
-    """Explain the effective policy."""
-    command_output(ctx, _get_investigation(ctx).get_effective_policy(
-        category=category, priority=priority, severity=severity,
-        target_tags=list(target_tags) or None, action_class=action_class, template=template,
-    ))
+def settings_get(ctx) -> None:
+    """Show the org settings the engine enforces (paused, circuit breaker, identity, notifications, budgets)."""
+    command_output(ctx, _get_investigation(ctx).get_settings())
 
 
-@policy_group.command("ai")
+@settings_group.command("pause")
 @pass_context
 @_engine_errors
-def policy_ai(ctx) -> None:
-    """Show what the AI may decide per template (ai_may_decide of the default policy record)."""
-    command_output(ctx, _get_investigation(ctx).get_ai_may_decide())
-
-
-@policy_group.command("ai-set")
-@click.argument("template")
-@click.argument("mode", type=click.Choice(AI_MODES))
-@click.option("--confirm", is_flag=True, default=False, help="Confirm that you decided what the AI may decide for this template (required).")
-@pass_context
-@_engine_errors
-def policy_ai_set(ctx, template, mode, confirm) -> None:
-    """Set what the AI may decide for a template (or '*'): off, escalate or close_and_escalate."""
-    if not confirm:
-        raise click.UsageError("This changes what the AI may decide for the org: review the template's test results, then add --confirm.")
-    command_output(ctx, _get_investigation(ctx).set_ai_may_decide(template, mode))
-
-
-@policy_group.command("status")
-@pass_context
-@_engine_errors
-def policy_status(ctx) -> None:
-    """Show whether automatic actions are paused (the autonomy-manual-pause record)."""
-    command_output(ctx, _get_investigation(ctx).get_pause())
-
-
-@policy_group.command("pause")
-@pass_context
-@_engine_errors
-def policy_pause(ctx) -> None:
-    """Pause automatic actions: save the autonomy-manual-pause policy record."""
+def settings_pause(ctx) -> None:
+    """Pause the org: nothing acts alone (sets paused on the default settings record)."""
     command_output(ctx, _get_investigation(ctx).pause_actions())
 
 
-@policy_group.command("resume")
+@settings_group.command("resume")
 @pass_context
 @_engine_errors
-def policy_resume(ctx) -> None:
-    """Resume automatic actions: delete the autonomy-manual-pause policy record."""
+def settings_resume(ctx) -> None:
+    """Lift the pause (clears paused on the default settings record)."""
     command_output(ctx, _get_investigation(ctx).resume_actions())
 
 

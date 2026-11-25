@@ -3,8 +3,8 @@
 Wraps the ``/investigate/{oid}/...`` REST routes served by the API gateway:
 the authoring kit, the typed operator and fact-pack catalogues, plan
 validation and dry runs on past alerts, investigation runs (start, read,
-list, events, cancel, delete), waves, the approvals inbox and the manual pause of
-automatic actions (a policy record).
+list, events, cancel, delete), waves, the approvals inbox, the org settings and the
+pause of automatic actions (a field of the settings record).
 
 The feature is experimental and gated per deployment. Where it is off, every
 route is an unknown path (HTTP 404 with no engine error code); where the
@@ -13,20 +13,18 @@ organisation has no engine, the gateway answers 503.
 
 Permissions (all of the listed ones are required):
 
-- reads (runs, templates, operators, packs, kit, policy, test results, the
+- reads (runs, templates, operators, packs, kit, settings, test results, the
   approvals inbox): ``investigation.get`` + ``insight.evt.get``
 - writes (start a run, waves, cancel, delete, test a plan, decide an action):
   ``investigation.set`` + ``insight.evt.get``; deciding an action also needs
   the permission of the action's own class (for example ``sensor.task``)
 - the performance stats additionally need ``investigation_policy.set``, and so
   does filtering the run list by outcome or verdict
-- pause / resume / status of automatic actions: they are the hive record
-  ``investigation_policy/autonomy-manual-pause``, so ``investigation_policy.get``
-  (status), ``investigation_policy.set`` (pause) and ``investigation_policy.del``
-  (resume), explicit grants no default role has
-- the AI switch (``ai_may_decide``, per template) is a field of the hive record
-  ``investigation_policy/default``: ``investigation_policy.get`` to read it,
-  ``investigation_policy.set`` to change it
+- pause / resume of automatic actions: they write the ``paused`` field of the
+  hive record ``investigation_policy/default`` (the org settings), so they need
+  ``investigation_policy.get`` and ``investigation_policy.set``, explicit grants
+  no default role has. Reading the settings through the engine
+  (:meth:`Investigation.get_settings`) needs only the reads above.
 - the template records themselves (hive ``investigation_plan``):
   ``investigation_plan.get`` / ``investigation_plan.set`` /
   ``investigation_plan.del``. These are explicit grants, no default role has
@@ -36,16 +34,21 @@ A template has ``gather`` steps (what to read), ``rules`` (``escalate`` and
 ``close`` rules over what was gathered, each with an id and a sentence) and an
 optional ``ai_review`` for what rules cannot decide. A run ends with an
 *outcome* (:data:`RUN_OUTCOMES`) and the rule or the AI behind it; nothing is
-scored. Whether the AI may *decide* (rather than recommend) is the policy's
-``ai_may_decide``, set per template by a person
-(:meth:`Investigation.set_ai_may_decide`).
+scored. Whether the AI may *decide* (rather than recommend) is
+``ai_may_decide``, a key of the template itself (``off``, ``escalate`` or
+``close_and_escalate``). What a template does is written in the template: each
+``act`` entry says what it does (``do``), whether a person approves it
+(``approval``), and for a reversible action how long it lasts (``lease``) and
+what happens then (``on_lease_end``). The settings record holds only what
+belongs to no single template: the pause, the circuit breaker, the run
+identity, notifications, the AI agent and budgets.
 
 Templates are plain Hive records. This module never writes an *active*
 template unless the caller passes ``status="active"`` explicitly (the call a
 person makes), never overwrites a record without ``overwrite=True`` and never
 replaces an active template with a draft. A draft runs only through a dry run
-(:meth:`Investigation.test_plan`) or a run started by a person, with response
-actions capped at ``suggest``.
+(:meth:`Investigation.test_plan`) or a run started by a person, with
+every action only suggested (recorded, never executed).
 """
 
 from __future__ import annotations
@@ -72,16 +75,13 @@ PLAN_HIVE = "investigation_plan"
 PACK_HIVE = "investigation_pack"
 POLICY_HIVE = "investigation_policy"
 
-#: The policy record whose presence pauses automatic actions for the org.
-MANUAL_PAUSE_RECORD = "autonomy-manual-pause"
-
-# What the record must hold to pause: every action class held at ``suggest``.
-_MANUAL_PAUSE_DATA: dict[str, Any] = {"autonomy": {"*": {"mode": "suggest"}}}
+#: The one record of the settings hive the engine reads: the org settings.
+SETTINGS_RECORD = "default"
 STATUS_DRAFT = "draft"
 STATUS_ACTIVE = "active"
 
 #: Sections of the authoring kit the engine can return.
-KIT_SECTIONS = ("schema", "guide", "operators", "examples", "policy", "codes", "packs", "library")
+KIT_SECTIONS = ("schema", "guide", "operators", "examples", "settings", "codes", "packs", "library")
 
 #: Decisions the gateway accepts on an action.
 ACTION_VERBS = ("approve", "deny", "revert", "extend", "confirm")
@@ -95,12 +95,9 @@ RUN_OUTCOMES = (
     "ai_recommends_benign", "ai_recommends_malicious", "couldnt_tell", "conflict",
 )
 
-#: What the policy lets the AI decide for a template (``ai_may_decide``): nothing
-#: (it only recommends), escalate, or close and escalate.
+#: What a template lets the AI decide (its ``ai_may_decide`` key): nothing (it
+#: only recommends), escalate, or close and escalate.
 AI_MODES = ("off", "escalate", "close_and_escalate")
-
-#: The policy record that grants ``ai_may_decide``: only this record may grant it.
-DEFAULT_POLICY_RECORD = "default"
 
 #: Template (record) names this module will create.
 TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -323,8 +320,8 @@ def _record_errors(permission_hint: str) -> Any:
 _template_record_errors = _record_errors(_TEMPLATE_PERMISSION_HINT)
 
 _POLICY_PERMISSION_HINT = (
-    "The pause is the hive record 'investigation_policy/autonomy-manual-pause': reading it needs "
-    "investigation_policy.get, pausing investigation_policy.set, resuming investigation_policy.del. "
+    "The pause is the 'paused' field of the hive record 'investigation_policy/default' (the org settings): "
+    "reading it needs investigation_policy.get, pausing and resuming investigation_policy.set. "
     "They are explicit grants that no default role has."
 )
 
@@ -921,47 +918,45 @@ class Investigation:
         """
         return self._get("templates")
 
-    def get_effective_policy(
-        self,
-        category: str | None = None,
-        priority: int | None = None,
-        severity: str | None = None,
-        target_tags: list[str] | None = None,
-        action_class: str | None = None,
-        template: str | None = None,
-    ) -> dict[str, Any]:
-        """Explain the effective policy, optionally for a given alert shape.
+    # ------------------------------------------------------------------
+    # Org settings (the ``default`` record of the investigation_policy hive)
+    # ------------------------------------------------------------------
 
-        Args:
-            category: Detection category to match run-scoped policy records.
-            priority: Detection priority.
-            severity: Detection severity.
-            target_tags: Tags of the target sensor.
-            action_class: Restrict the explanation to one action class.
-            template: Template whose run identity (``identity``) to explain.
+    def get_settings(self) -> dict[str, Any]:
+        """Read the org's Investigation Engine settings, as the engine enforces them.
+
+        The settings are the ``default`` record of the ``investigation_policy``
+        hive: ``paused``, the circuit breaker, the run identity, notifications,
+        the AI agent, budgets and case mode. Nothing in them overrides a
+        template: what a template acts on is written in the template. Needs
+        ``investigation.get`` + ``insight.evt.get``.
 
         Returns:
-            dict: The explained policy, including ``extension_requests``.
+            dict: ``etag``, ``source`` (``default``, or ``builtin`` when there
+                is no record), ``set_by`` and ``set_at`` (who last saved the
+                record and when), ``paused``, ``circuit_breaker`` (``per_hour``,
+                ``per_run``, ``used_last_hour``, ``tripped``,
+                ``oldest_in_window``), ``identity`` and ``identity_readiness``,
+                ``notify``, ``llm``, ``budgets``, ``case``, ``speculation`` and
+                ``warnings`` (for example ``settings_rejected``). The answer
+                reflects the record the engine enforces: the last good copy
+                when the stored one is rejected.
+
+        Raises:
+            InvestigationError: On any API failure.
         """
-        return self._get(
-            "policy/effective",
-            self._q(
-                category=category, priority=priority, severity=severity,
-                target_tags=",".join(target_tags) if target_tags else None, class_=action_class,
-                template=template,
-            ),
-        )
+        return self._get("settings")
 
     # ------------------------------------------------------------------
-    # Manual pause of automatic actions (a policy record)
+    # Pause of automatic actions (the ``paused`` field of the settings record)
     # ------------------------------------------------------------------
 
     def _policy(self) -> Hive:
         return Hive(self._org, POLICY_HIVE)
 
-    def _read_pause_record(self) -> HiveRecord | None:
+    def _read_settings_record(self) -> HiveRecord | None:
         try:
-            return self._policy().get(MANUAL_PAUSE_RECORD)
+            return self._policy().get(SETTINGS_RECORD)
         except ApiError as exc:
             if is_record_not_found(exc):
                 return None
@@ -969,198 +964,29 @@ class Investigation:
 
     @staticmethod
     def _pause_view(record: HiveRecord | None) -> dict[str, Any]:
-        view: dict[str, Any] = {"paused": False, "record": MANUAL_PAUSE_RECORD}
+        view: dict[str, Any] = {"paused": False, "record": SETTINGS_RECORD}
         if record is None:
             return view
-        # A disabled record applies nothing, and an edited one is no longer the plain pause.
+        data = record.data if isinstance(record.data, dict) else {}
+        view["paused"] = record.enabled is True and data.get("paused") is True
         if record.enabled is not True:
             view["inactive_reason"] = "disabled"
-        elif record.data != _MANUAL_PAUSE_DATA:
-            view["inactive_reason"] = "edited"
-        elif record.expiry:
-            # The hive deletes a record once its expiry has passed: that would lift the pause by itself.
-            view["inactive_reason"] = "expires"
-        else:
-            view["paused"] = True
         view.update(etag=record.etag, last_author=record.last_author, last_modified=record.last_modified)
         return view
 
-    @_policy_record_errors
-    def get_pause(self) -> dict[str, Any]:
-        """Read whether automatic actions are paused for the org.
-
-        The pause is the enabled hive record ``investigation_policy/autonomy-manual-pause``
-        holding ``autonomy: {"*": {mode: suggest}}``. Needs ``investigation_policy.get``.
-
-        Returns:
-            dict: ``paused`` (bool) and ``record`` (the record name). When the
-                record exists: ``etag``, ``last_author``, ``last_modified``, and
-                ``inactive_reason`` (``disabled``, ``edited`` or ``expires``) when
-                it does not pause. Use :meth:`get_effective_policy` for what the policy
-                records allow right now.
-
-        Raises:
-            InvestigationError: On any API failure.
-        """
-        return self._pause_view(self._read_pause_record())
-
-    @_policy_record_errors
-    def pause_actions(self) -> dict[str, Any]:
-        """Pause automatic actions for the org by saving the pause record.
-
-        Every action class is held at ``suggest``: suggestions stay visible and a
-        person can still approve. Saving a record that already pauses changes
-        nothing, and a concurrent pause that wins the race counts as done. An existing
-        record that does not pause (disabled, edited or expiring) is rewritten without an
-        expiry, keeping its tags and comment. Needs ``investigation_policy.set``.
-
-        Returns:
-            dict: The state after the write (:meth:`get_pause`) and ``changed``.
-
-        Raises:
-            InvestigationError: On any API failure.
-        """
-        existing = self._read_pause_record()
-        if existing is not None and self._pause_view(existing)["paused"]:
-            return {**self._pause_view(existing), "changed": False}
-        record = HiveRecord(
-            name=MANUAL_PAUSE_RECORD, data=json.loads(json.dumps(_MANUAL_PAUSE_DATA)), enabled=True,
-            etag=_CREATE_ONLY_ETAG if existing is None else existing.etag,
-        )
-        if existing is not None:
-            # Metadata replaces the stored metadata wholesale: start from what is stored.
-            record.tags, record.comment = existing.tags, existing.comment
-            record.ui_actions = existing.ui_actions
-        record.expiry = 0  # never expires: the hive would delete the record, and lift the pause, at its expiry
-        try:
-            self._policy().set(record)
-        except ApiError:
-            # Someone saved the record between our read and the write: if the org is paused now, so be it.
-            current = self._pause_view(self._read_pause_record())
-            if current["paused"]:
-                return {**current, "changed": False}
-            raise
-        return {**self._pause_view(self._read_pause_record()), "changed": True}
-
-    @_policy_record_errors
-    def resume_actions(self) -> dict[str, Any]:
-        """Resume automatic actions for the org by deleting the pause record.
-
-        The remaining policy records decide what new actions may do. Suggestions
-        held while paused are not released. Needs ``investigation_policy.del``.
-
-        Returns:
-            dict: The state after the delete (:meth:`get_pause`) and ``changed``
-                (False when there was no record).
-
-        Raises:
-            InvestigationError: On any API failure.
-        """
-        if self._read_pause_record() is None:
-            return {**self._pause_view(None), "changed": False}
-        self._policy().delete(MANUAL_PAUSE_RECORD)
-        return {**self._pause_view(self._read_pause_record()), "changed": True}
-
-    # ------------------------------------------------------------------
-    # The AI switch (a field of the default policy record)
-    # ------------------------------------------------------------------
-
-    def _read_default_policy(self) -> HiveRecord | None:
-        try:
-            return self._policy().get(DEFAULT_POLICY_RECORD)
-        except ApiError as exc:
-            if is_record_not_found(exc):
-                return None
-            raise
-
-    @staticmethod
-    def _ai_view(record: HiveRecord | None) -> dict[str, Any]:
-        data = record.data if record is not None and isinstance(record.data, dict) else {}
-        modes = data.get("ai_may_decide")
-        view: dict[str, Any] = {"record": DEFAULT_POLICY_RECORD, "ai_may_decide": dict(modes) if isinstance(modes, dict) else {}}
-        if record is not None:
-            view.update(enabled=record.enabled, etag=record.etag, last_author=record.last_author, last_modified=record.last_modified)
-        return view
-
-    @_policy_record_errors
-    def get_ai_may_decide(self) -> dict[str, Any]:
-        """Read what the policy lets the AI decide, per template.
-
-        The switch is the ``ai_may_decide`` field of the ``default`` policy
-        record: ``{<template name> or "*": off | escalate | close_and_escalate}``.
-        A template without an entry (and no ``"*"``) is ``off``: an AI-assisted
-        rule or the AI review only recommends, and a person acts on it. Only the
-        ``default`` record grants; other records and run overrides can only
-        lower it. Needs ``investigation_policy.get``.
-
-        Returns:
-            dict: ``record``, ``ai_may_decide`` (the mapping, empty when
-                nothing is granted) and, when the record exists, ``enabled``,
-                ``etag``, ``last_author`` and ``last_modified``. Use
-                :meth:`get_effective_policy` for what the policy records
-                allow right now.
-
-        Raises:
-            InvestigationError: On any API failure.
-        """
-        return self._ai_view(self._read_default_policy())
-
-    @_policy_record_errors
-    def set_ai_may_decide(self, template: str, mode: str) -> dict[str, Any]:
-        """Set what the AI may decide for one template (or ``"*"``: every template).
-
-        This is a person's decision about the org's automation: it changes
-        the ``default`` policy record's ``ai_may_decide`` field and nothing
-        else, keeping every other field of the record. ``off`` removes the
-        template's entry when ``"*"`` is not set; when ``"*"`` grants
-        something, ``off`` is written so the template's own entry wins. The
-        write is conditional on the record read, so a concurrent edit is
-        never overwritten. A record that does not exist yet is created, except
-        to turn something off: with no record nothing is granted, so ``off`` for
-        a template changes nothing and ``off`` for ``"*"`` is refused. The modes are written as the strings ``"off"``, ``"escalate"``
-        and ``"close_and_escalate"`` (never a YAML 1.1 boolean). The
-        run already started keep the mode they started with. Needs
-        ``investigation_policy.set``.
-
-        Args:
-            template: A template name, or ``"*"`` for every template.
-            mode: One of :data:`AI_MODES`.
-
-        Returns:
-            dict: The state after the write (:meth:`get_ai_may_decide`) and
-                ``changed`` (False when the record already said so).
-
-        Raises:
-            ValidationError: If the template name or the mode is not valid.
-            InvestigationError: On any API failure.
-        """
-        if mode not in AI_MODES:
-            raise ValidationError(f"mode must be one of {', '.join(AI_MODES)}")
-        if template != "*" and (not isinstance(template, str) or not TEMPLATE_NAME_RE.fullmatch(template)):
-            raise ValidationError("template must be a template name (lowercase letters, digits, - and _) or *")
-        existing = self._read_default_policy()
-        data = json.loads(json.dumps(existing.data)) if existing is not None and isinstance(existing.data, dict) else {}
-        modes = data.get("ai_may_decide") if isinstance(data.get("ai_may_decide"), dict) else {}
-        before = dict(modes)
-        modes[template] = mode
-        if mode == "off" and template != "*" and modes.get("*", "off") == "off":
-            del modes[template]  # nothing to override: absent is off
-        if modes:
-            data["ai_may_decide"] = modes
+    def _write_paused(self, existing: HiveRecord | None, paused: bool) -> None:
+        """Save ``paused`` on the settings record, conditional on the version read."""
+        if existing is None:
+            data: dict[str, Any] = {}
+        elif isinstance(existing.data, dict):
+            data = json.loads(json.dumps(existing.data))
         else:
-            data.pop("ai_may_decide", None)
-        if existing is None and mode == "off":
-            # Absent means off. Creating an org-wide `default` record just to store "off" grants
-            # nothing: a template's "off" is already true, and "*": off has nothing to turn off.
-            if template == "*":
-                raise ValidationError(
-                    "there is no default policy record, so the AI already may decide nothing: nothing to turn off"
-                )
-            return {**self._ai_view(None), "changed": False}
-        if modes == before and existing is not None:
-            return {**self._ai_view(existing), "changed": False}
+            raise ValidationError(
+                f"the {SETTINGS_RECORD} record of {POLICY_HIVE} does not hold an object: fix it before pausing or resuming"
+            )
+        data["paused"] = paused
         record = HiveRecord(
-            name=DEFAULT_POLICY_RECORD, data=data,
+            name=SETTINGS_RECORD, data=data,
             enabled=True if existing is None else existing.enabled,
             etag=_CREATE_ONLY_ETAG if existing is None else existing.etag,
         )
@@ -1170,7 +996,88 @@ class Investigation:
                 existing.tags, existing.comment, existing.ui_actions, existing.expiry,
             )
         self._policy().set(record)
-        return {**self._ai_view(self._read_default_policy()), "changed": True}
+
+    def _set_paused(self, paused: bool) -> dict[str, Any]:
+        existing = self._read_settings_record()
+        if paused and existing is not None and existing.enabled is not True:
+            # The engine ignores a disabled record: writing the field would pause nothing.
+            raise ValidationError(
+                f"the {SETTINGS_RECORD} record of {POLICY_HIVE} is disabled, so the engine ignores it and a pause "
+                "written on it would stop nothing: enable the record first"
+            )
+        if self._pause_view(existing)["paused"] == paused:
+            return {**self._pause_view(existing), "changed": False}
+        if not paused and existing is None:
+            return {**self._pause_view(None), "changed": False}
+        try:
+            self._write_paused(existing, paused)
+        except ApiError:
+            # Someone saved the record between our read and the write: if it says what we wanted, so be it.
+            current = self._pause_view(self._read_settings_record())
+            if current["paused"] == paused:
+                return {**current, "changed": False}
+            raise
+        return {**self._pause_view(self._read_settings_record()), "changed": True}
+
+    @_policy_record_errors
+    def get_pause(self) -> dict[str, Any]:
+        """Read the ``paused`` field of the settings record straight from the hive.
+
+        This does not need the engine. :meth:`get_settings` is the answer the
+        engine enforces (it also says who saved the record and when). Needs
+        ``investigation_policy.get``.
+
+        Returns:
+            dict: ``paused`` (bool) and ``record`` (the record name). When the
+                record exists: ``etag``, ``last_author``, ``last_modified``, and
+                ``inactive_reason`` (``disabled``) when the record exists but
+                the engine ignores it.
+
+        Raises:
+            InvestigationError: On any API failure.
+        """
+        return self._pause_view(self._read_settings_record())
+
+    @_policy_record_errors
+    def pause_actions(self) -> dict[str, Any]:
+        """Pause the org: nothing acts alone while ``paused`` is true on the settings record.
+
+        Runs still investigate. An action that would have acted alone waits for
+        a person, who can still approve, deny and undo. Only the ``paused``
+        field changes: every other field and the record's metadata are kept.
+        The write is conditional on the record read, so a concurrent edit is
+        never overwritten; a concurrent pause that wins the race counts as
+        done. A record that does not exist yet is created holding only
+        ``paused: true``. A disabled record is refused (the engine ignores it).
+        Needs ``investigation_policy.get`` and ``investigation_policy.set``.
+
+        Returns:
+            dict: The state after the write (:meth:`get_pause`) and ``changed``.
+
+        Raises:
+            ValidationError: If the record is disabled or does not hold an object.
+            InvestigationError: On any API failure.
+        """
+        return self._set_paused(True)
+
+    @_policy_record_errors
+    def resume_actions(self) -> dict[str, Any]:
+        """Lift the pause: set ``paused`` to false on the settings record.
+
+        Actions that waited while paused keep waiting for a person. Same
+        conditional write as :meth:`pause_actions`. With no record there is
+        nothing to lift. Needs ``investigation_policy.get`` and
+        ``investigation_policy.set``.
+
+        Returns:
+            dict: The state after the write (:meth:`get_pause`) and ``changed``
+                (False when it was not paused).
+
+        Raises:
+            ValidationError: If the record does not hold an object.
+            InvestigationError: On any API failure.
+        """
+        return self._set_paused(False)
 
     # ------------------------------------------------------------------
     # Plan validation and dry runs
@@ -1219,8 +1126,7 @@ class Investigation:
             inline: Template YAML to test as a draft.
             overrides: Tighten-only budget overrides.
             strict: Refuse the test when ``overrides`` would loosen the org's
-                policy; without it the loosening part is ignored and listed in
-                ``policy.clamped``.
+                budgets; without it the loosening part is ignored.
             mode: ``triage`` (default) or ``full``.
             wait_seconds: Let the call wait this long for a fast test (0..10).
 
@@ -1940,7 +1846,7 @@ class Investigation:
             "last_author": stored_record.last_author,
             "warnings": report.get("warnings") or [],
             "next_step": (
-                "A draft runs only through a test or a run a person starts, with actions capped at suggest. "
+                "A draft runs only through a test or a run a person starts, and only suggests its actions (none is executed). "
                 "A person reviews it and promotes it to active."
                 if stored_status == STATUS_DRAFT else "The template is active."
             ),

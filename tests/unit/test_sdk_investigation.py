@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -93,16 +94,12 @@ class TestRoutes:
             inv.get_authoring_kit(["guide", "nope"])
         mock_org.client.request.assert_not_called()
 
-    def test_effective_policy_sends_class_not_class_underscore(self, inv, mock_org):
+    def test_the_kit_has_a_settings_section_and_no_policy_section(self, inv, mock_org):
         mock_org.client.request.return_value = {}
-        inv.get_effective_policy(category="c", priority=3, target_tags=["a", "b"], action_class="contain.host")
-        query = dict(_request_args(mock_org)[2]["query_params"])
-        assert query == {"category": "c", "priority": "3", "target_tags": "a,b", "class": "contain.host"}
-
-    def test_effective_policy_sends_the_template(self, inv, mock_org):
-        mock_org.client.request.return_value = {}
-        inv.get_effective_policy(template="t")
-        assert dict(_request_args(mock_org)[2]["query_params"]) == {"template": "t"}
+        inv.get_authoring_kit(["settings"])
+        assert _request_args(mock_org)[2]["query_params"] == [("sections", "settings")]
+        with pytest.raises(ValidationError, match="policy"):
+            inv.get_authoring_kit(["policy"])
 
     def test_list_runs_sends_only_set_filters(self, inv, mock_org):
         mock_org.client.request.return_value = {"runs": []}
@@ -518,7 +515,7 @@ class TestTemplateSource:
     def test_act_attrs_are_read_like_step_args(self):
         """`attrs` is a free mapping the engine reads as any: the numbers in it stay numbers."""
         data = parse_template_source(
-            "act:\n  - {class: tag, target: $a.sid, on_rules: [r], attrs: {tag: 'ie:x', ttl: 86400, deep: {k: 0o17}}}\n"
+            "act:\n  - {do: tag, target: $a.sid, on_rules: [r], attrs: {tag: 'ie:x', ttl: 86400, deep: {k: 0o17}}}\n"
         )
         assert data["act"][0]["attrs"] == {"tag": "ie:x", "ttl": 86400, "deep": {"k": 15}}
         assert data["act"][0]["target"] == "$a.sid"
@@ -527,9 +524,9 @@ class TestTemplateSource:
     def test_act_on_rules_is_a_plain_text_key_and_a_legacy_on_key_is_left_for_the_engine_to_refuse(self):
         """`on` is a YAML 1.1 boolean, hence the rename to `on_rules`. The parser keeps keys as text, so a
         hand-written `on:` stays the key "on" (never `true`) and the engine reports it as an unknown field."""
-        good = parse_template_source("act:\n  - {class: tag, target: $a.sid, on_rules: [r, ai_review]}\n")
+        good = parse_template_source("act:\n  - {do: tag, target: $a.sid, on_rules: [r, ai_review]}\n")
         assert good["act"][0]["on_rules"] == ["r", "ai_review"] and True not in good["act"][0]
-        legacy = parse_template_source("act:\n  - {class: tag, target: $a.sid, on: [r]}\n")
+        legacy = parse_template_source("act:\n  - {do: tag, target: $a.sid, on: [r]}\n")
         assert "on" in legacy["act"][0] and True not in legacy["act"][0]
         assert parse_template_source(dump_template(good)) == good
 
@@ -825,101 +822,6 @@ class TestTemplateRecordPermissions:
         assert doc["status"] == 400 and ei.value.exit_code == 1
 
 
-class TestAIMayDecide:
-    """What the AI may decide is a field of the `default` policy record; only that field changes."""
-
-    DEFAULT = {"autonomy": {"close.false_positive": {"mode": "suggest", "lease": "2h"}}, "ai_may_decide": {"mailsec-message": "escalate"}}
-
-    def test_without_a_default_record_nothing_is_granted(self, inv, mock_org, hive):
-        hive.get.side_effect = _not_found()
-        assert inv.get_ai_may_decide() == {"record": "default", "ai_may_decide": {}}
-        inv_mod.Hive.assert_called_with(mock_org, "investigation_policy")
-        hive.get.assert_called_with("default")
-        mock_org.client.request.assert_not_called()
-
-    def test_the_modes_of_the_default_record_are_returned(self, inv, hive):
-        hive.get.return_value = HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1", last_author="a@example.com", last_modified=5)
-        out = inv.get_ai_may_decide()
-        assert out["ai_may_decide"] == {"mailsec-message": "escalate"}
-        assert (out["etag"], out["enabled"], out["last_author"]) == ("e1", True, "a@example.com")
-
-    def test_setting_a_mode_changes_that_field_only_and_is_conditional(self, inv, hive):
-        stored = HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1", tags=["t"], comment="c", expiry=0)
-        after = HiveRecord(name="default", data={**self.DEFAULT, "ai_may_decide": {"mailsec-message": "close_and_escalate"}}, enabled=True, etag="e2")
-        hive.get.side_effect = [stored, after]
-        out = inv.set_ai_may_decide("mailsec-message", "close_and_escalate")
-        record = hive.set.call_args.args[0]
-        assert record.etag == "e1" and record.enabled is True
-        assert record.data["autonomy"] == self.DEFAULT["autonomy"], "the rest of the record is kept"
-        assert record.data["ai_may_decide"] == {"mailsec-message": "close_and_escalate"}
-        assert (record.tags, record.comment) == (["t"], "c")
-        assert out["changed"] is True and out["ai_may_decide"] == {"mailsec-message": "close_and_escalate"}
-        assert stored.data["ai_may_decide"] == {"mailsec-message": "escalate"}, "the record read is not mutated"
-
-    def test_a_missing_default_record_is_created_without_overwriting(self, inv, hive):
-        hive.get.side_effect = [_not_found(), HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate"}}, enabled=True, etag="e2")]
-        out = inv.set_ai_may_decide("*", "escalate")
-        record = hive.set.call_args.args[0]
-        assert record.etag == inv_mod._CREATE_ONLY_ETAG and record.enabled is True
-        assert record.data == {"ai_may_decide": {"*": "escalate"}}
-        assert out["changed"] is True
-
-    def test_the_same_mode_writes_nothing(self, inv, hive):
-        hive.get.return_value = HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1")
-        assert inv.set_ai_may_decide("mailsec-message", "escalate")["changed"] is False
-        hive.set.assert_not_called()
-
-    def test_off_removes_a_template_entry_that_nothing_else_grants(self, inv, hive):
-        hive.get.side_effect = [HiveRecord(name="default", data=self.DEFAULT, enabled=True, etag="e1"), HiveRecord(name="default", data={"autonomy": self.DEFAULT["autonomy"]}, enabled=True, etag="e2")]
-        inv.set_ai_may_decide("mailsec-message", "off")
-        assert "ai_may_decide" not in hive.set.call_args.args[0].data
-
-    def test_off_is_written_when_the_wildcard_grants(self, inv, hive):
-        stored = HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate", "mailsec-message": "escalate"}}, enabled=True, etag="e1")
-        hive.get.side_effect = [stored, stored]
-        inv.set_ai_may_decide("mailsec-message", "off")
-        assert hive.set.call_args.args[0].data["ai_may_decide"] == {"*": "escalate", "mailsec-message": "off"}
-
-    def test_off_on_a_missing_record_writes_nothing(self, inv, hive):
-        hive.get.side_effect = _not_found()
-        assert inv.set_ai_may_decide("mailsec-message", "off")["changed"] is False
-        hive.set.assert_not_called()
-
-    def test_the_wildcard_off_on_a_missing_record_is_refused_not_created(self, inv, hive):
-        hive.get.side_effect = _not_found()
-        with pytest.raises(ValidationError, match="no default policy record"):
-            inv.set_ai_may_decide("*", "off")
-        hive.set.assert_not_called()
-
-    def test_the_wildcard_off_on_an_existing_record_is_written(self, inv, hive):
-        stored = HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate"}}, enabled=True, etag="e1")
-        hive.get.side_effect = [stored, HiveRecord(name="default", data={"ai_may_decide": {"*": "off"}}, enabled=True, etag="e2")]
-        assert inv.set_ai_may_decide("*", "off")["changed"] is True
-        assert hive.set.call_args.args[0].data["ai_may_decide"] == {"*": "off"}
-
-    def test_the_modes_are_written_as_strings_the_hive_accepts(self, inv, hive):
-        """`off` must reach the hive as the text "off" (never a YAML 1.1 boolean), in the record and in the JSON it is sent as."""
-        stored = HiveRecord(name="default", data={"ai_may_decide": {"*": "escalate", "t": "escalate"}}, enabled=True, etag="e1")
-        hive.get.side_effect = [stored, stored]
-        inv.set_ai_may_decide("t", "off")
-        data = hive.set.call_args.args[0].data
-        assert data["ai_may_decide"] == {"*": "escalate", "t": "off"}
-        assert json.loads(json.dumps(data))["ai_may_decide"]["t"] == "off" and isinstance(data["ai_may_decide"]["t"], str)
-
-    @pytest.mark.parametrize("template,mode", [("t", "on"), ("t", "auto"), ("Bad Name", "off"), ("", "off"), ("a/b", "escalate")])
-    def test_a_bad_name_or_mode_is_refused_before_any_call(self, inv, hive, template, mode):
-        with pytest.raises(ValidationError):
-            inv.set_ai_may_decide(template, mode)
-        hive.get.assert_not_called()
-        hive.set.assert_not_called()
-
-    def test_a_refused_write_names_the_policy_permissions(self, inv, hive):
-        hive.get.side_effect = error_from_status_code(400, {"error": "lc_error_code:UNAUTHORIZED - nope"})
-        with pytest.raises(InvestigationError) as ei:
-            inv.set_ai_may_decide("t", "escalate")
-        assert "investigation_policy" in ei.value.suggestion and ei.value.status_code == 403
-
-
 class TestRunOutcomes:
     def test_list_runs_sends_the_outcome_filter(self, inv, mock_org):
         mock_org.client.request.return_value = {"runs": [], "next_cursor": ""}
@@ -959,37 +861,55 @@ class TestRunOutcomes:
         assert inv.get_run_steps("r1") == steps
 
 
-PAUSE_DATA = {"autonomy": {"*": {"mode": "suggest"}}}
+def _settings(data: Any, *, enabled: bool = True, etag: str = "e1", **kw: Any) -> HiveRecord:
+    return HiveRecord(name="default", data=data, enabled=enabled, etag=etag, **kw)
+
+
+class TestGetSettings:
+    def test_reads_the_settings_route_with_no_query(self, inv, mock_org):
+        mock_org.client.request.return_value = {"paused": False, "source": "default", "set_by": "a@example.com"}
+        assert inv.get_settings()["set_by"] == "a@example.com"
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("GET", "investigate/oid-1/settings")
+        assert kw["query_params"] is None
+
+    def test_a_refusal_keeps_the_engines_code(self, inv, mock_org):
+        mock_org.client.request.side_effect = error_from_status_code(
+            400, {"error": "unknown field", "error_code": "policy_unknown_field", "path": "/autonomy"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.get_settings()
+        assert ei.value.error_code == "policy_unknown_field" and ei.value.path == "/autonomy"
 
 
 class TestPause:
-    """Pause, resume and status are the ``autonomy-manual-pause`` policy record, never a gateway route."""
+    """Pause and resume write the ``paused`` field of the ``default`` settings record, never a gateway route."""
+
+    STORED = {
+        "paused": False, "circuit_breaker": {"per_hour": 20, "per_run": 5}, "identity": {"default": "hive://secret/ie-runner"},
+        "notify": {"action.held": ["output:soc-slack"]},
+    }
 
     def test_status_without_the_record_is_not_paused(self, inv, mock_org, hive):
         hive.get.side_effect = _not_found()
-        assert inv.get_pause() == {"paused": False, "record": "autonomy-manual-pause"}
+        assert inv.get_pause() == {"paused": False, "record": "default"}
         inv_mod.Hive.assert_called_with(mock_org, "investigation_policy")
-        hive.get.assert_called_with("autonomy-manual-pause")
+        hive.get.assert_called_with("default")
         mock_org.client.request.assert_not_called()
 
-    def test_status_of_the_pause_record(self, inv, hive):
-        hive.get.return_value = HiveRecord(
-            name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1", last_author="a@example.com", last_modified=5)
+    def test_status_of_a_paused_record(self, inv, hive):
+        hive.get.return_value = _settings({**self.STORED, "paused": True}, last_author="a@example.com", last_modified=5)
         assert inv.get_pause() == {
-            "paused": True, "record": "autonomy-manual-pause", "etag": "e1", "last_author": "a@example.com", "last_modified": 5}
+            "paused": True, "record": "default", "etag": "e1", "last_author": "a@example.com", "last_modified": 5}
 
-    @pytest.mark.parametrize("enabled,data,reason", [
-        (False, PAUSE_DATA, "disabled"),
-        (None, PAUSE_DATA, "disabled"),
-        (True, {"autonomy": {"*": {"mode": "auto"}}}, "edited"),
-        (True, {"match": {"run": 'template == "t"'}, **PAUSE_DATA}, "edited"),
-        (True, PAUSE_DATA, "expires"),
-    ])
-    def test_a_record_that_does_not_pause_says_why(self, inv, hive, enabled, data, reason):
-        hive.get.return_value = HiveRecord(
-            name="autonomy-manual-pause", data=data, enabled=enabled, etag="e1", expiry=1893456000000 if reason == "expires" else 0)
+    @pytest.mark.parametrize("data", [{}, {"paused": False}, {"paused": "true"}, {"paused": 1}])
+    def test_only_a_true_paused_field_pauses(self, inv, hive, data):
+        hive.get.return_value = _settings(data)
+        assert inv.get_pause()["paused"] is False
+
+    def test_a_disabled_record_does_not_pause_and_says_so(self, inv, hive):
+        hive.get.return_value = _settings({"paused": True}, enabled=False)
         view = inv.get_pause()
-        assert view["paused"] is False and view["inactive_reason"] == reason
+        assert view["paused"] is False and view["inactive_reason"] == "disabled"
 
     def test_a_failed_read_is_not_taken_for_a_missing_record(self, inv, hive):
         hive.get.side_effect = error_from_status_code(500, "boom")
@@ -997,74 +917,99 @@ class TestPause:
             inv.get_pause()
         assert ei.value.status_code == 500
 
-    def test_pause_creates_the_record_and_only_it(self, inv, mock_org, hive):
-        hive.get.side_effect = [_not_found(), HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2")]
+    def test_pause_changes_only_the_paused_field_with_the_etag_read(self, inv, mock_org, hive):
+        stored = _settings(self.STORED, tags=["iac"], comment="c", expiry=0)
+        hive.get.side_effect = [stored, _settings({**self.STORED, "paused": True}, etag="e2")]
         out = inv.pause_actions()
         record = hive.set.call_args.args[0]
-        assert (record.name, record.data, record.enabled) == ("autonomy-manual-pause", PAUSE_DATA, True)
-        assert record.etag == inv_mod._CREATE_ONLY_ETAG
+        assert record.name == "default" and record.etag == "e1"
+        assert record.data == {**self.STORED, "paused": True}, "every other field is kept"
+        assert (record.tags, record.comment, record.expiry, record.enabled) == (["iac"], "c", 0, True)
+        assert stored.data["paused"] is False, "the record read is not mutated"
         assert out["paused"] is True and out["changed"] is True
         hive.delete.assert_not_called()
         mock_org.client.request.assert_not_called()
 
+    def test_pause_creates_a_missing_record_holding_only_paused(self, inv, hive):
+        hive.get.side_effect = [_not_found(), _settings({"paused": True}, etag="e2")]
+        out = inv.pause_actions()
+        record = hive.set.call_args.args[0]
+        assert (record.name, record.data, record.enabled) == ("default", {"paused": True}, True)
+        assert record.etag == inv_mod._CREATE_ONLY_ETAG
+        assert out["paused"] is True and out["changed"] is True
+
     def test_pause_twice_writes_nothing(self, inv, hive):
-        hive.get.return_value = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1")
+        hive.get.return_value = _settings({**self.STORED, "paused": True})
         out = inv.pause_actions()
         assert out["paused"] is True and out["changed"] is False
         hive.set.assert_not_called()
 
-    def test_pause_repairs_a_disabled_record_with_its_etag_and_metadata(self, inv, hive):
-        stored = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=False, etag="e1", tags=["t"], comment="c", expiry=0)
-        hive.get.side_effect = [stored, HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2")]
-        inv.pause_actions()
-        record = hive.set.call_args.args[0]
-        assert record.etag == "e1" and record.enabled is True and record.data == PAUSE_DATA
-        assert (record.tags, record.comment) == (["t"], "c")
+    def test_pause_refuses_a_disabled_record_because_the_engine_ignores_it(self, inv, hive):
+        hive.get.return_value = _settings(self.STORED, enabled=False)
+        with pytest.raises(ValidationError, match="disabled"):
+            inv.pause_actions()
+        hive.set.assert_not_called()
 
-    def test_pause_rewrites_an_expiring_record_without_its_expiry(self, inv, hive):
-        stored = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1", expiry=1893456000000)
-        hive.get.side_effect = [stored, HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2", expiry=0)]
-        out = inv.pause_actions()
-        assert hive.set.call_args.args[0].expiry == 0
-        assert out["paused"] is True and out["changed"] is True
-
-    def test_a_new_record_is_written_without_expiry(self, inv, hive):
-        hive.get.side_effect = [_not_found(), HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e2")]
-        inv.pause_actions()
-        assert hive.set.call_args.args[0].expiry == 0
+    def test_a_record_that_is_not_an_object_is_refused_not_overwritten(self, inv, hive):
+        hive.get.return_value = _settings(["x"])
+        with pytest.raises(ValidationError, match="does not hold an object"):
+            inv.pause_actions()
+        assert inv.resume_actions()["changed"] is False  # it pauses nothing, so there is nothing to lift
+        hive.set.assert_not_called()
 
     def test_a_concurrent_pause_that_wins_the_race_is_not_an_error(self, inv, hive):
-        won = HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e9")
-        hive.get.side_effect = [_not_found(), won]
+        won = _settings({**self.STORED, "paused": True}, etag="e9")
+        hive.get.side_effect = [_settings(self.STORED), won]
         hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH - changed"})
         out = inv.pause_actions()
         assert out["paused"] is True and out["changed"] is False
 
-    def test_a_failed_write_that_did_not_pause_is_raised(self, inv, hive):
+    def test_a_concurrent_edit_that_did_not_pause_is_raised_not_overwritten(self, inv, hive):
+        hive.get.side_effect = [_settings(self.STORED), _settings({**self.STORED, "budgets": {"max_steps_per_run": 1}}, etag="e9")]
+        hive.set.side_effect = error_from_status_code(400, {"error": "lc_error_code:ETAG_MISMATCH - changed"})
+        with pytest.raises(InvestigationError):
+            inv.pause_actions()
+        assert hive.set.call_count == 1
+
+    def test_a_failed_write_is_raised(self, inv, hive):
         hive.get.side_effect = [_not_found(), _not_found()]
         hive.set.side_effect = error_from_status_code(500, "boom")
         with pytest.raises(InvestigationError) as ei:
             inv.pause_actions()
         assert ei.value.status_code == 500
 
-    def test_resume_deletes_the_record(self, inv, mock_org, hive):
-        hive.get.side_effect = [HiveRecord(name="autonomy-manual-pause", data=PAUSE_DATA, enabled=True, etag="e1"), _not_found()]
+    def test_resume_clears_the_field_and_keeps_the_rest_of_the_record(self, inv, mock_org, hive):
+        hive.get.side_effect = [_settings({**self.STORED, "paused": True}, tags=["iac"]), _settings(self.STORED, etag="e2")]
         out = inv.resume_actions()
-        hive.delete.assert_called_once_with("autonomy-manual-pause")
+        record = hive.set.call_args.args[0]
+        assert record.etag == "e1" and record.data == self.STORED and record.tags == ["iac"]
+        hive.delete.assert_not_called()
         assert out["paused"] is False and out["changed"] is True
         mock_org.client.request.assert_not_called()
 
-    def test_resume_without_the_record_deletes_nothing(self, inv, hive):
+    def test_resume_of_a_record_that_is_not_paused_writes_nothing(self, inv, hive):
+        hive.get.return_value = _settings(self.STORED)
+        assert inv.resume_actions()["changed"] is False
+        hive.set.assert_not_called()
+
+    def test_resume_without_the_record_writes_nothing(self, inv, hive):
         hive.get.side_effect = _not_found()
         assert inv.resume_actions()["changed"] is False
+        hive.set.assert_not_called()
         hive.delete.assert_not_called()
 
-    def test_a_refused_pause_names_the_policy_permissions(self, inv, hive):
+    def test_resume_of_a_disabled_record_has_nothing_to_lift(self, inv, hive):
+        hive.get.return_value = _settings({"paused": True}, enabled=False)
+        # A disabled record pauses nothing, so there is nothing to lift: no write.
+        assert inv.resume_actions()["changed"] is False
+        hive.set.assert_not_called()
+
+    def test_a_refused_pause_names_the_settings_permissions(self, inv, hive):
         hive.get.side_effect = error_from_status_code(400, {"error": "lc_error_code:UNAUTHORIZED - nope"})
         with pytest.raises(InvestigationError) as ei:
             inv.get_pause()
-        assert "investigation_policy.get" in ei.value.suggestion and "investigation_policy.del" in ei.value.suggestion
-        assert ei.value.status_code == 403
+        assert "investigation_policy.get" in ei.value.suggestion and "investigation_policy.set" in ei.value.suggestion
+        assert "investigation_policy.del" not in ei.value.suggestion and ei.value.status_code == 403
 
 
 class TestReasonCode:
@@ -1086,7 +1031,7 @@ class TestReasonCode:
         mock_org.client.request.side_effect = error_from_status_code(
             400, {"error": "unknown field", "error_code": "policy_unknown_field", "path": "/autonomy/tag/mode"})
         with pytest.raises(InvestigationError) as ei:
-            inv.get_effective_policy()
+            inv.get_settings()
         assert ei.value.path == "/autonomy/tag/mode" and ei.value.to_dict()["path"] == "/autonomy/tag/mode"
         assert ei.value.reason_code is None and "reason_code" not in ei.value.to_dict()
 
