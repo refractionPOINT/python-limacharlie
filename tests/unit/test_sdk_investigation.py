@@ -1057,6 +1057,12 @@ class TestPause:
         assert ei.value.status_code == 500
         hive.set.assert_called_once()
 
+    def test_a_rate_limited_read_back_keeps_the_rate_limit_exit_code(self, inv, hive):
+        hive.get.side_effect = [_settings(self.STORED), error_from_status_code(429, "slow down")]
+        with pytest.raises(InvestigationError) as ei:
+            inv.pause_actions()
+        assert ei.value.status_code == 429 and ei.value.exit_code == 5
+
     def test_a_pause_that_does_not_read_back_as_paused_is_not_reported_as_done(self, inv, hive):
         # Someone resumed (or the record expired and was deleted) between our write and the read.
         for after in (_settings(self.STORED, etag="e2"), None):

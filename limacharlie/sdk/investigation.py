@@ -1042,6 +1042,7 @@ class Investigation:
                 f"the {SETTINGS_RECORD} record of {POLICY_HIVE} was saved with paused={str(paused).lower()}, but reading it "
                 f"back failed ({exc.raw_message}): check `investigate settings get`; repeating the command is safe",
                 status_code=getattr(exc, "status_code", None),
+                exit_code=exc.exit_code,
             ) from exc
         if self._paused_field(after) != paused or (paused and (after is None or after.enabled is not True)):
             # Expired, deleted or changed by someone else between our write and this read: never report success.
