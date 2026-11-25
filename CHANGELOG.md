@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### New permissions: hives that `sync pull --all` reads
+
+- `sync pull --all` fails for the whole org when the API key cannot read one of
+  the hives it expands to. Releases since 5.7.0 added hives to `--all`, so a key
+  made before them lacks the permission and the job breaks. This release adds
+  `sync pull --all-available`, which selects the same hives but skips the ones
+  the key cannot read, with a warning naming the missing permission; use it for
+  scheduled backups. `--all` stays strict. The full list of what each hive
+  needs is in the "Permissions each hive needs" table in
+  `doc/cli/infrastructure.md`.
+- Hives that joined `--all`, with the permissions to grant. Reading a hive's
+  records needs its metadata permission (`.get.mtd`) and reading each record's
+  data needs `.get`; without `.get` the data comes back `null`. Pushing needs
+  the set permission, and the delete permission for a forced push.
+  Where the pull column lists a single permission (for example `acl.get`), it
+  covers both listing and reading data. Where the push column lists no delete
+  permission (for example `cloudsec.set`), the set permission also covers
+  deletes.
+
+  | Release | Hive (flag) | `sync pull` needs | `sync push` needs |
+  |---|---|---|---|
+  | 5.7.0 | `acl` (`--hive-acl`) | `acl.get` | `acl.set` |
+  | 5.7.0 | `app_control_policy`, `app_control_rule` (`--hive-app-control-policy`, `--hive-app-control-rule`) | `app_control.get` | `app_control.set` |
+  | 5.7.0 | `cloudsec_policy`, `cloudsec_query`, `cloudsec_code_rule` (`--hive-cloudsec-*`) | `cloudsec.get` | `cloudsec.set` |
+  | 5.7.0 | `cloudsec_provider` (`--hive-cloudsec-provider`) | `cloudsec_provider.get.mtd`, `cloudsec_provider.get` | `cloudsec_provider.set` (+ `cloudsec_provider.set.mtd`), `cloudsec_provider.del` |
+  | 5.7.0 | `mailsec_policy`, `dr-mail` (`--hive-mailsec-policy`, `--hive-dr-mail`) | `mailsec.get` | `mailsec.set` |
+  | 5.7.0 | `mailsec_provider` (`--hive-mailsec-provider`) | `mailsec_provider.get.mtd`, `mailsec_provider.get` | `mailsec_provider.set` (+ `mailsec_provider.set.mtd`), `mailsec_provider.del` |
+  | 5.13.1 | `host_posture_rule` (`--hive-host-posture-rule`) | `host_posture.get` | `host_posture.set` and `sensor.task` (delete: `host_posture.set`) |
+  | 5.13.1 | `investigation_policy` (`--investigation-policy`) | `investigation_policy.get.mtd`, `investigation_policy.get` | `investigation_policy.set` (+ `investigation_policy.set.mtd`), `investigation_policy.del` |
+  | 5.13.1 | `investigation_plan` (`--investigation-plan`) | `investigation_plan.get.mtd`, `investigation_plan.get` | `investigation_plan.set` (+ `investigation_plan.set.mtd`), `investigation_plan.del` |
+
+  The `investigation_*` hives exist only where the Investigation Engine is
+  enabled. 5.13.0 added no hive to `--all`.
+
 ### Fix: `org config-set` help listed configuration names the API rejects
 
 - The help of `limacharlie org config-set` (and `org config-get`) named
