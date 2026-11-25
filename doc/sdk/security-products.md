@@ -109,6 +109,30 @@ An organization that has opted in (a `mailsec_policy` record of type `sample_sha
 
 Start with `alert_only`. Manual provider actions need an explicit `force=True` override in that mode; inspect the action and audit outcome. Bulk and campaign actions use preview and confirmation so the executed selection matches what was reviewed. See the [Email Security CLI reference](../cli/email-security.md) for these workflows, verdict revisions, campaigns, user reports, and offboarding.
 
+## Deception
+
+`Deception` wraps the `ext-deception` extension (subscribe with `limacharlie extension subscribe --name ext-deception`). Each method sends one extension request and returns its `data`; the extension validates everything, and arguments left as `None` (or `False`, or an empty list) are left out of the request.
+
+```python
+from limacharlie.sdk.deception import Deception
+
+dec = Deception(org)
+record = dec.get_config()                     # the extension_config record, with its etag
+config = record.data
+config["policies"][0]["mode"] = "live"
+dec.set_config(config, etag=record.etag)      # compare-and-set; refused if saved meanwhile
+print(dec.plan()["plan"])
+dec.deploy()
+print(dec.rollout_status()["deploy"])
+
+page = dec.list_hosts(sort="problems", summary=True)
+hits = dec.list_hits(layer="use", event_types=["deception_hit", "deception_drop_hit"])
+drop = dec.create_drop("url", "finance wiki: payroll page")
+print(drop["paste"]["url"])
+```
+
+`set_config()` keeps an existing record's metadata unless `enabled` or `usr_mtd` is given, and creates a missing record enabled (conditionally, so a record created meanwhile is not replaced). `update_drop()` and `rotate_drop()` are compare-and-set on the drop's `version`; with `version=None` they read the current one first. Lists return one page: pass `next_page_token` back as `page_token` until it is empty. Requests need `ext.request`; the configuration record needs `ext.conf.get` and `ext.conf.set`. See the [Deception CLI reference](../cli/deception.md).
+
 ## Pagination and filters
 
 List methods return one page unless documented as iterators. A short page can still have a `next_cursor`; continue until it is empty. Keep the original filters and return cursors verbatim. Boolean selectors are tri-state: omit them for no constraint, use `True` for a positive selection, and `False` for a negative selection. `list_similar_messages()` returns a bounded candidate set and does not support cursor pagination.

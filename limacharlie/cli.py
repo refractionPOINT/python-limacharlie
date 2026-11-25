@@ -132,6 +132,7 @@ _COMMAND_MODULE_MAP: dict[str, tuple[str, str]] = {
     "cloudsec": ("cloudsec", "group"),  # Includes code iac-map extract/push.
     "completion": ("completion", "cmd"),
     "config": ("config_cmd", "group"),
+    "deception": ("deception", "group"),
     "detection": ("detection", "group"),
     "download": ("download", "group"),
     "dr": ("dr", "group"),

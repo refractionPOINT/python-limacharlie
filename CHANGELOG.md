@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Deception
+
+- New command group `limacharlie deception` and SDK class
+  `limacharlie.sdk.deception.Deception` for the `ext-deception` extension:
+  `config get/set/enable` (the `extension_config` record, compare-and-set on
+  its etag; a new record is created enabled), `kinds`, `plan`, `deploy`,
+  `rollout-status`, `restore-rules`, `list`, `list-hosts`, `verify`, `rotate`,
+  `remove`, `coverage`, `test-fire`, `list-test-runs`, `list-test-paths`,
+  `list-hits`, `list-readers`, `drops create/list/get/update/rotate/delete/
+  draft-document` (`--save` writes a document or QR code to a file) and
+  `uninstall` / `uninstall-status`. They need the permissions `extension
+  request` and `extension config-get` / `config-set` already need
+  (`ext.request`, `ext.conf.get`, `ext.conf.set`): no new permission. New
+  discovery profile `deception`.
+
 ### Breaking (experimental Investigation Engine): the template is the authority
 
 The engine now does what a template says: there is no policy layer above it, so

@@ -47,7 +47,7 @@ del _ctx, _name
 EXPECTED_TOP_LEVEL_COMMANDS = frozenset({
     "ai", "ai-cost-model", "ai-memory", "ai-skill", "api", "api-key", "app", "app-control", "arl", "artifact",
     "audit", "auth", "billing", "case", "cloud-adapter", "cloudsec", "completion", "config",
-    "detection", "download", "dr", "endpoint-policy", "event", "exfil",
+    "deception", "detection", "download", "dr", "endpoint-policy", "event", "exfil",
     "extension", "external-adapter", "feedback", "fp", "group", "help", "hive", "host-posture",
     "ingestion-key", "installation-key", "integrity", "investigate", "ioc", "job", "logging",
     "lookup", "mailsec", "note", "org", "output", "payload", "playbook", "replay",
@@ -77,6 +77,7 @@ EXPECTED_MODULE_MAP = {
     "cloudsec": ("group", "cloudsec"),
     "completion": ("cmd", "completion"),
     "config_cmd": ("group", "config"),
+    "deception": ("group", "deception"),
     "detection": ("group", "detection"),
     "download": ("group", "download"),
     "dr": ("group", "dr"),
@@ -159,6 +160,11 @@ EXPECTED_SUBCOMMANDS: dict[str, frozenset[str]] = {
         "data-security", "resource", "graph", "query", "compliance",
         "chokepoint", "resolve", "entity", "caasm", "code", "image", "azure",
         "provider", "policy", "simulate", "export",
+    }),
+    "deception": frozenset({
+        "config", "coverage", "deploy", "drops", "kinds", "list", "list-hits", "list-hosts",
+        "list-readers", "list-test-paths", "list-test-runs", "plan", "remove", "restore-rules",
+        "rollout-status", "rotate", "test-fire", "uninstall", "uninstall-status", "verify",
     }),
     "detection": frozenset({"get", "list"}),
     "download": frozenset({"adapter", "list", "sensor"}),

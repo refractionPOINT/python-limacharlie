@@ -193,6 +193,38 @@ class TestMailsecCoverage:
         )
 
 
+class TestDeceptionCoverage:
+    """Pin ``deception`` command coverage in PROFILES, in both directions."""
+
+    @staticmethod
+    def _deception_paths() -> set[str]:
+        from limacharlie.commands.deception import group as deception_group
+
+        return set(_leaf_paths(deception_group, ["deception"]))
+
+    @staticmethod
+    def _profiled_paths() -> set[str]:
+        return {
+            cmd
+            for profile in PROFILES.values()
+            for cmd in profile["commands"]
+            if cmd.split()[0] == "deception"
+        }
+
+    def test_every_deception_command_is_discoverable(self):
+        missing = self._deception_paths() - self._profiled_paths()
+        assert not missing, (
+            f"deception commands that no discovery profile lists: {sorted(missing)}. "
+            "Add them to the 'deception' profile in limacharlie/discovery.py."
+        )
+
+    def test_no_stale_deception_entries(self):
+        stale = self._profiled_paths() - self._deception_paths()
+        assert not stale, (
+            f"Discovery profiles list deception commands that do not exist: {sorted(stale)}."
+        )
+
+
 class TestCloudSecCoverage:
     """Pin ``cloudsec`` command coverage in PROFILES.
 
