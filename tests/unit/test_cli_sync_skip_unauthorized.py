@@ -177,3 +177,55 @@ def test_push_rejects_all_available(tmp_path, transport):
         cli, ["sync", "push", "--config-file", str(f), "--all-available"])
     assert result.exit_code == 2
     transport.assert_not_called()
+
+
+UNKNOWN = [
+    {"hive": "investigation_policy", "reason": "unknown_hive", "error": "UNKNOWN_HIVE"},
+]
+UNKNOWN_NOTE = ("Note: skipped hive investigation_policy: it is not available for this "
+                "organization, so there is nothing to back up.")
+
+
+@pytest.mark.parametrize("flag", ["--all", "--all-available", "--hive-fp"])
+def test_unknown_hive_prints_note_exits_0_and_writes_file(tmp_path, transport, flag):
+    transport.side_effect = lambda *a, **k: {
+        "data": {"org": {"version": 3, "hives": {"fp": {}}}, "skipped_hives": UNKNOWN}}
+    result, path = _invoke(tmp_path, flag)
+    assert result.exit_code == 0, result.output
+    assert UNKNOWN_NOTE in result.stderr
+    assert "Warning" not in result.stderr
+    assert yaml.safe_load(path.read_text()) == {"version": 3, "hives": {"fp": {}}}
+
+
+def test_unknown_hive_note_survives_quiet(tmp_path, transport):
+    transport.side_effect = lambda *a, **k: {
+        "data": {"org": {"version": 3}, "skipped_hives": UNKNOWN}}
+    path = tmp_path / "org.yaml"
+    result = CliRunner(mix_stderr=False).invoke(
+        cli, ["--quiet", "sync", "pull", "--config-file", str(path), "--all"])
+    assert result.exit_code == 0, result.output
+    assert UNKNOWN_NOTE in result.stderr
+    assert path.exists()
+
+
+def test_mixed_reasons_and_explicit_unauthorized_reason(tmp_path, transport):
+    transport.side_effect = lambda *a, **k: {"data": {"org": {"version": 3}, "skipped_hives": [
+        UNKNOWN[0],
+        {"hive": "host_posture_rule", "permission": "host_posture.get",
+         "reason": "unauthorized", "error": "UNAUTHORIZED"},
+    ]}}
+    result, _ = _invoke(tmp_path, "--all-available")
+    assert result.exit_code == 0, result.output
+    assert UNKNOWN_NOTE in result.stderr
+    assert ("Warning: skipped hive host_posture_rule: this key lacks host_posture.get; "
+            "grant it to include this hive in the sync.") in result.stderr
+
+
+def test_no_reason_entry_keeps_old_text(tmp_path, transport):
+    transport.side_effect = lambda *a, **k: {"data": {"org": {"version": 3}, "skipped_hives": [
+        {"hive": "app_control_rule", "error": "UNAUTHORIZED - no access"}]}}
+    result, _ = _invoke(tmp_path, "--all")
+    assert result.exit_code == 0, result.output
+    assert ("Warning: skipped hive app_control_rule: this key is not authorized to read it "
+            "(UNAUTHORIZED - no access); grant access to include this hive in the sync.") in result.stderr
+    assert "Note:" not in result.stderr

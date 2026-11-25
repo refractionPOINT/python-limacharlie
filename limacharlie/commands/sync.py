@@ -194,6 +194,13 @@ it (the skipping still applies).  A hive named only by an explicit
 backend that supports skipping (an older one fails on the first
 unreadable hive, as with --all).
 
+A hive the API does not know in this organization's region (for example one
+whose product is not enabled there) is always skipped, with --all and explicit
+--hive-* flags too, since there is nothing to back up: a "Note: skipped hive
+<hive>: it is not available for this organization" line is printed on stderr
+(even with --quiet) and the command still exits 0.  This needs a recent
+Infrastructure extension.
+
 The saved YAML file uses version 3 format with top-level keys for
 each resource type:
 
@@ -354,9 +361,16 @@ def pull(ctx, config_file, all_available, sync_all, outputs, integrity,
         skip_unauthorized_hives=all_available, **flags,
     )
     # Always on stderr, even with --quiet: a scheduled backup must not hide
-    # that part of the org was left out of the file.
+    # that part of the org was left out of the file.  Reported for every
+    # pull, not only --all-available: the backend skips hives the org's
+    # region does not know even for --all and explicit --hive-* flags.
     for item in skipped:
         hive = item.get("hive", "unknown")
+        if item.get("reason") == "unknown_hive":
+            click.echo(
+                f"Note: skipped hive {hive}: it is not available for this organization, "
+                "so there is nothing to back up.", err=True)
+            continue
         perm = item.get("permission")
         if perm:
             msg = f"this key lacks {perm}; grant it to include this hive in the sync."

@@ -225,7 +225,9 @@ class Configs:
         Returns:
             dict: ``{"org": <org configuration>, "skipped_hives": [...]}``.
                 Each skipped hive is a dict with ``hive``, ``error`` and,
-                when the backend names it, ``permission``. ``skipped_hives``
+                when the backend names them, ``permission`` and ``reason``
+                (``"unauthorized"`` or ``"unknown_hive"``; absent on older
+                backends, meaning unauthorized). ``skipped_hives``
                 is empty when nothing was skipped, including when the backend
                 is too old to support ``skip_unauthorized_hives`` (it then
                 fails on the first unreadable hive, as before).
@@ -342,7 +344,9 @@ class Configs:
         Args:
             file_path: Path to save the config file.
             skipped_hives: Optional list the skipped hives are appended to
-                (see fetch_with_report()); only filled when
+                (see fetch_with_report()). Hives the org's region
+                does not know (``reason == "unknown_hive"``) are reported on
+                every fetch; unauthorized ones only when
                 ``skip_unauthorized_hives=True`` is passed.
             **kwargs: Same as fetch().
 
