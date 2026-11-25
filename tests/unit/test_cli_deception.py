@@ -420,7 +420,7 @@ class TestFollowUps:
         assert ext.calls == [("get_drop", {"drop_id": "d1"}), ("rotate_drop", {"drop_id": "d1", "version": 4})]
         assert out.read_text() == "<svg/>"
 
-    def test_save_gives_the_file_the_mode_a_plain_write_would(self, ext, tmp_path):
+    def test_save_writes_like_a_plain_write(self, ext, tmp_path):
         ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
         new = tmp_path / "new.svg"
         old_umask = os.umask(0o022)
@@ -430,13 +430,17 @@ class TestFollowUps:
             os.umask(old_umask)
         assert stat.S_IMODE(new.stat().st_mode) == 0o644
 
+        # An existing file is rewritten in place: same inode, so its owner,
+        # group, mode and ACLs stay as they were.
         existing = tmp_path / "shared.svg"
         existing.write_text("old")
-        existing.chmod(0o664)
+        existing.chmod(0o660)
+        inode = existing.stat().st_ino
         assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(existing)]).exit_code == 0
-        assert stat.S_IMODE(existing.stat().st_mode) == 0o664 and existing.read_text() == "<svg/>"
+        assert existing.stat().st_ino == inode
+        assert stat.S_IMODE(existing.stat().st_mode) == 0o660 and existing.read_text() == "<svg/>"
 
-    def test_save_through_a_symlink_replaces_its_target(self, ext, tmp_path):
+    def test_save_through_a_symlink_writes_its_target(self, ext, tmp_path):
         ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
         target = tmp_path / "real.svg"
         target.write_text("old")
@@ -445,16 +449,39 @@ class TestFollowUps:
         assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(link)]).exit_code == 0
         assert link.is_symlink() and target.read_text() == "<svg/>"
 
-    def test_a_failed_save_leaves_the_existing_file_and_no_partial_one(self, ext, tmp_path):
-        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg new/>"}}
+    def test_a_failed_write_of_a_new_file_leaves_nothing(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
         out = tmp_path / "qr.svg"
-        out.write_text("old")
-        with patch("limacharlie.commands.deception.os.replace", side_effect=OSError("disk full")):
+        real_open = open
+
+        def fake_open(path, mode="r", *args, **kwargs):
+            real = real_open(path, mode, *args, **kwargs)  # the file is really created
+            wrapper = MagicMock()
+            wrapper.__enter__.return_value = wrapper
+            wrapper.__exit__.side_effect = lambda *a: real.close()
+            wrapper.write.side_effect = OSError("disk full")
+            return wrapper
+
+        with patch("limacharlie.commands.deception.open", side_effect=fake_open, create=True):
             result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(out)])
         assert result.exit_code == 1 and "nothing was written" in result.output
-        assert out.read_text() == "old"
-        assert [p.name for p in tmp_path.iterdir()] == ["qr.svg"]
+        assert not out.exists()
 
+    def test_a_failed_rewrite_says_the_file_may_be_incomplete(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        out = tmp_path / "qr.svg"
+        out.write_text("old")
+        real_open = open
+
+        def fake_open(path, mode="r", *args, **kwargs):
+            if mode == "wb":
+                raise OSError("disk full")
+            return real_open(path, mode, *args, **kwargs)
+
+        with patch("limacharlie.commands.deception.open", side_effect=fake_open, create=True):
+            result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(out)])
+        assert result.exit_code == 1 and "may be incomplete" in result.output
+        assert "Traceback" not in result.output
 
 class TestTableOutput:
     def test_a_list_shows_its_rows_and_the_whole_page_token(self, ext):

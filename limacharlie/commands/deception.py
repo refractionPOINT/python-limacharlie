@@ -20,7 +20,6 @@ import base64
 import binascii
 import hashlib
 import os
-import tempfile
 from typing import Any
 
 import click
@@ -134,6 +133,10 @@ def _save_option(fn):
 
 
 _SAVE_FAILED = "the answer above is complete; nothing was written to {path}: {why}"
+_SAVE_PARTIAL = (
+    "the answer above is complete; writing {path} failed and the file may be incomplete: {why}. "
+    "Write it again (drops get --save) before using it"
+)
 
 
 def _save_paste(result: dict[str, Any], path: str) -> None:
@@ -152,39 +155,41 @@ def _save_paste(result: dict[str, Any], path: str) -> None:
         else:
             raise click.ClickException(_SAVE_FAILED.format(
                 path=path, why="its paste has no file (a url or hostname drop, or a deleted drop)"))
-        _write_whole(path, content)
-    except (binascii.Error, ValueError, OSError) as exc:
+    except (binascii.Error, ValueError) as exc:
         raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
+    _write_file(path, content)
     click.echo(f"Wrote {path}", err=True)
 
 
-def _write_whole(path: str, content: bytes) -> None:
-    """Write ``content`` to ``path`` through a temporary file beside it, so a
-    failed write leaves an existing file as it was and no partial file.
+def _write_file(path: str, content: bytes) -> None:
+    """Write ``content`` to ``path``, as a plain write would.
 
-    The file gets the mode a plain write would give it: an existing file's
-    own mode, or 0666 less the umask for a new one (a decoy file is put where
-    other people open it, so it must not become owner-only). A symlink is
-    followed: its target is replaced, not the link."""
-    target = os.path.realpath(path)
+    An existing file (a symlink's target included) is rewritten in place, so
+    it keeps its owner, group, mode and ACLs: a decoy file is often put where
+    other people open it. If that write fails the file may be incomplete, and
+    the error says so. A new file is created exclusively, with the mode the
+    umask gives, and removed if its write fails, so nothing partial is left.
+    """
     try:
-        mode = os.stat(target).st_mode & 0o7777
-    except FileNotFoundError:
-        umask = os.umask(0)
-        os.umask(umask)
-        mode = 0o666 & ~umask
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".deception-save-")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(content)
-        os.chmod(tmp, mode)
-        os.replace(tmp, target)
-    except BaseException:
+        f = open(path, "xb")
+    except FileExistsError:
         try:
-            os.unlink(tmp)
+            with open(path, "wb") as f:
+                f.write(content)
+        except OSError as exc:
+            raise click.ClickException(_SAVE_PARTIAL.format(path=path, why=exc))
+        return
+    except OSError as exc:
+        raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
+    try:
+        with f:
+            f.write(content)
+    except OSError as exc:
+        try:
+            os.unlink(path)
         except OSError:
             pass
-        raise
+        raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
 
 
 def _output_and_save(ctx, result: dict[str, Any], save_path: str | None) -> None:
