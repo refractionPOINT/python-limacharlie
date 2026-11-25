@@ -23,6 +23,24 @@ limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
 limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-run
 ```
 
+`--all` is strict: if the key cannot read one of the hives, the pull fails (for
+example `host_posture_rule` without `host_posture.get`). For scheduled backups
+use `sync pull --all-available`, which selects the same set but skips hives the
+key has no permission for, so a new hive or permission added by a release does
+not break the job:
+
+```bash
+limacharlie sync pull --config-file lc_conf.yaml --all-available
+```
+
+Each skipped hive prints `Warning: skipped hive <hive>: this key lacks
+<permission>; grant it to include this hive in the sync.` on stderr (also with
+`--quiet`) and the command exits 0. `--all` and `--all-available` cannot be
+combined; explicit `--hive-*` flags are redundant with `--all-available`. A
+hive named only by an explicit `--hive-*` flag stays strict. `--all-available`
+is pull-only and needs a backend that supports skipping; an older backend fails
+on the first unreadable hive, as `--all` does.
+
 Available hive flags: `--hive-cloudsec-policy`, `--hive-cloudsec-provider`,
 `--hive-cloudsec-query`, `--hive-cloudsec-code-rule`, `--hive-mailsec-provider`, `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-host-posture-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
