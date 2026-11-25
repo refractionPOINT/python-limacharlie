@@ -110,7 +110,8 @@ def list_orgs(ctx: click.Context, filter_text: str | None, limit: int | None, of
 _EXPLAIN_CONFIG_GET = """\
 Retrieve an organization configuration value by name.  Organization
 configuration values hold integration API keys and settings (vt, otx,
-shodan, ...) and the sensor_auto_upgrade setting.
+shodan, ...), the sensor_auto_upgrade setting and the telemetry storage period
+(retention_months).
 
 Use 'limacharlie org config-set' to change a configuration value, and
 'limacharlie org config-set --ai-help' for the list of configuration
@@ -155,9 +156,22 @@ addition to org.conf.set):
       version is set by hand; setting the value to 'true' again while
       it is already on resumes them.
 
+Telemetry storage period (requires org.conf.set; going above 12 also requires the
+billing.ctrl permission and a paid plan):
+  retention_months
+      How many months telemetry is kept: '12' (the default, also what an
+      unset value means), '18', '24' or '36'; the API refuses any other
+      value.  An increase applies immediately.  A reduction is applied by
+      the API after a delay, not immediately, and setting the previous
+      value back before then cancels it.  When the API refuses a change
+      (free plan, missing billing.ctrl) the command fails with the API's
+      reason.  'limacharlie sync push --org-values' carries this value
+      like the others.
+
 Examples:
   limacharlie org config-set --name vt --value <api-key>
   limacharlie org config-set --name sensor_auto_upgrade --value true
+  limacharlie org config-set --name retention_months --value 24
 """
 register_explain("org.config-set", _EXPLAIN_CONFIG_SET)
 

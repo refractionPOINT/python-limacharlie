@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Add: `retention_months` org value (data retention in months)
+
+- `retention_months` (`"12"`, `"18"`, `"24"` or `"36"`; unset means `"12"`) is
+  an org value. `limacharlie org config-set --name retention_months --value 24`
+  sets it, and `limacharlie sync pull|push --org-values` carries it under
+  `org-value:`. Setting a value above 12 needs a paid plan and the
+  `billing.ctrl` permission as well as `org.conf.set`; when the API refuses,
+  `org config-set` fails with its reason and `sync push` lists it under
+  `Errors:` and exits non-zero. The `org config-set` help and
+  `doc/cli/platform-admin.md` document the value.
+
 ### Fix: `org config-set` help listed configuration names the API rejects
 
 - The help of `limacharlie org config-set` (and `org config-get`) named

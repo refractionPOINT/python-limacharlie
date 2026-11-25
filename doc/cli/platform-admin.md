@@ -16,6 +16,7 @@ limacharlie org dismiss-error --component <name>
 limacharlie org config-get --name vt     # Read a config value
 limacharlie org config-set --name vt --value <key>
 limacharlie org config-set --name sensor_auto_upgrade --value true  # See below
+limacharlie org config-set --name retention_months --value 24       # See below
 limacharlie org mitre                    # MITRE ATT&CK coverage report
 limacharlie org schema                   # Event schemas
 limacharlie org schema --event-type NEW_PROCESS
@@ -34,6 +35,7 @@ unknown.
 |------|---------|-------------------|
 | `vt`, `otx`, `domain`, `shodan`, `pagerduty`, `twilio`, `socprime`, `alphamountain`, `pangea`, `echotrail`, `hybrid_analysis`, `greynoise`, `ipqs` | Integration API keys and settings. | `org.conf.set` |
 | `sensor_auto_upgrade` | Automatic sensor upgrades. | `org.conf.set` and `module.update` |
+| `retention_months` | Data retention in months. | `org.conf.set`, plus `billing.ctrl` for a value above 12 |
 
 Where automatic sensor upgrades are available, setting `sensor_auto_upgrade`
 to `true` keeps the organization's sensors on the stable sensor version: when
@@ -42,6 +44,17 @@ batches. Only the string `true` turns it on; unset, empty and `false` all mean
 off, and the API refuses any other value. Automatic upgrades pause when the
 sensor version is set by hand; setting the value to `true` again while it is
 already on resumes them.
+
+`retention_months` is the number of months telemetry is kept: `12` (the
+default, also what an unset value means), `18`, `24` or `36`. The API refuses
+any other value. Setting a value above 12 also needs a paid plan and the
+`billing.ctrl` permission; when the API refuses, the command fails and prints
+its reason. An increase applies immediately. A reduction is applied by the API
+after a delay, and setting the previous value back before then cancels it.
+
+`limacharlie sync pull|push --org-values` (or `--all`) carries `retention_months`
+under `org-value:` like the other values. Quote it (`retention_months: "24"`).
+`sync push` reports an API refusal in its `Errors:` list and exits non-zero.
 
 ## user
 
