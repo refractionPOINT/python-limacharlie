@@ -29,3 +29,46 @@ When the lint reports a `PROFILES` entry that no longer resolves, find the
 command's current spelling before touching the entry — most rotted entries were
 renamed or moved, not removed. Drop an entry only when the command is genuinely
 gone or has become a flag on another command.
+
+## Adding a hive to sync, or anything else that needs a new permission
+
+Customers back up and restore whole orgs with `limacharlie sync pull --all`,
+often from a scheduled job using an API key per org that holds only the
+permissions it needed when it was made. A hive added to `_HIVE_FLAG_MAP` in
+`limacharlie/commands/sync.py` joins `--all` in the next release, and so does
+any new non-hive resource type that `_resolve_sync_flags` expands `--all` to
+(like `outputs` or `extensions`). From then on, every `--all` pull with a key
+that lacks the read permission for it fails for the whole org until someone
+grants the permission. `--all-available` skips an unreadable hive with a
+warning instead, but many jobs still use `--all`. Customers can only find out
+which permission to grant from the changelog, so in the same change:
+
+1. **Add a "New permissions" entry to `CHANGELOG.md` under "Unreleased".** Name
+   the hive, the flag, and every permission it takes: the read permission that
+   `sync pull` needs, and the write permissions that `sync push` needs. Say
+   plainly that `sync pull --all` fails with a key that lacks the read
+   permission and that `--all-available` skips the hive. Example:
+
+   ```markdown
+   ### New permissions: `host_posture_rule` hive
+
+   - `sync pull --all` and `--hive-host-posture-rule` now read the
+     `host_posture_rule` hive, which needs `host_posture.get`. A key without it
+     fails `sync pull --all`; `sync pull --all-available` skips the hive with
+     a warning. Pushing rules needs `host_posture.set` and `sensor.task`.
+   ```
+
+2. **Take the permission names from the hive's definition in the Hive
+   service, not from the hive name.** They often differ: `host_posture_rule`
+   reads with `host_posture.get`, and `external_adapter` with
+   `externaladapter.get.mtd`. Never guess a name. If you can't confirm it, say
+   so in the PR and ask.
+3. **Keep the permission table in `doc/cli/infrastructure.md` up to date in the
+   same change** ("Permissions each hive needs"): one row per hive in
+   `_HIVE_FLAG_MAP`, and a note for any new non-hive section.
+4. **Do the same for any new CLI command or SDK call that needs a permission
+   no earlier release needed.** The same rule applies: one changelog line
+   naming the permission.
+5. **Add the hive to the Go SDK too** (`KnownHives` and `SyncAll()` in
+   go-limacharlie). The Infrastructure extension and Git Sync use that list,
+   and that repo has the same rule.

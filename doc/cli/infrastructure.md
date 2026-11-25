@@ -23,11 +23,80 @@ limacharlie sync pull --config-file dr.yaml --hive-dr-general --hive-fp
 limacharlie sync push --config-file dr.yaml --hive-dr-general --hive-fp --dry-run
 ```
 
+`--all` is strict: if the key cannot read one of the hives, the pull fails (for
+example `host_posture_rule` without `host_posture.get`). For scheduled backups
+use `sync pull --all-available`, which selects the same set but skips hives the
+key has no permission for, so a new hive or permission added by a release does
+not break the job:
+
+```bash
+limacharlie sync pull --config-file lc_conf.yaml --all-available
+```
+
+Each skipped hive prints `Warning: skipped hive <hive>: this key lacks
+<permission>; grant it to include this hive in the sync.` on stderr (also with
+`--quiet`) and the command exits 0. `--all` and `--all-available` cannot be
+combined; explicit `--hive-*` flags are redundant with `--all-available`. A
+hive named only by an explicit `--hive-*` flag stays strict. `--all-available`
+is pull-only and needs a backend that supports skipping; an older backend fails
+on the first unreadable hive, as `--all` does.
+
 Available hive flags: `--hive-cloudsec-policy`, `--hive-cloudsec-provider`,
 `--hive-cloudsec-query`, `--hive-cloudsec-code-rule`, `--hive-mailsec-provider`, `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-host-posture-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
 `--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
-`--hive-ai-agent`, `--hive-external-adapter`.
+`--hive-ai-agent`, `--hive-ai-skill`, `--hive-ai-memory`,
+`--hive-external-adapter`, `--investigation-policy`, `--investigation-plan`.
+The table below lists the permission each one needs.
+
+### Permissions each hive needs
+
+Listing a hive's records checks its metadata permission (`.get.mtd`); reading
+each record's data checks the `.get` permission. A key with the first but not
+the second sees the records with `data: null`. `sync push` needs the set
+permission (and the `.set.mtd` one where shown); removing a record, which only
+`--force` does, needs the delete permission. A key made before a hive was added
+to `--all` lacks these permissions, which is what `--all-available` is for.
+Where the pull column lists a single permission (for example `acl.get`), it
+covers both listing and reading data, with no separate `.get.mtd` to grant.
+Where the push column lists no delete permission (for example `cloudsec.set`),
+the set permission also covers deletes.
+
+| Hive | Flag | `sync pull` needs | `sync push` needs |
+|---|---|---|---|
+| `acl` | `--hive-acl` | `acl.get` | `acl.set` |
+| `ai_agent` | `--hive-ai-agent` | `ai_agent.get.mtd`, `ai_agent.get` | `ai_agent.set` (+ `ai_agent.set.mtd`), `ai_agent.del` |
+| `ai_memory` | `--hive-ai-memory` | `ai_memory.get.mtd`, `ai_memory.get` | `ai_memory.set` (+ `ai_memory.set.mtd`), `ai_memory.del` |
+| `ai_skill` | `--hive-ai-skill` | `ai_skill.get.mtd`, `ai_skill.get` | `ai_skill.set` (+ `ai_skill.set.mtd`), `ai_skill.del` |
+| `app_control_policy` | `--hive-app-control-policy` | `app_control.get` | `app_control.set` |
+| `app_control_rule` | `--hive-app-control-rule` | `app_control.get` | `app_control.set` |
+| `cloud_sensor` | `--hive-cloud-sensor` | `cloudsensor.get.mtd`, `cloudsensor.get` | `cloudsensor.set` (+ `cloudsensor.set.mtd`), `cloudsensor.del` |
+| `cloudsec_code_rule` | `--hive-cloudsec-code-rule` | `cloudsec.get` | `cloudsec.set` |
+| `cloudsec_policy` | `--hive-cloudsec-policy` | `cloudsec.get` | `cloudsec.set` |
+| `cloudsec_provider` | `--hive-cloudsec-provider` | `cloudsec_provider.get.mtd`, `cloudsec_provider.get` | `cloudsec_provider.set` (+ `cloudsec_provider.set.mtd`), `cloudsec_provider.del` |
+| `cloudsec_query` | `--hive-cloudsec-query` | `cloudsec.get` | `cloudsec.set` |
+| `dr-general` | `--hive-dr-general` | `dr.list` | `dr.set`, `dr.del` |
+| `dr-mail` | `--hive-dr-mail` | `mailsec.get` | `mailsec.set` |
+| `dr-managed` | `--hive-dr-managed` | `dr.list.managed` | `dr.set.managed`, `dr.del.managed` |
+| `dr-service` | `--hive-dr-service` | metadata: `dr.list`, `dr.list.managed`, `dr.list.replicant`, `dr.list.service`; data: `dr.list.replicant`, `dr.list.service` | `dr.set.replicant`, `dr.set.service`, `dr.del.replicant`, `dr.del.service` |
+| `external_adapter` | `--hive-external-adapter` | `externaladapter.get.mtd`, `externaladapter.get` | `externaladapter.set` (+ `externaladapter.set.mtd`), `externaladapter.del` |
+| `extension_config` | `--hive-extension-config` | `ext.conf.get.mtd`, `ext.conf.get` | `ext.conf.set` (+ `ext.conf.set.mtd`), `ext.conf.del` |
+| `fp` | `--hive-fp` | `fp.ctrl` | `fp.ctrl` |
+| `host_posture_rule` | `--hive-host-posture-rule` | `host_posture.get` | `host_posture.set` and `sensor.task` (delete: `host_posture.set`) |
+| `investigation_plan` | `--investigation-plan` | `investigation_plan.get.mtd`, `investigation_plan.get` | `investigation_plan.set` (+ `investigation_plan.set.mtd`), `investigation_plan.del` |
+| `investigation_policy` | `--investigation-policy` | `investigation_policy.get.mtd`, `investigation_policy.get` | `investigation_policy.set` (+ `investigation_policy.set.mtd`), `investigation_policy.del` |
+| `lookup` | `--hive-lookup` | `lookup.get.mtd`, `lookup.get` | `lookup.set` (+ `lookup.set.mtd`), `lookup.del` |
+| `mailsec_policy` | `--hive-mailsec-policy` | `mailsec.get` | `mailsec.set` |
+| `mailsec_provider` | `--hive-mailsec-provider` | `mailsec_provider.get.mtd`, `mailsec_provider.get` | `mailsec_provider.set` (+ `mailsec_provider.set.mtd`), `mailsec_provider.del` |
+| `playbook` | `--hive-playbook` | `playbook.get.mtd`, `playbook.get` | `playbook.set` (+ `playbook.set.mtd`), `playbook.del` |
+| `query` | `--hive-query` | `query.get.mtd`, `query.get` | `query.set` (+ `query.set.mtd`), `query.del` |
+| `secret` | `--hive-secret` | `secret.get.mtd`, `secret.get` | `secret.set` (+ `secret.set.mtd`), `secret.del` |
+| `yara` | `--hive-yara` | `yara.get.mtd`, `yara.get` | `yara.set` (+ `yara.set.mtd`), `yara.del` |
+
+The `investigation_*` hives exist only where the Investigation Engine is
+enabled. The other sections `--all` syncs (outputs, integrity, exfil,
+artifact, resources, extensions, org values, installation keys) use their usual
+permissions, which this table does not cover.
 
 ### ACL scopes
 

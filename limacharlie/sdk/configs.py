@@ -171,7 +171,7 @@ class Configs:
               sync_integrity: bool = False, sync_artifact: bool = False, sync_exfil: bool = False,
               sync_resources: bool = False, sync_extensions: bool = False, sync_org_values: bool = False,
               sync_hives: dict[str, bool] | None = None, sync_installation_keys: bool = False,
-              sync_yara: bool = False) -> dict[str, Any]:
+              sync_yara: bool = False, skip_unauthorized_hives: bool = False) -> dict[str, Any]:
         """Fetch the current org configuration from the cloud.
 
         Args:
@@ -185,30 +185,78 @@ class Configs:
             sync_hives: Dict of hive names to sync (e.g., {"dr-general": True}).
             sync_installation_keys: Fetch installation keys.
             sync_yara: Fetch YARA rules and sources.
+            skip_unauthorized_hives: Skip hives the caller lacks permission
+                for instead of failing. Use fetch_with_report() to learn
+                which hives were skipped.
 
         Returns:
             dict: The org configuration.
         """
+        return self.fetch_with_report(
+            sync_outputs=sync_outputs, sync_integrity=sync_integrity,
+            sync_artifact=sync_artifact, sync_exfil=sync_exfil,
+            sync_resources=sync_resources, sync_extensions=sync_extensions,
+            sync_org_values=sync_org_values, sync_hives=sync_hives,
+            sync_installation_keys=sync_installation_keys, sync_yara=sync_yara,
+            skip_unauthorized_hives=skip_unauthorized_hives,
+        )["org"]
+
+    def fetch_with_report(self, sync_outputs: bool = False,
+                          sync_integrity: bool = False, sync_artifact: bool = False, sync_exfil: bool = False,
+                          sync_resources: bool = False, sync_extensions: bool = False, sync_org_values: bool = False,
+                          sync_hives: dict[str, bool] | None = None, sync_installation_keys: bool = False,
+                          sync_yara: bool = False, skip_unauthorized_hives: bool = False) -> dict[str, Any]:
+        """Fetch the org configuration and report any hives that were skipped.
+
+        Args:
+            sync_outputs: Fetch outputs.
+            sync_integrity: Fetch integrity rules.
+            sync_artifact: Fetch artifact/logging rules.
+            sync_exfil: Fetch exfil rules.
+            sync_resources: Fetch resource subscriptions.
+            sync_extensions: Fetch extension subscriptions.
+            sync_org_values: Fetch org config values.
+            sync_hives: Dict of hive names to sync (e.g., {"dr-general": True}).
+            sync_installation_keys: Fetch installation keys.
+            sync_yara: Fetch YARA rules and sources.
+            skip_unauthorized_hives: Skip hives the caller lacks permission
+                for instead of failing the whole fetch.
+
+        Returns:
+            dict: ``{"org": <org configuration>, "skipped_hives": [...]}``.
+                Each skipped hive is a dict with ``hive``, ``error`` and,
+                when the backend names it, ``permission``. ``skipped_hives``
+                is empty when nothing was skipped, including when the backend
+                is too old to support ``skip_unauthorized_hives`` (it then
+                fails on the first unreadable hive, as before).
+        """
         if sync_hives is None:
             sync_hives = {}
 
+        options: dict[str, Any] = {
+            "sync_outputs": sync_outputs,
+            "sync_resources": sync_resources,
+            "sync_extensions": sync_extensions,
+            "sync_integrity": sync_integrity,
+            "sync_exfil": sync_exfil,
+            "sync_artifacts": sync_artifact,
+            "sync_org_values": sync_org_values,
+            "sync_hives": sync_hives,
+            "sync_installation_keys": sync_installation_keys,
+            "sync_yara": sync_yara,
+        }
+        if skip_unauthorized_hives:
+            options["skip_unauthorized_hives"] = True
+
         from .extensions import Extensions
         ext = Extensions(self._org)
-        data = ext.request("ext-infrastructure", "fetch", {
-            "options": {
-                "sync_outputs": sync_outputs,
-                "sync_resources": sync_resources,
-                "sync_extensions": sync_extensions,
-                "sync_integrity": sync_integrity,
-                "sync_exfil": sync_exfil,
-                "sync_artifacts": sync_artifact,
-                "sync_org_values": sync_org_values,
-                "sync_hives": sync_hives,
-                "sync_installation_keys": sync_installation_keys,
-                "sync_yara": sync_yara,
-            },
-        }, is_impersonated=True)
-        return data.get("data", {}).get("org", {})
+        data = ext.request("ext-infrastructure", "fetch", {"options": options}, is_impersonated=True)
+        data = data.get("data", {})
+        skipped = data.get("skipped_hives") or []
+        return {
+            "org": data.get("org", {}),
+            "skipped_hives": [s for s in skipped if isinstance(s, dict)],
+        }
 
     def push(self, config: dict[str, Any], is_force: bool = False, is_dry_run: bool = False,
              ignore_inaccessible: bool = False,
@@ -287,17 +335,24 @@ class Configs:
 
         return results, errors
 
-    def fetch_to_file(self, file_path: str, **kwargs: Any) -> dict[str, Any]:
+    def fetch_to_file(self, file_path: str, skipped_hives: list[dict[str, Any]] | None = None,
+                      **kwargs: Any) -> dict[str, Any]:
         """Fetch configuration and save to a YAML file.
 
         Args:
             file_path: Path to save the config file.
+            skipped_hives: Optional list the skipped hives are appended to
+                (see fetch_with_report()); only filled when
+                ``skip_unauthorized_hives=True`` is passed.
             **kwargs: Same as fetch().
 
         Returns:
-            dict: API response.
+            dict: The org configuration that was written.
         """
-        config = self.fetch(**kwargs)
+        report = self.fetch_with_report(**kwargs)
+        config = report["org"]
+        if skipped_hives is not None:
+            skipped_hives.extend(report["skipped_hives"])
         with open(os.path.abspath(file_path), "wb") as f:
             f.write(yaml.safe_dump(config, default_flow_style=False, version=(1, 1)).encode())
         return config
