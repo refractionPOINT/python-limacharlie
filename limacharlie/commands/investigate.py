@@ -283,8 +283,9 @@ from --priority and --severity, else medium. A
 draft template only suggests its actions; an active one does what its `act`
 entries say: `approval: required` waits for a person, `{when: ...}` waits only
 when the condition holds or is unknown (when it is false the action acts on its
-own), and nothing acts alone while the org is paused or over the circuit
-breaker (`investigate settings`).
+own), and nothing acts alone while the org is paused (`investigate settings`);
+over the circuit breaker's cap an automatic containment waits too (closes and
+tags do not count toward it).
 --idempotency-key makes a repeated start return the same run.
 
 Repeat --trust-lookup NAME / --trust-value VALUE to add to template trust for
@@ -430,8 +431,10 @@ when (a pause is a field of that record, so this is who paused it unless
 someone saved the record again since). `circuit_breaker` shows the caps and
 `used_last_hour` / `tripped`. The rest: the run identity and whether it is
 ready, where notifications go, which AI agent answers, budgets and the case
-mode. `source: builtin` means there is no record. `warnings` lists a rejected
-record (the engine then keeps its last good copy).
+mode. `source: builtin` means the engine runs on its built-in settings: there
+is no record, or the stored one does not parse (then `paused` is true, there is
+no identity and `warnings` says `settings_rejected`: repair the record). With a
+rejected record the engine keeps its last good copy.
 
 The settings never override a template. What a template does is written in the
 template: approval, lease and what happens when it ends, whether the AI may

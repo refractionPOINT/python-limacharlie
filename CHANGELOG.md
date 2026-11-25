@@ -23,9 +23,15 @@ the `investigate policy` commands are removed.
 - Migration: an org paused under the old scheme holds an
   `investigation_policy` record `autonomy-manual-pause` that `investigate` can
   no longer see or delete, and the engine no longer reads it. Check for it
-  (`limacharlie hive get --hive-name investigation_policy --key autonomy-manual-pause`),
-  run `investigate settings pause` if the org should stay paused, then delete
-  the old record with `limacharlie hive delete`.
+  (`limacharlie hive get --hive-name investigation_policy --key autonomy-manual-pause`).
+  If the org should stay paused, first make sure the `default` record holds none
+  of the removed fields (`autonomy`, `ai_may_decide`, `match`, `operators`,
+  `automation_routes`, `auto_investigation`): the Hive refuses a write that
+  carries them, which would also refuse `settings pause` (the AI switch is now
+  the template's `ai_may_decide`). Then run `investigate settings pause` (or set
+  `paused: true` in the same update when you convert the record by hand),
+  confirm with `investigate settings get`, and only then delete the old record
+  with `limacharlie hive delete`.
 - New permissions for these calls: `settings pause` and `settings resume` need
   `investigation_policy.get` and `investigation_policy.set` (resume no longer
   needs `investigation_policy.del`). `settings get` needs only

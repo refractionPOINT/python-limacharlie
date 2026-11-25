@@ -1032,10 +1032,17 @@ class Investigation:
                 current = self._read_settings_record()
             except LimaCharlieError:
                 raise exc
-            if current is not None and self._paused_field(current) == paused and current.enabled is True:
+            if self._paused_field(current) == paused and (not paused or (current is not None and current.enabled is True)):
                 return {**self._pause_view(current), "changed": False}
             raise
-        after = self._read_settings_record()
+        try:
+            after = self._read_settings_record()
+        except LimaCharlieError as exc:
+            raise InvestigationError(
+                f"the {SETTINGS_RECORD} record of {POLICY_HIVE} was saved with paused={str(paused).lower()}, but reading it "
+                f"back failed ({exc.raw_message}): check `investigate settings get`; repeating the command is safe",
+                status_code=getattr(exc, "status_code", None),
+            ) from exc
         if self._paused_field(after) != paused or (paused and (after is None or after.enabled is not True)):
             # Expired, deleted or changed by someone else between our write and this read: never report success.
             raise InvestigationError(

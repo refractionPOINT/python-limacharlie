@@ -1041,6 +1041,22 @@ class TestPause:
             inv.pause_actions()
         assert ei.value.status_code == 409 and "ETAG_MISMATCH" in str(ei.value)
 
+    def test_a_resume_that_races_with_another_resume_or_a_delete_is_done(self, inv, hive):
+        conflict = error_from_status_code(409, {"error": "lc_error_code:ETAG_MISMATCH - changed"})
+        for current in (_settings({"paused": False}, enabled=False, etag="e9"), _not_found()):
+            hive.reset_mock()
+            hive.get.side_effect = [_settings({"paused": True}, enabled=False), current]
+            hive.set.side_effect = conflict
+            out = inv.resume_actions()
+            assert out["changed"] is False and out["paused"] is False
+
+    def test_a_failed_read_back_after_a_saved_write_says_it_was_saved(self, inv, hive):
+        hive.get.side_effect = [_settings(self.STORED), error_from_status_code(500, "readback boom")]
+        with pytest.raises(InvestigationError, match="was saved with paused=true, but reading it back failed") as ei:
+            inv.pause_actions()
+        assert ei.value.status_code == 500
+        hive.set.assert_called_once()
+
     def test_a_pause_that_does_not_read_back_as_paused_is_not_reported_as_done(self, inv, hive):
         # Someone resumed (or the record expired and was deleted) between our write and the read.
         for after in (_settings(self.STORED, etag="e2"), None):
