@@ -17,6 +17,7 @@
 | [Platform Administration](cli/platform-admin.md) | org, user, group, api-key, ingestion-key, billing, audit |
 | [Hive & Data Stores](cli/hive-data.md) | hive, secret, lookup, playbook, note, sop, app-control, adapter, cloud-sensor, extension |
 | [Host Posture](cli/host-posture.md) | host-posture |
+| [Deception](cli/deception.md) | deception (configuration, plan, deploy, decoys, hosts, coverage, test-fire, hits, readers, drops, uninstall) |
 | [Infrastructure](cli/infrastructure.md) | sync, output, artifact, payload, yara, integrity, logging, exfil |
 | [Cloud Security & Code Security](cli/cloud-security.md) | cloudsec (findings, inventory, graph, compliance, CAASM, code lane, container images, fleet, exports) |
 | [Investigation Engine](cli/investigation-engine.md) | investigate (authoring kit, templates, dry runs on past alerts, runs, waves, approvals, policy) |
@@ -36,7 +37,7 @@
 | [Search & Insight](sdk/search-insight.md) | Search (LCQL), Insight (IOC) |
 | [Streaming](sdk/streaming.md) | Spout, Firehose |
 | [Configuration Sync](sdk/configs.md) | Configs (IaC) |
-| [Security Products](sdk/security-products.md) | CloudSec, Mailsec, onboarding, and pagination |
+| [Security Products](sdk/security-products.md) | CloudSec, Mailsec, Deception, onboarding, and pagination |
 | [Other Classes](sdk/other-classes.md) | Extensions, Artifacts, Payloads, Outputs, AI, Billing, CloudSec, etc. |
 
 ## External Resources

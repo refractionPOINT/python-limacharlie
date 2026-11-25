@@ -319,6 +319,23 @@ PROFILES = {
             "mailsec tenant purge",
         ],
     },
+    "deception": {
+        "description": "Deception: decoys on endpoints and drops anywhere, their configuration, rollout, coverage, test-fire, hits and uninstall",
+        "commands": [
+            "deception config get", "deception config set", "deception config enable",
+            "deception kinds", "deception plan", "deception deploy", "deception rollout-status",
+            "deception restore-rules",
+            "deception list", "deception list-hosts",
+            "deception verify", "deception rotate", "deception remove",
+            "deception coverage", "deception test-fire",
+            "deception list-test-runs", "deception list-test-paths",
+            "deception list-hits", "deception list-readers",
+            "deception drops create", "deception drops list", "deception drops get",
+            "deception drops update", "deception drops rotate", "deception drops delete",
+            "deception drops draft-document",
+            "deception uninstall", "deception uninstall-status",
+        ],
+    },
     "data_access": {
         "description": "Retrieve data through the Authenticated Resource Locator (ARL) resolver",
         "commands": [
