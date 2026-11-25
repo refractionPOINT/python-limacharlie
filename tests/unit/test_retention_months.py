@@ -95,6 +95,24 @@ def test_set_config_refusal_reaches_the_caller(status, body, reason):
     assert reason in str(exc.value)
 
 
+@pytest.mark.parametrize("status,reason", [
+    (403, "unauthorized, missing permission: billing.ctrl"),
+    (402, "extended retention requires a paid plan"),
+])
+def test_cli_config_set_fails_with_the_apis_reason(status, reason):
+    from limacharlie.errors import ApiError, PermissionDeniedError
+
+    err = PermissionDeniedError(reason) if status == 403 else ApiError(reason, status_code=status)
+    with patch("limacharlie.commands.org.Client"), \
+         patch("limacharlie.commands.org.Organization") as org_cls:
+        org_cls.return_value.set_config.side_effect = err
+        result = CliRunner().invoke(
+            cli, ["org", "config-set", "--name", "retention_months", "--value", "24"])
+    assert result.exit_code != 0
+    assert isinstance(result.exception, LimaCharlieError)
+    assert reason in str(result.exception)
+
+
 def test_config_set_help_documents_retention_months():
     result = CliRunner().invoke(cli, ["org", "config-set", "--ai-help"])
     assert result.exit_code == 0, result.output
