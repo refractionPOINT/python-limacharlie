@@ -7,6 +7,8 @@ hive are mocked, so each test checks the exact request the extension receives.
 from __future__ import annotations
 
 import base64
+import os
+import stat
 import hashlib
 from unittest.mock import MagicMock, patch
 
@@ -391,6 +393,100 @@ class TestMoreRequests:
         assert result.exit_code == 1
         assert "nothing was written" in result.output and "Traceback" not in result.output
 
+
+class TestFollowUps:
+    @pytest.mark.parametrize("rows, code", [
+        ([{"name": "a", "restored": True, "enabled": True}, {"name": "b", "restored": True, "enabled": True}], 0),
+        ([{"name": "a", "restored": True, "enabled": False}], 1),
+        ([{"name": "a", "restored": True, "enabled": True, "error": "read back failed"}], 1),
+        ([{"name": "a", "restored": False, "enabled": True, "code": "write_failed"}], 1),
+        ([], 1),
+    ])
+    def test_restore_rules_exit_code(self, ext, rows, code):
+        ext.answers["restore_rules"] = {"rules": rows}
+        assert run(["deception", "restore-rules", "--rule", "a"]).exit_code == code
+
+    def test_rotate_save_of_a_url_drop_is_refused_before_rotating(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1", "form": "url", "version": 4}, "paste": {}}
+        result = run(["deception", "drops", "rotate", "--drop-id", "d1", "--save", str(tmp_path / "f")])
+        assert result.exit_code != 0
+        assert [a for a, _ in ext.calls] == ["get_drop"]
+
+    def test_rotate_save_uses_the_version_it_read(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1", "form": "qr", "version": 4}, "paste": {}}
+        ext.answers["rotate_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        out = tmp_path / "qr.svg"
+        assert run(["deception", "drops", "rotate", "--drop-id", "d1", "--save", str(out)]).exit_code == 0
+        assert ext.calls == [("get_drop", {"drop_id": "d1"}), ("rotate_drop", {"drop_id": "d1", "version": 4})]
+        assert out.read_text() == "<svg/>"
+
+    def test_save_writes_like_a_plain_write(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        new = tmp_path / "new.svg"
+        old_umask = os.umask(0o022)
+        try:
+            assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(new)]).exit_code == 0
+        finally:
+            os.umask(old_umask)
+        assert stat.S_IMODE(new.stat().st_mode) == 0o644
+
+        # An existing file is rewritten in place: same inode, so its owner,
+        # group, mode and ACLs stay as they were.
+        existing = tmp_path / "shared.svg"
+        existing.write_text("old")
+        existing.chmod(0o660)
+        inode = existing.stat().st_ino
+        assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(existing)]).exit_code == 0
+        assert existing.stat().st_ino == inode
+        assert stat.S_IMODE(existing.stat().st_mode) == 0o660 and existing.read_text() == "<svg/>"
+
+    def test_save_through_a_symlink_writes_its_target(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        target = tmp_path / "real.svg"
+        target.write_text("old")
+        link = tmp_path / "link.svg"
+        link.symlink_to(target)
+        assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(link)]).exit_code == 0
+        assert link.is_symlink() and target.read_text() == "<svg/>"
+
+    def test_a_write_that_fails_part_way_says_the_file_may_be_incomplete(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg>whole</svg>"}}
+        out = tmp_path / "qr.svg"
+        out.write_text("old content")
+        real_open = open
+
+        def fake_open(path, mode="r", *args, **kwargs):
+            real = real_open(path, mode, *args, **kwargs)
+            wrapper = MagicMock()
+            wrapper.__enter__.return_value = wrapper
+            wrapper.__exit__.side_effect = lambda *a: real.close()
+
+            def write(data):
+                real.write(data[:4])  # a prefix lands, then the disk fills
+                raise OSError("disk full")
+            wrapper.write.side_effect = write
+            return wrapper
+
+        with patch("limacharlie.commands.deception.open", side_effect=fake_open, create=True):
+            result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(out)])
+        assert result.exit_code == 1 and "may be incomplete" in result.output
+        assert out.read_text() == "<svg"  # exactly what the message warns about
+
+    def test_a_failed_open_says_nothing_was_written_and_leaves_the_file(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        out = tmp_path / "qr.svg"
+        out.write_text("old")
+        real_open = open
+
+        def fake_open(path, mode="r", *args, **kwargs):
+            if mode == "wb":
+                raise OSError("disk full")
+            return real_open(path, mode, *args, **kwargs)
+
+        with patch("limacharlie.commands.deception.open", side_effect=fake_open, create=True):
+            result = run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(out)])
+        assert result.exit_code == 1 and "nothing was written" in result.output
+        assert "Traceback" not in result.output and out.read_text() == "old"
 
 class TestTableOutput:
     def test_a_list_shows_its_rows_and_the_whole_page_token(self, ext):

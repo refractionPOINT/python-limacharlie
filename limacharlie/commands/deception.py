@@ -132,6 +132,10 @@ def _save_option(fn):
 
 
 _SAVE_FAILED = "the answer above is complete; nothing was written to {path}: {why}"
+_SAVE_PARTIAL = (
+    "the answer above is complete; writing {path} failed, so the file may be incomplete or missing: {why}. "
+    "Write it again (drops get --save) before using it"
+)
 
 
 def _save_paste(result: dict[str, Any], path: str) -> None:
@@ -145,17 +149,37 @@ def _save_paste(result: dict[str, Any], path: str) -> None:
             if expected and hashlib.sha256(content).hexdigest() != str(expected).lower():
                 raise click.ClickException(_SAVE_FAILED.format(
                     path=path, why="the document does not match its sha256"))
-            with open(path, "wb") as f:
-                f.write(content)
         elif paste.get("qr_svg"):
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(paste["qr_svg"])
+            content = paste["qr_svg"].encode("utf-8")
         else:
             raise click.ClickException(_SAVE_FAILED.format(
                 path=path, why="its paste has no file (a url or hostname drop, or a deleted drop)"))
-    except (binascii.Error, ValueError, OSError) as exc:
+    except (binascii.Error, ValueError) as exc:
         raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
+    _write_file(path, content)
     click.echo(f"Wrote {path}", err=True)
+
+
+def _write_file(path: str, content: bytes) -> None:
+    """Write ``content`` to ``path`` with a plain write.
+
+    An existing file (a symlink's target included) is rewritten in place, so
+    it keeps its owner, group, mode and ACLs: a decoy file is often put where
+    other people open it. A new file gets the mode the umask gives. Nothing is
+    cleaned up after a failure, so the error says only what is certain: an
+    open that fails wrote nothing; a write that fails may leave the file
+    incomplete, and it must be written again.
+    """
+    try:
+        f = open(path, "wb")
+    except OSError as exc:
+        # An open that fails truncates and creates nothing.
+        raise click.ClickException(_SAVE_FAILED.format(path=path, why=exc))
+    try:
+        with f:
+            f.write(content)
+    except OSError as exc:
+        raise click.ClickException(_SAVE_PARTIAL.format(path=path, why=exc))
 
 
 def _output_and_save(ctx, result: dict[str, Any], save_path: str | None) -> None:
@@ -982,7 +1006,16 @@ def drops_update(ctx, drop_id, version, label, memo, state, mode, observe_until,
 @pass_context
 def drops_rotate(ctx, drop_id, version, save_path) -> None:
     """Give a drop a new value to paste (the old one alerts 90 more days)."""
-    _output_and_save(ctx, _get_dec(ctx).rotate_drop(drop_id, version), save_path)
+    dec = _get_dec(ctx)
+    if save_path:
+        # Refused before rotating: a failure after it would invite a retry
+        # that rotates again.
+        drop = dec.get_drop(drop_id=drop_id).get("drop") or {}
+        if drop.get("form") in ("url", "hostname"):
+            raise click.UsageError("--save needs a qr or document drop: url and hostname drops have no file.")
+        if version is None and isinstance(drop.get("version"), int):
+            version = drop["version"]
+    _output_and_save(ctx, dec.rotate_drop(drop_id, version), save_path)
 
 
 @drops_group.command("delete")
