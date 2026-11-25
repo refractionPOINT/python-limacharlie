@@ -44,7 +44,7 @@ class TestHelp:
     def test_group_and_nested_help(self):
         runner = CliRunner()
         out = runner.invoke(cli, ["investigate", "--help"]).output
-        for name in ("kit", "operators", "packs", "templates", "runs", "wave", "actions", "policy"):
+        for name in ("kit", "operators", "packs", "templates", "runs", "wave", "actions", "settings"):
             assert name in out
         out = runner.invoke(cli, ["investigate", "templates", "--help"]).output
         for name in ("list", "get", "validate", "test", "save", "promote", "delete", "install-defaults"):
@@ -558,7 +558,7 @@ class TestWave:
         assert json.loads(result.stderr)["error"] == "timed out"
 
 
-class TestActionsAndPolicy:
+class TestActionsAndSettings:
     def test_actions_list_all_walks_every_page(self, sdk):
         sdk.iter_actions.return_value = iter([{"id": "a1", "run_id": "r1"}, {"id": "a2", "run_id": "r2"}])
         data = out_json(run(["investigate", "actions", "list", "--state", "awaiting_approval,proposed", "--class", "tag", "--all"]))
@@ -572,6 +572,18 @@ class TestActionsAndPolicy:
         assert out_json(run(["investigate", "actions", "list"]))["next_cursor"] == "c9"
         assert sdk.list_actions.call_count == 1
 
+    def test_the_inbox_rows_say_why_an_action_waits_and_carry_no_removed_mode(self, sdk):
+        sdk.list_actions.return_value = {"actions": [
+            {"run_id": "r1", "id": "a1", "class": "contain.network", "state": "awaiting_approval",
+             "approval": {"form": "when", "when": "x", "value": "unknown"}, "approval_reason": "approval_condition",
+             "run": {"template": "t"}},
+        ], "next_cursor": ""}
+        result = run(["--output", "csv", "investigate", "actions", "list"])
+        assert result.exit_code == 0
+        header = result.output.splitlines()[0].split(",")
+        assert "mode" not in header and {"approval", "approval_reason"} <= set(header)
+        assert "approval_condition" in result.output and "when" in result.output
+
     def test_approve_and_deny(self, sdk):
         sdk.decide_action.return_value = {"state": "executing"}
         run(["investigate", "actions", "approve", "r1", "a1"])
@@ -579,67 +591,50 @@ class TestActionsAndPolicy:
         run(["investigate", "actions", "deny", "r1", "a1", "--note", "known admin"])
         sdk.decide_action.assert_called_with("r1", "a1", "deny", note="known admin")
 
-    def test_policy_commands(self, sdk):
-        sdk.get_effective_policy.return_value = {}
-        run(["investigate", "policy", "get", "--category", "c", "--priority", "4", "--target-tag", "a", "--target-tag", "b", "--class", "tag",
-             "--template", "t"])
-        sdk.get_effective_policy.assert_called_with(
-            category="c", priority=4, severity=None, target_tags=["a", "b"], action_class="tag", template="t")
+    def test_settings_get_shows_what_the_engine_enforces(self, sdk):
+        sdk.get_settings.return_value = {"paused": True, "set_by": "a@example.com", "set_at": "2026-11-25T18:00:00Z"}
+        result = run(["investigate", "settings", "get"])
+        assert result.exit_code == 0
+        assert out_json(result) == {"paused": True, "set_by": "a@example.com", "set_at": "2026-11-25T18:00:00Z"}
+        sdk.get_settings.assert_called_once_with()
 
-    def test_ai_shows_what_the_ai_may_decide(self, sdk):
-        sdk.get_ai_may_decide.return_value = {"record": "default", "ai_may_decide": {"mailsec-message": "escalate"}}
-        result = run(["investigate", "policy", "ai"])
-        assert result.exit_code == 0 and out_json(result)["ai_may_decide"] == {"mailsec-message": "escalate"}
-        sdk.get_ai_may_decide.assert_called_once_with()
-
-    def test_ai_set_is_a_persons_decision_and_needs_confirm(self, sdk):
-        result = run(["investigate", "policy", "ai-set", "mailsec-message", "close_and_escalate"])
-        assert result.exit_code == 2
-        sdk.set_ai_may_decide.assert_not_called()
-        sdk.set_ai_may_decide.return_value = {"ai_may_decide": {"mailsec-message": "close_and_escalate"}, "changed": True}
-        result = run(["investigate", "policy", "ai-set", "mailsec-message", "close_and_escalate", "--confirm"])
-        assert result.exit_code == 0 and out_json(result)["changed"] is True
-        sdk.set_ai_may_decide.assert_called_once_with("mailsec-message", "close_and_escalate")
-
-    def test_ai_set_refuses_an_unknown_mode_before_any_call(self, sdk):
-        assert run(["investigate", "policy", "ai-set", "t", "auto", "--confirm"]).exit_code == 2
-        sdk.set_ai_may_decide.assert_not_called()
-
-    def test_the_help_texts_name_no_removed_concept_and_warn_about_git_sync(self):
-        runner = CliRunner()
-        for args in (["runs", "start"], ["runs", "steps"], ["policy", "ai"], ["policy", "ai-set"]):
-            out = " ".join(runner.invoke(cli, ["investigate", *args, "--help"]).output.split())
-            for gone in ("threshold", "belief"):
-                assert gone not in out, (args, gone)
-        for command in ("ai", "ai-set"):
-            explain = " ".join(runner.invoke(cli, ["investigate", "policy", command, "--ai-help"]).output.split())
-            assert "Git Sync" in explain, command
-
-    def test_there_are_no_threshold_or_mandatory_check_commands(self):
-        out = CliRunner().invoke(cli, ["investigate", "policy", "--help"]).output
-        for gone in ("threshold", "mandatory", "calibration"):
-            assert gone not in out
-
-    def test_pause_resume_and_status_use_the_policy_record(self, sdk):
-        sdk.get_pause.return_value = {"paused": False, "record": "autonomy-manual-pause"}
-        result = run(["investigate", "policy", "status"])
-        assert result.exit_code == 0 and out_json(result)["paused"] is False
+    def test_pause_and_resume_write_the_settings_record(self, sdk):
         sdk.pause_actions.return_value = {"paused": True, "changed": True}
-        result = run(["investigate", "policy", "pause"])
+        result = run(["investigate", "settings", "pause"])
         assert result.exit_code == 0 and out_json(result) == {"paused": True, "changed": True}
         sdk.resume_actions.return_value = {"paused": False, "changed": True}
-        result = run(["investigate", "policy", "resume"])
+        result = run(["investigate", "settings", "resume"])
         assert result.exit_code == 0 and out_json(result)["paused"] is False
-        sdk.get_pause.assert_called_once_with()
         sdk.pause_actions.assert_called_once_with()
         sdk.resume_actions.assert_called_once_with()
+
+    def test_the_policy_group_and_its_commands_are_gone(self):
+        runner = CliRunner()
+        assert "policy" not in runner.invoke(cli, ["investigate", "--help"]).output.split()
+        for args in (["policy", "get"], ["policy", "ai"], ["policy", "ai-set", "t", "off", "--confirm"],
+                     ["policy", "status"], ["policy", "pause"], ["policy", "resume"]):
+            assert runner.invoke(cli, ["investigate", *args]).exit_code == 2, args
+
+    def test_the_help_texts_name_no_removed_concept(self):
+        runner = CliRunner()
+        for args in (["runs", "start"], ["runs", "steps"], ["settings", "get"], ["settings", "pause"], ["settings", "resume"]):
+            out = " ".join(runner.invoke(cli, ["investigate", *args, "--help"]).output.split())
+            for gone in ("threshold", "belief", "autonomy", "autonomy-manual-pause", "policy ai"):
+                assert gone not in out, (args, gone)
+
+    def test_the_agent_workflow_teaches_the_act_entry(self):
+        out = " ".join(CliRunner().invoke(cli, ["investigate", "--ai-help"]).output.split())
+        for needle in ("approval", "lease", "on_lease_end", "do: close.false_positive", "ai_may_decide", "investigate settings"):
+            assert needle in out, needle
+        for gone in ("investigate policy", "autonomy-manual-pause"):
+            assert gone not in out, gone
 
     def test_a_refused_pause_is_reported_with_its_permission_hint(self, sdk):
         from limacharlie.sdk import investigation as m
         sdk.pause_actions.side_effect = m.InvestigationError(
-            "lc_error_code:UNAUTHORIZED - nope", status_code=403, suggestion=m._POLICY_PERMISSION_HINT, exit_code=1)
-        result = run(["investigate", "policy", "pause"])
-        assert result.exit_code == 1
+            "lc_error_code:UNAUTHORIZED - nope", status_code=403, suggestion=m._POLICY_PERMISSION_HINT, exit_code=2)
+        result = run(["investigate", "settings", "pause"])
+        assert result.exit_code == 2
         doc = json.loads(result.stderr)
         assert doc["status"] == 403 and "investigation_policy.set" in doc["suggestion"]
 

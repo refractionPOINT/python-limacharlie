@@ -196,7 +196,7 @@ The Cloud Security (CNAPP) surface also includes Code Security: repository and c
 
 ## Investigation
 
-`limacharlie.sdk.investigation.Investigation` wraps the Investigation Engine (experimental): the authoring kit, plan validation and dry runs on past alerts, template records (saved as drafts unless a person passes `status="active"`), runs, waves, the approvals inbox, the manual pause of automatic actions (`get_pause`, `pause_actions`, `resume_actions`: the `autonomy-manual-pause` policy record) and performance statistics (`get_stats`). Failures raise `InvestigationError`, which keeps the engine's `error_code`, `reason_code` (a refused run start), `path` (a refused policy field) and coded `issues`. See [CLI: investigate](../cli/investigation-engine.md) for the workflow and permissions.
+`limacharlie.sdk.investigation.Investigation` wraps the Investigation Engine (experimental): the authoring kit, plan validation and dry runs on past alerts, template records (saved as drafts unless a person passes `status="active"`), runs, waves, the approvals inbox, the org settings (`get_settings`) and the pause of automatic actions (`get_pause`, `pause_actions`, `resume_actions`: the `paused` field of the `default` settings record) and performance statistics (`get_stats`). Failures raise `InvestigationError`, which keeps the engine's `error_code`, `reason_code` (a refused run start), `path` (a refused settings field) and coded `issues`. See [CLI: investigate](../cli/investigation-engine.md) for the workflow and permissions.
 
 ## See Also
 

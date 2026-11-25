@@ -232,8 +232,7 @@ PROFILES = {
             "investigate runs cancel", "investigate runs delete",
             "investigate wave", "investigate stats",
             "investigate actions list", "investigate actions approve", "investigate actions deny",
-            "investigate policy get", "investigate policy ai", "investigate policy ai-set", "investigate policy status",
-            "investigate policy pause", "investigate policy resume",
+            "investigate settings get", "investigate settings pause", "investigate settings resume",
         ],
     },
     "cloud_security": {

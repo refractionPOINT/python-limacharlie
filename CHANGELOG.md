@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Breaking (experimental Investigation Engine): the template is the authority
+
+The engine now does what a template says: there is no policy layer above it, so
+the `investigate policy` commands are removed.
+
+- Removed: `investigate policy get`, `ai`, `ai-set`, `status`, `pause` and
+  `resume`. SDK: `Investigation.get_effective_policy()`, `get_ai_may_decide()`,
+  `set_ai_may_decide()` and the constants `MANUAL_PAUSE_RECORD` and
+  `DEFAULT_POLICY_RECORD`. Whether the AI may decide is the template's own
+  `ai_may_decide` key. Run overrides can no longer carry `autonomy`,
+  `ai_may_decide` or `operators`.
+- New: `investigate settings get` (SDK `get_settings()`) shows the org settings
+  the engine enforces, including who last saved the record (`set_by`, `set_at`)
+  and the circuit breaker's usage. `investigate settings pause` and `resume`
+  (SDK `pause_actions()`, `resume_actions()`) set the `paused` field of the
+  `investigation_policy` record `default` with a compare-and-set, instead of
+  saving or deleting the `autonomy-manual-pause` record. The authoring kit
+  section `policy` is now `settings`.
+- Migration: an org paused under the old scheme holds an
+  `investigation_policy` record `autonomy-manual-pause` that `investigate` can
+  no longer see or delete, and the engine no longer reads it. Check for it
+  (`limacharlie hive get --hive-name investigation_policy --key autonomy-manual-pause`).
+  If the org should stay paused, first make sure the `default` record holds none
+  of the removed fields (`autonomy`, `ai_may_decide`, `match`, `operators`,
+  `automation_routes`, `auto_investigation`): the Hive refuses a write that
+  carries them, which would also refuse `settings pause` (the AI switch is now
+  the template's `ai_may_decide`). A record that is clean already can simply be
+  paused with `investigate settings pause`. When you have to convert the record
+  by hand, save `paused: true` in that same write, so the org is never
+  unpaused in between. Confirm with `investigate settings get`, and only then
+  delete the old record with `limacharlie hive delete`.
+- New permissions for these calls: `settings pause` and `settings resume` need
+  `investigation_policy.get` and `investigation_policy.set` (resume no longer
+  needs `investigation_policy.del`). `settings get` needs only
+  `investigation.get` and `insight.evt.get`.
+- `doc/cli/investigation-engine.md` describes the new `act` entry (`do`, a
+  required `approval`, `lease`, `on_lease_end`, the close entry) and the
+  template's `ai_may_decide`.
+
 ### New permissions: hives that `sync pull --all` reads
 
 - `sync pull --all` fails for the whole org when the API key cannot read one of

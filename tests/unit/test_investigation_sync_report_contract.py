@@ -19,14 +19,15 @@ FIXTURES = Path(__file__).parent / "fixtures" / "investigation_sync"
 STATS_FIXTURE = {
     "window": {"since": "2026-11-16T00:00:00-08:00", "truncated": False},
     "actions": {
-        "by_class_state": {"close.false_positive": {"executed": 8, "proposed": 2}},
+        "by_class_state": {"contain.network": {"active": 8, "awaiting_approval": 2}},
         "by_template_class": [{
             "template": "fictional-triage",
-            "action_class": "close.false_positive",
-            "total": 12, "suggested": 3, "approved": 4, "denied": 1, "expired": 1,
-            "auto_executed": 5, "failed": 0, "undone": 1, "held": 2,
-            "held_by_reason": {"policy_no_approvers": 1, "rate_cap": 1},
-            "by_state": {"executed": 8, "proposed": 2, "denied": 1, "expired": 1},
+            "action_class": "contain.network",
+            "total": 12, "acted_alone": 5, "waited": 4, "suggested": 3,
+            "waited_by_reason": {"approval_required": 1, "circuit_breaker": 1},
+            "approved": 4, "denied": 1, "expired": 1, "released_at_lease_end": 2, "held": 2,
+            "failed": 0, "undone": 1,
+            "by_state": {"active": 8, "awaiting_approval": 2, "denied": 1, "expired": 1},
         }],
     },
     "feedback": {"labels": 4, "corrections": 1},

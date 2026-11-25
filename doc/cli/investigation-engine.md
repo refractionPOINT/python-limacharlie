@@ -16,23 +16,23 @@ All the listed permissions are required.
 
 | Operation | Permissions |
 |---|---|
-| Reads: runs, templates, operators, packs, kit, policy, test results, the approvals inbox | `investigation.get` + `insight.evt.get` |
+| Reads: runs, templates, operators, packs, kit, settings (`settings get`), test results, the approvals inbox | `investigation.get` + `insight.evt.get` |
 | Writes: start a run, wave, cancel, delete a run, test a template, decide an action | `investigation.set` + `insight.evt.get` |
 | Approve / deny an action | the writes above + the permission of the action's class (for example `sensor.task`, `mailsec.act`, `sensor.tag`) |
 | `stats`, and `runs list --outcome` / `--verdict` | the reads above + `investigation_policy.set` |
-| `policy ai` / `policy ai-set` | `investigation_policy.get` / `.set` (they read and change the `ai_may_decide` field of the `default` record) |
-| `policy status` / `policy pause` / `policy resume` | `investigation_policy.get` / `.set` / `.del` (they read, save and delete the `autonomy-manual-pause` record; explicit grants, no default role has them) |
+| `settings pause` / `settings resume` | `investigation_policy.get` + `investigation_policy.set` (they read the `default` settings record and write its `paused` field; explicit grants, no default role has them). `settings get` is an engine read and needs only the reads above |
 | Template records (`investigation_plan` hive) | `investigation_plan.get`, `investigation_plan.set`, `investigation_plan.del` (explicit grants; no default role has them) |
 
-Waves and template tests always execute with **your own token**, so the operators enforce your permissions. A run started with `runs start` executes as the identity the organization's `investigation_policy` names for its template: your token when the policy names none, otherwise the Hive secret the policy points to, in which case the operators enforce that secret's permissions and not yours. An active template can therefore reach data or take actions beyond your own permissions. Before you start one, check `limacharlie investigate policy get --template NAME`: its `identity` shows the default identity, the allowed ones and where they come from. A finished run's `identity` field (`kind` caller or secret) records which one it used. Runs started by a detection rule or a case never have a caller and always use the policy's secret identity.
+Waves and template tests always execute with **your own token**, so the operators enforce your permissions. A run started with `runs start` executes as the identity the organization's settings record (`investigation_policy/default`) names for its template: your token when the settings name none, otherwise the Hive secret they point to, in which case the operators enforce that secret's permissions and not yours. That identity's own platform permissions are the real limit on what a run can read and do. An active template can therefore reach data or take actions beyond your own permissions. Before you start one, check `limacharlie investigate settings get`: its `identity` shows the default identity, the allowed ones and where they come from. A finished run's `identity` field (`kind` caller or secret) records which one it used. Runs started by a detection rule or a case never have a caller and always use the settings' secret identity.
 
 Live sensor metadata operators (`sensor.read.*`) need `sensor.task.read` (or the
 broader `sensor.task`) plus `output.set` on the execution identity. Explicitly grant
 `sensor.task.read` for an observe-only identity; no default or preset includes it.
 It authorizes only allowlisted metadata commands, and only when the Investigation
 Engine is enabled for the deployment. File contents, mutations and unknown
-commands are refused server-side; with the gate off it grants no tasking. Keep
-observe-only policies at `suggest`. Action permissions above remain unchanged.
+commands are refused server-side; with the gate off it grants no tasking. For an
+observe-only identity, write no `act` entry that acts alone (`approval: none`).
+Action permissions above remain unchanged.
 
 ## AI agent workflow
 
@@ -40,7 +40,7 @@ Hand an agent this loop. It never activates anything on its own: a person does t
 
 ```bash
 # 1. Learn the language, in parts (the whole kit is ~33k tokens)
-limacharlie investigate kit --section guide --section policy --section codes
+limacharlie investigate kit --section guide --section settings --section codes
 limacharlie investigate kit --section schema --section library
 limacharlie investigate packs --brief
 limacharlie investigate operators --brief
@@ -68,20 +68,21 @@ Rules the CLI enforces:
 
 - `templates save` writes a **draft**. A source that says `status: active` is refused, and only a person's explicit `--status active` writes an active template. AI agents must not pass `--status active` and must not run `templates promote`.
 - A record is never overwritten without `--overwrite`, and a draft **never** replaces an active template (save under a new name; a person decides whether it replaces the active one).
-- A draft runs only through `templates test` or a run a person starts, with response actions capped at `suggest`. A run started by a D&R rule or a case never uses a draft.
+- A draft only suggests: through `templates test` or a run a person starts, every `act` entry is recorded as `suggested` and never executed or approvable. A run started by a D&R rule or a case never uses a draft.
+- Every `act` entry is checked before it is saved: `approval` is required (a missing key is the error `missing_approval`), a reversible action needs `lease` and `on_lease_end`, and `class` is refused (`act_class_renamed`: it is `do`). Nobody gets an automatic action by omission.
 - Nothing is saved when validation reports an error.
 - The CLI never rewrites a template's content beyond `status`: a rule's `when` can be a string, a list (all of) or `{any: [...]}`, and its `say` sentence is stored and printed as written. A template in the format the engine had before (`facts`, `proofs`, `evidence`, ...) is refused with `legacy_template_format`; the CLI converts nothing.
-- Saving never lets the AI decide. That is the policy's `ai_may_decide` (below), which a person sets.
+- Saving never lets the AI decide on its own say-so: that is the template's `ai_may_decide` key (see [What a template does](#what-a-template-does-the-act-entry)), which the person who promotes the template reviews.
 
 ## Reference data
 
 ```bash
-limacharlie investigate kit [--section schema|guide|operators|examples|policy|codes|packs|library]...
+limacharlie investigate kit [--section schema|guide|operators|examples|settings|codes|packs|library]...
 limacharlie investigate operators [--brief] [--name OP]... [--match TEXT]
 limacharlie investigate packs [--brief] [--name PACK]
 ```
 
-`kit` returns the template JSON Schema, the authoring guide, the org's typed operator catalogue (and which operators the org may use), examples, the effective policy and budgets, every validation code with its usual fix, and the fact packs. The `size` entry of the answer says what was returned. `--section library` returns the default template library; it needs an engine version that serves that section.
+`kit` returns the template JSON Schema, the authoring guide, the org's typed operator catalogue (and which operators the org may use), examples, the org settings (budgets, pause, circuit breaker, whether an AI agent is configured), every validation code with its usual fix, and the fact packs. The `size` entry of the answer says what was returned. `--section library` returns the default template library; it needs an engine version that serves that section.
 
 ## How a run ends
 
@@ -90,12 +91,12 @@ A run ends with one `verdict.outcome`; `verdict.label` follows from it.
 | Outcome | Meaning | `label` |
 |---|---|---|
 | `closed_by_rule`, `escalated_by_rule` | a rule decided. `verdict.decided_by` = `{kind: rule, rule, say}`: the rule id and its sentence | `false_positive`, `true_positive` |
-| `closed_by_ai`, `escalated_by_ai` | an AI-assisted rule or the AI review decided, because the policy's `ai_may_decide` allows it for the template. `decided_by.kind` is `ai_rule` or `ai_review` | `false_positive`, `true_positive` |
+| `closed_by_ai`, `escalated_by_ai` | an AI-assisted rule or the AI review decided, because the template's `ai_may_decide` allows it. `decided_by.kind` is `ai_rule` or `ai_review` | `false_positive`, `true_positive` |
 | `ai_recommends_benign`, `ai_recommends_malicious` | the AI recommends and a person acts on it. `verdict.recommendation` = `{label, self_rated_confidence, rationale, citations, by}` | `inconclusive` |
 | `couldnt_tell` | no rule decided and the AI did not recommend. `verdict.missing` lists `{step, reason, needed_by, ask}`: what could not be established, why, which rules or the review needed it, and the question for a person | `inconclusive` |
 | `conflict` | a rule on each side held | `inconclusive` |
 
-`self_rated_confidence` is the AI's own rating. It is shown, labeled as such, and never used to decide. A rule that reads an `ask_ai` answer is *AI-assisted* (`validate` lists them in `ai_rules`) and decides only where `ai_may_decide` allows; otherwise it recommends. `runs get` also shows `ai_may_decide` (the mode the run started with) and `ai_agent` (the AI agent record it uses). `runs steps` gives every step a `narrative`: `why` it ran, what it `found`, and what it was `used` for (`rule:<id>`, `ai_review`, `step:<id>`, `case`, or nothing).
+`self_rated_confidence` is the AI's own rating. It is shown, labeled as such, and never used to decide. A rule that reads an `ask_ai` answer is *AI-assisted* (`validate` lists them in `ai_rules`) and decides only where the template's `ai_may_decide` allows; otherwise it recommends. `runs get` also shows `ai_may_decide` (the mode the run started with, pinned from the template) and `ai_agent` (the AI agent record it uses). `runs steps` gives every step a `narrative`: `why` it ran, what it `found`, and what it was `used` for (`rule:<id>`, `ai_review`, `step:<id>`, `case`, or nothing).
 
 The case document a run writes opens with the outcome sentence: the deciding rule's `say`, or the AI's recommendation and what was missing.
 
@@ -151,8 +152,18 @@ explain_signals:
     question: Is this really the first time this sender wrote to the org?
     malicious_when: 'sender_history.prior_messages_30d == 0'
     benign_when: 'sender_history.prior_messages_30d > 0'
+ai_may_decide: off           # off | escalate | close_and_escalate: may the AI decide, or only recommend
 act:
-  - {class: contain.email, target: '$message.msg_id', attrs: {group_id: '$recipients.action_attrs.group_id'}, on_rules: [clicked_credential_harvest]}
+  - do: contain.email
+    target: '$message.msg_id'
+    attrs: {group_id: '$recipients.action_attrs.group_id'}
+    on_rules: [clicked_credential_harvest]
+    approval: required       # a person approves first
+    lease: 12h               # reversible actions only
+    on_lease_end: release    # undo it when the lease ends
+  - do: close.false_positive
+    on_rules: [known_sender]
+    approval: none           # acts on its own
 case:
   mode: create
   severity: {escalated_by_rule: high, closed_by_rule: low, default: medium}
@@ -160,6 +171,36 @@ case:
 ```
 
 An `act` entry says which rules fire it with `on_rules: [<rule id> | ai_review]`. The key is `on_rules`, not `on`: YAML 1.1 parsers (Python's `yaml.safe_load`, many sync tools) read a bare `on:` as the boolean `true`, and the engine refuses an `on` key.
+
+### What a template does: the `act` entry
+
+The template is the authority: no org-level policy sits above it, there are no per-class modes, and nothing intersects with an approver list. What a template does, who approves it and for how long is written in the template, so a reviewer reading it sees all of it. The identity the run executes as limits it through its own platform permissions. An AI agent writes templates and people read them: a template is a draft until a person makes it active, and making it active is the permission to act.
+
+```yaml
+act:
+  - do: contain.network            # the action (was `class`)
+    target: $sensor                # a step path or a literal; not on a close
+    on_rules: [downloaded_then_run]
+    approval: {when: '"server" in host.tags'}   # REQUIRED: none | required | {when: <expression>}
+    approval_timeout: 1h           # optional, default 1h, 1m..7d
+    lease: 2h                      # reversible actions only
+    on_lease_end:                  # REQUIRED with lease
+      check: template:host-still-suspicious
+      args: {sid: $sensor}
+      extend: 2h
+      max: 24h
+      at_max: hold                 # REQUIRED with `check`: hold | release
+```
+
+- **`do`**: `contain.network`, `contain.seal`, `contain.email`, `tag`, `tag.add`, `tag.remove`, `eradicate.file`, `close.false_positive`, plus custom actions the kit lists (`kit` `capabilities.action_classes` is the authoritative list). Any other class is refused at validation (`action_not_supported`). `class` is refused (`act_class_renamed`).
+- **`approval`** is required on every entry and has no default. `none`: the action acts on its own. `required`: it always waits for a person. `{when: <expression>}`: it waits when the condition holds or is unknown, and acts on its own when it is false. The expression reads what a rule may read (gather steps, `starts_from` inputs, `org.*`, `signals.*`) and may read an AI answer ("approve when the AI is unsure" is legitimate). "Protect these hosts" is such a condition, or a shared `kind: check` template the condition reads: there is no org-side deny list. An action that waits is in `awaiting_approval` with a reason (`approval_required`, `approval_condition`, `paused`, `circuit_breaker`, `ai_recommendation`, `settings_unavailable`); a person approves or denies it with `actions approve|deny`, and it expires after `approval_timeout`.
+- **`lease`** (1m..7d) is for reversible actions only (`contain.*`). Tags keep `attrs.ttl`; irreversible actions and the close take no lease (`lease_not_allowed`). **`on_lease_end`** says what happens when the lease runs out: `release` (undo it), `hold` (keep it until a person looks; the action becomes `held`, and a person can confirm or undo it) or `{check, args, extend, max, at_max}`: re-run the named check template, undo the action when it now says benign, otherwise extend the lease by `extend`, never past `max` from when the action took effect. At `max`, `at_max: hold` keeps it (`held`) and `at_max: release` undoes it. That is the automatic rollback of a false positive. Limits: `extend` defaults to the lease (1m..7d); `max` is required, 1h..30d and at least the lease; `at_max` is required with `check` (`bad_on_lease_end`, `bad_lease_max`, `bad_lease`). The check runs as its own run with the origin run's identity; it counts as benign only if it closed, and an AI close counts only where the origin template's `ai_may_decide` allows it. A run that executes with the caller's own token (one a person started) cannot hold or re-check past that token: for it `hold` and `check` behave as `release`, and the action records `lease_end_note: caller_token`. Runs started by a D&R rule always have a secret identity, so this affects person-started runs only.
+- **The close** is an `act` entry too: `do: close.false_positive`, `on_rules` naming close rules or `ai_review`, and `approval`. It takes no `target`, `attrs`, `lease` or `on_lease_end`, and a template has at most one. Without a close entry a close verdict writes the case conclusion and closes nothing. A person's own decision on the case always wins over an automatic close.
+- **`ai_may_decide`** is a top-level key of the template: `off` (default), `escalate` or `close_and_escalate`. A run pins it with the template. An action fired by an AI decision follows its own `approval`; an AI recommendation (the AI may not decide) fires the entries that name it and always waits for a person.
+- **A draft template** and an inline plan only suggest: every entry is recorded as `suggested` and never executed.
+- Removed from the entry: `authorize`, `before` (`unknown_field`).
+
+`validate` summarizes each entry in `actions` (`do`, `approval`, `lease`, `on_lease_end`, `acts_alone_possible`), and `templates test` lists in `would_propose` the actions each sample would propose, with `approval` and whether it `would_wait`. A test never reads the pause or the circuit breaker.
 
 A step says what the case shows of it with `record:` (one entry or a list; a `use:` step takes none). Kinds: `entity` (`entity_type`, `indicator`, `title`, `note` with `{step.path}` values, `malicious_when`, `benign_when`), `telemetry` and `artifact` (`source`, `type`, `ref`: ids only, never customer data). The verdict is `malicious` when `malicious_when` holds, else `benign` when `benign_when` holds, else `unknown`: an unknown never asserts a verdict. With `each` (a list in the step's result), one entity is written per element: `item_key` names the indicator, `outcome_key` the outcome word, `outcome_map` maps outcomes to verdicts, `absence` lists the outcomes that are claims of absence (they hold only on a complete step) and `outcome_notes` overrides the sentence per outcome. The engine adds, with no template, the telemetry of steps a rule or the review reads, an `entity.get` step's entity and the `mailsec/messages/<uuid>` artifact of each message step; what a step records itself replaces the default of the same kind. The paths are checked like references (`unknown_field`, `not_an_array`), and `bad_record_kind` / `entity_needs_indicator` are its own codes.
 
@@ -194,7 +235,7 @@ gather:
     record: {kind: artifact, source: mailsec, type: email, ref: 'mailsec/messages/{message.msg_uuid}'}
 ```
 
-Add an `ai_review` (`question`, `sees`, `needs`) for what rules cannot decide, and `ask_ai` steps for a focused question a rule reads; both only recommend until the policy's `ai_may_decide` allows them to decide.
+Add an `ai_review` (`question`, `sees`, `needs`) for what rules cannot decide, and `ask_ai` steps for a focused question a rule reads; both only recommend until the template's `ai_may_decide` allows them to decide.
 
 `validate` prints the report: `valid`, `errors` and `warnings` (each `{code, path, message, suggestion?}`), the worst-case step count, an `estimate` of the worst-case cost and `ai_rules` (the AI-assisted rules).
 
@@ -247,7 +288,7 @@ limacharlie investigate runs cancel RUN_ID [--revert-leases]
 limacharlie investigate runs delete RUN_ID --confirm
 ```
 
-`--auto` sends no plan, which is how the engine is asked to pick the **active** template whose `applies_to` matches the trigger (a draft is never picked; the engine refuses `plan.auto` itself for a person's run). `applies_to` keys are `detect_cat`, `severity`, `tag` and `source`; the first three are matched against `--category`, `--severity` and `--tag` (a start from the CLI always has `source: api`), so pass the alert's attributes. When no template matches, the start is refused with the reason. `--category`, `--severity`, `--priority` and `--tag` also select the run-scoped policy records. `--urgency` defaults to a value derived from `--priority` (8+ critical, 6+ high, 3+ medium, else low) or `--severity`, and medium when neither is given. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`).
+`--auto` sends no plan, which is how the engine is asked to pick the **active** template whose `applies_to` matches the trigger (a draft is never picked; the engine refuses `plan.auto` itself for a person's run). `applies_to` keys are `detect_cat`, `severity`, `tag` and `source`; the first three are matched against `--category`, `--severity` and `--tag` (a start from the CLI always has `source: api`), so pass the alert's attributes. When no template matches, the start is refused with the reason. `--urgency` defaults to a value derived from `--priority` (8+ critical, 6+ high, 3+ medium, else low) or `--severity`, and medium when neither is given. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`).
 
 `runs delete` requires explicit `--confirm` and returns the engine's deletion response. It needs `investigation.set` + `insight.evt.get`. Deletion requests are sent once and are not automatically replayed after a gateway timeout. The API deployment must serve run deletion, which is newer than the other run routes; an older deployment answers 404 without an engine error code, and the CLI says so.
 
@@ -283,25 +324,30 @@ A step has an `id` and exactly one of `op` (an operator) or `use` (a fact pack).
 
 An invalid wave prints `{"valid": false, "errors": [...], "warnings": [...]}` with the engine's coded errors on **stdout** and exits `4`; `--validate-only` checks without running anything.
 
-## Approvals and policy
+## Approvals and settings
 
 ```bash
-limacharlie investigate actions list [--state awaiting_approval,proposed] [--class C] [--run-id ID] [--limit N] [--cursor C | --all]
+limacharlie investigate actions list [--state awaiting_approval,held,proposed] [--class C] [--run-id ID] [--limit N] [--cursor C | --all]
 limacharlie investigate actions approve RUN_ID ACTION_ID
 limacharlie investigate actions deny RUN_ID ACTION_ID [--note TEXT]
-limacharlie investigate policy get [--category C] [--priority N] [--severity S] [--target-tag T]... [--class C] [--template NAME]
-limacharlie investigate policy ai
-limacharlie investigate policy ai-set TEMPLATE|'*' off|escalate|close_and_escalate --confirm
-limacharlie investigate policy status
-limacharlie investigate policy pause
-limacharlie investigate policy resume
+limacharlie investigate settings get
+limacharlie investigate settings pause
+limacharlie investigate settings resume
 ```
 
-`actions list` is the approvals inbox across all runs; what needs a person comes first.
+`actions list` is the approvals inbox across all runs; what needs a person comes first. An action waits for a person when its template says so (`approval: required`, or a `when` that holds or is unknown), when the AI only recommended it, or when the org is paused or the circuit breaker is over its cap. Anyone with the permission of the action's class can approve or deny it: there are no approver lists.
 
-`policy ai` shows what the AI may decide per template: the `ai_may_decide` field of the `default` policy record. `off` (the default when a template has no entry) means an AI-assisted rule or the AI review only recommends and a person acts on it; `escalate` lets it escalate; `close_and_escalate` lets it also close. `"*"` covers every template and a template's own entry wins. Only the `default` record grants; other records and run overrides can only lower it, and a run keeps the mode it started with. `policy ai-set` changes only that field of the record, conditional on the version it read, and needs `--confirm`: it is a person's decision about the org's automation, not an AI agent's. If Git Sync manages the `investigation_policy` hive, keep `ai_may_decide` in git too: the next sync overwrites a change made here. With no `default` record nothing is granted, so `ai-set TEMPLATE off` is a no-op and `ai-set '*' off` is refused. There are no confidence thresholds, mandatory checks or calibration in the policy any more; rules decide, and this switch says what the AI may.
+The org keeps three controls that belong to no single template, in the `default` record of the `investigation_policy` hive (the "settings"):
 
-`policy pause` stops automatic actions for the whole org by saving the enabled `investigation_policy` record `autonomy-manual-pause` (every action class held at `suggest`). Suggestions stay visible and a person can still approve; nothing already executed is undone. `policy resume` deletes the record, and the other policy records decide what new actions may do. `policy status` reads the record: `paused`, who last saved it, and an `inactive_reason` (`disabled`, `edited` or `expires`) when it exists but does not pause. `policy get` shows what the policy records allow right now. If Git Sync manages the `investigation_policy` hive, keep the pause in git too.
+- **Pause** (`paused`): one emergency stop. While it is true nothing acts alone: an action that would have acted alone waits for a person. Runs still investigate, and approvals, denials, undos, lease ends and lease checks still work. Actions that waited stay waiting after the pause is lifted, until a person decides or `approval_timeout` passes.
+- **Circuit breaker** (`circuit_breaker.per_hour`, default 20 in a sliding hour, 1..10000; `.per_run`, default 5, 1..1000): an org-wide cap on automatic containments, so one bad template cannot isolate a fleet. Over the cap an action waits for a person. It counts containment-family actions with no person involved, not closes, tags, approved actions, undos or lease extensions.
+- **Plain settings**: the key the engine runs as (`identity`), where notifications go (`notify`, including `action.held`), which AI agent answers (`llm.agent`), run budgets, case mode and speculation.
+
+`settings get` shows what the engine enforces: `paused`, `set_by` and `set_at` (who last saved the record and when: a pause is a field of the record, so this says who paused it unless someone saved the record again since), `circuit_breaker` with `used_last_hour` and `tripped`, the identity and whether it is ready, `notify`, `llm`, `budgets`, `case` and `speculation`. `source: builtin` means the engine runs on its built-in settings: there is no record, or the only record stored does not parse (then `paused` is true, there is no identity and `warnings` says `settings_rejected`). With a rejected record the engine keeps its last good copy, so a `paused: true` you just wrote does not take effect until the record parses: always read `warnings`.
+
+`settings pause` and `settings resume` set `paused` on the record and change nothing else in it: the write is conditional on the version read, so a concurrent edit is never overwritten, and pausing twice changes nothing. A record that does not exist yet is created holding only `paused: true`. A disabled record is refused for a pause, because the engine ignores it. The command fails when the saved record does not read back as paused (another writer or an expiry changed it in between). It writes the record and does not ask the engine: `settings get` is the check that the engine enforces it. A record that carries an expiry keeps it (the Hive deletes the whole record at the expiry, the pause with it); `settings pause` reports `expires` then. To change anything else in the settings, edit the `investigation_policy/default` record (`limacharlie hive`, or by IaC / Git Sync). If Git Sync manages the `investigation_policy` hive, keep the pause in git too: the next sync overwrites a change made here. These two commands need `investigation_policy.get` and `investigation_policy.set`.
+
+The settings never override a template: whether an action acts alone, who approves it and the lease are written in the template, and `ai_may_decide` is a template key.
 
 ## Errors
 
@@ -317,7 +363,7 @@ In a structured output format (`--output json`, the default when piped) a failur
 }
 ```
 
-`error_code` is the engine's (`bad_request`, `forbidden`, `not_found`, `conflict`, `too_many_runs`, `not_implemented`, `unavailable`). A refused run start also carries `reason_code`, the specific cause (for example `no_template_applies`, `template_draft`, `unknown_template`); a refused policy field carries `path`, a JSON Pointer to it. In table mode the reason code ends the error message. It is absent when the answer did not come from the engine: a 404 without it means the feature is not enabled, and `suggestion` says what to check. Exit codes follow the CLI's: `2` authentication or permission, `3` not found, `4` validation or a refused result, `5` rate limit.
+`error_code` is the engine's (`bad_request`, `forbidden`, `not_found`, `conflict`, `too_many_runs`, `not_implemented`, `unavailable`). A refused run start also carries `reason_code`, the specific cause (for example `no_template_applies`, `template_draft`, `unknown_template`); a refused settings field carries `path`, a JSON Pointer to it. In table mode the reason code ends the error message. It is absent when the answer did not come from the engine: a 404 without it means the feature is not enabled, and `suggestion` says what to check. Exit codes follow the CLI's: `2` authentication or permission, `3` not found, `4` validation or a refused result, `5` rate limit.
 
 Every other failure is written the same way: a Hive or API error carries its `message`, HTTP `status` and the backend's code as `error_code` (the `lc_error_code` of a Hive answer, for example a refused promote), and a refused input file (unreadable, not YAML/JSON, wrong shape) carries `errors: [{code: invalid_input, path: --file, message}]` and exits `4`.
 
@@ -348,7 +394,7 @@ result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samp
 
 Templates may declare `trust: {lookups: [partner-domains], values: [partner.example.test]}`.
 The identity the run executes with needs `lookup.get` to read these same-org Lookup records.
-For a run started by a D&R rule that is the key the policy names for the template.
+For a run started by a D&R rule that is the key the settings name for the template.
 Repeat `--trust-lookup NAME` or `--trust-value VALUE` on `investigate runs start` to add
 trust for that run only (up to 64 Lookup names and 100 nonblank inline values).
 Runs started automatically by D&R rules use only the template's trust.
@@ -408,30 +454,35 @@ server's advertised capabilities before authoring against them.
 limacharlie investigate stats [--template NAME] [--since RFC3339] [--until RFC3339]
 ```
 
-Prints the engine's own numbers about its work: run volumes by state and outcome (`runs.by_outcome`), time to outcome, step and cache counts, search and AI cost, per-operator latency and errors, and what happened to the actions it proposed. The numbers are computed from the engine's records of runs, steps and actions, over at most the most recent runs that match the filters (`window.truncated` is `true` when more runs matched than were aggregated). The report describes what the engine did. It does not judge whether an outcome or an action was right, and nothing in it changes a decision: the `investigation_policy` record alone decides what the engine may do. Plain counts of the labels and corrections people submitted on runs are in `feedback: {labels, corrections}`.
+Prints the engine's own numbers about its work: run volumes by state and outcome (`runs.by_outcome`), time to outcome, step and cache counts, search and AI cost, per-operator latency and errors, and what happened to the actions it proposed. The numbers are computed from the engine's records of runs, steps and actions, over at most the most recent runs that match the filters (`window.truncated` is `true` when more runs matched than were aggregated). The report describes what the engine did. It does not judge whether an outcome or an action was right, and nothing in it changes a decision. Plain counts of the labels and corrections people submitted on runs are in `feedback: {labels, corrections}`.
 
-`--since` and `--until` are RFC 3339 times on the run's creation time; `--template` limits the report to one template. It needs the same permissions as the other reads (`investigation.get` and `insight.evt.get`). The SDK call is `Investigation.get_stats(template=None, since=None, until=None)`, which returns the parsed response.
+`--since` and `--until` are RFC 3339 times on the run's creation time; `--template` limits the report to one template. It needs `investigation.get` and `insight.evt.get` plus `investigation_policy.set` (see Permissions). The SDK call is `Investigation.get_stats(template=None, since=None, until=None)`, which returns the parsed response.
 
 Inside `actions`, `by_class_state` counts actions per action class and engine action state. `by_template_class` is an array with one row per `(template, action_class)` that has at least one action in the window, ordered by template then action class:
 
 ```json
 "actions": {
-  "by_class_state": { "close.false_positive": { "executed": 7, "proposed": 2 } },
+  "by_class_state": { "contain.network": { "active": 7, "awaiting_approval": 2 } },
   "by_template_class": [
     {
-      "template": "phishing-triage",
-      "action_class": "close.false_positive",
+      "template": "tmp-exec",
+      "action_class": "contain.network",
       "total": 12,
-      "suggested": 3,
-      "approved": 4,
-      "denied": 1,
+      "acted_alone": 7,
+      "waited": 4,
+      "suggested": 1,
+      "waited_by_reason": { "approval_required": 1, "approval_condition": 2, "paused": 0, "circuit_breaker": 1, "ai_recommendation": 0, "settings_unavailable": 0 },
+      "approved": 3,
+      "denied": 0,
       "expired": 1,
-      "auto_executed": 5,
+      "approval_timeouts": 1,
+      "released_at_lease_end": 2,
+      "released_by_check": 3,
+      "held": 1,
+      "withheld": 0,
       "failed": 0,
       "undone": 1,
-      "held": 2,
-      "held_by_reason": { "policy_no_approvers": 1, "rate_cap": 1 },
-      "by_state": { "executed": 8, "proposed": 2, "denied": 1, "expired": 1 }
+      "by_state": { "active": 8, "reverted": 3, "held": 1 }
     }
   ]
 }
@@ -441,15 +492,21 @@ Inside `actions`, `by_class_state` counts actions per action class and engine ac
 |---|---|
 | `total` | Actions of this template and class in the window. |
 | `by_state` | The same actions by engine action state (same names as `by_class_state`). The values sum to `total`. |
-| `suggested` | Recorded as a suggestion only: the policy mode is `suggest`, nothing was dispatched and no approval was asked. |
+| `acted_alone` | Executed with no person involved (`approval` was `none`, or its condition was false). |
+| `waited` | Waited for a person (`approval`, a pause, the circuit breaker or an AI recommendation). |
+| `waited_by_reason` | `waited` split by why the action waited (`approval_required`, `approval_condition`, `paused`, `circuit_breaker`, `ai_recommendation`, `settings_unavailable`). Always an object. |
+| `suggested` | Recorded as a suggestion only: the template is a draft, nothing was dispatched and no approval was asked. |
 | `approved` | A person approved the action. |
 | `denied` | A person denied the action. |
-| `expired` | Nobody decided within the approval timeout. |
-| `auto_executed` | Dispatched under mode `auto` with no person involved. |
+| `expired` | Reached the `expired` state: nobody decided within the action's `approval_timeout`, or the run ended with the approval outstanding. |
+| `approval_timeouts` | The part of `expired` that is the `approval_timeout` passing. |
+| `released_at_lease_end` | Undone when its lease ended (`on_lease_end: release`). |
+| `released_by_check` | Undone because the lease-end check said benign. |
+| `held` | Kept in effect after the lease ended (`hold`, or a check that reached its `max`), or a close the product did not confirm, until a person looks. |
+| `withheld` | Not executed because the engine withheld it (for example a person had already decided the case). |
+| `by_outcome` | The same actions by the outcome of their run. |
 | `failed` | Dispatch was attempted and failed. |
-| `undone` | Reverted through the engine's own undo path. |
-| `held` | Would have run automatically under the policy mode but was held. An action with several hold reasons counts once here. |
-| `held_by_reason` | `held` split by the engine's stored hold reason (for example `rate_cap`). An action with several reasons counts once under each. Always an object, empty when nothing was held. |
+| `undone` | Reverted by a person through the engine's undo path. |
 
 The counters are not a partition of `total`: an approved action can later be undone, so it counts under both `approved` and `undone`. Use `by_state` when you need a partition. The exact rule behind each counter is in the engine documentation.
 
