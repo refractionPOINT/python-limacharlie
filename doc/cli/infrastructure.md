@@ -57,9 +57,10 @@ the second sees the records with `data: null`. `sync push` needs the set
 permission (and the `.set.mtd` one where shown); removing a record, which only
 `--force` does, needs the delete permission. A key made before a hive was added
 to `--all` lacks these permissions, which is what `--all-available` is for.
-Where a row lists only one read or one write permission (for example `acl.get`
-or `cloudsec.set`), that single permission covers listing, reading data and
-deletes; there is no separate `.get.mtd` or `.del` to grant.
+Where the pull column lists a single permission (for example `acl.get`), it
+covers both listing and reading data, with no separate `.get.mtd` to grant.
+Where the push column lists no delete permission (for example `cloudsec.set`),
+the set permission also covers deletes.
 
 | Hive | Flag | `sync pull` needs | `sync push` needs |
 |---|---|---|---|
