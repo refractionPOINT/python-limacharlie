@@ -41,6 +41,13 @@ hive named only by an explicit `--hive-*` flag stays strict. `--all-available`
 is pull-only and needs a backend that supports skipping; an older backend fails
 on the first unreadable hive, as `--all` does.
 
+A hive the API does not know in the organization's region (for example one whose
+product is not enabled there) is skipped by every pull, including `--all` and
+explicit `--hive-*` flags, because there is nothing to back up. It prints `Note:
+skipped hive <hive>: it is not available for this organization, so there is
+nothing to back up.` on stderr (also with `--quiet`) and the command exits 0.
+This needs a recent Infrastructure extension.
+
 Available hive flags: `--hive-cloudsec-policy`, `--hive-cloudsec-provider`,
 `--hive-cloudsec-query`, `--hive-cloudsec-code-rule`, `--hive-mailsec-provider`, `--hive-dr-mail`, `--hive-mailsec-policy`, `--hive-app-control-policy`, `--hive-app-control-rule`, `--hive-host-posture-rule`, `--hive-acl`, `--hive-dr-general`, `--hive-dr-managed`, `--hive-dr-service`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,

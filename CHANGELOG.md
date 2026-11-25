@@ -41,6 +41,15 @@ the `investigate policy` commands are removed.
   required `approval`, `lease`, `on_lease_end`, the close entry) and the
   template's `ai_may_decide`.
 
+### Fixed
+
+- `sync pull --all` no longer fails on hives the organization's region does not
+  have (for example `investigation_policy` and `investigation_plan` where that
+  product is not enabled). The Infrastructure extension now skips them for every
+  pull, and the CLI prints `Note: skipped hive <hive>: it is not available for
+  this organization, so there is nothing to back up.` on stderr and exits 0.
+  Needs an Infrastructure extension that supports this.
+
 ### New permissions: hives that `sync pull --all` reads
 
 - `sync pull --all` fails for the whole org when the API key cannot read one of
