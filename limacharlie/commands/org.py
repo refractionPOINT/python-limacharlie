@@ -150,11 +150,13 @@ addition to org.conf.set):
       organization's sensors on a sensor release channel: when a new
       version of that channel is published, they are upgraded
       automatically, in batches.  The value names the channel:
-        stable   follow the stable version (the default choice)
+        stable   follow the stable version (recommended)
         latest   follow the latest version
         true     same as stable
         false    off (so are unset and empty)
-      The API refuses any other value.  Switching from latest to
+      The API refuses any other value.  Where release channels are
+      not available yet, it accepts only true and false: use true to
+      follow the stable version there.  Switching from latest to
       stable moves the sensors down to the stable version.  Automatic
       upgrades pause when the sensor version is set by hand; setting
       the value again while it is already on resumes them.

@@ -42,12 +42,14 @@ names the channel:
 
 | Value | Meaning |
 |-------|---------|
-| `stable` | Follow the stable sensor version. |
+| `stable` | Follow the stable sensor version. Recommended. |
 | `latest` | Follow the latest sensor version. |
 | `true` | Same as `stable`. |
 | `false` | Off. Unset and empty also mean off. |
 
-The API refuses any other value. Switching from `latest` to `stable` moves the
+The API refuses any other value. Where release channels are not available yet,
+it accepts only `true` and `false`: use `true` to follow the stable version
+there. Switching from `latest` to `stable` moves the
 sensors down to the stable version. Automatic upgrades pause when the sensor
 version is set by hand; setting the value again while it is already on resumes
 them.

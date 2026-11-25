@@ -61,6 +61,8 @@ class TestConfigSetHelp:
         for value in ("stable", "latest", "false"):
             assert f"limacharlie org config-set --name sensor_auto_upgrade --value {value}" in text
         assert "same as stable" in text
+        # An API from before channels refuses "stable": the help says what to use.
+        assert "accepts only true and false" in text
 
     def test_ai_help_shows_the_names(self):
         result = CliRunner().invoke(cli, ["org", "config-set", "--ai-help"])
