@@ -7,6 +7,8 @@ hive are mocked, so each test checks the exact request the extension receives.
 from __future__ import annotations
 
 import base64
+import os
+import stat
 import hashlib
 from unittest.mock import MagicMock, patch
 
@@ -417,6 +419,31 @@ class TestFollowUps:
         assert run(["deception", "drops", "rotate", "--drop-id", "d1", "--save", str(out)]).exit_code == 0
         assert ext.calls == [("get_drop", {"drop_id": "d1"}), ("rotate_drop", {"drop_id": "d1", "version": 4})]
         assert out.read_text() == "<svg/>"
+
+    def test_save_gives_the_file_the_mode_a_plain_write_would(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        new = tmp_path / "new.svg"
+        old_umask = os.umask(0o022)
+        try:
+            assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(new)]).exit_code == 0
+        finally:
+            os.umask(old_umask)
+        assert stat.S_IMODE(new.stat().st_mode) == 0o644
+
+        existing = tmp_path / "shared.svg"
+        existing.write_text("old")
+        existing.chmod(0o664)
+        assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(existing)]).exit_code == 0
+        assert stat.S_IMODE(existing.stat().st_mode) == 0o664 and existing.read_text() == "<svg/>"
+
+    def test_save_through_a_symlink_replaces_its_target(self, ext, tmp_path):
+        ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg/>"}}
+        target = tmp_path / "real.svg"
+        target.write_text("old")
+        link = tmp_path / "link.svg"
+        link.symlink_to(target)
+        assert run(["deception", "drops", "get", "--drop-id", "d1", "--save", str(link)]).exit_code == 0
+        assert link.is_symlink() and target.read_text() == "<svg/>"
 
     def test_a_failed_save_leaves_the_existing_file_and_no_partial_one(self, ext, tmp_path):
         ext.answers["get_drop"] = {"drop": {"id": "d1"}, "paste": {"qr_svg": "<svg new/>"}}

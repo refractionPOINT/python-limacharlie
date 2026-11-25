@@ -160,12 +160,25 @@ def _save_paste(result: dict[str, Any], path: str) -> None:
 
 def _write_whole(path: str, content: bytes) -> None:
     """Write ``content`` to ``path`` through a temporary file beside it, so a
-    failed write leaves an existing file as it was and no partial file."""
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".deception-save-")
+    failed write leaves an existing file as it was and no partial file.
+
+    The file gets the mode a plain write would give it: an existing file's
+    own mode, or 0666 less the umask for a new one (a decoy file is put where
+    other people open it, so it must not become owner-only). A symlink is
+    followed: its target is replaced, not the link."""
+    target = os.path.realpath(path)
+    try:
+        mode = os.stat(target).st_mode & 0o7777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".deception-save-")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(content)
-        os.replace(tmp, path)
+        os.chmod(tmp, mode)
+        os.replace(tmp, target)
     except BaseException:
         try:
             os.unlink(tmp)
