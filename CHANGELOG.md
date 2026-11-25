@@ -16,6 +16,8 @@
   records needs its metadata permission (`.get.mtd`) and reading each record's
   data needs `.get`; without `.get` the data comes back `null`. Pushing needs
   the set permission, and the delete permission for a forced push.
+  Where a row lists only one permission (for example `acl.get`), that single
+  permission covers listing, reading data and deletes.
 
   | Release | Hive (flag) | `sync pull` needs | `sync push` needs |
   |---|---|---|---|
