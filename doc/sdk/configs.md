@@ -94,7 +94,8 @@ See [CLI ACL sync](../cli/infrastructure.md#acl-scopes) for permission setup.
 
 ### Investigation hives
 
-`Configs.ALL_HIVES` includes `investigation_policy` and `investigation_plan`.
-Select either with `sync_hives={"investigation_policy": True, "investigation_plan": True}`.
+`Configs.ALL_HIVES` includes `investigation_policy`, `investigation_pack` and `investigation_plan`.
+Select any of them with `sync_hives={"investigation_policy": True, "investigation_pack": True, "investigation_plan": True}`.
+A pack's `data` is `{"yaml": "<source>"}`.
 Records retain the native `hives.<hive>.<record>.data` and `usr_mtd` wrapper,
 including tags, enabled, expiry and comment. No resolved secrets or system metadata belong in Git.

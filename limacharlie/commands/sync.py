@@ -271,6 +271,9 @@ Hive flags (for syncing hive-based resources):
   --hive-ai-skill        AI skills (Claude Code skill definitions)
   --hive-ai-memory       AI agent memories (partial-merge updates)
   --hive-external-adapter  External adapters
+  --investigation-policy  Investigation Engine settings record
+  --investigation-pack   Investigation Engine packs of shared checks
+  --investigation-plan   Investigation Engine templates
 
 Examples:
   limacharlie sync pull --config-file org.yaml --all

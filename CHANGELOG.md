@@ -33,7 +33,10 @@
   `investigation_plan.get.mtd` and `investigation_plan.get`; `sync push` needs
   `investigation_plan.set` (+ `investigation_plan.set.mtd`), and removing a
   record needs `investigation_plan.del`. A key that already syncs
-  `investigation_plan` needs nothing new. `sync pull --all` fails with a key
+  `investigation_plan` needs no new permission, but Hive adds two rules for packs: an API key (as opposed to a person) can write a pack only when the enabled `investigation_policy/default` record carries the tag `allow-api-key-promotion` (setting it needs `investigation_policy.set.mtd`), and a changed pack source must carry a higher `version` than the stored one. Without the
+  tag every pack write fails and the push stops there. The settings record is
+  applied first, so a push that removes the tag and also changes a pack fails
+  on the pack: remove the tag in a separate push after the pack changes. `sync pull --all` fails with a key
   that lacks the read permission; `--all-available` skips the hive with a
   warning. Where the Investigation Engine is not enabled the hive does not
   exist, and `sync pull` notes it as skipped.

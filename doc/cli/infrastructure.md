@@ -53,7 +53,8 @@ Available hive flags: `--hive-cloudsec-policy`, `--hive-cloudsec-provider`,
 `--hive-fp`, `--hive-cloud-sensor`, `--hive-extension-config`, `--hive-yara`,
 `--hive-lookup`, `--hive-secret`, `--hive-query`, `--hive-playbook`,
 `--hive-ai-agent`, `--hive-ai-skill`, `--hive-ai-memory`,
-`--hive-external-adapter`, `--investigation-policy`, `--investigation-plan`.
+`--hive-external-adapter`, `--investigation-policy`, `--investigation-pack`,
+`--investigation-plan`.
 The table below lists the permission each one needs.
 
 ### Permissions each hive needs
@@ -246,6 +247,7 @@ The Infrastructure extension applies the settings record first, then the packs,
 then the templates that use them, so a template and its pack can travel in one
 push; with `--force`, removals of these three hives run after everything is
 applied, in the reverse order. The
-packs use the `investigation_plan` permissions (the table above). Keep unknown
+packs use the `investigation_plan` permissions (the table above), and hive adds two rules for packs: an API key (as opposed to a person) can write a pack only when the enabled `investigation_policy/default` record carries the tag `allow-api-key-promotion` (setting it needs `investigation_policy.set.mtd`), and a changed pack source must carry a higher `version` than the stored one. Because the settings record is applied first, remove the
+tag in a separate push, after the pack changes. Keep unknown
 data fields and user metadata when editing exports. Apply reads native versions for CAS; Git is not a source
 of unconditional ETags. Force deletion respects selected hives and tags.
