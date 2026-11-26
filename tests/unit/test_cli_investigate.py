@@ -1050,6 +1050,13 @@ class TestQueue:
         sdk.flush_queue.assert_not_called()
         sdk.get_queue.assert_not_called()
 
+    @pytest.mark.parametrize("args", [["--rule", ""], ["--template", "  "]])
+    def test_a_blank_name_is_refused_before_the_queue_is_read_or_anything_is_asked(self, sdk, args):
+        result = run(["investigate", "queue", "flush", *args], input="y\n")
+        assert result.exit_code == 2
+        sdk.get_queue.assert_not_called()
+        sdk.flush_queue.assert_not_called()
+
     def test_flush_501_is_said_plainly_and_nothing_is_asked_twice(self, sdk):
         sdk.flush_queue.side_effect = not_available()
         result = run(["investigate", "queue", "flush", "--all", "--yes"])

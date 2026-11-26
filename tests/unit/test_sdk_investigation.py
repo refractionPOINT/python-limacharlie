@@ -1442,6 +1442,15 @@ class TestRunQueue:
         assert "not available on this deployment yet" in str(ei.value)
         assert "not enabled in the engine" not in str(ei.value)
 
+    def test_a_501_the_engine_sent_itself_keeps_its_message(self, inv, mock_org):
+        body = {"error": "this feature is off in the engine", "error_code": "feature_disabled"}
+        mock_org.client.request.side_effect = error_from_status_code(501, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.get_queue()
+        assert ei.value.error_code == "feature_disabled"
+        assert ei.value.to_dict()["error"] == "this feature is off in the engine"
+        assert "not available on this deployment yet" not in str(ei.value)
+
     def test_other_refusals_keep_the_engine_message(self, inv, mock_org):
         body = {"error": "no permission", "error_code": "forbidden"}
         mock_org.client.request.side_effect = error_from_status_code(403, body)

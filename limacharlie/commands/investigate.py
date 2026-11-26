@@ -1475,6 +1475,8 @@ def queue_flush(ctx, rule, template, all_, note_text, yes) -> None:
     given = [name for name, value in (("--rule", rule), ("--template", template)) if value is not None] + (["--all"] if all_ else [])
     if len(given) != 1:
         raise click.UsageError("Name exactly one of --rule, --template or --all.")
+    if any(value is not None and not value.strip() for value in (rule, template)):
+        raise click.UsageError("--rule and --template need a non-empty name.")
     inv = _get_investigation(ctx)
     scope_text = "every queued start" if all_ else f"the queued starts of {'rule' if rule is not None else 'template'} '{rule if rule is not None else template}'"
     if not yes:

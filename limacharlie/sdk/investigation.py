@@ -1546,7 +1546,7 @@ class Investigation:
         try:
             return self._call(verb, path, **kwargs)
         except InvestigationError as exc:
-            if exc.status_code == 501:
+            if exc.status_code == 501 and exc.error_code == "not_implemented":
                 raise InvestigationError(
                     QUEUE_NOT_AVAILABLE,
                     status_code=exc.status_code,
