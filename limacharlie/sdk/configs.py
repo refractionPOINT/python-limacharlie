@@ -43,7 +43,8 @@ _QuotedStrDumper.add_representer(str, _represent_quoted_str)
 def _load_config_text(text: str) -> Any:
     """Parse a config file with ``yaml.safe_load``, except the investigation hives.
 
-    The records under ``hives.investigation_policy`` and ``hives.investigation_plan`` are read
+    The records under ``hives.investigation_policy``, ``hives.investigation_pack`` and
+    ``hives.investigation_plan`` are read
     with the YAML 1.2 boolean rule, so ``ai_may_decide: {"*": off}`` stays the string ``"off"``.
     Every other part of the file keeps its YAML 1.1 meaning (``value: on`` is still a boolean).
     """
@@ -130,6 +131,7 @@ class Configs:
     # All known hive names that can be synced.
     ALL_HIVES = {
         "investigation_policy",
+        "investigation_pack",
         "investigation_plan",
         "cloudsec_policy",
         "cloudsec_provider",

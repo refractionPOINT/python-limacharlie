@@ -17,6 +17,30 @@
   (`ext.request`, `ext.conf.get`, `ext.conf.set`): no new permission. New
   discovery profile `deception`.
 
+### Sync: the `investigation_pack` hive
+
+- `sync pull` and `sync push` accept `--investigation-pack`, and `--all` and
+  `--all-available` include it, so the packs of shared checks that
+  Investigation Engine templates use are exported and applied with the rest of
+  the organization's configuration. `Configs.ALL_HIVES` includes it, and the
+  YAML 1.2 boolean rule that already applies to `investigation_policy` and
+  `investigation_plan` records in config files applies to it too. The
+  Infrastructure extension applies the settings record, then packs, then the
+  templates that use them.
+
+  **New permissions: `investigation_pack` hive.** The pack hive uses the
+  `investigation_plan` permissions: `sync pull` needs
+  `investigation_plan.get.mtd` and `investigation_plan.get`; `sync push` needs
+  `investigation_plan.set` (+ `investigation_plan.set.mtd`), and removing a
+  record needs `investigation_plan.del`. A key that already syncs
+  `investigation_plan` needs no new permission, but Hive adds two rules for packs: an API key (as opposed to a person) can write a pack only when the enabled `investigation_policy/default` record carries the tag `allow-api-key-promotion` (setting it needs `investigation_policy.set.mtd`), and a changed pack source must carry a higher `version` than the stored one. Without the
+  tag every pack write fails and the push stops there. The settings record is
+  applied first, so a push that removes the tag and also changes a pack fails
+  on the pack: remove the tag in a separate push after the pack changes. `sync pull --all` fails with a key
+  that lacks the read permission; `--all-available` skips the hive with a
+  warning. Where the Investigation Engine is not enabled the hive does not
+  exist, and `sync pull` notes it as skipped.
+
 ### Breaking (experimental Investigation Engine): the template is the authority
 
 The engine now does what a template says: there is no policy layer above it, so

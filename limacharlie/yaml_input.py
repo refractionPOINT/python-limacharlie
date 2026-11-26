@@ -1,8 +1,8 @@
 """YAML loading for investigation hive records.
 
 PyYAML implements YAML 1.1, where the bare words ``on``, ``off``, ``yes`` and
-``no`` are booleans. The investigation hives (``investigation_policy`` and
-``investigation_plan``) are read as YAML 1.2 or JSON by the services, where those
+``no`` are booleans. The investigation hives (``investigation_policy``,
+``investigation_pack`` and ``investigation_plan``) are read as YAML 1.2 or JSON by the services, where those
 words are text, and a field such as ``ai_may_decide: {"*": off}`` must stay the
 string ``"off"``: read the 1.1 way it is sent as ``false`` and the Hive refuses it.
 
@@ -36,7 +36,7 @@ _Yaml12BoolLoader.add_implicit_resolver(_BOOL_TAG, _BOOL_RE, list("tTfF"))
 
 
 #: The hives whose records are read with the YAML 1.2 boolean rule.
-INVESTIGATION_HIVES = frozenset({"investigation_policy", "investigation_plan"})
+INVESTIGATION_HIVES = frozenset({"investigation_policy", "investigation_pack", "investigation_plan"})
 
 
 def load_record_yaml(content: str, hive_name: str | None) -> Any:
