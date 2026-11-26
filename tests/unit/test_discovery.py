@@ -79,7 +79,7 @@ def _resolve(path: str) -> str | None:
             return f"{parent!r} has no subcommand {part!r} (it has: {options})"
         cmd = sub
 
-    if isinstance(cmd, click.Group):
+    if isinstance(cmd, click.Group) and not cmd.invoke_without_command:
         return f"{path!r} is a group, not a runnable command"
     return None
 

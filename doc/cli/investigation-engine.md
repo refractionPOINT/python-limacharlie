@@ -17,7 +17,8 @@ All the listed permissions are required.
 | Operation | Permissions |
 |---|---|
 | Reads: runs, templates, operators, packs, kit, settings (`settings get`), test results, the approvals inbox | `investigation.get` + `insight.evt.get` |
-| Writes: start a run, wave, cancel, delete a run, test a template, decide an action | `investigation.set` + `insight.evt.get` |
+| Reads: the run queue (`queue`) | `investigation.get` + `insight.evt.get` |
+| Writes: start a run, wave, cancel, delete a run, flush the queue (`queue flush`), test a template, decide an action | `investigation.set` + `insight.evt.get` |
 | Approve / deny an action | the writes above + the permission of the action's class (for example `sensor.task`, `mailsec.act`, `sensor.tag`) |
 | `stats`, and `runs list --outcome` / `--verdict` | the reads above + `investigation_policy.set` |
 | `settings pause` / `settings resume` | `investigation_policy.get` + `investigation_policy.set` (they read the `default` settings record and write its `paused` field; explicit grants, no default role has them). `settings get` is an engine read and needs only the reads above |
@@ -292,13 +293,28 @@ limacharlie investigate runs delete RUN_ID --confirm
 
 `runs delete` requires explicit `--confirm` and returns the engine's deletion response. It needs `investigation.set` + `insight.evt.get`. Deletion requests are sent once and are not automatically replayed after a gateway timeout. The API deployment must serve run deletion, which is newer than the other run routes; an older deployment answers 404 without an engine error code, and the CLI says so.
 
-`runs list` filters: `--state` (queued, running, decided, completed, cancelled, failed, budget_exhausted), `--outcome` (one of the eight outcomes, or `undecided`), `--verdict` (the label: true_positive, false_positive, inconclusive, undecided), `--trigger` (the kind of trigger: detection, message, entity, case, question) and `--started-by` (an identity such as `user:UID` or `apikey:ID`, or a user's email or a key's name).
+`runs list` filters: `--state` (queued, running, decided, completed, cancelled, failed, budget_exhausted, flushed, capped), `--outcome` (one of the eight outcomes, or `undecided`), `--verdict` (the label: true_positive, false_positive, inconclusive, undecided), `--trigger` (the kind of trigger: detection, message, entity, case, question) and `--started-by` (an identity such as `user:UID` or `apikey:ID`, or a user's email or a key's name).
 
 `--mode` is `full` by default (triage, scoping and containment); `triage` stops at the outcome and costs less, `scope` is for scoping an already-triaged alert. (`templates test` defaults to `triage`.)
 
 `runs list` pages: structured formats print `{"runs": [...], "next_cursor": "..."}` and table/CSV/JSONL print rows with the cursor on stderr. Continue with `--cursor`, or use `--all`.
 
 `runs events --follow` polls until the run is over and writes **one JSON event per line** (a text line in table mode), flushing as they arrive. It exits `0` when the run finished and `1` when `--timeout` (default 900 s) elapsed first; the resume point is printed on stderr (`--after N`). Events carry structure only, never customer values.
+
+## The run queue
+
+```bash
+limacharlie investigate queue
+limacharlie investigate queue flush (--rule NAME | --template NAME | --all) [--note TEXT] [--yes]
+```
+
+An org runs at most `limits.max_parallel_runs` investigations at once (a field of the settings record, 1 to 2000, default 100). A start above that is never refused: it waits in the queue as a run in state `queued` and starts when a slot frees. A start that a template coalesces (`coalesce: sensor`, the default) joins the run already queued or running for that sensor instead of queueing another. An optional `limits.runs_per_hour` caps the starts of an hour: a start above the cap is recorded as a terminal run in state `capped` (never dropped silently), and the next hour starts again. Only runs that start count: a joined, flushed, capped or failed-to-start run does not.
+
+`queue` shows the totals (`queued`, `claimed`, `running`, `max_parallel_runs`), `oldest_enqueued_at` and `oldest_wait_ms`, the queued count by urgency band (`by_band`), by rule (`by_rule`) and by template (`by_template`), the hour's counters (`hour`: `started`, `runs_per_hour`, `flushed`, `capped`, `resets_at`) and the recent flushes with their progress (`flushes`). The totals are exact for the moment the answer was read (`as_of`, at most a few seconds old) and the breakdowns come whole from the engine; the count `queue flush` shows before it asks is that number, and the flush cancels what is queued when it runs. It needs the reads of the other `investigate` commands.
+
+`queue flush` cancels starts that are queued and not yet running. Name exactly one scope: a detection rule, a template, or `--all`. Each flushed start becomes a terminal run in state `flushed` that records who flushed it, when and your `--note`; its alert shows as not investigated. **Running investigations are not touched, and a flush cannot be undone.** A start that arrives after the flush began queues normally, so fixing a rule does not lose its new alerts. The command first reads the queue and tells you how many starts the flush cancels, then asks you to confirm; `--yes` skips the question (scripts and agents). The answer is `{"flush_id", "flushed", "done"}`: a large flush finishes in the engine while `done` is false, and `queue` shows its progress under `flushes`. A flush needs `investigation.set` + `insight.evt.get`, is sent once and is never retried, and is recorded in the org's audit log.
+
+Where the engine of the organization's region does not serve the queue yet, both commands fail with "The run queue is not available on this deployment yet." (HTTP 501, `error_code` `not_implemented`).
 
 ## Waves
 
@@ -342,8 +358,9 @@ The org keeps three controls that belong to no single template, in the `default`
 - **Pause** (`paused`): one emergency stop. While it is true nothing acts alone: an action that would have acted alone waits for a person. Runs still investigate, and approvals, denials, undos, lease ends and lease checks still work. Actions that waited stay waiting after the pause is lifted, until a person decides or `approval_timeout` passes.
 - **Circuit breaker** (`circuit_breaker.per_hour`, default 20 in a sliding hour, 1..10000; `.per_run`, default 5, 1..1000): an org-wide cap on automatic containments, so one bad template cannot isolate a fleet. Over the cap an action waits for a person. It counts containment-family actions with no person involved, not closes, tags, approved actions, undos or lease extensions.
 - **Plain settings**: the key the engine runs as (`identity`), where notifications go (`notify`, including `action.held`), which AI agent answers (`llm.agent`), run budgets, case mode and speculation.
+- **Limits** (`limits.max_parallel_runs`, 1..2000, default 100; optional `limits.runs_per_hour`, at least 1, absent means no cap): how many investigations run at once and, optionally, how many start in an hour. They replace the old `budgets.max_concurrent_runs`. What waits, what is capped and how to flush it: see [The run queue](#the-run-queue).
 
-`settings get` shows what the engine enforces: `paused`, `set_by` and `set_at` (who last saved the record and when: a pause is a field of the record, so this says who paused it unless someone saved the record again since), `circuit_breaker` with `used_last_hour` and `tripped`, the identity and whether it is ready, `notify`, `llm`, `budgets`, `case` and `speculation`. `source: builtin` means the engine runs on its built-in settings: there is no record, or the only record stored does not parse (then `paused` is true, there is no identity and `warnings` says `settings_rejected`). With a rejected record the engine keeps its last good copy, so a `paused: true` you just wrote does not take effect until the record parses: always read `warnings`.
+`settings get` shows what the engine enforces: `paused`, `set_by` and `set_at` (who last saved the record and when: a pause is a field of the record, so this says who paused it unless someone saved the record again since), `circuit_breaker` with `used_last_hour` and `tripped`, the identity and whether it is ready, `notify`, `llm`, `budgets`, `limits`, `case` and `speculation`. `source: builtin` means the engine runs on its built-in settings: there is no record, or the only record stored does not parse (then `paused` is true, there is no identity and `warnings` says `settings_rejected`). With a rejected record the engine keeps its last good copy, so a `paused: true` you just wrote does not take effect until the record parses: always read `warnings`.
 
 `settings pause` and `settings resume` set `paused` on the record and change nothing else in it: the write is conditional on the version read, so a concurrent edit is never overwritten, and pausing twice changes nothing. A record that does not exist yet is created holding only `paused: true`. A disabled record is refused for a pause, because the engine ignores it. The command fails when the saved record does not read back as paused (another writer or an expiry changed it in between). It writes the record and does not ask the engine: `settings get` is the check that the engine enforces it. A record that carries an expiry keeps it (the Hive deletes the whole record at the expiry, the pause with it); `settings pause` reports `expires` then. To change anything else in the settings, edit the `investigation_policy/default` record (`limacharlie hive`, or by IaC / Git Sync). If Git Sync manages the `investigation_policy` hive, keep the pause in git too: the next sync overwrites a change made here. These two commands need `investigation_policy.get` and `investigation_policy.set`.
 

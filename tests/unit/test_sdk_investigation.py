@@ -1387,3 +1387,74 @@ def test_start_trust_accepts_exact_entry_limits(inv, mock_org):
             "values": [f"partner-{i}.example.test" for i in range(100)]}
     inv.start_run({"trigger": {"question": "example"}, "trust": spec})
     assert json.loads(_request_args(mock_org)[2]["raw_body"])["trust"] == spec
+
+
+class TestRunQueue:
+    def test_get_queue_is_a_plain_read(self, inv, mock_org):
+        answer = {"queued": 3, "claimed": 0, "running": 2, "max_parallel_runs": 25}
+        mock_org.client.request.return_value = answer
+        assert inv.get_queue() == answer
+        mock_org.client.request.assert_called_once_with("GET", "investigate/oid-1/queue", query_params=None, timeout=None)
+
+    @pytest.mark.parametrize(
+        "kwargs, body",
+        [
+            ({"rule": "suspicious-powershell"}, {"rule": "suspicious-powershell"}),
+            ({"template": "suspicious-process", "note": "rule fixed"}, {"template": "suspicious-process", "note": "rule fixed"}),
+            ({"all": True, "note": "n"}, {"all": True, "note": "n"}),
+            ({"all": True}, {"all": True}),
+        ],
+    )
+    def test_flush_sends_one_scope_once(self, inv, mock_org, kwargs, body):
+        mock_org.client.request.return_value = {"flush_id": "f1", "flushed": 4, "done": True}
+        assert inv.flush_queue(**kwargs)["flushed"] == 4
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("POST", "investigate/oid-1/queue/flush")
+        assert json.loads(kw["raw_body"]) == body
+        assert kw["retry_gateway_timeout"] is False
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},
+            {"note": "x"},
+            {"all": False},
+            {"rule": "r", "template": "t"},
+            {"rule": "r", "all": True},
+            {"rule": ""},
+            {"template": "  "},
+        ],
+    )
+    def test_flush_needs_exactly_one_scope_before_any_request(self, inv, mock_org, kwargs):
+        with pytest.raises(ValidationError):
+            inv.flush_queue(**kwargs)
+        mock_org.client.request.assert_not_called()
+
+    @pytest.mark.parametrize("call", [lambda i: i.get_queue(), lambda i: i.flush_queue(all=True)])
+    def test_501_says_the_queue_is_not_available_yet(self, inv, mock_org, call):
+        body = {"error": "the investigation engine of this organization's region does not support the run queue yet",
+                "error_code": "not_implemented", "http_status": 501}
+        mock_org.client.request.side_effect = error_from_status_code(501, body)
+        with pytest.raises(InvestigationError) as ei:
+            call(inv)
+        assert ei.value.status_code == 501
+        assert ei.value.error_code == "not_implemented"
+        assert "not available on this deployment yet" in str(ei.value)
+        assert "not enabled in the engine" not in str(ei.value)
+
+    def test_a_501_the_engine_sent_itself_keeps_its_message(self, inv, mock_org):
+        body = {"error": "this feature is off in the engine", "error_code": "feature_disabled"}
+        mock_org.client.request.side_effect = error_from_status_code(501, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.get_queue()
+        assert ei.value.error_code == "feature_disabled"
+        assert ei.value.to_dict()["error"] == "this feature is off in the engine"
+        assert "not available on this deployment yet" not in str(ei.value)
+
+    def test_other_refusals_keep_the_engine_message(self, inv, mock_org):
+        body = {"error": "no permission", "error_code": "forbidden"}
+        mock_org.client.request.side_effect = error_from_status_code(403, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.flush_queue(rule="r")
+        assert ei.value.error_code == "forbidden"
+        assert ei.value.to_dict()["error"] == "no permission"

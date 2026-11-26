@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Investigation Engine: the run queue
+
+- New `limacharlie investigate queue` shows the org's run queue (starts waiting
+  for a free slot: totals, oldest wait, counts by rule and template, the hour's
+  cap counters, recent flushes), and `limacharlie investigate queue flush
+  (--rule NAME | --template NAME | --all) [--note TEXT] [--yes]` cancels the
+  starts that are queued and not yet running (running investigations are not
+  touched; it cannot be undone; it shows the count and asks first unless
+  `--yes`). SDK: `Investigation.get_queue()` and `Investigation.flush_queue()`.
+  A deployment whose engine does not serve the queue yet answers "The run queue
+  is not available on this deployment yet." The settings gain `limits.max_parallel_runs`
+  and `limits.runs_per_hour`, which `investigate settings get` shows, and
+  `runs list --state` accepts `flushed` and `capped`. They need the permissions
+  the other investigation commands need (`investigation.get` and
+  `insight.evt.get` to read, `investigation.set` and `insight.evt.get` to
+  flush): no new permission.
+
 ### Deception
 
 - New command group `limacharlie deception` and SDK class
