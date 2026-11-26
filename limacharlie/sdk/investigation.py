@@ -87,7 +87,7 @@ KIT_SECTIONS = ("schema", "guide", "operators", "examples", "settings", "codes",
 ACTION_VERBS = ("approve", "deny", "revert", "extend", "confirm")
 
 #: Run states after which a run no longer changes.
-TERMINAL_RUN_STATES = ("completed", "cancelled", "failed", "budget_exhausted")
+TERMINAL_RUN_STATES = ("completed", "cancelled", "failed", "budget_exhausted", "flushed", "capped")
 
 #: How a run ends (``verdict.outcome`` of a run, a list row and a test sample).
 RUN_OUTCOMES = (
@@ -274,6 +274,10 @@ def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
         exit_code=exc.exit_code,
     )
 
+
+#: What a person reads when the API answers 501 ``not_implemented`` for a queue call: the engine of the region
+#: has not been updated to the queue yet.
+QUEUE_NOT_AVAILABLE = "The run queue is not available on this deployment yet."
 
 _DELETE_ROUTE_HINT = (
     "A 404 with no engine error code means this API deployment does not serve run deletion: the "
@@ -1532,6 +1536,98 @@ class Investigation:
                     exit_code=exc.exit_code,
                 ) from exc
             raise
+
+    # ------------------------------------------------------------------
+    # The run queue
+    # ------------------------------------------------------------------
+
+    def _queue_call(self, verb: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        """One run-queue call; an engine that does not serve the queue yet is said plainly."""
+        try:
+            return self._call(verb, path, **kwargs)
+        except InvestigationError as exc:
+            if exc.status_code == 501:
+                raise InvestigationError(
+                    QUEUE_NOT_AVAILABLE,
+                    status_code=exc.status_code,
+                    issues=exc.issues,
+                    warnings=exc.warnings,
+                    response_body=exc.response_body,
+                    suggestion="",
+                    exit_code=exc.exit_code,
+                ) from exc
+            raise
+
+    def get_queue(self) -> dict[str, Any]:
+        """Read the org's run queue (requires investigation.get and insight.evt.get).
+
+        A start waits in the queue when the org already runs ``limits.max_parallel_runs``
+        investigations. The totals are exact, never a sum of a page.
+
+        Returns:
+            dict: ``queued``, ``claimed``, ``running`` and ``max_parallel_runs``;
+                ``oldest_enqueued_at`` and ``oldest_wait_ms``; ``by_band``
+                (urgency to count); ``by_rule`` and ``by_template`` (each row
+                ``{rule | template, queued, oldest_enqueued_at}``); ``hour``
+                (``started``, ``runs_per_hour``, ``flushed``, ``capped``,
+                ``resets_at``); ``flushes`` (recent flushes and their
+                progress); ``as_of``.
+
+        Raises:
+            InvestigationError: ``status_code`` 501 when the engine of this
+                deployment does not serve the queue yet, or the API refuses.
+        """
+        return self._queue_call("GET", "queue")
+
+    def flush_queue(
+        self,
+        *,
+        rule: str | None = None,
+        template: str | None = None,
+        all: bool = False,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Flush queued starts (requires investigation.set and insight.evt.get).
+
+        Cancels the starts that are queued and not yet running: each becomes a
+        terminal ``flushed`` run (who, when and the note are kept). Running
+        investigations are not touched, and a start that arrives after the flush
+        began queues normally. This cannot be undone. The call is sent once,
+        never retried by the SDK.
+
+        Args:
+            rule: Flush the starts of this detection rule.
+            template: Flush the starts of this template.
+            all: Flush every queued start of the org.
+            note: Why (kept on every flushed run and in the audit log).
+
+        Exactly one of ``rule``, ``template`` and ``all`` is required.
+
+        Returns:
+            dict: ``flush_id``, ``flushed`` (how many so far) and ``done``
+                (false while a large flush continues in the engine; see
+                ``flushes`` of :meth:`get_queue`).
+
+        Raises:
+            ValidationError: If the scope is not exactly one of the three.
+            InvestigationError: ``status_code`` 501 when the engine of this
+                deployment does not serve the queue yet, or the API refuses.
+        """
+        scopes = [("rule", rule), ("template", template)]
+        given = [name for name, value in scopes if value is not None] + (["all"] if all else [])
+        if len(given) != 1:
+            raise ValidationError("a flush needs exactly one of rule, template or all")
+        body: dict[str, Any] = {}
+        for name, value in scopes:
+            if value is not None:
+                if not isinstance(value, str) or not value.strip():
+                    raise ValidationError(f"the {name} to flush must be a non-empty name")
+                body[name] = value
+        if all:
+            body["all"] = True
+        if note:
+            body["note"] = note
+        return self._queue_call("POST", "queue/flush", body=body, write=True)
 
     # ------------------------------------------------------------------
     # Waves

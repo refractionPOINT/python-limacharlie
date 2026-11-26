@@ -946,3 +946,123 @@ def test_start_ai_help_explains_run_only_additive_trust(sdk):
     assert "template trust" in result.stdout and "this run only" in result.stdout
     assert "identity starting the run" in result.stdout
     sdk.start_run.assert_not_called()
+
+
+QUEUE = {
+    "queued": 1240, "claimed": 2, "running": 25, "max_parallel_runs": 25,
+    "by_rule": [{"rule": "suspicious-powershell", "queued": 1200}, {"rule": "other", "queued": 40}],
+    "by_template": [{"template": "suspicious-process", "queued": 1200}],
+}
+
+
+def not_available():
+    return InvestigationError(
+        "The run queue is not available on this deployment yet.", status_code=501,
+        response_body={"error": "x", "error_code": "not_implemented"}, exit_code=1,
+    )
+
+
+class TestQueue:
+    def test_help_lists_the_queue(self):
+        runner = CliRunner()
+        assert "queue" in runner.invoke(cli, ["investigate", "--help"]).output
+        assert "flush" in runner.invoke(cli, ["investigate", "queue", "--help"]).output
+
+    def test_queue_shows_the_engine_answer(self, sdk):
+        sdk.get_queue.return_value = QUEUE
+        result = run(["investigate", "queue"])
+        assert result.exit_code == 0, result.stderr
+        assert out_json(result) == QUEUE
+        sdk.flush_queue.assert_not_called()
+
+    def test_queue_shows_as_a_table(self, sdk):
+        sdk.get_queue.return_value = QUEUE
+        result = run(["investigate", "queue"], fmt="table")
+        assert result.exit_code == 0, result.stderr
+        assert "1240" in result.stdout
+
+    def test_queue_501_is_said_plainly(self, sdk):
+        sdk.get_queue.side_effect = not_available()
+        result = run(["investigate", "queue"])
+        assert result.exit_code == 1
+        assert "not available on this deployment yet" in result.stderr
+        assert json.loads(result.stderr)["status"] == 501
+
+    def test_queue_501_in_table_mode_is_text(self, sdk):
+        sdk.get_queue.side_effect = not_available()
+        result = run(["investigate", "queue"], fmt="table")
+        assert result.exit_code != 0
+        assert "not available on this deployment yet" in str(result.exception)
+
+    @pytest.mark.parametrize(
+        "args, scope",
+        [
+            (["--rule", "suspicious-powershell"], {"rule": "suspicious-powershell", "template": None, "all": False}),
+            (["--template", "suspicious-process"], {"rule": None, "template": "suspicious-process", "all": False}),
+            (["--all"], {"rule": None, "template": None, "all": True}),
+        ],
+    )
+    def test_flush_asks_then_flushes_one_scope(self, sdk, args, scope):
+        sdk.get_queue.return_value = QUEUE
+        sdk.flush_queue.return_value = {"flush_id": "f1", "flushed": 1200, "done": True}
+        result = run(["investigate", "queue", "flush", *args, "--note", "rule fixed"], input="y\n")
+        assert result.exit_code == 0, result.stderr
+        sdk.flush_queue.assert_called_once_with(note="rule fixed", **scope)
+        assert '"flushed": 1200' in result.stdout  # (the runner echoes the typed answer into stdout)
+        assert "cannot be undone" in result.stderr
+
+    @pytest.mark.parametrize(
+        "args, count",
+        [(["--rule", "suspicious-powershell"], "1200"), (["--template", "suspicious-process"], "1200"),
+         (["--rule", "other"], "40"), (["--all"], "1240"), (["--rule", "unknown"], "0")],
+    )
+    def test_the_confirmation_says_how_many_starts_are_cancelled(self, sdk, args, count):
+        sdk.get_queue.return_value = QUEUE
+        result = run(["investigate", "queue", "flush", *args], input="n\n")
+        assert f"cancels {count} queued start(s)" in result.stderr
+        assert "running investigations are not touched" in result.stderr
+        assert "cannot be undone" in result.stderr
+
+    def test_declining_flushes_nothing(self, sdk):
+        sdk.get_queue.return_value = QUEUE
+        result = run(["investigate", "queue", "flush", "--all"], input="n\n")
+        assert result.exit_code != 0
+        sdk.flush_queue.assert_not_called()
+
+    def test_no_answer_flushes_nothing(self, sdk):
+        sdk.get_queue.return_value = QUEUE
+        result = run(["investigate", "queue", "flush", "--all"], input="")
+        assert result.exit_code != 0
+        sdk.flush_queue.assert_not_called()
+
+    def test_yes_skips_the_question_and_the_queue_read(self, sdk):
+        sdk.flush_queue.return_value = {"flush_id": "f1", "flushed": 7, "done": False}
+        result = run(["investigate", "queue", "flush", "--template", "t", "--yes"])
+        assert result.exit_code == 0, result.stderr
+        sdk.get_queue.assert_not_called()
+        sdk.flush_queue.assert_called_once_with(rule=None, template="t", all=False, note=None)
+        assert "continues" in result.stderr or "finishes in the engine" in result.stderr
+
+    @pytest.mark.parametrize("args", [[], ["--rule", "r", "--all"], ["--rule", "r", "--template", "t"], ["--note", "x"]])
+    def test_flush_needs_exactly_one_scope(self, sdk, args):
+        result = run(["investigate", "queue", "flush", "--yes", *args])
+        assert result.exit_code == 2
+        sdk.flush_queue.assert_not_called()
+        sdk.get_queue.assert_not_called()
+
+    def test_flush_501_is_said_plainly_and_nothing_is_asked_twice(self, sdk):
+        sdk.flush_queue.side_effect = not_available()
+        result = run(["investigate", "queue", "flush", "--all", "--yes"])
+        assert result.exit_code == 1
+        assert "not available on this deployment yet" in result.stderr
+
+    def test_flush_on_a_deployment_without_the_queue_fails_before_asking(self, sdk):
+        sdk.get_queue.side_effect = not_available()
+        result = run(["investigate", "queue", "flush", "--all"], input="y\n")
+        assert result.exit_code == 1
+        assert "not available on this deployment yet" in result.stderr
+        sdk.flush_queue.assert_not_called()
+
+    def test_explain_texts_exist(self):
+        out = CliRunner().invoke(cli, ["investigate", "queue", "flush", "--ai-help"]).output
+        assert "cannot be undone" in out

@@ -430,8 +430,10 @@ nothing acts alone, and `set_by` / `set_at` say who last saved the record and
 when (a pause is a field of that record, so this is who paused it unless
 someone saved the record again since). `circuit_breaker` shows the caps and
 `used_last_hour` / `tripped`. The rest: the run identity and whether it is
-ready, where notifications go, which AI agent answers, budgets and the case
-mode. `source: builtin` means the engine runs on its built-in settings: there
+ready, where notifications go, which AI agent answers, budgets, the `limits`
+(`max_parallel_runs`, 1 to 2000, default 100: starts above it wait in the
+queue; optional `runs_per_hour`: starts above it are recorded as `capped`; see
+`investigate queue`) and the case mode. `source: builtin` means the engine runs on its built-in settings: there
 is no record, or the stored one does not parse (then `paused` is true, there is
 no identity and `warnings` says `settings_rejected`: repair the record). With a
 rejected record the engine keeps its last good copy.
@@ -472,6 +474,44 @@ Example:
   limacharlie investigate settings resume
 """
 
+_EXPLAIN_QUEUE = """\
+Show the org's run queue. An org runs at most `limits.max_parallel_runs`
+investigations at once (settings record `investigation_policy/default`, 1 to
+2000, default 100); a start above that waits in the queue and runs when a slot
+frees, it is never refused. The answer has the totals (`queued`, `claimed`,
+`running`, `max_parallel_runs`), the oldest wait, the counts by urgency band,
+by rule and by template, the hour's counters against the optional
+`limits.runs_per_hour` cap (a start above the cap is recorded as a terminal
+`capped` run), and the recent flushes with their progress. Totals are exact.
+
+Needs investigation.get and insight.evt.get. An engine that does not serve the
+queue yet answers "The run queue is not available on this deployment yet."
+
+Example:
+  limacharlie investigate queue
+"""
+
+_EXPLAIN_QUEUE_FLUSH = """\
+Flush queued starts: cancel the starts that are waiting and not yet running.
+Name exactly one scope: `--rule <name>`, `--template <name>` or `--all`.
+
+Each flushed start becomes a terminal `flushed` run that records who flushed
+it, when and your `--note`; the alert shows as not investigated. Running
+investigations are not touched. A start that arrives after the flush began
+queues normally, so fixing a rule does not lose its new alerts. A flush cannot
+be undone. A large flush finishes in the engine (`done: false`): the progress
+is in `limacharlie investigate queue` under `flushes`.
+
+The command shows how many starts the flush will cancel and asks you to
+confirm; `--yes` skips the question (scripts). Needs investigation.set and
+insight.evt.get. The request is sent once and never retried.
+
+Examples:
+  limacharlie investigate queue flush --rule suspicious-powershell --note "rule fixed"
+  limacharlie investigate queue flush --template suspicious-process --yes
+  limacharlie investigate queue flush --all --yes
+"""
+
 for _path, _text in {
     "investigate": _EXPLAIN_GROUP,
     "investigate.kit": _EXPLAIN_KIT,
@@ -497,6 +537,8 @@ for _path, _text in {
     "investigate.actions.list": _EXPLAIN_ACTIONS_LIST,
     "investigate.actions.approve": _EXPLAIN_ACTIONS_APPROVE,
     "investigate.actions.deny": _EXPLAIN_ACTIONS_DENY,
+    "investigate.queue": _EXPLAIN_QUEUE,
+    "investigate.queue.flush": _EXPLAIN_QUEUE_FLUSH,
     "investigate.settings.get": _EXPLAIN_SETTINGS_GET,
     "investigate.settings.pause": _EXPLAIN_SETTINGS_PAUSE,
     "investigate.settings.resume": _EXPLAIN_SETTINGS_RESUME,
@@ -1167,7 +1209,7 @@ def runs_get(ctx, run_id) -> None:
 
 
 @runs_group.command("list")
-@click.option("--state", default=None, help="Only runs in this state (queued, running, decided, completed, cancelled, failed, budget_exhausted).")
+@click.option("--state", default=None, help="Only runs in this state (queued, running, decided, completed, cancelled, failed, budget_exhausted, flushed, capped).")
 @click.option("--outcome", type=click.Choice([*RUN_OUTCOMES, "undecided"]), default=None,
               help="Only runs that ended with this outcome (or undecided: nothing settled yet; needs investigation_policy.set).")
 @click.option("--verdict", default=None, help="Only runs with this verdict label (true_positive, false_positive, inconclusive, undecided; needs investigation_policy.set).")
@@ -1390,6 +1432,69 @@ def actions_deny(ctx, run_id, action_id, reason) -> None:
 
 
 # ---------------------------------------------------------------------------
+# queue
+# ---------------------------------------------------------------------------
+
+@group.group("queue", invoke_without_command=True)
+@pass_context
+@_engine_errors
+def queue_group(ctx) -> None:
+    """Show the org's run queue (starts waiting for a free slot); `queue flush` cancels them."""
+    if click.get_current_context().invoked_subcommand is None:
+        command_output(ctx, _get_investigation(ctx).get_queue())
+
+
+def _queued_count(queue: dict[str, Any], rule: str | None, template: str | None) -> int | None:
+    """How many queued starts a flush of this scope cancels, from the queue answer (None: not stated)."""
+    if rule is None and template is None:
+        value = queue.get("queued")
+    else:
+        key, name = ("by_rule", rule) if rule is not None else ("by_template", template)
+        label = "rule" if rule is not None else "template"
+        rows = queue.get(key)
+        if not isinstance(rows, list):
+            return None
+        value = 0
+        for row in rows:
+            if isinstance(row, dict) and row.get(label) == name:
+                value = row.get("queued")
+                break
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+@queue_group.command("flush")
+@click.option("--rule", default=None, help="Flush the queued starts of this detection rule.")
+@click.option("--template", default=None, help="Flush the queued starts of this template.")
+@click.option("--all", "all_", is_flag=True, default=False, help="Flush every queued start of the org.")
+@click.option("--note", "note_text", default=None, help="Why; kept on every flushed run and in the audit log.")
+@click.option("--yes", "-y", is_flag=True, default=False, help="Do not ask for confirmation.")
+@pass_context
+@_engine_errors
+def queue_flush(ctx, rule, template, all_, note_text, yes) -> None:
+    """Cancel queued starts: one rule, one template or all (running investigations are not touched; cannot be undone)."""
+    given = [name for name, value in (("--rule", rule), ("--template", template)) if value is not None] + (["--all"] if all_ else [])
+    if len(given) != 1:
+        raise click.UsageError("Name exactly one of --rule, --template or --all.")
+    inv = _get_investigation(ctx)
+    scope_text = "every queued start" if all_ else f"the queued starts of {'rule' if rule is not None else 'template'} '{rule if rule is not None else template}'"
+    if not yes:
+        count = _queued_count(inv.get_queue(), rule, template)
+        how_many = "an unknown number of" if count is None else str(count)
+        click.echo(
+            f"This cancels {how_many} queued start(s) ({scope_text}). Starts not yet running are cancelled and "
+            "recorded as flushed; running investigations are not touched. This cannot be undone.",
+            err=True,
+        )
+        click.confirm("Flush them?", abort=True, err=True)
+    result = inv.flush_queue(rule=rule, template=template, all=all_, note=note_text)
+    flushed = result.get("flushed") if isinstance(result, dict) else None
+    if isinstance(flushed, int) and not isinstance(flushed, bool):
+        suffix = "" if result.get("done", True) else " so far; the rest finishes in the engine (see `investigate queue`)"
+        note(ctx, f"Flushed {flushed} queued start(s){suffix}.")
+    command_output(ctx, result)
+
+
+# ---------------------------------------------------------------------------
 # settings
 # ---------------------------------------------------------------------------
 
@@ -1402,7 +1507,7 @@ def settings_group() -> None:
 @pass_context
 @_engine_errors
 def settings_get(ctx) -> None:
-    """Show the org settings the engine enforces (paused, circuit breaker, identity, notifications, budgets)."""
+    """Show the org settings the engine enforces (paused, circuit breaker, identity, notifications, budgets, limits)."""
     command_output(ctx, _get_investigation(ctx).get_settings())
 
 
