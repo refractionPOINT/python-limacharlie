@@ -90,6 +90,7 @@ the set permission also covers deletes.
 | `extension_config` | `--hive-extension-config` | `ext.conf.get.mtd`, `ext.conf.get` | `ext.conf.set` (+ `ext.conf.set.mtd`), `ext.conf.del` |
 | `fp` | `--hive-fp` | `fp.ctrl` | `fp.ctrl` |
 | `host_posture_rule` | `--hive-host-posture-rule` | `host_posture.get` | `host_posture.set` and `sensor.task` (delete: `host_posture.set`) |
+| `investigation_pack` | `--investigation-pack` | `investigation_plan.get.mtd`, `investigation_plan.get` | `investigation_plan.set` (+ `investigation_plan.set.mtd`), `investigation_plan.del` |
 | `investigation_plan` | `--investigation-plan` | `investigation_plan.get.mtd`, `investigation_plan.get` | `investigation_plan.set` (+ `investigation_plan.set.mtd`), `investigation_plan.del` |
 | `investigation_policy` | `--investigation-policy` | `investigation_policy.get.mtd`, `investigation_policy.get` | `investigation_policy.set` (+ `investigation_policy.set.mtd`), `investigation_policy.del` |
 | `lookup` | `--hive-lookup` | `lookup.get.mtd`, `lookup.get` | `lookup.set` (+ `lookup.set.mtd`), `lookup.del` |
@@ -236,9 +237,15 @@ See [Configuring Code Security](cloud-security.md#configuring-code-security).
 
 ### Investigation configuration sync
 
-`sync pull` and `sync push` accept `--investigation-policy` and
-`--investigation-plan`; `--all` includes both. Native records live at
-`hives.investigation_policy.<record>` and `hives.investigation_plan.<record>`
-with `data` and `usr_mtd` fields. Keep unknown data fields and user metadata
-when editing exports. Apply reads native versions for CAS; Git is not a source
+`sync pull` and `sync push` accept `--investigation-policy`,
+`--investigation-pack` and `--investigation-plan`; `--all` includes all three.
+Native records live at `hives.investigation_policy.<record>`,
+`hives.investigation_pack.<record>` and `hives.investigation_plan.<record>`
+with `data` and `usr_mtd` fields (a pack's `data` is `{"yaml": "<source>"}`).
+The Infrastructure extension applies the settings record first, then the packs,
+then the templates that use them, so a template and its pack can travel in one
+push; with `--force`, removals of these three hives run after everything is
+applied, in the reverse order. The
+packs use the `investigation_plan` permissions (the table above). Keep unknown
+data fields and user metadata when editing exports. Apply reads native versions for CAS; Git is not a source
 of unconditional ETags. Force deletion respects selected hives and tags.

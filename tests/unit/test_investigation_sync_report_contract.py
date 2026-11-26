@@ -107,7 +107,18 @@ def test_sync_selection(all_):
     flags = _resolve_sync_flags(all_, False,False,False,False,False,False,False,False,False, investigation_policy=True, investigation_plan=all_)
     assert flags["sync_hives"]["investigation_policy"]
     assert flags["sync_hives"].get("investigation_plan", False) == all_
-    assert {"investigation_policy", "investigation_plan"} <= Configs.ALL_HIVES
+    assert flags["sync_hives"].get("investigation_pack", False) == all_
+    assert {"investigation_policy", "investigation_pack", "investigation_plan"} <= Configs.ALL_HIVES
+
+
+def test_pack_is_read_with_the_investigation_yaml_rule():
+    from limacharlie.yaml_input import INVESTIGATION_HIVES
+    assert "investigation_pack" in INVESTIGATION_HIVES
+
+
+def test_pack_flag_selects_only_the_pack_hive():
+    flags = _resolve_sync_flags(False, False,False,False,False,False,False,False,False,False, investigation_pack=True)
+    assert flags["sync_hives"] == {"investigation_pack": True}
 
 
 def test_native_sync_fixture():
@@ -116,7 +127,7 @@ def test_native_sync_fixture():
     org = MagicMock(oid="fictional")
     org.client.request.return_value = {"data":{"org":cfg}}
     sdk = Configs(org)
-    hives = {"investigation_policy":True,"investigation_plan":True}
+    hives = {"investigation_policy":True,"investigation_pack":True,"investigation_plan":True}
     fetched = sdk.fetch(sync_hives=hives)
     assert fetched == cfg
     org.client.request.return_value = {"data":{"ops":[]}}
@@ -128,7 +139,7 @@ def test_native_sync_fixture():
     assert yaml.safe_load(data["config"]) == cfg
     assert data["options"]["sync_hives"] == hives
 
-@pytest.mark.parametrize("flags", [["--investigation-policy", "--investigation-plan"], ["--all"]])
+@pytest.mark.parametrize("flags", [["--investigation-policy", "--investigation-pack", "--investigation-plan"], ["--all"]])
 def test_sync_cli_native_roundtrip(tmp_path, flags):
     cfg = yaml.safe_load((FIXTURES / "policy-plan.yaml").read_text())
     cfg["version"] = 3
@@ -137,6 +148,7 @@ def test_sync_cli_native_roundtrip(tmp_path, flags):
         payload = json.loads(gzip.decompress(base64.b64decode(kwargs["params"]["gzdata"])))
         seen.append(payload)
         assert payload["options"]["sync_hives"]["investigation_policy"]
+        assert payload["options"]["sync_hives"]["investigation_pack"]
         assert payload["options"]["sync_hives"]["investigation_plan"]
         if kwargs["params"]["action"] == "fetch":
             return {"data":{"org":cfg}}
@@ -150,3 +162,22 @@ def test_sync_cli_native_roundtrip(tmp_path, flags):
             result = CliRunner().invoke(cli, ["sync", verb, "--config-file", filename] + flags)
             assert result.exit_code == 0, (result.output, result.exception)
     assert len(seen) == 2
+
+
+def test_pack_record_round_trips_with_its_source_untouched(tmp_path):
+    """A pack's source (a YAML string holding words like `off`) is carried byte for byte."""
+    source = "name: fictional_pack\nversion: 1\nbrief: b\ndescription: d\nfacts:\n  f: {op: fictional.op, args: {mode: off}}\nexports:\n  e: {fact: f, path: x}\n"
+    cfg = {"version": 3, "hives": {"investigation_pack": {"fictional_pack": {
+        "data": {"yaml": source}, "usr_mtd": {"enabled": True, "tags": ["fictional-iac"]}}}}}
+    org = MagicMock(oid="fictional")
+    org.client.request.return_value = {"data": {"org": cfg}}
+    sdk = Configs(org)
+    path = str(tmp_path / "org.yaml")
+    sdk.fetch_to_file(path, sync_hives={"investigation_pack": True})
+    # The exported file is read back for a push: the source is unchanged.
+    org.client.request.return_value = {"data": {"ops": []}}
+    sdk.push_from_file(path, sync_hives={"investigation_pack": True})
+    params = org.client.request.call_args.kwargs["params"]
+    sent = json.loads(gzip.decompress(base64.b64decode(params["gzdata"])))
+    assert yaml.safe_load(sent["config"])["hives"]["investigation_pack"]["fictional_pack"]["data"]["yaml"] == source
+    assert sent["options"]["sync_hives"] == {"investigation_pack": True}

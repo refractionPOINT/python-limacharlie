@@ -17,3 +17,21 @@ hives:
       usr_mtd:
         enabled: true
         tags: [fictional-iac]
+  investigation_pack:
+    fictional_pack:
+      data:
+        yaml: |
+          name: fictional_pack
+          version: 1
+          brief: A fictional shared check
+          description: Reads a fictional fact.
+          facts:
+            f:
+              op: fictional.op
+          exports:
+            e:
+              fact: f
+              path: x
+      usr_mtd:
+        enabled: true
+        tags: [fictional-iac]
