@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Investigation Engine: answering an AI agent step
+
+- New `limacharlie investigate answer (--answer JSON | --answer-file PATH)`
+  answers the `ai_agent` step that started an AI session. The run, request and
+  one-time answer token default from `LC_IE_RUN_ID`, `LC_IE_REQUEST_ID` and
+  `LC_IE_ANSWER_TOKEN`; the token is never printed, never echoed in an error
+  and kept out of `--debug` output. Refusals (invalid answer, wrong token,
+  already answered, deadline passed, run no longer waiting) say what they mean.
+  SDK: `Investigation.submit_agent_answer()`. `Client.request()` gains
+  `redact_body` to keep a request body out of the debug output.
+- `limacharlie investigate runs start` sends `parent_run` (from
+  `LC_IE_RUN_ID`) when run inside such a session, so the engine asks no
+  further agent for it.
+- `investigate queue` documents the empty values of the engine's answer
+  (`null` times and cap, a person's start with no `rule`), and `queue flush`
+  no longer says it flushed starts when the engine answered `replayed: true`.
+
 ### Investigation Engine: the run queue
 
 - New `limacharlie investigate queue` shows the org's run queue (starts waiting

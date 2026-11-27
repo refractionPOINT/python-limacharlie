@@ -18,6 +18,7 @@ All the listed permissions are required.
 |---|---|
 | Reads: runs, templates, operators, packs, kit, settings (`settings get`), test results, the approvals inbox | `investigation.get` + `insight.evt.get` |
 | Reads: the run queue (`queue`) | `investigation.get` + `insight.evt.get` |
+| Answer the AI agent step of a run (`answer`) | `investigation.get` (plus the one-time answer token the engine gave the session) |
 | Writes: start a run, wave, cancel, delete a run, flush the queue (`queue flush`), test a template, decide an action | `investigation.set` + `insight.evt.get` |
 | Approve / deny an action | the writes above + the permission of the action's class (for example `sensor.task`, `mailsec.act`, `sensor.tag`) |
 | `stats`, and `runs list --outcome` / `--verdict` | the reads above + `investigation_policy.set` |
@@ -289,7 +290,7 @@ limacharlie investigate runs cancel RUN_ID [--revert-leases]
 limacharlie investigate runs delete RUN_ID --confirm
 ```
 
-`--auto` sends no plan, which is how the engine is asked to pick the **active** template whose `applies_to` matches the trigger (a draft is never picked; the engine refuses `plan.auto` itself for a person's run). `applies_to` keys are `detect_cat`, `severity`, `tag` and `source`; the first three are matched against `--category`, `--severity` and `--tag` (a start from the CLI always has `source: api`), so pass the alert's attributes. When no template matches, the start is refused with the reason. `--urgency` defaults to a value derived from `--priority` (8+ critical, 6+ high, 3+ medium, else low) or `--severity`, and medium when neither is given. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`).
+`--auto` sends no plan, which is how the engine is asked to pick the **active** template whose `applies_to` matches the trigger (a draft is never picked; the engine refuses `plan.auto` itself for a person's run). `applies_to` keys are `detect_cat`, `severity`, `tag` and `source`; the first three are matched against `--category`, `--severity` and `--tag` (a start from the CLI always has `source: api`), so pass the alert's attributes. When no template matches, the start is refused with the reason. `--urgency` defaults to a value derived from `--priority` (8+ critical, 6+ high, 3+ medium, else low) or `--severity`, and medium when neither is given. A start is sent once and never retried automatically; `--idempotency-key` makes a repeated start return the same run (`joined: true`). Inside an AI session the engine started (`LC_IE_RUN_ID` is set, see [AI agent answers](#ai-agent-answers)), the start also sends `parent_run`: the run that started the session. A run with a `parent_run` asks no AI agent itself (its `ai_agent` steps end `unknown(agent_depth)`), so an agent cannot start a chain of agents.
 
 `runs delete` requires explicit `--confirm` and returns the engine's deletion response. It needs `investigation.set` + `insight.evt.get`. Deletion requests are sent once and are not automatically replayed after a gateway timeout. The API deployment must serve run deletion, which is newer than the other run routes; an older deployment answers 404 without an engine error code, and the CLI says so.
 
@@ -310,11 +311,44 @@ limacharlie investigate queue flush (--rule NAME | --template NAME | --all) [--n
 
 An org runs at most `limits.max_parallel_runs` investigations at once (a field of the settings record, 1 to 2000, default 100). A start above that is never refused: it waits in the queue as a run in state `queued` and starts when a slot frees. A start that a template coalesces (`coalesce: sensor`, the default) joins the run already queued or running for that sensor instead of queueing another. An optional `limits.runs_per_hour` caps the starts of an hour: a start above the cap is recorded as a terminal run in state `capped` (never dropped silently), and the next hour starts again. Only runs that start count: a joined, flushed, capped or failed-to-start run does not.
 
-`queue` shows the totals (`queued`, `claimed`, `running`, `max_parallel_runs`), `oldest_enqueued_at` and `oldest_wait_ms`, the queued count by urgency band (`by_band`), by rule (`by_rule`) and by template (`by_template`), the hour's counters (`hour`: `started`, `runs_per_hour`, `flushed`, `capped`, `resets_at`) and the recent flushes with their progress (`flushes`). The totals are exact for the moment the answer was read (`as_of`, at most a few seconds old) and the breakdowns come whole from the engine; the count `queue flush` shows before it asks is that number, and the flush cancels what is queued when it runs. It needs the reads of the other `investigate` commands.
+`queue` shows the totals (`queued`, `claimed`, `running`, `max_parallel_runs`), `oldest_enqueued_at` and `oldest_wait_ms`, the queued count by urgency band (`by_band`), by rule (`by_rule`) and by template (`by_template`), the hour's counters (`hour`: `started`, `runs_per_hour`, `flushed`, `capped`, `start_failed`, `resets_at`) and the recent flushes with their progress (`flushes`). Every field is always present, with these empty values: `oldest_enqueued_at` is `null` and `oldest_wait_ms` 0 when nothing waits, `hour.runs_per_hour` is `null` when the org has no hourly cap, and `by_rule`, `by_template` and `flushes` are `[]` when empty. A start that no detection rule made (a person's) is counted in `by_rule` in a row with no `rule` key. The totals are exact for the moment the answer was read (`as_of`, at most a few seconds old) and the breakdowns come whole from the engine; the count `queue flush` shows before it asks is that number, and the flush cancels what is queued when it runs. It needs the reads of the other `investigate` commands.
 
-`queue flush` cancels starts that are queued and not yet running. Name exactly one scope: a detection rule, a template, or `--all`. Each flushed start becomes a terminal run in state `flushed` that records who flushed it, when and your `--note`; its alert shows as not investigated. **Running investigations are not touched, and a flush cannot be undone.** A start that arrives after the flush began queues normally, so fixing a rule does not lose its new alerts. The command first reads the queue and tells you how many starts the flush cancels, then asks you to confirm; `--yes` skips the question (scripts and agents). The answer is `{"flush_id", "flushed", "done"}`: a large flush finishes in the engine while `done` is false, and `queue` shows its progress under `flushes`. A flush needs `investigation.set` + `insight.evt.get`, is sent once and is never retried, and is recorded in the org's audit log.
+`queue flush` cancels starts that are queued and not yet running. Name exactly one scope: a detection rule, a template, or `--all`. Each flushed start becomes a terminal run in state `flushed` that records who flushed it, when and your `--note`; its alert shows as not investigated. **Running investigations are not touched, and a flush cannot be undone.** A start that arrives after the flush began queues normally, so fixing a rule does not lose its new alerts. The command first reads the queue and tells you how many starts the flush cancels, then asks you to confirm; `--yes` skips the question (scripts and agents). The answer has the `flush_id`, the number `flushed` and `done` (a large flush finishes in the engine while `done` is false, and `queue` shows its progress under `flushes`), plus the `scope`, who flushed (`by`, `actor`), the `note`, when it began (`at`, `cutoff`) and, once finished, `done_at`. The same flush repeated within a minute (the same scope, note and caller, such as a retry) is answered by the first one with `replayed: true`: that call flushed nothing itself, the command says so, and starts queued since still wait. A flush needs `investigation.set` + `insight.evt.get`, is sent once and is never retried, and is recorded in the org's audit log.
 
 Where the engine of the organization's region does not serve the queue yet, both commands fail with "The run queue is not available on this deployment yet." (HTTP 501, `error_code` `not_implemented`).
+
+## AI agent answers
+
+A template's `ai_agent` step (and a hand-off) starts one of the org's AI agents as an AI session and waits for its answer. The session gets three variables in its environment:
+
+| Variable | Meaning |
+|---|---|
+| `LC_IE_RUN_ID` | the run the session works for |
+| `LC_IE_REQUEST_ID` | the step's request (one per step per run) |
+| `LC_IE_ANSWER_TOKEN` | a one-time secret that lets this session, and only it, answer this request |
+
+```
+limacharlie investigate answer (--answer JSON | --answer-file PATH|-) \
+    [--run-id ID] [--request-id ID] [--token TOKEN]
+```
+
+The three ids default from the variables above, so inside the session the command is just `limacharlie investigate answer --answer '{"verdict": "benign", "rationale": "the installer is signed"}'`. The answer is a JSON object with the fields the step declared under `returns` and a short `rationale` (at most 64 KiB in all). It prints `{"run_id", "request_id", "state": "answered"}`.
+
+**The token is a secret.** Leave it in the environment: the command has no positional argument for it, never prints it, never repeats it in an error, and keeps it out of `--debug` and `--debug-curl` output. A `--token` flag value stays in your shell history and in the process list.
+
+What each refusal means (the command prints the engine's message, which names each field and why for a 400, and the `error_code`; the structured error document also has `fields` where the API relays them):
+
+| Status | `error_code` | Meaning |
+|---|---|---|
+| 400 | `invalid_answer` | The answer does not match the step's `returns`; the message says each field and why. Nothing was recorded: fix it and send it again before the deadline |
+| 403 | `forbidden` | The token does not match the request. (A 403 with no `error_code` means the key lacks `investigation.get`.) |
+| 404 | `not_found` | No such request on this run. (A 404 with no `error_code` means the API deployment does not serve agent answers yet.) |
+| 409 | `already_answered` | A second answer is never taken |
+| 409 | `deadline_passed` | The deadline passed and the step already counted as unknown (timeout) |
+| 409 | `not_waiting` | The run no longer waits: the session ended, the start was refused, the run was cancelled or it is over |
+| 501 | `not_implemented` | The engine of this deployment does not take agent answers yet |
+
+The call is never replayed after a timeout. An agent that was started by a run cannot start a run that asks another agent: `runs start` inside the session sends `parent_run` (see [Runs](#runs)).
 
 ## Waves
 
@@ -405,7 +439,7 @@ test = inv.wait_for_test(inv.test_plan([{"detect_cat": "my-category", "last": 10
 result = inv.save_template("my-plan", open("plan.yaml").read(), comment="10 samples")  # a draft
 ```
 
-`InvestigationError` carries `status_code`, `error_code`, `issues` and `warnings`.
+`InvestigationError` carries `status_code`, `error_code`, `issues` and `warnings`. `inv.submit_agent_answer(run_id, request_id, token, answer)` answers an AI agent step (see [AI agent answers](#ai-agent-answers)).
 
 ## Explicit trust
 

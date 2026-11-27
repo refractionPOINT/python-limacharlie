@@ -6,6 +6,7 @@ values, body truncation, and the interaction between --debug,
 --debug-full, and --debug-curl modes.
 """
 
+import io
 import shlex
 from unittest.mock import patch
 
@@ -644,3 +645,59 @@ class TestContextDebugProperties:
             sys.stderr = old_stderr
 
         assert "test message" in captured.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# redact_body: a request body that carries a one-time secret
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    """The part of an HTTP response ``_rest_call`` reads."""
+
+    def __init__(self, body: bytes = b"{}"):
+        self._fp = io.BytesIO(body)
+
+    def getheaders(self):
+        return []
+
+    def read(self, *args):
+        return self._fp.read(*args)
+
+    def close(self):
+        pass
+
+
+class TestRedactBody:
+    SECRET = "s3cr3t-answer-token-0123456789"
+
+    def _post(self, monkeypatch, **client_kwargs):
+        from limacharlie import client as client_mod
+
+        monkeypatch.setattr(client_mod, "urlopen", lambda request, **kw: _FakeResponse())
+        client, log = _make_client(**client_kwargs)
+        client._jwt = "jwt"
+        body = ('{"token": "%s", "answer": {"verdict": "benign"}}' % self.SECRET).encode()
+        client._rest_call("investigate/o/runs/r/agent-answers/q", "POST", raw_body=body,
+                          content_type="application/json", redact_body=True)
+        return "\n".join(log)
+
+    def test_a_redacted_body_is_in_neither_the_verbose_log_nor_the_curl_command(self, monkeypatch):
+        logged = self._post(monkeypatch, debug_curl=True, debug_verbose=True)
+        assert "--- request POST" in logged and "curl " in logged
+        assert self.SECRET not in logged
+        assert "verdict" not in logged
+        assert "redacted" in logged
+
+    def test_the_curl_only_mode_keeps_it_out_too(self, monkeypatch):
+        logged = self._post(monkeypatch, debug_curl=True, debug_verbose=False)
+        assert "curl " in logged
+        assert self.SECRET not in logged
+
+    def test_a_body_is_logged_as_before_when_not_redacted(self, monkeypatch):
+        from limacharlie import client as client_mod
+
+        monkeypatch.setattr(client_mod, "urlopen", lambda request, **kw: _FakeResponse())
+        client, log = _make_client()
+        client._jwt = "jwt"
+        client._rest_call("x", "POST", raw_body=b'{"visible": 1}', content_type="application/json")
+        assert '{"visible": 1}' in "\n".join(log)

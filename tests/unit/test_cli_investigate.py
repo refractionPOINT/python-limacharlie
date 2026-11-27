@@ -11,6 +11,13 @@ from limacharlie.errors import AuthenticationError, error_from_status_code
 from limacharlie.sdk.investigation import InvestigationError
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_session(monkeypatch):
+    """An AI session the engine started has these in its environment; no test here depends on the machine's."""
+    for name in ("LC_IE_RUN_ID", "LC_IE_REQUEST_ID", "LC_IE_ANSWER_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def sdk():
     """A mocked Investigation instance behind the CLI (no Client, no network)."""
@@ -1073,3 +1080,209 @@ class TestQueue:
     def test_explain_texts_exist(self):
         out = CliRunner().invoke(cli, ["investigate", "queue", "flush", "--ai-help"]).output
         assert "cannot be undone" in out
+
+
+# The engine's documented answers: an empty queue has null where a time or a cap would be, a person's
+# start has no rule key, and a repeated flush is answered by the first one with replayed: true.
+REAL_EMPTY_QUEUE = {
+    "queued": 0, "claimed": 0, "running": 0, "max_parallel_runs": 100,
+    "oldest_enqueued_at": None, "oldest_wait_ms": 0,
+    "by_band": {"interactive": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
+    "by_rule": [], "by_template": [],
+    "hour": {"started": 0, "runs_per_hour": None, "flushed": 0, "capped": 0, "start_failed": 0, "resets_at": "2026-11-26T20:00:00Z"},
+    "flushes": [], "as_of": "2026-11-26T19:05:15.000Z",
+}
+REAL_QUEUE_WITH_A_PERSON = {
+    **REAL_EMPTY_QUEUE, "queued": 3,
+    "oldest_enqueued_at": "2026-11-26T19:02:11.120Z", "oldest_wait_ms": 184000,
+    "by_rule": [{"rule": "noisy", "queued": 2, "oldest_enqueued_at": "2026-11-26T19:02:11.120Z"},
+                {"queued": 1, "oldest_enqueued_at": "2026-11-26T19:03:00Z"}],  # a person's start: no rule key
+    "by_template": [{"template": "t", "queued": 3, "oldest_enqueued_at": "2026-11-26T19:02:11.120Z"}],
+}
+REAL_FLUSH = {
+    "flush_id": "f3b1", "scope": {"rule": "noisy"}, "by": "user:u1", "actor": "a@example.com", "note": "rule fixed",
+    "at": "2026-11-26T19:00:00.250Z", "cutoff": "2026-11-26T19:00:00.250Z", "flushed": 1200, "done": True,
+    "done_at": "2026-11-26T19:00:03.900Z",
+}
+
+
+class TestQueueAgainstTheEnginesRealAnswers:
+    @pytest.mark.parametrize("fmt", ["json", "table", "yaml"])
+    @pytest.mark.parametrize("queue", [REAL_EMPTY_QUEUE, REAL_QUEUE_WITH_A_PERSON])
+    def test_the_queue_prints_whatever_nulls_and_missing_keys_it_holds(self, sdk, queue, fmt):
+        sdk.get_queue.return_value = queue
+        result = run(["investigate", "queue"], fmt=fmt)
+        assert result.exit_code == 0, (result.stderr, result.exception)
+        if fmt == "json":
+            assert out_json(result) == queue
+
+    def test_a_flush_counts_only_the_rows_that_name_the_rule(self, sdk):
+        sdk.get_queue.return_value = REAL_QUEUE_WITH_A_PERSON
+        result = run(["investigate", "queue", "flush", "--rule", "noisy"], input="n\n")
+        assert "cancels 2 queued start(s)" in result.stderr
+        result = run(["investigate", "queue", "flush", "--all"], input="n\n")
+        assert "cancels 3 queued start(s)" in result.stderr
+
+    def test_a_flush_of_an_empty_queue_says_zero(self, sdk):
+        sdk.get_queue.return_value = REAL_EMPTY_QUEUE
+        result = run(["investigate", "queue", "flush", "--template", "t"], input="n\n")
+        assert "cancels 0 queued start(s)" in result.stderr
+
+    def test_a_flush_reports_what_it_took_and_prints_the_whole_answer(self, sdk):
+        sdk.flush_queue.return_value = REAL_FLUSH
+        result = run(["investigate", "queue", "flush", "--rule", "noisy", "--note", "rule fixed", "--yes"])
+        assert result.exit_code == 0, result.stderr
+        assert "Flushed 1200 queued start(s)." in result.stderr
+        assert out_json(result) == REAL_FLUSH
+
+    def test_a_replayed_flush_is_not_reported_as_this_call_flushing(self, sdk):
+        sdk.flush_queue.return_value = {**REAL_FLUSH, "replayed": True}
+        result = run(["investigate", "queue", "flush", "--rule", "noisy", "--note", "rule fixed", "--yes"])
+        assert result.exit_code == 0, result.stderr
+        assert "Flushed 1200" not in result.stderr
+        assert "this call flushed nothing" in result.stderr
+        assert "already made" in result.stderr
+        assert out_json(result)["replayed"] is True
+
+    def test_a_flush_still_working_says_so(self, sdk):
+        sdk.flush_queue.return_value = {k: v for k, v in REAL_FLUSH.items() if k != "done_at"} | {"flushed": 200, "done": False}
+        result = run(["investigate", "queue", "flush", "--all", "--yes"])
+        assert "Flushed 200 queued start(s) so far" in result.stderr
+
+
+ANSWER = {"verdict": "benign", "rationale": "the installer is signed"}
+SESSION_ENV = {"LC_IE_RUN_ID": "run-1", "LC_IE_REQUEST_ID": "rq0123", "LC_IE_ANSWER_TOKEN": "tok-secret-0123"}
+
+
+def run_with_env(args, env, input=None, fmt="json"):
+    return CliRunner(mix_stderr=False).invoke(cli, ["--output", fmt] + args, input=input, env=env)
+
+
+class TestAnswer:
+    def test_it_is_listed_and_documented(self):
+        out = CliRunner().invoke(cli, ["investigate", "--help"]).output
+        assert "answer" in out
+        explain = CliRunner().invoke(cli, ["investigate", "answer", "--ai-help"])
+        assert explain.exit_code == 0
+        for text in ("LC_IE_RUN_ID", "LC_IE_REQUEST_ID", "LC_IE_ANSWER_TOKEN", "invalid_answer", "already_answered"):
+            assert text in explain.output
+
+    def test_the_ids_and_token_default_from_the_session_environment(self, sdk):
+        sdk.submit_agent_answer.return_value = {"run_id": "run-1", "request_id": "rq0123", "state": "answered"}
+        result = run_with_env(["investigate", "answer", "--answer", json.dumps(ANSWER)], SESSION_ENV)
+        assert result.exit_code == 0, result.stderr
+        sdk.submit_agent_answer.assert_called_once_with("run-1", "rq0123", "tok-secret-0123", ANSWER)
+        assert out_json(result)["state"] == "answered"
+        assert "tok-secret-0123" not in result.stdout + result.stderr
+
+    def test_flags_override_the_environment(self, sdk):
+        sdk.submit_agent_answer.return_value = {"state": "answered"}
+        result = run_with_env(["investigate", "answer", "--run-id", "r2", "--request-id", "rq2", "--token", "flag-tok",
+                               "--answer", json.dumps(ANSWER)], SESSION_ENV)
+        assert result.exit_code == 0, result.stderr
+        sdk.submit_agent_answer.assert_called_once_with("r2", "rq2", "flag-tok", ANSWER)
+        assert "flag-tok" not in result.stdout + result.stderr
+
+    def test_the_answer_can_come_from_a_file(self, sdk, tmp_path):
+        sdk.submit_agent_answer.return_value = {"state": "answered"}
+        path = tmp_path / "answer.json"
+        path.write_text(json.dumps(ANSWER))
+        result = run_with_env(["investigate", "answer", "--answer-file", str(path)], SESSION_ENV)
+        assert result.exit_code == 0, result.stderr
+        assert sdk.submit_agent_answer.call_args.args[3] == ANSWER
+
+    def test_the_answer_can_come_from_stdin(self, sdk):
+        sdk.submit_agent_answer.return_value = {"state": "answered"}
+        result = run_with_env(["investigate", "answer", "--answer-file", "-"], SESSION_ENV, input=json.dumps(ANSWER))
+        assert result.exit_code == 0, result.stderr
+        assert sdk.submit_agent_answer.call_args.args[3] == ANSWER
+
+    @pytest.mark.parametrize("missing", ["LC_IE_RUN_ID", "LC_IE_REQUEST_ID", "LC_IE_ANSWER_TOKEN"])
+    def test_a_missing_value_is_a_usage_error_that_names_the_variable_and_sends_nothing(self, sdk, missing):
+        env = {k: v for k, v in SESSION_ENV.items() if k != missing}
+        result = run_with_env(["investigate", "answer", "--answer", json.dumps(ANSWER)], {**env, missing: ""})
+        assert result.exit_code == 2
+        assert f"${missing}" in result.stderr
+        for value in SESSION_ENV.values():
+            assert value not in result.stderr
+        sdk.submit_agent_answer.assert_not_called()
+
+    @pytest.mark.parametrize("flag", ["--run-id", "--request-id", "--token"])
+    def test_a_blank_flag_is_refused_not_replaced_by_the_environment(self, sdk, flag):
+        result = run_with_env(["investigate", "answer", flag, "  ", "--answer", json.dumps(ANSWER)], SESSION_ENV)
+        assert result.exit_code == 2
+        assert flag in result.stderr
+        sdk.submit_agent_answer.assert_not_called()
+
+    @pytest.mark.parametrize("args", [[], ["--answer", "{}", "--answer-file", "x.json"]])
+    def test_exactly_one_answer_source(self, sdk, args):
+        result = run_with_env(["investigate", "answer", *args], SESSION_ENV)
+        assert result.exit_code == 2
+        sdk.submit_agent_answer.assert_not_called()
+
+    @pytest.mark.parametrize("text", ["not json", "[1, 2]", "\"text\"", '{"x": NaN}'])
+    def test_an_answer_that_is_not_a_json_object_is_refused_before_any_call(self, sdk, text):
+        result = run_with_env(["investigate", "answer", "--answer", text], SESSION_ENV)
+        assert result.exit_code != 0
+        sdk.submit_agent_answer.assert_not_called()
+        assert "tok-secret-0123" not in result.stdout + result.stderr
+
+    def test_an_unreadable_file_is_refused(self, sdk, tmp_path):
+        result = run_with_env(["investigate", "answer", "--answer-file", str(tmp_path / "nope.json")], SESSION_ENV)
+        assert result.exit_code != 0
+        sdk.submit_agent_answer.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "status, code, meaning",
+        [
+            (400, "invalid_answer", "Nothing was recorded"),
+            (403, "forbidden", "answer token does not match"),
+            (404, "not_found", "no such request"),
+            (409, "already_answered", "already has an answer"),
+            (409, "deadline_passed", "deadline passed"),
+            (409, "not_waiting", "no longer waits"),
+        ],
+    )
+    def test_each_refusal_is_shown_as_what_it_means_and_never_shows_the_token(self, sdk, status, code, meaning):
+        from limacharlie.sdk.investigation import AGENT_ANSWER_MEANINGS
+
+        sdk.submit_agent_answer.side_effect = InvestigationError(
+            f"engine says {code}", status_code=status, suggestion=AGENT_ANSWER_MEANINGS[code],
+            response_body={"error": f"engine says {code}", "error_code": code, "fields": {"verdict": "required"}}, exit_code=1,
+        )
+        for fmt in ("json", "table"):
+            result = run_with_env(["investigate", "answer", "--answer", json.dumps(ANSWER)], SESSION_ENV, fmt=fmt)
+            assert result.exit_code != 0
+            shown = result.stderr + result.stdout + str(result.exception)
+            assert meaning in shown
+            assert "tok-secret-0123" not in shown
+        doc = json.loads(run_with_env(["investigate", "answer", "--answer", json.dumps(ANSWER)], SESSION_ENV).stderr)
+        assert doc["status"] == status and doc["error_code"] == code and doc["fields"] == {"verdict": "required"}
+
+    def test_the_token_is_not_in_the_help_even_when_the_environment_has_it(self):
+        result = run_with_env(["investigate", "answer", "--help"], SESSION_ENV)
+        assert result.exit_code == 0
+        assert "tok-secret-0123" not in result.output
+
+    def test_there_is_no_positional_argument_for_the_token(self, sdk):
+        result = run_with_env(["investigate", "answer", "tok-secret-0123", "--answer", "{}"], SESSION_ENV)
+        assert result.exit_code == 2
+        sdk.submit_agent_answer.assert_not_called()
+
+
+class TestParentRun:
+    START = ["investigate", "runs", "start", "--template", "t", "--question", "q"]
+
+    def test_a_start_inside_a_session_names_the_run_that_started_it(self, sdk):
+        sdk.start_run.return_value = {"run": {"run_id": "r2"}}
+        result = run_with_env(self.START, {"LC_IE_RUN_ID": "run-1"})
+        assert result.exit_code == 0, result.stderr
+        assert sdk.start_run.call_args.args[0]["parent_run"] == "run-1"
+
+    @pytest.mark.parametrize("env", [{}, {"LC_IE_RUN_ID": ""}, {"LC_IE_RUN_ID": "  "}])
+    def test_a_start_outside_a_session_sends_none(self, sdk, env, monkeypatch):
+        monkeypatch.delenv("LC_IE_RUN_ID", raising=False)
+        sdk.start_run.return_value = {"run": {"run_id": "r2"}}
+        result = run_with_env(self.START, env)
+        assert result.exit_code == 0, result.stderr
+        assert "parent_run" not in sdk.start_run.call_args.args[0]

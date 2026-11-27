@@ -112,6 +112,9 @@ def parse_retry_after(value: str | None, now: float | None = None) -> int | None
 # on the Client (or --debug-full on the CLI) to disable truncation.
 DEBUG_RESPONSE_BODY_LIMIT = 2048
 
+# What the debug output shows instead of a request body that carries a one-time secret.
+_REDACTED_BODY = b"<request body redacted: it carries a secret>"
+
 # Set to a non-empty value other than 0/false/no/off to stop the client from
 # asking for compressed responses. See Client(compressed_responses=...).
 ENV_NO_RESPONSE_COMPRESSION = "LC_NO_RESPONSE_COMPRESSION"
@@ -372,10 +375,13 @@ class Client:
                 masked.append((name, value))
         return masked
 
-    def _debug_request(self, verb: str, url: str, headers: dict[str, str], body: bytes | None) -> None:
+    def _debug_request(self, verb: str, url: str, headers: dict[str, str], body: bytes | None,
+                       redact_body: bool = False) -> None:
         """Log full request details in libcloud-style debug format."""
         if self._debug_fn is None or self._debug_curl_only:
             return
+        if redact_body and body:
+            body = _REDACTED_BODY
         lines = [f"--- request {verb} {url} ---"]
         for name, value in self._mask_headers(headers):
             lines.append(f"  {name}: {value}")
@@ -405,7 +411,8 @@ class Client:
                 lines.append(f"  body: {body_str}")
         self._debug("\n".join(lines))
 
-    def _debug_curl_cmd(self, verb: str, url: str, headers: dict[str, str], body: bytes | None) -> None:
+    def _debug_curl_cmd(self, verb: str, url: str, headers: dict[str, str], body: bytes | None,
+                        redact_body: bool = False) -> None:
         """Print a reproducible curl command for the request.
 
         Sensitive header values are replaced with required environment variables.
@@ -420,6 +427,8 @@ class Client:
 
         if self._debug_fn is None or not self._debug_curl:
             return
+        if redact_body and body:
+            body = _REDACTED_BODY
 
         parts = ["curl -i --compressed"]
 
@@ -759,7 +768,7 @@ class Client:
     def _rest_call(self, url: str, verb: str, params: dict[str, Any] | None = None, alt_root: str | None = None, query_params: dict[str, Any] | list[tuple[str, str]] | None = None,
                    raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False, timeout: int | None = None,
                    extra_headers: dict[str, str] | None = None, raw_response: bool = False,
-                   response_headers: dict[str, str] | None = None) -> tuple[int, Any]:
+                   response_headers: dict[str, str] | None = None, redact_body: bool = False) -> tuple[int, Any]:
         """Make a single HTTP request to the API.
 
         Args:
@@ -768,6 +777,8 @@ class Client:
                 (non-2xx) bodies are still parsed as JSON when possible.
             response_headers: When given, filled with the headers of an error
                 (non-2xx) response, so the caller can read e.g. ``Retry-After``.
+            redact_body: Keep the request body out of the debug output (a
+                body that carries a one-time secret).
 
         Returns:
             tuple: (status_code, response_data)
@@ -809,8 +820,8 @@ class Client:
         # Log request details (headers include User-Agent added above).
         all_headers = dict(request.headers)
         all_headers.update(request.unredirected_hdrs)
-        self._debug_request(verb, full_url, all_headers, body)
-        self._debug_curl_cmd(verb, full_url, all_headers, body)
+        self._debug_request(verb, full_url, all_headers, body, redact_body)
+        self._debug_curl_cmd(verb, full_url, all_headers, body, redact_body)
 
         try:
             if self._ssl_context is not None and full_url.startswith("https"):
@@ -870,7 +881,8 @@ class Client:
                 raw_body: bytes | None = None, content_type: str | None = None, is_no_auth: bool = False,
                 max_retries: int = 3, timeout: int | None = None, extra_headers: dict[str, str] | None = None,
                 raw_response: bool = False, retry_quota_errors: bool | None = None,
-                retry_service_unavailable: bool = False, retry_gateway_timeout: bool = True) -> Any:
+                retry_service_unavailable: bool = False, retry_gateway_timeout: bool = True,
+                redact_body: bool = False) -> Any:
         """Make an API request with retry logic and JWT management.
 
         Args:
@@ -896,6 +908,9 @@ class Client:
             retry_gateway_timeout: Retry a 504 with backoff, within
                 ``max_retries``. Turn off for heavy requests that must not
                 be replayed against the backend after it timed out.
+            redact_body: Keep the request body out of the debug output
+                (``--debug``, ``--debug-curl``): for a body that carries a
+                one-time secret.
 
         Returns:
             dict: Parsed JSON response (or str when raw_response is set).
@@ -931,6 +946,7 @@ class Client:
                 content_type=content_type, is_no_auth=is_no_auth,
                 timeout=timeout, extra_headers=extra_headers,
                 raw_response=raw_response, response_headers=error_headers,
+                redact_body=redact_body,
             )
 
             if code == HTTP_OK:

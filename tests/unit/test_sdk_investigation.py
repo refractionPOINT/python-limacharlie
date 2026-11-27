@@ -1458,3 +1458,124 @@ class TestRunQueue:
             inv.flush_queue(rule="r")
         assert ei.value.error_code == "forbidden"
         assert ei.value.to_dict()["error"] == "no permission"
+
+
+class TestSubmitAgentAnswer:
+    ANSWER = {"verdict": "benign", "rationale": "signed installer"}
+    TOKEN = "tok-0123456789abcdef"
+
+    def test_posts_the_token_and_answer_once_with_the_body_kept_out_of_debug_logs(self, inv, mock_org):
+        mock_org.client.request.return_value = {"run_id": "r1", "request_id": "rq1", "state": "answered"}
+        out = inv.submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
+        assert out["state"] == "answered"
+        verb, path, kw = _request_args(mock_org)
+        assert (verb, path) == ("POST", "investigate/oid-1/runs/r1/agent-answers/rq1")
+        assert json.loads(kw["raw_body"]) == {"token": self.TOKEN, "answer": self.ANSWER}
+        assert kw["retry_gateway_timeout"] is False
+        assert kw["redact_body"] is True
+        assert "query_params" in kw and kw["query_params"] is None  # the token is never in the URL
+
+    @pytest.mark.parametrize(
+        "run_id, request_id, token, answer",
+        [
+            ("", "rq1", "t", {}),
+            ("r1", "a/b", "t", {}),
+            ("r1", "rq1", "", {}),
+            ("r1", "rq1", "   ", {}),
+            ("r1", "rq1", "t", None),
+            ("r1", "rq1", "t", ["not", "an", "object"]),
+        ],
+    )
+    def test_malformed_input_is_refused_before_any_request(self, inv, mock_org, run_id, request_id, token, answer):
+        with pytest.raises(ValidationError) as ei:
+            inv.submit_agent_answer(run_id, request_id, token, answer)
+        mock_org.client.request.assert_not_called()
+
+    def test_a_refused_input_never_repeats_the_token(self, inv, mock_org):
+        with pytest.raises(ValidationError) as ei:
+            inv.submit_agent_answer("bad id", "rq1", self.TOKEN, self.ANSWER)
+        assert self.TOKEN not in str(ei.value)
+
+    @pytest.mark.parametrize(
+        "status, body, meaning",
+        [
+            (400, {"error": "the answer does not match the request's returns (verdict: required)", "error_code": "invalid_answer",
+                   "fields": {"verdict": "required"}}, "Nothing was recorded"),
+            (403, {"error": "the answer token does not match the request", "error_code": "forbidden"}, "answer token does not match"),
+            (404, {"error": "no such request on this run", "error_code": "not_found"}, "no such request"),
+            (409, {"error": "x", "error_code": "already_answered"}, "already has an answer"),
+            (409, {"error": "x", "error_code": "deadline_passed"}, "deadline passed"),
+            (409, {"error": "x", "error_code": "not_waiting"}, "no longer waits"),
+            (501, {"error": "x", "error_code": "not_implemented"}, "does not take AI agent answers yet"),
+            (403, {"error": "forbidden"}, "investigation.get"),
+            (403, {"error": "this API key has no key id"}, "key id"),
+        ],
+    )
+    def test_every_refusal_says_what_it_means_and_never_carries_the_token(self, inv, mock_org, status, body, meaning):
+        mock_org.client.request.side_effect = error_from_status_code(status, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
+        err = ei.value
+        assert err.status_code == status
+        assert meaning in (err.suggestion or "")
+        assert self.TOKEN not in str(err) and self.TOKEN not in json.dumps(err.to_dict())
+        if body.get("error_code"):
+            assert err.to_dict()["error_code"] == body["error_code"]
+
+    def test_invalid_answer_keeps_the_fields_for_a_machine(self, inv, mock_org):
+        body = {"error": "the answer does not match", "error_code": "invalid_answer",
+                "fields": {"verdict": "required", "rationale": "required"}}
+        mock_org.client.request.side_effect = error_from_status_code(400, body)
+        with pytest.raises(InvestigationError) as ei:
+            inv.submit_agent_answer("r1", "rq1", self.TOKEN, {})
+        assert ei.value.to_dict()["fields"] == body["fields"]
+
+    def test_a_400_without_an_engine_code_gets_no_invented_meaning(self, inv, mock_org):
+        mock_org.client.request.side_effect = error_from_status_code(400, {"error": "token must be a non-empty string"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
+        assert not ei.value.suggestion
+
+
+    def test_a_404_with_no_engine_code_says_the_deployment_does_not_serve_answers(self, inv, mock_org):
+        mock_org.client.request.side_effect = error_from_status_code(404, {"error": "not found"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
+        assert "does not serve agent answers yet" in (ei.value.suggestion or "")
+
+    def test_through_a_real_client_with_every_debug_mode_on_the_token_is_never_logged(self, monkeypatch):
+        """The whole path: Investigation -> Client.request -> _rest_call -> the debug output."""
+        import io
+        from types import SimpleNamespace
+
+        from limacharlie import client as client_mod
+
+        class Response:
+            def __init__(self):
+                self._fp = io.BytesIO(b'{"run_id": "r1", "request_id": "rq1", "state": "answered"}')
+
+            def getheaders(self):
+                return []
+
+            def read(self, *args):
+                return self._fp.read(*args)
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(client_mod, "urlopen", lambda request, **kw: Response())
+        log: list[str] = []
+        with patch("limacharlie.client.resolve_credentials", return_value={"oid": "oid-1", "uid": None, "api_key": "k", "oauth": None}):
+            client = client_mod.Client(print_debug_fn=log.append, debug_curl=True, debug_verbose=True, debug_full_response=True)
+        client._jwt = "jwt"
+        answered = Investigation(SimpleNamespace(oid="oid-1", client=client)).submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
+        assert answered["state"] == "answered"
+        shown = "\n".join(log)
+        assert "--- request POST" in shown and "curl " in shown and "agent-answers/rq1" in shown
+        assert self.TOKEN not in shown
+
+    def test_an_answer_that_holds_the_token_is_refused_before_any_request(self, inv, mock_org):
+        with pytest.raises(ValidationError) as ei:
+            inv.submit_agent_answer("r1", "rq1", self.TOKEN, {"verdict": "benign", "rationale": f"token {self.TOKEN}"})
+        assert self.TOKEN not in str(ei.value)
+        mock_org.client.request.assert_not_called()
