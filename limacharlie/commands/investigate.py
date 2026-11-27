@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import sys
 from typing import Any, Callable
 
@@ -287,6 +288,8 @@ own), and nothing acts alone while the org is paused (`investigate settings`);
 over the circuit breaker's cap an automatic containment waits too (closes and
 tags do not count toward it).
 --idempotency-key makes a repeated start return the same run.
+Inside an AI session the engine started ($LC_IE_RUN_ID is set) the start also
+sends `parent_run`, so a run an agent starts asks no further agent.
 
 Repeat --trust-lookup NAME / --trust-value VALUE to add to template trust for
 this run only. The identity starting the run needs lookup.get for Lookups.
@@ -512,6 +515,35 @@ Examples:
   limacharlie investigate queue flush --all --yes
 """
 
+_EXPLAIN_ANSWER = """\
+Answer the `ai_agent` step of an Investigation Engine run that started this AI
+session. A template step (or a hand-off) starts one of the org's AI agents as
+a session and waits for its answer; the session gets three variables in its
+environment and this command reads them, so inside the session it is just:
+
+  limacharlie investigate answer --answer '{"verdict": "benign", "rationale": "..."}'
+
+  LC_IE_RUN_ID        the run (--run-id)
+  LC_IE_REQUEST_ID    the step's request (--request-id)
+  LC_IE_ANSWER_TOKEN  the one-time answer token (--token)
+
+The answer is a JSON object with the fields the step asked for (`returns`)
+and a short `rationale` (--answer, or --answer-file PATH; `-` is stdin). An
+answer that does not match is refused (HTTP 400, `invalid_answer`) with every
+field and why, and nothing is recorded: fix it and send it again before the
+deadline. A valid answer is taken once: a second one (409 `already_answered`),
+one after the deadline (409 `deadline_passed`), or one for a run that no longer
+waits (409 `not_waiting`) is refused. A wrong token is 403, an unknown request
+404. Needs investigation.get on the session's key.
+
+The token is a secret. Leave it in the environment: this command never prints
+it, never echoes it in an error and keeps it out of --debug output. Passing it
+with --token puts it in your shell history and in the process list.
+
+Example:
+  limacharlie investigate answer --answer-file answer.json
+"""
+
 for _path, _text in {
     "investigate": _EXPLAIN_GROUP,
     "investigate.kit": _EXPLAIN_KIT,
@@ -537,6 +569,7 @@ for _path, _text in {
     "investigate.actions.list": _EXPLAIN_ACTIONS_LIST,
     "investigate.actions.approve": _EXPLAIN_ACTIONS_APPROVE,
     "investigate.actions.deny": _EXPLAIN_ACTIONS_DENY,
+    "investigate.answer": _EXPLAIN_ANSWER,
     "investigate.queue": _EXPLAIN_QUEUE,
     "investigate.queue.flush": _EXPLAIN_QUEUE_FLUSH,
     "investigate.settings.get": _EXPLAIN_SETTINGS_GET,
@@ -1166,6 +1199,11 @@ def runs_start(ctx, template, file_path, auto, detection_id, case_id, entity_id,
     if tags:
         trigger["tags"] = list(tags)
     request: dict[str, Any] = {"trigger": trigger}
+    parent_run = _session_run_id()
+    if parent_run:
+        # A start made from inside an AI session the engine started: the engine must know it, or the agent could
+        # start a run that asks another agent (the loop guard).
+        request["parent_run"] = parent_run
     if template:
         request["plan"] = {"template": template}
     elif file_path:
@@ -1432,6 +1470,58 @@ def actions_deny(ctx, run_id, action_id, reason) -> None:
 
 
 # ---------------------------------------------------------------------------
+# answer
+# ---------------------------------------------------------------------------
+
+#: The environment an Investigation Engine session is started with.
+ENV_RUN_ID = "LC_IE_RUN_ID"
+ENV_REQUEST_ID = "LC_IE_REQUEST_ID"
+ENV_ANSWER_TOKEN = "LC_IE_ANSWER_TOKEN"
+
+
+def _session_run_id() -> str:
+    """The run whose AI session this process is in, or "" outside one."""
+    return os.environ.get(ENV_RUN_ID, "").strip()
+
+
+@group.command("answer")
+@click.option("--run-id", default=None, help=f"The run (default: ${ENV_RUN_ID}).")
+@click.option("--request-id", default=None, help=f"The step's request (default: ${ENV_REQUEST_ID}).")
+@click.option("--token", default=None, show_default=False,
+              help=f"The one-time answer token. Default and safest: ${ENV_ANSWER_TOKEN}; a flag value stays in shell history.")
+@click.option("--answer", "answer_json", default=None, help="The answer as a JSON object: the fields the step asked for and a rationale.")
+@click.option("--answer-file", default=None, help="The answer as a JSON file ('-' for stdin).")
+@pass_context
+@_engine_errors
+def answer_cmd(ctx, run_id, request_id, token, answer_json, answer_file) -> None:
+    """Answer the AI agent step that started this session (run, request and token default from LC_IE_* variables)."""
+    if (answer_json is None) == (answer_file is None):
+        raise click.UsageError("Give exactly one of --answer or --answer-file.")
+    run_id = (run_id or _session_run_id()).strip()
+    request_id = (request_id or os.environ.get(ENV_REQUEST_ID, "")).strip()
+    token = (token or os.environ.get(ENV_ANSWER_TOKEN, "")).strip()
+    for value, flag, env in ((run_id, "--run-id", ENV_RUN_ID), (request_id, "--request-id", ENV_REQUEST_ID),
+                             (token, "--token", ENV_ANSWER_TOKEN)):
+        if not value:
+            raise click.UsageError(f"No {flag} given and ${env} is not set: this command answers a run that started this session.")
+    if answer_file is not None:
+        answer = _json_object(_read_answer_file(answer_file), "--answer-file")
+    else:
+        answer = _json_object(answer_json, "--answer")
+    command_output(ctx, _get_investigation(ctx).submit_agent_answer(run_id, request_id, token, answer))
+
+
+def _read_answer_file(path: str) -> str:
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError as exc:
+        raise _input_error("--answer-file", f"cannot read file: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
 # queue
 # ---------------------------------------------------------------------------
 
@@ -1491,8 +1581,14 @@ def queue_flush(ctx, rule, template, all_, note_text, yes) -> None:
     result = inv.flush_queue(rule=rule, template=template, all=all_, note=note_text)
     flushed = result.get("flushed") if isinstance(result, dict) else None
     if isinstance(flushed, int) and not isinstance(flushed, bool):
-        suffix = "" if result.get("done", True) else " so far; the rest finishes in the engine (see `investigate queue`)"
-        note(ctx, f"Flushed {flushed} queued start(s){suffix}.")
+        if result.get("replayed") is True:
+            # The same flush (scope, note, identity) was already made in the last minute and this call was answered
+            # by it: this call flushed nothing itself, and starts queued since that flush began still wait.
+            note(ctx, f"The same flush was already made a moment ago; this call flushed nothing. "
+                      f"That flush took {flushed} queued start(s) (starts queued since still wait).")
+        else:
+            suffix = "" if result.get("done", True) else " so far; the rest finishes in the engine (see `investigate queue`)"
+            note(ctx, f"Flushed {flushed} queued start(s){suffix}.")
     command_output(ctx, result)
 
 

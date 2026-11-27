@@ -192,6 +192,9 @@ class InvestigationError(ApiError):
             out["reason_code"] = self.reason_code
         if self.path is not None:
             out["path"] = self.path
+        fields = self.response_body.get("fields") if isinstance(self.response_body, dict) else None
+        if isinstance(fields, dict) and fields:
+            out["fields"] = fields
         if self.issues:
             out["errors"] = self.issues
         if self.warnings:
@@ -278,6 +281,28 @@ def _wrap_error(exc: LimaCharlieError) -> LimaCharlieError:
 #: What a person reads when the API answers 501 ``not_implemented`` for a queue call: the engine of the region
 #: has not been updated to the queue yet.
 QUEUE_NOT_AVAILABLE = "The run queue is not available on this deployment yet."
+
+#: What each refusal of an AI agent's answer means, by the engine's ``error_code`` (HTTP status in brackets).
+#: ``None`` is a 403 that carries no engine code (the API's own: the key lacks ``investigation.get``).
+AGENT_ANSWER_MEANINGS: dict[str | None, str] = {
+    "invalid_answer": (
+        "The answer does not match what the step asked for (400). Nothing was recorded: fix the fields named "
+        "above and send it again before the deadline."
+    ),
+    "forbidden": (
+        "The answer token does not match this request (403). Use the LC_IE_ANSWER_TOKEN of the session the "
+        "engine started for this run and request."
+    ),
+    "not_found": "There is no such request on this run (404). Check LC_IE_RUN_ID and LC_IE_REQUEST_ID.",
+    "already_answered": "This request already has an answer (409); a second answer is never taken.",
+    "deadline_passed": "The request's deadline passed (409): the step already counted as unknown (timeout). Too late to answer.",
+    "not_waiting": (
+        "The run no longer waits for this answer (409): the session ended, the run was cancelled or it is over. "
+        "Too late to answer."
+    ),
+    "not_implemented": "The engine of this deployment does not take AI agent answers yet (501).",
+    None: "The API refused the answer (403): the key needs the investigation.get permission.",
+}
 
 _DELETE_ROUTE_HINT = (
     "A 404 with no engine error code means this API deployment does not serve run deletion: the "
@@ -801,11 +826,13 @@ class Investigation:
         body: dict[str, Any] | None = None,
         write: bool = False,
         timeout: int | None = None,
+        redact_body: bool = False,
     ) -> Any:
         """Make one engine call, mapping failures to :class:`InvestigationError`.
 
         A write is never replayed after a gateway timeout: the engine may
-        already have started the work.
+        already have started the work. ``redact_body`` keeps the request body
+        out of the debug output (a body that carries a secret).
         """
         kwargs: dict[str, Any] = {"query_params": query or None, "timeout": timeout}
         if body is not None:
@@ -816,6 +843,8 @@ class Investigation:
             kwargs["content_type"] = "application/json"
         if write:
             kwargs["retry_gateway_timeout"] = False
+        if redact_body:
+            kwargs["redact_body"] = True
         try:
             return self._org.client.request(verb, f"investigate/{self.oid}/{path}", **kwargs)
         except LimaCharlieError as exc:
@@ -1265,9 +1294,11 @@ class Investigation:
                 whose ``applies_to`` matches the trigger; ``{"auto": true}`` is
                 refused for a person's run), ``inputs``, ``urgency`` (``low``,
                 ``medium``, ``high`` or ``critical``), ``mode``, ``case``,
-                ``idempotency_key``, ``wait_seconds``, and optional ``trust``
+                ``idempotency_key``, ``wait_seconds``, optional ``trust``
                 (``lookups`` and ``values`` lists), additive to template trust
-                for this run only.
+                for this run only, and ``parent_run`` (the run whose AI session
+                makes this start: the engine then asks no AI agent for the
+                new run).
 
         Returns:
             dict: ``run`` and ``joined`` (True when an open run of the same
@@ -1566,12 +1597,14 @@ class Investigation:
 
         Returns:
             dict: ``queued``, ``claimed``, ``running`` and ``max_parallel_runs``;
-                ``oldest_enqueued_at`` and ``oldest_wait_ms``; ``by_band``
-                (urgency to count); ``by_rule`` and ``by_template`` (each row
-                ``{rule | template, queued, oldest_enqueued_at}``); ``hour``
-                (``started``, ``runs_per_hour``, ``flushed``, ``capped``,
-                ``resets_at``); ``flushes`` (recent flushes and their
-                progress); ``as_of``.
+                ``oldest_enqueued_at`` (None when nothing waits) and
+                ``oldest_wait_ms``; ``by_band`` (urgency to count);
+                ``by_rule`` and ``by_template`` (each row
+                ``{rule | template, queued, oldest_enqueued_at}``; the row of
+                starts no rule made has no ``rule`` key); ``hour``
+                (``started``, ``runs_per_hour`` (None: no cap), ``flushed``,
+                ``capped``, ``start_failed``, ``resets_at``); ``flushes``
+                (recent flushes and their progress); ``as_of``.
 
         Raises:
             InvestigationError: ``status_code`` 501 when the engine of this
@@ -1606,7 +1639,11 @@ class Investigation:
         Returns:
             dict: ``flush_id``, ``flushed`` (how many so far) and ``done``
                 (false while a large flush continues in the engine; see
-                ``flushes`` of :meth:`get_queue`).
+                ``flushes`` of :meth:`get_queue`), plus ``scope``, ``by``,
+                ``actor``, ``note``, ``at``, ``cutoff`` and, once finished,
+                ``done_at``. ``replayed`` is True when an identical flush
+                made in the last minute answered this call: it flushed
+                nothing itself.
 
         Raises:
             ValidationError: If the scope is not exactly one of the three.
@@ -1628,6 +1665,74 @@ class Investigation:
         if note:
             body["note"] = note
         return self._queue_call("POST", "queue/flush", body=body, write=True)
+
+    # ------------------------------------------------------------------
+    # AI agent answers
+    # ------------------------------------------------------------------
+
+    def submit_agent_answer(
+        self,
+        run_id: str,
+        request_id: str,
+        token: str,
+        answer: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Answer the AI agent step of a run (requires investigation.get).
+
+        An ``ai_agent`` step of a template starts one of the org's AI agents as
+        an AI Session and waits for its answer. The session gets the run id,
+        the request id and a one-time answer token in its environment
+        (``LC_IE_RUN_ID``, ``LC_IE_REQUEST_ID``, ``LC_IE_ANSWER_TOKEN``) and
+        answers here. The answer holds the fields the step's ``returns`` declares
+        and a short ``rationale``. An answer that does not match is refused with
+        nothing recorded: fix it and send it again before the deadline. A valid
+        answer is taken once.
+
+        The token is a secret: it is sent in the request body only, is kept out
+        of the debug output, and is never part of an error.
+
+        Args:
+            run_id: The run the session was started for (``LC_IE_RUN_ID``).
+            request_id: The step's request (``LC_IE_REQUEST_ID``).
+            token: The answer token (``LC_IE_ANSWER_TOKEN``).
+            answer: The answer object.
+
+        Returns:
+            dict: ``run_id``, ``request_id`` and ``state`` (``answered``).
+
+        Raises:
+            ValidationError: If an id, the token or the answer is malformed.
+            InvestigationError: ``error_code`` ``invalid_answer`` (400, with
+                ``fields``), ``forbidden`` (403, wrong token), ``not_found``
+                (404), ``already_answered`` / ``deadline_passed`` /
+                ``not_waiting`` (409, too late) or ``not_implemented`` (501).
+                ``suggestion`` says what each means. The call is sent once.
+        """
+        run_id = _check_id("run id", run_id)
+        request_id = _check_id("request id", request_id)
+        if not isinstance(token, str) or not token.strip():
+            raise ValidationError("the answer token is required")
+        if not isinstance(answer, dict):
+            raise ValidationError("the answer must be a JSON object")
+        path = f"runs/{_quote(run_id, safe='')}/agent-answers/{_quote(request_id, safe='')}"
+        try:
+            return self._call("POST", path, body={"token": token, "answer": answer}, write=True, redact_body=True)
+        except InvestigationError as exc:
+            if exc.error_code:
+                meaning = AGENT_ANSWER_MEANINGS.get(exc.error_code)
+            else:
+                meaning = AGENT_ANSWER_MEANINGS[None] if exc.status_code == 403 else None
+            if meaning is None:
+                raise
+            raise InvestigationError(
+                exc.raw_message,
+                status_code=exc.status_code,
+                issues=exc.issues,
+                warnings=exc.warnings,
+                response_body=exc.response_body,
+                suggestion=meaning,
+                exit_code=exc.exit_code,
+            ) from exc
 
     # ------------------------------------------------------------------
     # Waves
