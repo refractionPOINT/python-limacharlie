@@ -336,19 +336,19 @@ The three ids default from the variables above, so inside the session the comman
 
 **The token is a secret.** Leave it in the environment: the command has no positional argument for it, never prints it, never repeats it in an error, and keeps it out of `--debug` and `--debug-curl` output. A `--token` flag value stays in your shell history and in the process list.
 
-What each refusal means (the command prints the engine's message and `error_code`; for a structured format the document also has `fields`):
+What each refusal means (the command prints the engine's message, which names each field and why for a 400, and the `error_code`; the structured error document also has `fields` where the API relays them):
 
 | Status | `error_code` | Meaning |
 |---|---|---|
-| 400 | `invalid_answer` | The answer does not match the step's `returns`; `fields` says each field and why. Nothing was recorded: fix it and send it again before the deadline |
+| 400 | `invalid_answer` | The answer does not match the step's `returns`; the message says each field and why. Nothing was recorded: fix it and send it again before the deadline |
 | 403 | `forbidden` | The token does not match the request. (A 403 with no `error_code` means the key lacks `investigation.get`.) |
-| 404 | `not_found` | No such request on this run |
+| 404 | `not_found` | No such request on this run. (A 404 with no `error_code` means the API deployment does not serve agent answers yet.) |
 | 409 | `already_answered` | A second answer is never taken |
 | 409 | `deadline_passed` | The deadline passed and the step already counted as unknown (timeout) |
-| 409 | `not_waiting` | The run no longer waits: the session ended, the run was cancelled or it is over |
+| 409 | `not_waiting` | The run no longer waits: the session ended, the start was refused, the run was cancelled or it is over |
 | 501 | `not_implemented` | The engine of this deployment does not take agent answers yet |
 
-The call is sent once and never retried. An agent that was started by a run cannot start a run that asks another agent: `runs start` inside the session sends `parent_run` (see [Runs](#runs)).
+The call is never replayed after a timeout. An agent that was started by a run cannot start a run that asks another agent: `runs start` inside the session sends `parent_run` (see [Runs](#runs)).
 
 ## Waves
 

@@ -529,8 +529,8 @@ environment and this command reads them, so inside the session it is just:
 
 The answer is a JSON object with the fields the step asked for (`returns`)
 and a short `rationale` (--answer, or --answer-file PATH; `-` is stdin). An
-answer that does not match is refused (HTTP 400, `invalid_answer`) with every
-field and why, and nothing is recorded: fix it and send it again before the
+answer that does not match is refused (HTTP 400, `invalid_answer`) with a message
+naming every field and why, and nothing is recorded: fix it and send it again before the
 deadline. A valid answer is taken once: a second one (409 `already_answered`),
 one after the deadline (409 `deadline_passed`), or one for a run that no longer
 waits (409 `not_waiting`) is refused. A wrong token is 403, an unknown request
@@ -1497,9 +1497,13 @@ def answer_cmd(ctx, run_id, request_id, token, answer_json, answer_file) -> None
     """Answer the AI agent step that started this session (run, request and token default from LC_IE_* variables)."""
     if (answer_json is None) == (answer_file is None):
         raise click.UsageError("Give exactly one of --answer or --answer-file.")
-    run_id = (run_id or _session_run_id()).strip()
-    request_id = (request_id or os.environ.get(ENV_REQUEST_ID, "")).strip()
-    token = (token or os.environ.get(ENV_ANSWER_TOKEN, "")).strip()
+    # A flag that is given and blank is a mistake, not a request for the default.
+    for value, flag in ((run_id, "--run-id"), (request_id, "--request-id"), (token, "--token")):
+        if value is not None and not value.strip():
+            raise click.UsageError(f"{flag} must not be blank.")
+    run_id = (run_id if run_id is not None else _session_run_id()).strip()
+    request_id = (request_id if request_id is not None else os.environ.get(ENV_REQUEST_ID, "")).strip()
+    token = (token if token is not None else os.environ.get(ENV_ANSWER_TOKEN, "")).strip()
     for value, flag, env in ((run_id, "--run-id", ENV_RUN_ID), (request_id, "--request-id", ENV_REQUEST_ID),
                              (token, "--token", ENV_ANSWER_TOKEN)):
         if not value:

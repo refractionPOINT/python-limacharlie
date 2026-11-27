@@ -1534,3 +1534,41 @@ class TestSubmitAgentAnswer:
         with pytest.raises(InvestigationError) as ei:
             inv.submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
         assert not ei.value.suggestion
+
+
+    def test_a_404_with_no_engine_code_says_the_deployment_does_not_serve_answers(self, inv, mock_org):
+        mock_org.client.request.side_effect = error_from_status_code(404, {"error": "not found"})
+        with pytest.raises(InvestigationError) as ei:
+            inv.submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
+        assert "does not serve agent answers yet" in (ei.value.suggestion or "")
+
+    def test_through_a_real_client_with_every_debug_mode_on_the_token_is_never_logged(self, monkeypatch):
+        """The whole path: Investigation -> Client.request -> _rest_call -> the debug output."""
+        import io
+        from types import SimpleNamespace
+
+        from limacharlie import client as client_mod
+
+        class Response:
+            def __init__(self):
+                self._fp = io.BytesIO(b'{"run_id": "r1", "request_id": "rq1", "state": "answered"}')
+
+            def getheaders(self):
+                return []
+
+            def read(self, *args):
+                return self._fp.read(*args)
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(client_mod, "urlopen", lambda request, **kw: Response())
+        log: list[str] = []
+        with patch("limacharlie.client.resolve_credentials", return_value={"oid": "oid-1", "uid": None, "api_key": "k", "oauth": None}):
+            client = client_mod.Client(print_debug_fn=log.append, debug_curl=True, debug_verbose=True, debug_full_response=True)
+        client._jwt = "jwt"
+        answered = Investigation(SimpleNamespace(oid="oid-1", client=client)).submit_agent_answer("r1", "rq1", self.TOKEN, self.ANSWER)
+        assert answered["state"] == "answered"
+        shown = "\n".join(log)
+        assert "--- request POST" in shown and "curl " in shown and "agent-answers/rq1" in shown
+        assert self.TOKEN not in shown

@@ -11,6 +11,13 @@ from limacharlie.errors import AuthenticationError, error_from_status_code
 from limacharlie.sdk.investigation import InvestigationError
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_session(monkeypatch):
+    """An AI session the engine started has these in its environment; no test here depends on the machine's."""
+    for name in ("LC_IE_RUN_ID", "LC_IE_REQUEST_ID", "LC_IE_ANSWER_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def sdk():
     """A mocked Investigation instance behind the CLI (no Client, no network)."""
@@ -1075,7 +1082,7 @@ class TestQueue:
         assert "cannot be undone" in out
 
 
-# The engine's real answers (its docs/RPC.md): an empty queue has null where a time or a cap would be, a person's
+# The engine's documented answers: an empty queue has null where a time or a cap would be, a person's
 # start has no rule key, and a repeated flush is answered by the first one with replayed: true.
 REAL_EMPTY_QUEUE = {
     "queued": 0, "claimed": 0, "running": 0, "max_parallel_runs": 100,
@@ -1200,6 +1207,13 @@ class TestAnswer:
             assert value not in result.stderr
         sdk.submit_agent_answer.assert_not_called()
 
+    @pytest.mark.parametrize("flag", ["--run-id", "--request-id", "--token"])
+    def test_a_blank_flag_is_refused_not_replaced_by_the_environment(self, sdk, flag):
+        result = run_with_env(["investigate", "answer", flag, "  ", "--answer", json.dumps(ANSWER)], SESSION_ENV)
+        assert result.exit_code == 2
+        assert flag in result.stderr
+        sdk.submit_agent_answer.assert_not_called()
+
     @pytest.mark.parametrize("args", [[], ["--answer", "{}", "--answer-file", "x.json"]])
     def test_exactly_one_answer_source(self, sdk, args):
         result = run_with_env(["investigate", "answer", *args], SESSION_ENV)
@@ -1244,11 +1258,6 @@ class TestAnswer:
             assert "tok-secret-0123" not in shown
         doc = json.loads(run_with_env(["investigate", "answer", "--answer", json.dumps(ANSWER)], SESSION_ENV).stderr)
         assert doc["status"] == status and doc["error_code"] == code and doc["fields"] == {"verdict": "required"}
-
-    def test_the_token_is_not_logged_by_the_debug_output(self, sdk):
-        sdk.submit_agent_answer.return_value = {"state": "answered"}
-        result = run_with_env(["--debug", "investigate", "answer", "--answer", json.dumps(ANSWER)], SESSION_ENV)
-        assert "tok-secret-0123" not in result.stdout + result.stderr
 
     def test_the_token_is_not_in_the_help_even_when_the_environment_has_it(self):
         result = run_with_env(["investigate", "answer", "--help"], SESSION_ENV)

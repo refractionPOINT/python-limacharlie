@@ -286,8 +286,8 @@ QUEUE_NOT_AVAILABLE = "The run queue is not available on this deployment yet."
 #: ``None`` is a 403 that carries no engine code (the API's own: the key lacks ``investigation.get``).
 AGENT_ANSWER_MEANINGS: dict[str | None, str] = {
     "invalid_answer": (
-        "The answer does not match what the step asked for (400). Nothing was recorded: fix the fields named "
-        "above and send it again before the deadline."
+        "The answer does not match what the step asked for (400). Nothing was recorded: fix the fields the "
+        "message names and send it again before the deadline."
     ),
     "forbidden": (
         "The answer token does not match this request (403). Use the LC_IE_ANSWER_TOKEN of the session the "
@@ -297,12 +297,17 @@ AGENT_ANSWER_MEANINGS: dict[str | None, str] = {
     "already_answered": "This request already has an answer (409); a second answer is never taken.",
     "deadline_passed": "The request's deadline passed (409): the step already counted as unknown (timeout). Too late to answer.",
     "not_waiting": (
-        "The run no longer waits for this answer (409): the session ended, the run was cancelled or it is over. "
-        "Too late to answer."
+        "The run no longer waits for this answer (409): the session ended, the start was refused, the run was "
+        "cancelled or it is over. Too late to answer."
     ),
     "not_implemented": "The engine of this deployment does not take AI agent answers yet (501).",
     None: "The API refused the answer (403): the key needs the investigation.get permission.",
 }
+
+_ANSWER_ROUTE_HINT = (
+    "A 404 with no engine error code means this API deployment does not serve agent answers yet (an engine "
+    "refusal of an unknown request has an error_code)."
+)
 
 _DELETE_ROUTE_HINT = (
     "A 404 with no engine error code means this API deployment does not serve run deletion: the "
@@ -1703,10 +1708,13 @@ class Investigation:
         Raises:
             ValidationError: If an id, the token or the answer is malformed.
             InvestigationError: ``error_code`` ``invalid_answer`` (400, with
-                ``fields``), ``forbidden`` (403, wrong token), ``not_found``
+                ``fields`` when the API relays it; the message always names
+                each field and why), ``forbidden`` (403, wrong token), ``not_found``
                 (404), ``already_answered`` / ``deadline_passed`` /
                 ``not_waiting`` (409, too late) or ``not_implemented`` (501).
-                ``suggestion`` says what each means. The call is sent once.
+                ``suggestion`` says what each means. The call is never replayed after a
+                timeout (only after a 401 token refresh, which the API refused before
+                reading anything).
         """
         run_id = _check_id("run id", run_id)
         request_id = _check_id("request id", request_id)
@@ -1720,8 +1728,12 @@ class Investigation:
         except InvestigationError as exc:
             if exc.error_code:
                 meaning = AGENT_ANSWER_MEANINGS.get(exc.error_code)
+            elif exc.status_code == 403:
+                meaning = AGENT_ANSWER_MEANINGS[None]
+            elif exc.status_code == 404:
+                meaning = _ANSWER_ROUTE_HINT
             else:
-                meaning = AGENT_ANSWER_MEANINGS[None] if exc.status_code == 403 else None
+                meaning = None
             if meaning is None:
                 raise
             raise InvestigationError(
