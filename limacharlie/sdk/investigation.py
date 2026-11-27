@@ -301,7 +301,7 @@ AGENT_ANSWER_MEANINGS: dict[str | None, str] = {
         "cancelled or it is over. Too late to answer."
     ),
     "not_implemented": "The engine of this deployment does not take AI agent answers yet (501).",
-    None: "The API refused the answer (403): the key needs the investigation.get permission.",
+    None: "The API refused the answer (403): see the message. Usually the key lacks investigation.get; an API key also needs a key id.",
 }
 
 _ANSWER_ROUTE_HINT = (
@@ -1722,6 +1722,13 @@ class Investigation:
             raise ValidationError("the answer token is required")
         if not isinstance(answer, dict):
             raise ValidationError("the answer must be a JSON object")
+        try:
+            answer_text = json.dumps(answer, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(f"the answer holds a value JSON cannot carry: {exc}") from exc
+        if token.strip() in answer_text:
+            # The answer is stored with the run and read by everyone who reads the run.
+            raise ValidationError("the answer contains the answer token: remove it; the token is a secret and never part of an answer")
         path = f"runs/{_quote(run_id, safe='')}/agent-answers/{_quote(request_id, safe='')}"
         try:
             return self._call("POST", path, body={"token": token, "answer": answer}, write=True, redact_body=True)

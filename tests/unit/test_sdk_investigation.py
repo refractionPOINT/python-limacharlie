@@ -1508,6 +1508,7 @@ class TestSubmitAgentAnswer:
             (409, {"error": "x", "error_code": "not_waiting"}, "no longer waits"),
             (501, {"error": "x", "error_code": "not_implemented"}, "does not take AI agent answers yet"),
             (403, {"error": "forbidden"}, "investigation.get"),
+            (403, {"error": "this API key has no key id"}, "key id"),
         ],
     )
     def test_every_refusal_says_what_it_means_and_never_carries_the_token(self, inv, mock_org, status, body, meaning):
@@ -1572,3 +1573,9 @@ class TestSubmitAgentAnswer:
         shown = "\n".join(log)
         assert "--- request POST" in shown and "curl " in shown and "agent-answers/rq1" in shown
         assert self.TOKEN not in shown
+
+    def test_an_answer_that_holds_the_token_is_refused_before_any_request(self, inv, mock_org):
+        with pytest.raises(ValidationError) as ei:
+            inv.submit_agent_answer("r1", "rq1", self.TOKEN, {"verdict": "benign", "rationale": f"token {self.TOKEN}"})
+        assert self.TOKEN not in str(ei.value)
+        mock_org.client.request.assert_not_called()
